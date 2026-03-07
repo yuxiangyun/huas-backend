@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "bun run --watch src/index.ts",
     "start": "bun run src/index.ts",
+    "test": "bun test --preload ./tests/setup.ts",
+    "test:e2e": "bun test --preload ./tests/e2e.setup.ts ./tests/e2e.live.test.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio"

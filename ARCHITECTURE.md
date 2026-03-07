@@ -488,12 +488,39 @@ Self JWT 90 天到期，用户需要重新登录。
 
 | 端点 | 方法 | 上游 | 缓存 TTL | 说明 |
 |------|------|------|----------|------|
-| `/api/schedule` | GET | JW | 24 小时 | `?date=2024-03-01` `?refresh=true` |
-| `/api/v1/schedule` | GET | Portal | 24 小时 | `?startDate=...&endDate=...` |
-| `/api/grades` | GET | JW | 永久 | `?term=...` `?refresh=true` |
+| `/api/schedule` | GET | JW | 24 小时（每用户 LRU 限额） | `?date=2024-03-01` `?refresh=true` |
+| `/api/v1/schedule` | GET | Portal | 24 小时（每用户 LRU 限额） | `?startDate=...&endDate=...` |
+| `/api/grades` | GET | JW | 永久（每用户 LRU 限额） | `?term=...` `?refresh=true` |
 | `/api/ecard` | GET | Portal | 永久 | `?refresh=true` |
 | `/api/user` | GET | Portal | 永久 | `?refresh=true` |
 | `/health` | GET | - | - | 公开，无需 JWT |
+
+### 课表缓存防护（防缓存键放大）
+
+课表接口在保持 `refresh=true` 强制回源语义的同时，增加了参数与缓存防护：
+
+- `/api/schedule`
+  - `date` 必须是 `YYYY-MM-DD`，否则返回 `4002`
+  - 每用户缓存按前缀执行 LRU 淘汰，默认保留 120 条（`SCHEDULE_CACHE_LIMIT`）
+- `/api/v1/schedule`
+  - `startDate/endDate` 必须是 `YYYY-MM-DD`，否则返回 `4002`
+  - `endDate` 不能早于 `startDate`
+  - 区间不能超过 62 天（防止超大范围拉取）
+  - 每用户缓存按前缀执行 LRU 淘汰，默认保留 120 条（`PORTAL_SCHEDULE_CACHE_LIMIT`）
+
+### 成绩缓存防护（防缓存键放大）
+
+`/api/grades` 在保持 `refresh=true` 强制回源语义的同时，增加了缓存防护策略：
+
+- 缓存键改为摘要：`grades:{studentId}:{sha256(term|kcxz|kcmc).slice(0,32)}`
+- 查询参数规范化后参与缓存：
+  - `term` 最大 32 字符
+  - `kcxz` 最大 32 字符
+  - `kcmc` 最大 64 字符
+  - 超长会返回 `4002 请求参数错误`
+- 缓存命中会 `touch updated_at`，用于 LRU 最近访问顺序
+- 成绩缓存按用户前缀执行 LRU 淘汰，默认保留 20 条（可配置）
+- 环境变量：`GRADES_CACHE_LIMIT`（默认 `20`）
 
 ### 错误码
 
@@ -521,3 +548,30 @@ Self JWT 90 天到期，用户需要重新登录。
 | `▪ jw` / `▪ portal` | 绿色 | 上游请求 |
 | `WARN` | 黄色 | 警告（会话过期、刷新失败等） |
 | `SRV` | 绿色 | 服务器事件 |
+
+---
+
+## 测试入口
+
+### 1) 业务逻辑回归（Mock）
+
+- 命令：`bun test --preload ./tests/setup.ts`
+- 覆盖：登录、验证码重试、凭证刷新链路、缓存/强制刷新、数据库约束、缓存键放大回归
+- 说明：该套件使用 mock，不依赖真实学校账号
+
+### 2) 真实链路 E2E（Live）
+
+- 命令：`bun run test:e2e`
+- 必需环境变量：
+  - `HUAS_E2E_USERNAME`
+  - `HUAS_E2E_PASSWORD`
+- 可选环境变量：
+  - `HUAS_E2E_RUN_SILENT_REAUTH=1`（启用场景 6：TGC+子凭证过期）
+- 覆盖：登录、Self JWT 过期、JW 凭证过期刷新、运行时 `SESSION_EXPIRED` 恢复重试
+
+### 3) 缓存防护回归（已纳入 mock 套件）
+
+- `schedule` 日期格式校验
+- `v1/schedule` 日期格式 + 区间上限校验
+- `schedule` 每用户 LRU 限额
+- `v1/schedule` 每用户 LRU 限额

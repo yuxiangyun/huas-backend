@@ -1,3 +1,9 @@
+function parsePositiveInt(value: string | undefined, fallback: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.floor(n);
+}
+
 export const config = {
   port: Number(process.env.PORT) || 3000,
   jwtSecret: process.env.JWT_SECRET || 'huas-server-default-secret-change-me',
@@ -17,6 +23,13 @@ export const config = {
     grades: 0,                 // manual refresh only
     ecard: 0,                  // manual refresh only
     user: 0,                   // manual refresh only
+  },
+
+  // Cache limits
+  cacheLimit: {
+    gradesPerUser: parsePositiveInt(process.env.GRADES_CACHE_LIMIT, 20),
+    schedulePerUser: parsePositiveInt(process.env.SCHEDULE_CACHE_LIMIT, 120),
+    portalSchedulePerUser: parsePositiveInt(process.env.PORTAL_SCHEDULE_CACHE_LIMIT, 120),
   },
 
   // Request timeouts (ms)

@@ -3,7 +3,7 @@ import { getDb, schema } from '../db';
 import type { CacheMeta } from '../types';
 
 export class CacheService {
-  static async get<T>(key: string): Promise<{ data: T; meta: CacheMeta } | null> {
+  static async get<T>(key: string, options?: { touch?: boolean }): Promise<{ data: T; meta: CacheMeta } | null> {
     const db = getDb();
     const rows = await db.select()
       .from(schema.cache)
@@ -19,12 +19,19 @@ export class CacheService {
       return null;
     }
 
+    const touchedAt = new Date();
+    if (options?.touch) {
+      await db.update(schema.cache)
+        .set({ updatedAt: touchedAt })
+        .where(eq(schema.cache.key, key));
+    }
+
     return {
       data: JSON.parse(entry.data) as T,
       meta: {
         cached: true,
         cache_time: entry.createdAt.toISOString(),
-        updated_at: entry.updatedAt.toISOString(),
+        updated_at: (options?.touch ? touchedAt : entry.updatedAt).toISOString(),
         expires_at: entry.expiresAt?.toISOString(),
         source: entry.source || undefined,
       },
@@ -59,5 +66,21 @@ export class CacheService {
     const db = getDb();
     const now = Date.now();
     await db.run(sql`DELETE FROM cache WHERE expires_at IS NOT NULL AND expires_at < ${now}`);
+  }
+
+  static async enforcePrefixLimit(prefix: string, maxEntries: number): Promise<void> {
+    if (maxEntries <= 0) return;
+    const db = getDb();
+    const likePattern = `${prefix}%`;
+    await db.run(sql`
+      DELETE FROM cache
+      WHERE id IN (
+        SELECT id
+        FROM cache
+        WHERE key LIKE ${likePattern}
+        ORDER BY updated_at DESC, id DESC
+        LIMIT -1 OFFSET ${maxEntries}
+      )
+    `);
   }
 }
