@@ -40,6 +40,7 @@ const ticketBehavior = {
 
 let upstreamCallCount = 0;
 let upstreamVersion = 0;
+let upstreamInjectedError: Error | null = null;
 
 function makeGradePayload(tag: string) {
   return {
@@ -98,6 +99,9 @@ mock.module('../src/auth/ticket-exchanger.ts', () => ({
 mock.module('../src/services/upstream.ts', () => ({
   upstream: async () => {
     upstreamCallCount += 1;
+    if (upstreamInjectedError) {
+      throw upstreamInjectedError;
+    }
     upstreamVersion += 1;
     return makeGradePayload(`grade-v${upstreamVersion}`);
   },
@@ -153,6 +157,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   upstreamCallCount = 0;
   upstreamVersion = 0;
+  upstreamInjectedError = null;
 
   authBehavior.getExecution = async () => 'mock-execution';
   authBehavior.getCaptcha = async () => new Uint8Array([1, 2, 3]).buffer;
@@ -331,6 +336,23 @@ describe('缓存与强制刷新流程', () => {
     expect(third._meta.cached).toBe(false);
     expect(upstreamCallCount).toBe(2);
     expect(third.data.items[0].courseName).toBe('grade-v2');
+  });
+
+  it('refresh=true 回源失败时回退旧缓存并标记 stale', async () => {
+    const first = await GradeService.getGrades(1, '2023001010', { term: '2024-2025-1' }, false);
+    expect(first._meta.cached).toBe(false);
+    expect(first.data.items[0].courseName).toBe('grade-v1');
+    expect(upstreamCallCount).toBe(1);
+
+    upstreamInjectedError = new Error('REQUEST_TIMEOUT');
+    const fallback = await GradeService.getGrades(1, '2023001010', { term: '2024-2025-1' }, true);
+
+    expect(upstreamCallCount).toBe(2);
+    expect(fallback._meta.cached).toBe(true);
+    expect(fallback._meta.stale).toBe(true);
+    expect(fallback._meta.refresh_failed).toBe(true);
+    expect(fallback._meta.last_error).toBe(3004);
+    expect(fallback.data.items[0].courseName).toBe('grade-v1');
   });
 });
 

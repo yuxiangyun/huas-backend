@@ -5,6 +5,7 @@ import { URLS } from '../core/url-config';
 import { config } from '../config';
 import { createHash } from 'node:crypto';
 import { AppError, ErrorCode } from '../utils/errors';
+import { fallbackOnRefreshFailure } from './refresh-fallback';
 
 const MAX_TERM_LENGTH = 32;
 const MAX_KCXZ_LENGTH = 32;
@@ -43,21 +44,34 @@ export class GradeService {
       if (cached) return { data: cached.data, _meta: cached.meta };
     }
 
-    const data = await upstream(userId, 'jw', async ({ client }) => {
-      const params = new URLSearchParams();
-      params.append('kksj', term);
-      params.append('kcxz', kcxz);
-      params.append('kcmc', kcmc);
-      params.append('xsfs', 'max');
+    let data: any;
+    try {
+      data = await upstream(userId, 'jw', async ({ client }) => {
+        const params = new URLSearchParams();
+        params.append('kksj', term);
+        params.append('kcxz', kcxz);
+        params.append('kcmc', kcmc);
+        params.append('xsfs', 'max');
 
-      const res = await client.request(URLS.gradeApi, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: params,
-        timeout: config.timeout.business,
+        const res = await client.request(URLS.gradeApi, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: params,
+          timeout: config.timeout.business,
+        });
+        return GradeParser.parse(await res.text());
       });
-      return GradeParser.parse(await res.text());
-    });
+    } catch (error) {
+      const fallback = await fallbackOnRefreshFailure({
+        forceRefresh,
+        cacheKey,
+        error,
+        source: 'jw',
+        studentId,
+      });
+      if (fallback) return fallback;
+      throw error;
+    }
 
     await CacheService.set(cacheKey, data, config.cacheTtl.grades, 'jw');
     await CacheService.enforcePrefixLimit(`grades:${studentId}:`, config.cacheLimit.gradesPerUser);

@@ -32,6 +32,10 @@ Token 通过 `/auth/login` 获取，有效期 90 天。
 ```
 
 `_meta` 仅在有缓存信息时出现，`cached: true` 表示数据来自本地缓存。
+当 `refresh=true` 回源失败但存在旧缓存时，接口会返回旧缓存并附带：
+- `_meta.stale: true`
+- `_meta.refresh_failed: true`
+- `_meta.last_error: 3003 | 3004 | 5000`
 
 ### 失败
 

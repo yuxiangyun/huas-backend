@@ -4,6 +4,7 @@ import { ScheduleParser } from '../parsers';
 import { URLS } from '../core/url-config';
 import { config, JW_SJMS_VALUE } from '../config';
 import { AppError, ErrorCode } from '../utils/errors';
+import { fallbackOnRefreshFailure } from './refresh-fallback';
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -31,19 +32,32 @@ export class ScheduleService {
       if (cached) return { data: cached.data, _meta: cached.meta };
     }
 
-    const data = await upstream(userId, 'jw', async ({ client }) => {
-      const params = new URLSearchParams();
-      params.append('rq', queryDate);
-      params.append('sjmsValue', JW_SJMS_VALUE);
+    let data: any;
+    try {
+      data = await upstream(userId, 'jw', async ({ client }) => {
+        const params = new URLSearchParams();
+        params.append('rq', queryDate);
+        params.append('sjmsValue', JW_SJMS_VALUE);
 
-      const res = await client.request(URLS.kbApi, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-        body: params,
-        timeout: config.timeout.business,
+        const res = await client.request(URLS.kbApi, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+          body: params,
+          timeout: config.timeout.business,
+        });
+        return ScheduleParser.parse(await res.text());
       });
-      return ScheduleParser.parse(await res.text());
-    });
+    } catch (error) {
+      const fallback = await fallbackOnRefreshFailure({
+        forceRefresh,
+        cacheKey,
+        error,
+        source: 'jw',
+        studentId,
+      });
+      if (fallback) return fallback;
+      throw error;
+    }
 
     await CacheService.set(cacheKey, data, config.cacheTtl.schedule, 'jw');
     await CacheService.enforcePrefixLimit(`schedule:${studentId}:`, config.cacheLimit.schedulePerUser);

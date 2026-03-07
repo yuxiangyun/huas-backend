@@ -42,6 +42,10 @@ export const config = {
   retry: {
     jwActivationMax: 3,       // JW SSO activation max attempts
     jwActivationDelay: 500,   // ms between retries
+    businessMaxAttempts: parsePositiveInt(process.env.BUSINESS_RETRY_MAX_ATTEMPTS, 2),
+    businessBaseDelayMs: parsePositiveInt(process.env.BUSINESS_RETRY_BASE_DELAY_MS, 200),
+    businessMaxDelayMs: parsePositiveInt(process.env.BUSINESS_RETRY_MAX_DELAY_MS, 800),
+    businessJitterMs: parsePositiveInt(process.env.BUSINESS_RETRY_JITTER_MS, 100),
   },
 
   // Pre-login captcha session

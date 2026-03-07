@@ -12,7 +12,7 @@ export type CredentialSystem = 'cas_tgc' | 'portal_jwt' | 'jw_session';
 // Silent re-auth cooldown tracking
 const reAuthState = new Map<number, { failCount: number; lastAttempt: number }>();
 const REAUTH_MAX_ATTEMPTS = 3;
-const REAUTH_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes cooldown after max failures
+const REAUTH_COOLDOWN_MS = 60 * 1000; // 1 minute cooldown after max failures
 
 export class CredentialManager {
   /**
