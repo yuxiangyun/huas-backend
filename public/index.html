@@ -1,0 +1,821 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HUAS Server — Dev Console</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config={theme:{extend:{fontFamily:{mono:['SF Mono','Menlo','monospace']}}}}</script>
+  <style>
+    .fade-in{animation:fadeIn .2s ease-out}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+    pre{white-space:pre-wrap;word-break:break-all}
+    .spin{animation:spin .5s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    ::-webkit-scrollbar{width:5px;height:5px}
+    ::-webkit-scrollbar-track{background:#f1f5f9}
+    ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+    details summary{cursor:pointer;list-style:none}
+    details summary::-webkit-details-marker{display:none}
+    .backend-note{@apply text-[11px] text-slate-400 bg-slate-50 border border-dashed border-slate-200 rounded-lg px-3 py-2 leading-relaxed}
+    .backend-note code{@apply text-indigo-500 bg-indigo-50 px-1 rounded text-[10px]}
+  </style>
+</head>
+<body class="bg-white text-slate-800 min-h-screen font-mono antialiased">
+
+<!-- ════ Top Bar ════ -->
+<header class="sticky top-0 z-50 bg-white/80 backdrop-blur-lg border-b border-slate-200">
+  <div class="max-w-5xl mx-auto px-5 py-3 flex items-center gap-4">
+    <h1 class="text-sm font-bold text-slate-900 shrink-0">HUAS <span class="text-indigo-500">Dev</span></h1>
+    <input id="baseUrl" type="text" value="http://localhost:3000"
+      class="w-44 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-xs text-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300">
+    <button onclick="testHealth()" class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-lg text-xs text-slate-500 shrink-0">Ping</button>
+    <span id="healthDot" class="w-2 h-2 rounded-full bg-slate-300 shrink-0"></span>
+    <div class="flex-1"></div>
+    <div id="jwtBadge" class="hidden items-center gap-2 bg-indigo-50 border border-indigo-100 rounded-full px-3 py-1">
+      <span class="w-1.5 h-1.5 rounded-full bg-indigo-400"></span>
+      <span id="jwtUser" class="text-xs text-indigo-700"></span>
+      <span id="jwtExp" class="text-xs text-indigo-300"></span>
+      <button onclick="logout()" class="text-xs text-slate-400 hover:text-red-500 ml-1">x</button>
+    </div>
+    <div id="eventCount" class="text-[11px] text-slate-400">0 req</div>
+  </div>
+</header>
+
+<div class="max-w-5xl mx-auto px-5 py-6 space-y-8">
+
+<!-- ════════════════════════════════════════════ -->
+<!-- Section 1: Authentication -->
+<!-- ════════════════════════════════════════════ -->
+<section>
+  <h2 class="section-title">Authentication</h2>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+    <!-- Login -->
+    <div class="card">
+      <div class="card-head">
+        <span class="tag-post">POST</span><span class="text-xs text-slate-400">/auth/login</span>
+      </div>
+      <div class="backend-note mb-3">
+        <b>Backend:</b> 首次无需验证码 → <code>getExecution()</code> 获取 CAS Token → RSA 加密密码 → POST 登录 → 成功则激活教务 + 获取用户信息 + 存密码 + 签发 JWT<br>
+        若 CAS 返回需要验证码 → 自动获取验证码图片 + 保存 session → 返回 <code>needCaptcha + captchaImage</code> → 用户填写后带 sessionId 重试
+      </div>
+      <div class="space-y-1.5">
+        <input id="loginUsername" type="text" placeholder="学号" class="input-field">
+        <input id="loginPassword" type="password" placeholder="密码" class="input-field">
+        <div id="captchaRow" class="hidden">
+          <div class="flex items-center gap-2">
+            <img id="captchaImg" class="h-9 rounded-lg border border-slate-200 bg-white cursor-pointer shadow-sm" alt="captcha" title="重试登录以刷新">
+            <input id="loginCaptcha" type="text" placeholder="验证码" class="input-field flex-1">
+          </div>
+        </div>
+        <button onclick="doLogin()" class="btn btn-amber w-full">Login</button>
+      </div>
+      <div id="loginResult" class="mt-2"></div>
+    </div>
+
+    <!-- JWT Inspector -->
+    <div class="card">
+      <div class="card-head">
+        <span class="text-xs text-slate-500">JWT Inspector</span>
+      </div>
+      <div id="jwtInspector" class="space-y-2 text-xs">
+        <div class="text-slate-400 py-4 text-center">登录后显示 JWT 详情</div>
+      </div>
+      <div class="mt-3 space-y-1.5">
+        <input id="jwtTokenInput" type="text" placeholder="手动粘贴 token..." class="input-field text-xs" oninput="manualToken(this.value)">
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════ -->
+<!-- Section 2: Data APIs -->
+<!-- ════════════════════════════════════════════ -->
+<section>
+  <h2 class="section-title">Data APIs <span class="text-slate-300 font-normal">— 需要 JWT</span></h2>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+    <!-- Schedule -->
+    <div class="card">
+      <div class="card-head">
+        <span class="tag-get">GET</span><span class="text-xs text-slate-400">/api/schedule</span>
+        <span class="ml-auto badge-jw">JW</span>
+      </div>
+      <div class="backend-note mb-3">
+        <b>Backend:</b> <code>authMiddleware</code> 验证 JWT → <code>ScheduleService</code> 检查缓存 → 未命中则 <code>upstream()</code> 构建 JW HttpClient → POST 教务课表接口 → <code>ScheduleParser</code> 解析 HTML → 写入 SQLite 缓存（24h TTL）→ 如遇 SESSION_EXPIRED 自动 invalidate → 触发 <code>silentReAuth</code> 重试
+      </div>
+      <div class="flex gap-1.5">
+        <input id="scheduleDate" type="date" class="input-field flex-1">
+        <label class="cb-label"><input id="scheduleRefresh" type="checkbox"> refresh</label>
+      </div>
+      <button onclick="getSchedule()" class="btn btn-blue w-full mt-1.5">Fetch</button>
+      <div id="scheduleResult" class="mt-2"></div>
+    </div>
+
+    <!-- Portal Schedule -->
+    <div class="card">
+      <div class="card-head">
+        <span class="tag-get">GET</span><span class="text-xs text-slate-400">/api/v1/schedule</span>
+        <span class="ml-auto badge-portal">Portal</span>
+      </div>
+      <div class="backend-note mb-3">
+        <b>Backend:</b> <code>upstream('portal')</code> 用 Portal JWT 请求 → <code>PortalScheduleParser</code> 解析 JSON 日历事件 → 缓存 24h
+      </div>
+      <div class="grid grid-cols-2 gap-1.5">
+        <input id="v1StartDate" type="date" class="input-field">
+        <input id="v1EndDate" type="date" class="input-field">
+      </div>
+      <button onclick="getV1Schedule()" class="btn btn-blue w-full mt-1.5">Fetch</button>
+      <div id="v1ScheduleResult" class="mt-2"></div>
+    </div>
+
+    <!-- Grades -->
+    <div class="card">
+      <div class="card-head">
+        <span class="tag-get">GET</span><span class="text-xs text-slate-400">/api/grades</span>
+        <span class="ml-auto badge-jw">JW</span>
+      </div>
+      <div class="backend-note mb-3">
+        <b>Backend:</b> <code>upstream('jw')</code> POST 成绩接口 → <code>GradeParser</code> 解析 HTML（前 500 字符检测过期） → 缓存 Key 包含 term+kcxz+kcmc → TTL=0（永不过期，手动 refresh）
+      </div>
+      <div class="flex gap-1.5">
+        <input id="gradeTerm" type="text" placeholder="学期 (可选)" class="input-field flex-1">
+        <label class="cb-label"><input id="gradeRefresh" type="checkbox"> refresh</label>
+      </div>
+      <button onclick="getGrades()" class="btn btn-violet w-full mt-1.5">Fetch</button>
+      <div id="gradeResult" class="mt-2"></div>
+    </div>
+
+    <!-- ECard -->
+    <div class="card">
+      <div class="card-head">
+        <span class="tag-get">GET</span><span class="text-xs text-slate-400">/api/ecard</span>
+        <span class="ml-auto badge-portal">Portal</span>
+      </div>
+      <div class="backend-note mb-3">
+        <b>Backend:</b> <code>upstream('portal')</code> 用 Portal JWT 请求一卡通接口 → <code>ECardParser</code> 解析（null/401/403 → SESSION_EXPIRED 触发重试链） → TTL=0
+      </div>
+      <label class="cb-label mb-1.5"><input id="ecardRefresh" type="checkbox"> force refresh</label>
+      <button onclick="getECard()" class="btn btn-rose w-full">Fetch</button>
+      <div id="ecardResult" class="mt-2"></div>
+    </div>
+
+    <!-- User -->
+    <div class="card">
+      <div class="card-head">
+        <span class="tag-get">GET</span><span class="text-xs text-slate-400">/api/user</span>
+        <span class="ml-auto badge-portal">Portal</span>
+      </div>
+      <div class="backend-note mb-3">
+        <b>Backend:</b> <code>upstream('portal')</code> 请求用户信息接口 → <code>UserParser</code> 解析 → TTL=0
+      </div>
+      <label class="cb-label mb-1.5"><input id="userRefresh" type="checkbox"> force refresh</label>
+      <button onclick="getUserInfo()" class="btn btn-teal w-full">Fetch</button>
+      <div id="userResult" class="mt-2"></div>
+    </div>
+
+    <!-- Health -->
+    <div class="card">
+      <div class="card-head">
+        <span class="tag-get">GET</span><span class="text-xs text-slate-400">/health</span>
+        <span class="ml-auto text-[10px] text-slate-400">public</span>
+      </div>
+      <div class="backend-note mb-3">
+        <b>Backend:</b> <code>SELECT 1</code> 测试 SQLite 连接 → 返回 status + uptime。无需 JWT。错误时只返回 <code>status: error</code> 不泄漏详情。
+      </div>
+      <button onclick="testHealth()" class="btn btn-slate w-full">Ping</button>
+      <div id="healthResult" class="mt-2"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════ -->
+<!-- Section 3: Edge Case Tests -->
+<!-- ════════════════════════════════════════════ -->
+<section>
+  <h2 class="section-title">边界测试</h2>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+    <!-- Test: Auth Guard -->
+    <div class="card">
+      <div class="card-head">
+        <span class="text-xs font-semibold text-red-500">Auth Guard</span>
+      </div>
+      <div class="backend-note mb-3">
+        <b>Backend:</b> <code>authMiddleware</code> 检查 Authorization header → 调用 <code>verifyToken()</code> 验证 HS256 签名 + 过期时间 → 失败返回 <code>4001 JWT_INVALID</code>
+      </div>
+      <p class="text-[11px] text-slate-400 mb-3">测试 JWT 中间件：无 token → 4001 | 错误 token → 4001 | 有效 token → 200</p>
+      <button onclick="testAuthGuard()" class="btn btn-red w-full">运行测试</button>
+      <div id="authGuardResult" class="mt-2"></div>
+    </div>
+
+    <!-- Test: Invalid JSON Body -->
+    <div class="card">
+      <div class="card-head">
+        <span class="text-xs font-semibold text-orange-500">Invalid JSON Body</span>
+      </div>
+      <div class="backend-note mb-3">
+        <b>Backend:</b> <code>/auth/login</code> 对 <code>c.req.json()</code> 做 try/catch → 非法 JSON 返回 <code>4002 PARAM_ERROR</code> "请求体必须是有效的 JSON"
+      </div>
+      <p class="text-[11px] text-slate-400 mb-3">向 /auth/login 发送非 JSON body，应返回 4002</p>
+      <button onclick="testInvalidJson()" class="btn btn-orange w-full">运行测试</button>
+      <div id="invalidJsonResult" class="mt-2"></div>
+    </div>
+
+    <!-- Test: Empty Credentials -->
+    <div class="card">
+      <div class="card-head">
+        <span class="text-xs font-semibold text-amber-500">Empty Credentials</span>
+      </div>
+      <div class="backend-note mb-3">
+        <b>Backend:</b> 登录接口检查 <code>!username || !password</code> → 缺失则返回 <code>4002 PARAM_ERROR</code> "用户名和密码不能为空"
+      </div>
+      <p class="text-[11px] text-slate-400 mb-3">空用户名/密码登录，应返回 4002</p>
+      <button onclick="testEmptyCredentials()" class="btn btn-amber w-full">运行测试</button>
+      <div id="emptyCredsResult" class="mt-2"></div>
+    </div>
+
+    <!-- Test: Expired Captcha Session -->
+    <div class="card">
+      <div class="card-head">
+        <span class="text-xs font-semibold text-yellow-600">Expired Session</span>
+      </div>
+      <div class="backend-note mb-3">
+        <b>Backend:</b> 伪造 sessionId → <code>captchaSessions</code> Map 中找不到 → 走首次登录流程（新 HttpClient）→ CAS 大概率返回密码错误（因为是假账号）
+      </div>
+      <p class="text-[11px] text-slate-400 mb-3">用伪造的 sessionId + 验证码登录，模拟会话过期</p>
+      <button onclick="testExpiredSession()" class="btn btn-yellow w-full">运行测试</button>
+      <div id="expiredSessionResult" class="mt-2"></div>
+    </div>
+
+    <!-- Test: Cache Behavior -->
+    <div class="card">
+      <div class="card-head">
+        <span class="text-xs font-semibold text-indigo-500">Cache Behavior</span>
+      </div>
+      <div class="backend-note mb-3">
+        <b>Backend:</b> 第 1 次 <code>?refresh=true</code> → 跳过缓存, <code>upstream()</code> 请求教务 → <code>CacheService.set()</code> 原子 upsert 写入 SQLite<br>
+        第 2 次无 refresh → <code>CacheService.get()</code> 命中缓存 → <code>_meta.cached=true</code><br>
+        第 3 次 <code>?refresh=true</code> → 再次请求上游覆盖缓存
+      </div>
+      <p class="text-[11px] text-slate-400 mb-3">三步：refresh → 命中缓存 → 再次 refresh</p>
+      <button onclick="testCache()" class="btn btn-indigo w-full">运行测试</button>
+      <div id="cacheTestResult" class="mt-2"></div>
+    </div>
+
+    <!-- Test: Silent Re-auth -->
+    <div class="card">
+      <div class="card-head">
+        <span class="text-xs font-semibold text-violet-500">Silent Re-auth</span>
+      </div>
+      <div class="backend-note mb-3">
+        <b>Backend:</b> 所有请求带 <code>?refresh=true</code> 跳过缓存，强制走 <code>upstream()</code> → 如凭证过期 → 捕获 SESSION_EXPIRED → <code>invalidate()</code> → 重建上下文触发 <code>getOrRefreshCredential()</code> → TGC 刷新 → 失败则 <code>silentReAuth()</code> 用存储密码重跑 CAS（最多 3 次，10 分钟冷却）<br>
+        <b>观察终端</b>日志中的 <code>SRV 静默重认证</code> 和 <code>WARN</code> 输出
+      </div>
+      <p class="text-[11px] text-slate-400 mb-3">带 refresh=true 顺序调用 4 个 API，强制请求上游，触发凭证链</p>
+      <button onclick="testSilentReauth()" class="btn btn-violet w-full">运行测试</button>
+      <div id="reauthTestResult" class="mt-2"></div>
+    </div>
+
+    <!-- Test: Concurrent Requests -->
+    <div class="card">
+      <div class="card-head">
+        <span class="text-xs font-semibold text-cyan-500">Concurrent Requests</span>
+      </div>
+      <div class="backend-note mb-3">
+        <b>Backend:</b> 并发 4 个请求 → 可能同时触发 <code>silentReAuth</code> → 冷却机制 <code>reAuthState</code> Map 防止并发 CAS 请求 → 只有一个走完完整流程，其余被跳过或等待
+      </div>
+      <p class="text-[11px] text-slate-400 mb-3">同时发起 4 个不同 API 请求，测试并发场景</p>
+      <button onclick="testConcurrent()" class="btn btn-cyan w-full">运行测试</button>
+      <div id="concurrentResult" class="mt-2"></div>
+    </div>
+
+    <!-- Test: Login Flood Protection -->
+    <div class="card">
+      <div class="card-head">
+        <span class="text-xs font-semibold text-slate-500">Login 限流</span>
+      </div>
+      <div class="backend-note mb-3">
+        <b>Backend:</b> <code>captchaSessions</code> Map 上限 1000 → 超出后 FIFO 淘汰 → 静默重认证冷却 <code>reAuthState</code> 3 次后 10 分钟冷却
+      </div>
+      <p class="text-[11px] text-slate-400 mb-3">快速发 5 次空密码登录请求，应全部返回 4002</p>
+      <button onclick="testLoginFlood()" class="btn btn-slate w-full">运行测试</button>
+      <div id="captchaFloodResult" class="mt-2"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════ -->
+<!-- Section 4: Request Log -->
+<!-- ════════════════════════════════════════════ -->
+<section>
+  <div class="flex items-center gap-2 mb-3">
+    <h2 class="section-title mb-0">Request Log</h2>
+    <button onclick="clearLog()" class="text-[11px] text-slate-400 hover:text-slate-600 ml-auto">Clear</button>
+  </div>
+  <div id="requestLog" class="bg-slate-50 border border-slate-200 rounded-xl p-4 max-h-64 overflow-auto space-y-0.5 text-xs font-mono">
+    <div class="text-slate-300">Waiting for requests...</div>
+  </div>
+</section>
+
+</div>
+
+<!-- ════ Styles ════ -->
+<style>
+  .section-title{@apply text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3}
+  .card{@apply bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow}
+  .card-head{@apply flex items-center gap-2 mb-2}
+  .tag-get{@apply px-1.5 py-0.5 bg-emerald-50 text-emerald-600 text-[10px] font-bold rounded}
+  .tag-post{@apply px-1.5 py-0.5 bg-amber-50 text-amber-600 text-[10px] font-bold rounded}
+  .badge-jw{@apply text-[10px] text-blue-500 bg-blue-50 rounded px-1.5 py-0.5 font-medium}
+  .badge-portal{@apply text-[10px] text-violet-500 bg-violet-50 rounded px-1.5 py-0.5 font-medium}
+  .input-field{@apply w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300 placeholder:text-slate-300}
+  .cb-label{@apply flex items-center gap-1.5 text-[11px] text-slate-400 select-none cursor-pointer}
+  .cb-label input{@apply accent-indigo-500}
+  .btn{@apply py-1.5 rounded-lg text-xs font-medium transition-all duration-150 active:scale-[0.98] disabled:opacity-40 cursor-pointer}
+  .btn-indigo{@apply bg-indigo-500 hover:bg-indigo-600 text-white}
+  .btn-amber{@apply bg-amber-500 hover:bg-amber-600 text-white}
+  .btn-blue{@apply bg-blue-500 hover:bg-blue-600 text-white}
+  .btn-violet{@apply bg-violet-500 hover:bg-violet-600 text-white}
+  .btn-rose{@apply bg-rose-500 hover:bg-rose-600 text-white}
+  .btn-teal{@apply bg-teal-500 hover:bg-teal-600 text-white}
+  .btn-cyan{@apply bg-cyan-500 hover:bg-cyan-600 text-white}
+  .btn-red{@apply bg-red-500 hover:bg-red-600 text-white}
+  .btn-orange{@apply bg-orange-500 hover:bg-orange-600 text-white}
+  .btn-yellow{@apply bg-yellow-500 hover:bg-yellow-600 text-white}
+  .btn-slate{@apply bg-slate-500 hover:bg-slate-600 text-white}
+</style>
+
+<!-- ════ Script ════ -->
+<script>
+// ── State ──
+let jwtToken = '';
+let requestCount = 0;
+
+function base() { return document.getElementById('baseUrl').value.replace(/\/+$/, ''); }
+
+// ══════════════════════════════════════
+// JWT
+// ══════════════════════════════════════
+function setToken(t, user) {
+  jwtToken = t;
+  localStorage.setItem('huas_jwt', t);
+  if (user) localStorage.setItem('huas_user', JSON.stringify(user));
+  updateJwtUI();
+}
+
+function logout() {
+  jwtToken = '';
+  localStorage.removeItem('huas_jwt');
+  localStorage.removeItem('huas_user');
+  updateJwtUI();
+  document.getElementById('jwtTokenInput').value = '';
+}
+
+function manualToken(t) {
+  jwtToken = t.trim();
+  if (jwtToken) localStorage.setItem('huas_jwt', jwtToken);
+  updateJwtUI();
+}
+
+function decodeJwt(t) {
+  try {
+    const parts = t.split('.');
+    if (parts.length !== 3) return null;
+    let b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const pad = b64.length % 4;
+    if (pad) b64 += '='.repeat(4 - pad);
+    return JSON.parse(atob(b64));
+  } catch { return null; }
+}
+
+function updateJwtUI() {
+  const badge = document.getElementById('jwtBadge');
+  const inspector = document.getElementById('jwtInspector');
+
+  if (!jwtToken) {
+    badge.classList.add('hidden');
+    badge.classList.remove('flex');
+    inspector.innerHTML = '<div class="text-slate-400 py-4 text-center">登录后显示 JWT 详情</div>';
+    return;
+  }
+
+  const payload = decodeJwt(jwtToken);
+  const user = JSON.parse(localStorage.getItem('huas_user') || '{}');
+
+  badge.classList.remove('hidden');
+  badge.classList.add('flex');
+  document.getElementById('jwtUser').textContent = user.name || payload?.studentId || '?';
+
+  if (payload?.exp) {
+    const days = Math.ceil((payload.exp * 1000 - Date.now()) / 86400000);
+    document.getElementById('jwtExp').textContent = days > 0 ? `${days}d` : 'expired';
+  }
+
+  inspector.innerHTML = payload ? `
+    <div class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
+      <span class="text-slate-400">userId</span><span class="text-slate-700 font-medium">${payload.userId}</span>
+      <span class="text-slate-400">studentId</span><span class="text-slate-700 font-medium">${payload.studentId}</span>
+      <span class="text-slate-400">issued</span><span class="text-slate-500">${new Date(payload.iat * 1000).toLocaleString('zh-CN')}</span>
+      <span class="text-slate-400">expires</span><span class="text-slate-500">${new Date(payload.exp * 1000).toLocaleString('zh-CN')}</span>
+    </div>
+    <div class="mt-2 p-2 bg-slate-50 rounded-lg border border-slate-200 break-all text-[10px] text-slate-400 max-h-14 overflow-auto select-all">${jwtToken}</div>
+  ` : '<div class="text-red-500 text-xs">Invalid token</div>';
+}
+
+// ══════════════════════════════════════
+// Request Log
+// ══════════════════════════════════════
+function addLog(method, path, status, ms, extra) {
+  requestCount++;
+  document.getElementById('eventCount').textContent = `${requestCount} req`;
+  const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+  const sc = status >= 500 ? 'text-red-500' : status >= 400 ? 'text-amber-500' : status === 0 ? 'text-slate-400' : 'text-emerald-500';
+  const mc = method === 'POST' ? 'text-amber-600' : 'text-indigo-500';
+  const extraHtml = extra ? ` <span class="text-slate-300">${extra}</span>` : '';
+  const entry = `<span class="text-slate-300">${time}</span> <span class="${mc} font-medium">${method.padEnd(4)}</span> <span class="text-slate-500">${path}</span> <span class="${sc} font-medium">${status}</span> <span class="text-slate-300">${ms}ms</span>${extraHtml}`;
+  const el = document.getElementById('requestLog');
+  if (requestCount === 1) el.innerHTML = '';
+  el.innerHTML += `<div class="fade-in">${entry}</div>`;
+  el.scrollTop = el.scrollHeight;
+}
+
+function clearLog() {
+  requestCount = 0;
+  document.getElementById('eventCount').textContent = '0 req';
+  document.getElementById('requestLog').innerHTML = '<div class="text-slate-300">Waiting for requests...</div>';
+}
+
+// ══════════════════════════════════════
+// Render helpers
+// ══════════════════════════════════════
+function renderResult(elId, data, ms) {
+  const el = document.getElementById(elId);
+  const ok = data.success;
+  const meta = data._meta;
+  const metaHtml = meta ? `
+    <div class="flex items-center gap-1.5 text-[10px] mt-1">
+      <span class="px-1.5 py-0.5 rounded font-medium ${meta.cached ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}">${meta.cached ? 'CACHED' : 'FRESH'}</span>
+      ${meta.source ? `<span class="text-slate-400">${meta.source}</span>` : ''}
+    </div>` : '';
+  el.innerHTML = `
+    <div class="fade-in">
+      <div class="flex items-center gap-2 text-[11px] mb-1">
+        <span class="font-medium ${ok ? 'text-emerald-500' : 'text-red-500'}">${ok ? 'OK' : 'ERR ' + (data.error_code || '')}</span>
+        <span class="text-slate-300">${ms}ms</span>
+        ${!ok ? `<span class="text-red-400">${data.error_message || ''}</span>` : ''}
+      </div>
+      ${metaHtml}
+      <pre class="mt-1.5 p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] text-slate-600 max-h-48 overflow-auto leading-relaxed">${JSON.stringify(data.data ?? data, null, 2)}</pre>
+    </div>`;
+}
+
+function renderError(elId, err) {
+  document.getElementById(elId).innerHTML = `
+    <div class="fade-in text-red-500 text-[11px] p-2.5 bg-red-50 border border-red-100 rounded-lg">${err.message || err}</div>`;
+}
+
+function renderLoading(elId) {
+  document.getElementById(elId).innerHTML = '<div class="flex items-center gap-1.5 text-slate-400 text-xs py-1"><div class="w-3 h-3 border-2 border-slate-200 border-t-indigo-400 rounded-full spin"></div>Loading...</div>';
+}
+
+function renderMulti(elId, lines) {
+  document.getElementById(elId).innerHTML = `<div class="fade-in space-y-1">${lines.map(l =>
+    `<div class="text-[11px] flex items-start gap-1.5">
+      <span class="${l.ok ? 'text-emerald-500' : 'text-red-500'} shrink-0">${l.ok ? '✓' : '✗'}</span>
+      <span class="${l.ok ? 'text-slate-600' : 'text-red-600'}">${l.text}</span>
+    </div>`
+  ).join('')}</div>`;
+}
+
+// ══════════════════════════════════════
+// Core API caller
+// ══════════════════════════════════════
+async function api(method, path, { body, elId, silent, rawBody, contentType, noAuth } = {}) {
+  if (elId && !silent) renderLoading(elId);
+  const start = performance.now();
+  try {
+    const opts = { method, headers: {} };
+    if (jwtToken && !noAuth) opts.headers['Authorization'] = `Bearer ${jwtToken}`;
+    if (body) {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(body);
+    } else if (rawBody !== undefined) {
+      if (contentType) opts.headers['Content-Type'] = contentType;
+      opts.body = rawBody;
+    }
+    const res = await fetch(base() + path, opts);
+    const text = await res.text();
+    let json;
+    try { json = JSON.parse(text); } catch { json = { success: false, error_code: res.status, error_message: text.substring(0, 120) }; }
+    const ms = Math.round(performance.now() - start);
+    const extra = json?._meta?.cached ? 'CACHED' : json?._meta?.source || '';
+    addLog(method, path, res.status, ms, extra);
+    if (elId && !silent) renderResult(elId, json, ms);
+    return { json, status: res.status, ms };
+  } catch (e) {
+    const ms = Math.round(performance.now() - start);
+    addLog(method, path, 0, ms, 'NETWORK ERROR');
+    if (elId && !silent) renderError(elId, e);
+    return { json: null, status: 0, ms };
+  }
+}
+
+// ══════════════════════════════════════
+// Basic API calls
+// ══════════════════════════════════════
+async function testHealth() {
+  const dot = document.getElementById('healthDot');
+  dot.className = 'w-2 h-2 rounded-full bg-amber-300';
+  const { json } = await api('GET', '/health', { elId: 'healthResult' });
+  dot.className = json?.success ? 'w-2 h-2 rounded-full bg-emerald-400' : 'w-2 h-2 rounded-full bg-red-400';
+}
+
+let loginSessionId = ''; // saved when server returns needCaptcha
+
+async function doLogin() {
+  const username = document.getElementById('loginUsername').value;
+  const password = document.getElementById('loginPassword').value;
+  const captcha = document.getElementById('loginCaptcha').value;
+  if (!username || !password) { renderError('loginResult', { message: '请输入学号和密码' }); return; }
+
+  const payload = { username, password };
+  if (loginSessionId && captcha) {
+    payload.captcha = captcha;
+    payload.sessionId = loginSessionId;
+  }
+
+  const { json } = await api('POST', '/auth/login', { body: payload, elId: 'loginResult' });
+
+  if (json?.needCaptcha) {
+    // Server says captcha required — show captcha row
+    loginSessionId = json.sessionId;
+    document.getElementById('captchaImg').src = 'data:image/jpeg;base64,' + json.captchaImage;
+    document.getElementById('captchaRow').classList.remove('hidden');
+    document.getElementById('loginCaptcha').focus();
+    return;
+  }
+
+  if (json?.success && json.data?.token) {
+    setToken(json.data.token, json.data.user);
+    // Reset captcha state
+    loginSessionId = '';
+    document.getElementById('captchaRow').classList.add('hidden');
+    document.getElementById('loginCaptcha').value = '';
+  }
+}
+
+async function getSchedule() {
+  const date = document.getElementById('scheduleDate').value;
+  const refresh = document.getElementById('scheduleRefresh').checked;
+  const p = []; if (date) p.push(`date=${date}`); if (refresh) p.push('refresh=true');
+  await api('GET', '/api/schedule' + (p.length ? '?' + p.join('&') : ''), { elId: 'scheduleResult' });
+}
+
+async function getV1Schedule() {
+  const s = document.getElementById('v1StartDate').value, e = document.getElementById('v1EndDate').value;
+  if (!s || !e) { renderError('v1ScheduleResult', { message: '请选择起止日期' }); return; }
+  await api('GET', `/api/v1/schedule?startDate=${s}&endDate=${e}`, { elId: 'v1ScheduleResult' });
+}
+
+async function getGrades() {
+  const term = document.getElementById('gradeTerm').value;
+  const refresh = document.getElementById('gradeRefresh').checked;
+  const p = []; if (term) p.push(`term=${encodeURIComponent(term)}`); if (refresh) p.push('refresh=true');
+  await api('GET', '/api/grades' + (p.length ? '?' + p.join('&') : ''), { elId: 'gradeResult' });
+}
+
+async function getECard() {
+  const r = document.getElementById('ecardRefresh').checked;
+  await api('GET', '/api/ecard' + (r ? '?refresh=true' : ''), { elId: 'ecardResult' });
+}
+
+async function getUserInfo() {
+  const r = document.getElementById('userRefresh').checked;
+  await api('GET', '/api/user' + (r ? '?refresh=true' : ''), { elId: 'userResult' });
+}
+
+// ══════════════════════════════════════
+// Edge Case Tests
+// ══════════════════════════════════════
+
+// Auth Guard: no token, bad token, valid token
+async function testAuthGuard() {
+  const el = 'authGuardResult';
+  renderLoading(el);
+  const lines = [];
+  const saved = jwtToken;
+
+  // 1. No token
+  jwtToken = '';
+  const r1 = await api('GET', '/api/user', { silent: true });
+  lines.push({ ok: r1.json?.error_code === 4001, text: `无 Token → error_code=${r1.json?.error_code ?? '?'} (期望 4001)` });
+
+  // 2. Bad token
+  jwtToken = 'this.is.not.valid';
+  const r2 = await api('GET', '/api/user', { silent: true });
+  lines.push({ ok: r2.json?.error_code === 4001, text: `伪造 Token → error_code=${r2.json?.error_code ?? '?'} (期望 4001)` });
+
+  // 3. Valid token
+  jwtToken = saved;
+  if (saved) {
+    const r3 = await api('GET', '/api/user', { silent: true });
+    lines.push({ ok: r3.json?.success === true, text: `有效 Token → ${r3.json?.success ? 'OK' : 'error_code=' + (r3.json?.error_code || '?')}` });
+  } else {
+    lines.push({ ok: false, text: '有效 Token → 跳过（未登录）' });
+  }
+
+  jwtToken = saved;
+  renderMulti(el, lines);
+}
+
+// Invalid JSON body
+async function testInvalidJson() {
+  const el = 'invalidJsonResult';
+  renderLoading(el);
+  const lines = [];
+
+  // 1. Plain text body
+  const r1 = await api('POST', '/auth/login', { rawBody: 'this is not json', contentType: 'application/json', silent: true, noAuth: true });
+  lines.push({
+    ok: r1.json?.error_code === 4002,
+    text: `纯文本 body → error_code=${r1.json?.error_code ?? '?'} "${r1.json?.error_message || ''}" (期望 4002)`
+  });
+
+  // 2. Empty body
+  const r2 = await api('POST', '/auth/login', { rawBody: '', contentType: 'application/json', silent: true, noAuth: true });
+  lines.push({
+    ok: r2.json?.error_code === 4002,
+    text: `空 body → error_code=${r2.json?.error_code ?? '?'} (期望 4002)`
+  });
+
+  // 3. Valid JSON but missing fields
+  const r3 = await api('POST', '/auth/login', { body: { foo: 'bar' }, silent: true, noAuth: true });
+  lines.push({
+    ok: r3.json?.error_code === 4002,
+    text: `缺少字段 → error_code=${r3.json?.error_code ?? '?'} "${r3.json?.error_message || ''}" (期望 4002)`
+  });
+
+  renderMulti(el, lines);
+}
+
+// Empty credentials
+async function testEmptyCredentials() {
+  const el = 'emptyCredsResult';
+  renderLoading(el);
+  const lines = [];
+
+  // 1. Both empty
+  const r1 = await api('POST', '/auth/login', { body: { username: '', password: '' }, silent: true, noAuth: true });
+  lines.push({
+    ok: r1.json?.error_code === 4002,
+    text: `空用户名+密码 → error_code=${r1.json?.error_code ?? '?'} (期望 4002)`
+  });
+
+  // 2. Only password
+  const r2 = await api('POST', '/auth/login', { body: { username: '', password: 'test123' }, silent: true, noAuth: true });
+  lines.push({
+    ok: r2.json?.error_code === 4002,
+    text: `空用户名 → error_code=${r2.json?.error_code ?? '?'} (期望 4002)`
+  });
+
+  // 3. Only username
+  const r3 = await api('POST', '/auth/login', { body: { username: '2023001', password: '' }, silent: true, noAuth: true });
+  lines.push({
+    ok: r3.json?.error_code === 4002,
+    text: `空密码 → error_code=${r3.json?.error_code ?? '?'} (期望 4002)`
+  });
+
+  renderMulti(el, lines);
+}
+
+// Expired captcha session
+async function testExpiredSession() {
+  const el = 'expiredSessionResult';
+  renderLoading(el);
+  const lines = [];
+
+  const r = await api('POST', '/auth/login', {
+    body: { username: 'test_user', password: 'test_pass', captcha: '1234', sessionId: 'fake-expired-session-id-12345' },
+    silent: true,
+    noAuth: true
+  });
+
+  const code = r.json?.error_code;
+  lines.push({
+    ok: code === 3001 || code === 3002 || code === 3004,
+    text: `伪造 sessionId 登录 → error_code=${code ?? '?'} "${r.json?.error_message || ''}" (期望 3001/3002/3004)`
+  });
+  lines.push({
+    ok: true,
+    text: `说明: 服务端找不到 sessionId 对应的 CookieJar，创建空 HttpClient，CAS 因缺少 Cookie 拒绝`
+  });
+
+  renderMulti(el, lines);
+}
+
+// Cache behavior
+async function testCache() {
+  const el = 'cacheTestResult';
+  renderLoading(el);
+  const lines = [];
+
+  const r1 = await api('GET', '/api/schedule?refresh=true', { silent: true });
+  if (!r1.json?.success) { lines.push({ ok: false, text: `第 1 步失败: ${r1.json?.error_message || 'error'}` }); renderMulti(el, lines); return; }
+  lines.push({ ok: !r1.json._meta?.cached, text: `1. refresh=true → ${r1.json._meta?.cached ? 'CACHED' : 'FRESH'} (期望 FRESH) ${r1.ms}ms` });
+
+  const r2 = await api('GET', '/api/schedule', { silent: true });
+  if (!r2.json?.success) { lines.push({ ok: false, text: `第 2 步失败: ${r2.json?.error_message || 'error'}` }); renderMulti(el, lines); return; }
+  lines.push({ ok: r2.json._meta?.cached === true, text: `2. 普通请求 → ${r2.json._meta?.cached ? 'CACHED' : 'FRESH'} (期望 CACHED) ${r2.ms}ms` });
+
+  const r3 = await api('GET', '/api/schedule?refresh=true', { silent: true });
+  if (!r3.json?.success) { lines.push({ ok: false, text: `第 3 步失败: ${r3.json?.error_message || 'error'}` }); renderMulti(el, lines); return; }
+  lines.push({ ok: !r3.json._meta?.cached, text: `3. refresh=true → ${r3.json._meta?.cached ? 'CACHED' : 'FRESH'} (期望 FRESH) ${r3.ms}ms` });
+
+  renderMulti(el, lines);
+}
+
+// Silent re-auth
+async function testSilentReauth() {
+  const el = 'reauthTestResult';
+  renderLoading(el);
+  const lines = [];
+  const apis = [
+    { path: '/api/schedule?refresh=true', name: 'Schedule (JW)' },
+    { path: '/api/grades?refresh=true', name: 'Grades (JW)' },
+    { path: '/api/ecard?refresh=true', name: 'ECard (Portal)' },
+    { path: '/api/user?refresh=true', name: 'User (Portal)' },
+  ];
+  for (const a of apis) {
+    const r = await api('GET', a.path, { silent: true });
+    lines.push({ ok: r.json?.success, text: `${a.name}: ${r.json?.success ? 'OK' : r.json?.error_message || 'fail'} — ${r.ms}ms ${r.json?._meta?.source || ''}` });
+  }
+  lines.push({ ok: true, text: '所有请求均带 refresh=true，强制走上游。若凭证过期则终端可见 "静默重认证" 日志' });
+  renderMulti(el, lines);
+}
+
+// Concurrent requests
+async function testConcurrent() {
+  const el = 'concurrentResult';
+  renderLoading(el);
+
+  const paths = ['/api/schedule', '/api/grades', '/api/ecard', '/api/user'];
+  const start = performance.now();
+  const results = await Promise.all(paths.map(p => api('GET', p, { silent: true })));
+  const total = Math.round(performance.now() - start);
+
+  const lines = results.map((r, i) => ({
+    ok: r.json?.success,
+    text: `${paths[i]} → ${r.json?.success ? 'OK' : r.json?.error_code || 'fail'} ${r.ms}ms`
+  }));
+  lines.push({ ok: true, text: `总耗时 ${total}ms（并发执行，非累加）` });
+  renderMulti(el, lines);
+}
+
+// Login flood
+async function testLoginFlood() {
+  const el = 'captchaFloodResult';
+  renderLoading(el);
+  const lines = [];
+
+  const results = await Promise.all(
+    Array.from({ length: 5 }, (_, i) =>
+      api('POST', '/auth/login', { body: { username: '', password: '' }, silent: true, noAuth: true })
+    )
+  );
+
+  results.forEach((r, i) => {
+    lines.push({
+      ok: r.json?.error_code === 4002,
+      text: `#${i + 1} → error_code=${r.json?.error_code ?? '?'} ${r.ms}ms (期望 4002)`
+    });
+  });
+
+  const allOk = results.every(r => r.json?.error_code === 4002);
+  lines.push({ ok: allOk, text: `${allOk ? '全部正确拒绝' : '有异常响应'}，参数校验在 CAS 请求之前` });
+  renderMulti(el, lines);
+}
+
+// ══════════════════════════════════════
+// Init
+// ══════════════════════════════════════
+(function init() {
+  const today = new Date().toISOString().split('T')[0];
+  document.getElementById('scheduleDate').value = today;
+  document.getElementById('v1StartDate').value = today;
+  const next = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
+  document.getElementById('v1EndDate').value = next;
+
+  const saved = localStorage.getItem('huas_jwt');
+  if (saved) {
+    jwtToken = saved;
+    document.getElementById('jwtTokenInput').value = saved;
+    updateJwtUI();
+  }
+
+  testHealth();
+})();
+</script>
+</body>
+</html>
