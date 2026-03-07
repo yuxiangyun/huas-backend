@@ -4,7 +4,7 @@ import { Logger } from '../utils/logger';
 import { SESSION_EXPIRED_INDICATORS } from '../config';
 
 export const GradeParser = {
-  parse(html: string): IGradeList | null {
+  parse(html: string, user?: { studentId?: string; name?: string }): IGradeList | null {
     // Only check the beginning of HTML for expiry indicators (avoid false positives from nav links)
     const htmlStart = (html || '').substring(0, 500);
     const isExpired = !html || html.length < 200 ||
@@ -55,7 +55,7 @@ export const GradeParser = {
     const summaryText = $('body').text().replace(/\s+/g, ' ');
     const match = summaryText.match(/所修门数[:：]\s*([\d.]+).*?所修总学分[:：]\s*([\d.]+).*?平均学分绩点[:：]\s*([\d.]+).*?平均成绩[:：]\s*([\d.]+)/);
 
-    Logger.parser('GradeParser', `解析完成 ${items.length} 条成绩`);
+    Logger.parser('GradeParser', `解析完成 ${items.length} 条成绩`, user?.studentId, user?.name);
 
     return {
       summary: {

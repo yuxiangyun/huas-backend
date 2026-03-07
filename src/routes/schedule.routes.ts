@@ -10,10 +10,11 @@ const schedule = new Hono();
 schedule.get('/', async (c) => {
   const userId = c.get('userId');
   const studentId = c.get('studentId');
+  const name = c.get('name');
   const date = c.req.query('date');
   const forceRefresh = c.req.query('refresh') === 'true';
 
-  const result = await ScheduleService.getSchedule(userId, studentId, date, forceRefresh);
+  const result = await ScheduleService.getSchedule(userId, studentId, date, forceRefresh, name);
   return success(c, result.data, result._meta);
 });
 

@@ -14,6 +14,8 @@ RUN mkdir -p data logs
 
 EXPOSE 3000
 
-ENV NODE_ENV=production
+ENV NODE_ENV=production \
+    TIMEZONE=Asia/Shanghai \
+    TZ=Asia/Shanghai
 
 CMD ["bun", "run", "src/index.ts"]

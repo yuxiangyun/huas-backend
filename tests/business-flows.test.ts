@@ -259,6 +259,32 @@ describe('登录流程', () => {
     // Retry request with valid sessionId should reuse cached execution.
     expect(executionCallCount).toBe(2);
   });
+
+  it('验证码挑战阶段若 execution 初始化失败，返回错误且不下发 sessionId', async () => {
+    const app = new Hono();
+    app.route('/auth', authRoutes);
+
+    let executionCallCount = 0;
+    authBehavior.getExecution = async () => {
+      executionCallCount += 1;
+      if (executionCallCount === 1) return 'exec-1';
+      return null;
+    };
+    authBehavior.login = async () => ({ success: false, needCaptcha: true, message: '验证码错误', steps: [] });
+
+    const res = await app.request('http://localhost/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: '2023001888', password: 'pass-captcha' }),
+    });
+
+    expect(res.status).toBe(400);
+    const body = await res.json() as any;
+    expect(body.success).toBe(false);
+    expect(body.error_code).toBe(3002);
+    expect(body.sessionId).toBeUndefined();
+    expect(body.needCaptcha).toBeUndefined();
+  });
 });
 
 describe('静默凭证链路', () => {
@@ -353,6 +379,20 @@ describe('缓存与强制刷新流程', () => {
     expect(fallback._meta.refresh_failed).toBe(true);
     expect(fallback._meta.last_error).toBe(3004);
     expect(fallback.data.items[0].courseName).toBe('grade-v1');
+  });
+
+  it('refresh=true 且上游返回课表未公布时，若有旧缓存仍回退 stale', async () => {
+    const studentId = '2023001011';
+    const first = await ScheduleService.getSchedule(1, studentId, '2025-03-01', false);
+    expect(first._meta.cached).toBe(false);
+
+    upstreamInjectedError = new Error('SCHEDULE_NOT_AVAILABLE');
+    const fallback = await ScheduleService.getSchedule(1, studentId, '2025-03-01', true);
+
+    expect(fallback._meta.cached).toBe(true);
+    expect(fallback._meta.stale).toBe(true);
+    expect(fallback._meta.refresh_failed).toBe(true);
+    expect(fallback._meta.last_error).toBe(5000);
   });
 });
 
@@ -496,6 +536,37 @@ describe('课表缓存与强制刷新防护', () => {
     const rows = await db.select().from(schema.cache);
     const scheduleRows = rows.filter((r: any) => r.key.startsWith(`schedule:${studentId}:`));
     expect(scheduleRows.length).toBe(keep);
+  });
+
+  it('schedule 未传 date 时按配置时区取当天日期', async () => {
+    const studentId = '2023010005';
+    const RealDate = Date;
+    const fixedNow = new RealDate('2026-03-06T16:30:00.000Z');
+
+    (globalThis as any).Date = class extends RealDate {
+      constructor(...args: any[]) {
+        if (args.length === 0) {
+          super(fixedNow.getTime());
+          return;
+        }
+        super(args[0]);
+      }
+
+      static now() {
+        return fixedNow.getTime();
+      }
+    } as any;
+
+    try {
+      await ScheduleService.getSchedule(1, studentId, undefined, false);
+    } finally {
+      (globalThis as any).Date = RealDate;
+    }
+
+    const db = getDb();
+    const rows = await db.select().from(schema.cache);
+    const keys = rows.map((r: any) => r.key);
+    expect(keys).toContain(`schedule:${studentId}:2026-03-07`);
   });
 
   it('portal schedule 缓存按用户前缀执行 LRU 限额', async () => {

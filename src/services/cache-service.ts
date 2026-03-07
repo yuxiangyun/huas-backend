@@ -1,6 +1,7 @@
 import { eq, sql } from 'drizzle-orm';
 import { getDb, schema } from '../db';
 import type { CacheMeta } from '../types';
+import { beijingIsoString } from '../utils/time';
 
 export class CacheService {
   static async get<T>(key: string, options?: { touch?: boolean }): Promise<{ data: T; meta: CacheMeta } | null> {
@@ -30,9 +31,9 @@ export class CacheService {
       data: JSON.parse(entry.data) as T,
       meta: {
         cached: true,
-        cache_time: entry.createdAt.toISOString(),
-        updated_at: (options?.touch ? touchedAt : entry.updatedAt).toISOString(),
-        expires_at: entry.expiresAt?.toISOString(),
+        cache_time: beijingIsoString(entry.createdAt),
+        updated_at: beijingIsoString(options?.touch ? touchedAt : entry.updatedAt),
+        expires_at: entry.expiresAt ? beijingIsoString(entry.expiresAt) : undefined,
         source: entry.source || undefined,
       },
     };

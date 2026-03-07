@@ -5,12 +5,13 @@ import { URLS } from '../core/url-config';
 import { config, JW_SJMS_VALUE } from '../config';
 import { AppError, ErrorCode } from '../utils/errors';
 import { fallbackOnRefreshFailure } from './refresh-fallback';
+import { beijingDate } from '../utils/time';
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 function normalizeDate(rawDate?: string): string {
   const trimmed = (rawDate ?? '').trim();
-  const resolved = trimmed || new Date().toISOString().split('T')[0] || '';
+  const resolved = trimmed || beijingDate();
   if (!DATE_PATTERN.test(resolved)) {
     throw new AppError(ErrorCode.PARAM_ERROR, 'date 参数格式错误，应为 YYYY-MM-DD');
   }
@@ -23,7 +24,7 @@ function normalizeDate(rawDate?: string): string {
 }
 
 export class ScheduleService {
-  static async getSchedule(userId: number, studentId: string, date?: string, forceRefresh = false) {
+  static async getSchedule(userId: number, studentId: string, date?: string, forceRefresh = false, name?: string) {
     const queryDate = normalizeDate(date);
     const cacheKey = `schedule:${studentId}:${queryDate}`;
 
@@ -45,7 +46,7 @@ export class ScheduleService {
           body: params,
           timeout: config.timeout.business,
         });
-        return ScheduleParser.parse(await res.text());
+        return ScheduleParser.parse(await res.text(), { studentId, name });
       });
     } catch (error) {
       const fallback = await fallbackOnRefreshFailure({

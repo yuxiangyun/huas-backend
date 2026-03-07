@@ -19,7 +19,6 @@ export async function fallbackOnRefreshFailure<T>(options: {
   studentId: string;
 }): Promise<{ data: T; _meta: CacheMeta } | null> {
   if (!options.forceRefresh) return null;
-  if (String((options.error as any)?.message || '') === 'SCHEDULE_NOT_AVAILABLE') return null;
 
   const cached = await CacheService.get<T>(options.cacheKey, { touch: true });
   if (!cached) return null;

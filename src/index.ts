@@ -9,6 +9,7 @@ import { CredentialManager } from './auth/credential-manager';
 import { CacheService } from './services/cache-service';
 import { config } from './config';
 import { Logger } from './utils/logger';
+import { adminBasicAuthMiddleware } from './middleware/admin-basic-auth.middleware';
 
 const app = new Hono();
 const isDev = process.env.NODE_ENV !== 'production';
@@ -25,6 +26,12 @@ app.use('*', loggingMiddleware);
 
 // Register all routes
 registerRoutes(app);
+
+// Admin status page (protected by Basic Auth)
+app.get('/status', adminBasicAuthMiddleware, async (c) => {
+  const html = await Bun.file('./public/status.html').text();
+  return c.html(html);
+});
 
 // Dev-only: API test page
 if (isDev) {

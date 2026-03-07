@@ -32,7 +32,8 @@ export class GradeService {
     userId: number,
     studentId: string,
     query: { term?: string; kcxz?: string; kcmc?: string } = {},
-    forceRefresh = false
+    forceRefresh = false,
+    name?: string
   ) {
     const term = normalizeQueryValue(query.term, MAX_TERM_LENGTH, 'term');
     const kcxz = normalizeQueryValue(query.kcxz, MAX_KCXZ_LENGTH, 'kcxz');
@@ -59,7 +60,7 @@ export class GradeService {
           body: params,
           timeout: config.timeout.business,
         });
-        return GradeParser.parse(await res.text());
+        return GradeParser.parse(await res.text(), { studentId, name });
       });
     } catch (error) {
       const fallback = await fallbackOnRefreshFailure({

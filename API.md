@@ -4,13 +4,28 @@
 
 ## 认证
 
-除 `/auth/login` 和 `/health` 外，所有 `/api/*` 接口需要 Bearer Token 认证。
+除 `/auth/login`、`/health`、`/api/public/announcements` 与 `/api/admin/*` 外，所有 `/api/*` 接口需要 Bearer Token 认证。
 
 ```
 Authorization: Bearer <token>
 ```
 
 Token 通过 `/auth/login` 获取，有效期 90 天。
+
+---
+
+## 管理员认证（Basic Auth）
+
+`/status` 与 `/api/admin/*` 使用 HTTP Basic Auth（非 Bearer）。
+
+```
+Authorization: Basic <base64(username:password)>
+```
+
+当前固定账号密码（按部署需求写死）：
+
+- 用户名：`202412040130`
+- 密码：`A18569081662`
 
 ---
 
@@ -64,6 +79,90 @@ Token 通过 `/auth/login` 获取，有效期 90 天。
 ---
 
 ## 接口列表
+
+### GET /api/public/announcements
+
+获取公告弹窗列表（无需鉴权）。
+
+#### 请求示例
+
+```
+GET /api/public/announcements
+```
+
+#### 响应
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "20260307-1",
+      "title": "系统公告",
+      "content": "公告弹窗功能已启用，请及时关注后续通知。",
+      "date": "2026-03-07",
+      "type": "info"
+    }
+  ]
+}
+```
+
+`type` 取值固定为：`info | warning | error`。
+
+---
+
+### GET /api/admin/dashboard
+
+管理员仪表盘统一刷新接口（需 Basic Auth）。
+
+返回内容包含：
+
+- 服务状态、时间戳、运行时长、进程内存
+- 总用户数、今日活跃、近 7 天活跃、近 7 天新增
+- 缓存条数、凭证条数
+- 用户分页列表（每页 20 条）与筛选（专业/年级/搜索）
+- 按专业统计（`class_name`）与按年级统计（学号前 4 位）
+- 终端最新 50 条日志（读取 PM2 日志文件）
+- 公告列表
+
+---
+
+### GET /api/admin/announcements
+
+获取公告管理列表（需 Basic Auth）。
+
+---
+
+### POST /api/admin/announcements
+
+新增公告（需 Basic Auth）。
+
+#### 请求体
+
+```json
+{
+  "title": "系统公告",
+  "content": "公告内容",
+  "date": "2026-03-07",
+  "type": "info"
+}
+```
+
+`type` 仅允许：`info | warning | error`。
+
+---
+
+### PUT /api/admin/announcements/:id
+
+编辑公告（需 Basic Auth，支持部分字段更新）。
+
+---
+
+### DELETE /api/admin/announcements/:id
+
+删除公告（需 Basic Auth）。
+
+---
 
 ### POST /auth/login
 
@@ -351,7 +450,7 @@ Authorization: Bearer eyJ...
   "success": true,
   "data": {
     "status": "ok",
-    "timestamp": "2026-03-06T10:00:00.000Z",
+    "timestamp": "2026-03-06T18:00:00.000+08:00",
     "uptime": 3600.123
   }
 }

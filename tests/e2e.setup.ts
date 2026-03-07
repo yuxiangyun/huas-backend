@@ -19,6 +19,8 @@ process.env.NODE_ENV = 'test';
 process.env.PORT = '0';
 process.env.DB_PATH = dbPath;
 process.env.LOG_LEVEL = process.env.LOG_LEVEL || 'error';
+process.env.TIMEZONE = 'Asia/Shanghai';
+process.env.TZ = 'Asia/Shanghai';
 process.env.GRADES_CACHE_LIMIT = process.env.GRADES_CACHE_LIMIT || '20';
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'huas-e2e-test-secret-32chars-min';
 

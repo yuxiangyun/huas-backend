@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { getDb } from '../db';
 import { sql } from 'drizzle-orm';
+import { beijingIsoString } from '../utils/time';
 
 const health = new Hono();
 
@@ -12,7 +13,7 @@ health.get('/', async (c) => {
       success: true,
       data: {
         status: 'ok',
-        timestamp: new Date().toISOString(),
+        timestamp: beijingIsoString(),
         uptime: process.uptime(),
       },
     });

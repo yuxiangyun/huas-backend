@@ -9,6 +9,7 @@ const v1Schedule = new Hono();
 v1Schedule.get('/', async (c) => {
   const userId = c.get('userId');
   const studentId = c.get('studentId');
+  const name = c.get('name');
   const startDate = c.req.query('startDate');
   const endDate = c.req.query('endDate');
   const forceRefresh = c.req.query('refresh') === 'true';
@@ -17,7 +18,7 @@ v1Schedule.get('/', async (c) => {
     return error(c, ErrorCode.PARAM_ERROR, 'Missing startDate or endDate parameter', 400);
   }
 
-  const result = await PortalScheduleService.getSchedule(userId, studentId, startDate, endDate, forceRefresh);
+  const result = await PortalScheduleService.getSchedule(userId, studentId, startDate, endDate, forceRefresh, name);
   return success(c, result.data, result._meta);
 });
 

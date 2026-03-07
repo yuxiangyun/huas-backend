@@ -4,7 +4,7 @@ import { Logger } from '../utils/logger';
 import { SESSION_EXPIRED_INDICATORS } from '../config';
 
 export const ScheduleParser = {
-  parse(html: string) {
+  parse(html: string, user?: { studentId?: string; name?: string }) {
     const htmlStart = (html || '').substring(0, 500);
 
     if (html && html.includes('课表暂未公布')) {
@@ -64,7 +64,7 @@ export const ScheduleParser = {
       }
     });
 
-    Logger.parser('ScheduleParser', `解析完成 周:${week} 共 ${courses.length} 门课`);
+    Logger.parser('ScheduleParser', `解析完成 周:${week} 共 ${courses.length} 门课`, user?.studentId, user?.name);
     return { week, courses };
   }
 };

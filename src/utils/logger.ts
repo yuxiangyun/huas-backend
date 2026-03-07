@@ -1,5 +1,6 @@
 import winston from 'winston';
 import DailyRotateFile from 'winston-daily-rotate-file';
+import { beijingDateTime, beijingIsoString } from './time';
 
 // Color codes
 const c = {
@@ -18,13 +19,8 @@ const c = {
 };
 
 function time(): string {
-  const now = new Date();
-  const M = String(now.getMonth() + 1).padStart(2, '0');
-  const D = String(now.getDate()).padStart(2, '0');
-  const h = String(now.getHours()).padStart(2, '0');
-  const m = String(now.getMinutes()).padStart(2, '0');
-  const s = String(now.getSeconds()).padStart(2, '0');
-  return `${c.gray}${M}-${D} ${h}:${m}:${s}${c.reset}`;
+  const short = beijingDateTime().slice(5);
+  return `${c.gray}${short}${c.reset}`;
 }
 
 function statusColor(status: number): string {
@@ -58,7 +54,7 @@ export interface LoginStep {
 const fileLogger = winston.createLogger({
   level: process.env.LOG_LEVEL || 'info',
   format: winston.format.combine(
-    winston.format.timestamp(),
+    winston.format.timestamp({ format: () => beijingIsoString() }),
     winston.format.json()
   ),
   transports: [
@@ -174,8 +170,8 @@ export const Logger = {
     fileLogger.error(msg, { tag, error: errInfo, studentId, name });
   },
 
-  parser(name: string, action: string) {
-    console.log(`${time()} ${c.gray}· ${action}${c.reset}`);
+  parser(name: string, action: string, studentId?: string, userName?: string) {
+    console.log(`${time()} ${c.gray}· ${action}${c.reset}${userStr(studentId, userName)}`);
   },
 
   detail(text: string) {

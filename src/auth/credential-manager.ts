@@ -166,7 +166,10 @@ export class CredentialManager {
       .where(eq(schema.users.id, userId))
       .limit(1);
 
-    if (users.length === 0) return false;
+    if (users.length === 0) {
+      Logger.warn('CredentialManager', '用户不存在，无法静默重认证', `user_id=${userId}`, String(userId));
+      return false;
+    }
     const user = users[0];
 
     if (!user.encryptedPassword) {

@@ -47,17 +47,24 @@ auth.post('/login', async (c) => {
   let client: HttpClient;
   let execution: string | null;
 
-  if (sessionId && captchaSessions.has(sessionId)) {
+  if (sessionId) {
+    const session = captchaSessions.get(sessionId);
+    if (!session) {
+      return error(c, ErrorCode.CAPTCHA_ERROR, '验证码会话不存在或已过期，请重新获取验证码', 400);
+    }
+    captchaSessions.delete(sessionId);
+    if (!session.execution) {
+      return error(c, ErrorCode.CAPTCHA_ERROR, '验证码会话已失效，请重新获取验证码', 400);
+    }
+
     // Retry with captcha — restore previous session
-    const session = captchaSessions.get(sessionId)!;
     client = HttpClient.fromSerializedJar(session.jarJson);
     client.setTimeout(config.timeout.cas);
     execution = session.execution;
-    captchaSessions.delete(sessionId);
   } else {
     // First attempt — fresh client, get execution
     client = new HttpClient(undefined, config.timeout.cas);
-  const engine = new AuthEngine(client);
+    const engine = new AuthEngine(client);
 
     try {
       execution = await engine.getExecution();
@@ -88,6 +95,10 @@ auth.post('/login', async (c) => {
         try {
           const buffer = await engine.getCaptcha();
           const newExecution = await engine.getExecution();
+          if (!newExecution) {
+            Logger.auth(username, '验证码会话初始化失败', 400, loginMs, undefined, result.steps);
+            return error(c, ErrorCode.CAPTCHA_ERROR, '需要验证码，但验证码会话初始化失败，请重试', 400);
+          }
           const newSessionId = crypto.randomUUID();
 
           if (captchaSessions.size >= MAX_CAPTCHA_SESSIONS) {
@@ -97,7 +108,7 @@ auth.post('/login', async (c) => {
 
           captchaSessions.set(newSessionId, {
             jarJson: client.serializeJar(),
-            execution: newExecution || '',
+            execution: newExecution,
             createdAt: Date.now(),
           });
 
@@ -184,6 +195,8 @@ auth.post('/login', async (c) => {
       userId = inserted[0].id;
     }
 
+    const resolvedName = userName || existingUsers[0]?.name || undefined;
+
     // Store all credentials
     const jarJson = client.serializeJar();
     await CredentialManager.storeCredential(userId, 'cas_tgc', null, jarJson, config.ttl.tgc);
@@ -193,11 +206,11 @@ auth.post('/login', async (c) => {
     await CredentialManager.storeCredential(userId, 'jw_session', null, jarJson, config.ttl.jwSession);
 
     // Generate our JWT
-    const token = await generateToken({ userId, studentId: username });
+    const token = await generateToken({ userId, studentId: username, name: resolvedName });
 
-    Logger.auth(username, '成功', 200, loginMs, userName, allSteps);
+    Logger.auth(username, '成功', 200, loginMs, resolvedName, allSteps);
 
-    return success(c, { token, user: { name: userName, studentId: username, className } });
+    return success(c, { token, user: { name: resolvedName, studentId: username, className } });
   } catch (e: any) {
     Logger.error('Auth', '登录异常', e);
     if (e.message === 'REQUEST_TIMEOUT') {

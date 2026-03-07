@@ -2,7 +2,7 @@ import type { ICourse } from '../types';
 import { Logger } from '../utils/logger';
 
 export const PortalScheduleParser = {
-  parse(json: any, startDate?: string) {
+  parse(json: any, startDate?: string, user?: { studentId?: string; name?: string }) {
     if (json?.code === 401 || json?.message?.includes('token') || json?.message?.includes('失效') || json?.message?.includes('过期')) {
       Logger.warn('PortalScheduleParser', 'Session 过期', json?.message);
       throw new Error("SESSION_EXPIRED");
@@ -21,9 +21,8 @@ export const PortalScheduleParser = {
     const week = startDate ? `${startDate}` : "日期模式";
 
     for (const dateStr of Object.keys(schedule)) {
-      const parsedDateStr = dateStr.replace(/-/g, '/');
-      const dateObj = new Date(parsedDateStr);
-      const dayOfWeek = dateObj.getDay() || 7;
+      const dateObj = new Date(`${dateStr}T00:00:00Z`);
+      const dayOfWeek = dateObj.getUTCDay() || 7;
 
       const dayData = schedule[dateStr];
       if (dayData && Array.isArray(dayData.calendarList)) {
@@ -56,7 +55,7 @@ export const PortalScheduleParser = {
       }
     }
 
-    Logger.parser('PortalScheduleParser', `解析完成 共 ${courses.length} 个日程`);
+    Logger.parser('PortalScheduleParser', `解析完成 共 ${courses.length} 个日程`, user?.studentId, user?.name);
     return { week, courses };
   }
 };

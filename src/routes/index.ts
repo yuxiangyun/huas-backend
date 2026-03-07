@@ -8,16 +8,35 @@ import gradeRoutes from './grade.routes';
 import ecardRoutes from './ecard.routes';
 import userRoutes from './user.routes';
 import healthRoutes from './health.routes';
+import publicRoutes from './public.routes';
+import adminRoutes from './admin.routes';
 
 export function registerRoutes(app: Hono) {
   // Public routes
   app.route('/auth', authRoutes);
   app.route('/health', healthRoutes);
 
-  // Protected API routes
+  // API routes
   const api = new Hono();
   api.onError(onAppError);
-  api.use('*', authMiddleware);
+  api.route('/public', publicRoutes);
+  api.route('/admin', adminRoutes);
+  api.use('*', (c, next) => {
+    const path = c.req.path;
+    if (
+      path === '/api/public'
+      || path.startsWith('/api/public/')
+      || path === '/api/admin'
+      || path.startsWith('/api/admin/')
+      || path === '/public'
+      || path.startsWith('/public/')
+      || path === '/admin'
+      || path.startsWith('/admin/')
+    ) {
+      return next();
+    }
+    return authMiddleware(c, next);
+  });
   api.route('/schedule', scheduleRoutes);
   api.route('/v1/schedule', v1ScheduleRoutes);
   api.route('/grades', gradeRoutes);

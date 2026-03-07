@@ -383,8 +383,34 @@
 
     <script>
       const el = (id) => document.getElementById(id);
-      const nowDate = new Date().toISOString().slice(0, 10);
-      const in7 = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+      const BEIJING_TZ = "Asia/Shanghai";
+
+      function beijingParts(date = new Date()) {
+        const parts = new Intl.DateTimeFormat("en-CA", {
+          timeZone: BEIJING_TZ,
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hour12: false,
+        }).formatToParts(date);
+        return Object.fromEntries(parts.map((part) => [part.type, part.value]));
+      }
+
+      function beijingDate(date = new Date()) {
+        const p = beijingParts(date);
+        return `${p.year}-${p.month}-${p.day}`;
+      }
+
+      function beijingDateTime(date = new Date()) {
+        const p = beijingParts(date);
+        return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`;
+      }
+
+      const nowDate = beijingDate();
+      const in7 = beijingDate(new Date(Date.now() + 7 * 24 * 3600 * 1000));
 
       el("scheduleDate").value = nowDate;
       el("portalStartDate").value = nowDate;
@@ -395,8 +421,7 @@
       };
 
       function ts() {
-        const d = new Date();
-        return d.toISOString().replace("T", " ").slice(0, 19);
+        return beijingDateTime();
       }
 
       function setToken(token) {
@@ -470,7 +495,7 @@
 
         const expTime = new Date(payload.exp * 1000);
         const expired = expTime.getTime() <= Date.now();
-        tokenExp.textContent = `exp: ${expTime.toLocaleString()}`;
+        tokenExp.textContent = `exp: ${beijingDateTime(expTime)} (北京时间)`;
         tokenExp.classList.add(expired ? "bad" : "ok");
       }
 

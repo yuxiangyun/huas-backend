@@ -28,7 +28,8 @@ export class PortalScheduleService {
     studentId: string,
     startDate: string,
     endDate: string,
-    forceRefresh = false
+    forceRefresh = false,
+    name?: string
   ) {
     const normalizedStartDate = normalizeDate(startDate, 'startDate');
     const normalizedEndDate = normalizeDate(endDate, 'endDate');
@@ -64,7 +65,7 @@ export class PortalScheduleService {
           headers: { 'X-Id-Token': portalToken! },
           timeout: config.timeout.business,
         });
-        return PortalScheduleParser.parse(await res.json(), normalizedStartDate);
+        return PortalScheduleParser.parse(await res.json(), normalizedStartDate, { studentId, name });
       });
     } catch (error) {
       const fallback = await fallbackOnRefreshFailure({

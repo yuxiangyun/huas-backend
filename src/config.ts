@@ -1,3 +1,8 @@
+const BEIJING_TIME_ZONE = 'Asia/Shanghai';
+
+// Force runtime timezone to Beijing to avoid host-level timezone drift.
+process.env.TZ = BEIJING_TIME_ZONE;
+
 function parsePositiveInt(value: string | undefined, fallback: number): number {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return fallback;
@@ -8,6 +13,7 @@ export const config = {
   port: Number(process.env.PORT) || 3000,
   jwtSecret: process.env.JWT_SECRET || 'huas-server-default-secret-change-me',
   dbPath: process.env.DB_PATH || './data/huas.db',
+  timeZone: BEIJING_TIME_ZONE,
 
   // Credential TTLs (school-side, short-lived)
   ttl: {

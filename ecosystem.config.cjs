@@ -1,8 +1,10 @@
 module.exports = {
   apps: [{
     name: 'huas-server',
+    cwd: __dirname,
     script: 'src/index.ts',
     interpreter: 'bun',
+    exec_mode: 'fork',
     instances: 1,
     autorestart: true,
     max_restarts: 10,
@@ -10,8 +12,10 @@ module.exports = {
     max_memory_restart: '256M',
     env: {
       NODE_ENV: 'production',
-      PORT: 3000,
+      TIMEZONE: 'Asia/Shanghai',
+      TZ: 'Asia/Shanghai',
     },
+    env_file: '.env',
     // Log config
     error_file: './logs/pm2-error.log',
     out_file: './logs/pm2-out.log',
