@@ -17,7 +17,7 @@ export const config = {
 
   // Credential TTLs (school-side, short-lived)
   ttl: {
-    tgc: 20 * 60 * 60 * 1000,            // TGC: ~20 hours (school CAS actual)
+    tgc: 24 * 60 * 60 * 1000,            // TGC: ~24 hours (school CAS actual)
     portalJwt: 10 * 60 * 1000,           // Portal JWT: ~10 minutes
     jwSession: 10 * 60 * 1000,           // JW Session: ~10 minutes
     selfJwt: 90 * 24 * 60 * 60 * 1000,   // Self JWT: 90 days
@@ -25,7 +25,7 @@ export const config = {
 
   // Cache TTLs (seconds)
   cacheTtl: {
-    schedule: 24 * 60 * 60,   // 24 hours
+    schedule: 0,               // manual refresh only
     grades: 0,                 // manual refresh only
     ecard: 0,                  // manual refresh only
     user: 0,                   // manual refresh only
