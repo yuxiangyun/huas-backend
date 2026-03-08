@@ -8,6 +8,52 @@ import { Logger } from '../utils/logger';
 import { sql } from 'drizzle-orm';
 
 let db: ReturnType<typeof drizzle<typeof schema>>;
+let sqliteDb: Database;
+
+function getTableColumns(table: 'users' | 'credentials' | 'cache'): Set<string> {
+  const rows = sqliteDb.query(`PRAGMA table_info(${table})`).all() as Array<{ name?: string }>;
+  return new Set(rows.map((row) => String(row.name || '')));
+}
+
+function ensureColumn(
+  table: 'users' | 'credentials' | 'cache',
+  column: string,
+  definition: string
+): void {
+  const columns = getTableColumns(table);
+  if (columns.has(column)) return;
+
+  sqliteDb.exec(`ALTER TABLE ${table} ADD COLUMN ${definition}`);
+  Logger.server(`数据库迁移: 补齐 ${table}.${column}`);
+}
+
+function ensureLegacyColumns(): void {
+  ensureColumn('users', 'encrypted_password', 'encrypted_password TEXT');
+  ensureColumn('users', 'created_at', 'created_at INTEGER');
+  ensureColumn('users', 'last_login_at', 'last_login_at INTEGER');
+
+  ensureColumn('credentials', 'value', 'value TEXT');
+  ensureColumn('credentials', 'cookie_jar', 'cookie_jar TEXT');
+  ensureColumn('credentials', 'expires_at', 'expires_at INTEGER');
+  ensureColumn('credentials', 'created_at', 'created_at INTEGER');
+  ensureColumn('credentials', 'updated_at', 'updated_at INTEGER');
+
+  ensureColumn('cache', 'source', 'source TEXT');
+  ensureColumn('cache', 'created_at', 'created_at INTEGER');
+  ensureColumn('cache', 'updated_at', 'updated_at INTEGER');
+  ensureColumn('cache', 'expires_at', 'expires_at INTEGER');
+}
+
+function backfillCriticalTimestamps(): void {
+  const now = Date.now();
+
+  sqliteDb.exec(`UPDATE users SET created_at = ${now} WHERE created_at IS NULL OR created_at <= 0`);
+  sqliteDb.exec(`UPDATE users SET last_login_at = ${now} WHERE last_login_at IS NULL OR last_login_at <= 0`);
+  sqliteDb.exec(`UPDATE credentials SET created_at = ${now} WHERE created_at IS NULL OR created_at <= 0`);
+  sqliteDb.exec(`UPDATE credentials SET updated_at = ${now} WHERE updated_at IS NULL OR updated_at <= 0`);
+  sqliteDb.exec(`UPDATE cache SET created_at = ${now} WHERE created_at IS NULL OR created_at <= 0`);
+  sqliteDb.exec(`UPDATE cache SET updated_at = ${now} WHERE updated_at IS NULL OR updated_at <= 0`);
+}
 
 export function getDb() {
   if (!db) {
@@ -16,6 +62,8 @@ export function getDb() {
     const sqlite = new Database(config.dbPath);
     sqlite.exec('PRAGMA journal_mode = WAL');
     sqlite.exec('PRAGMA foreign_keys = ON');
+    sqlite.exec('PRAGMA busy_timeout = 5000');
+    sqliteDb = sqlite;
     db = drizzle(sqlite, { schema });
   }
   return db;
@@ -55,6 +103,10 @@ export function initDatabase() {
     updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
     expires_at INTEGER
   )`);
+
+  // Backward-compatible migration for older SQLite files.
+  ensureLegacyColumns();
+  backfillCriticalTimestamps();
 
   // Create indexes (migrate: drop old non-unique index, create unique one)
   database.run(sql`DROP INDEX IF EXISTS idx_credentials_user_system`);

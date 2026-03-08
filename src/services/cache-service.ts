@@ -2,9 +2,10 @@ import { eq, sql } from 'drizzle-orm';
 import { getDb, schema } from '../db';
 import type { CacheMeta } from '../types';
 import { beijingIsoString } from '../utils/time';
+import { Logger } from '../utils/logger';
 
 export class CacheService {
-  static async get<T>(key: string, options?: { touch?: boolean }): Promise<{ data: T; meta: CacheMeta } | null> {
+  static async get<T>(key: string, options?: { touch?: boolean; allowExpired?: boolean }): Promise<{ data: T; meta: CacheMeta } | null> {
     const db = getDb();
     const rows = await db.select()
       .from(schema.cache)
@@ -14,8 +15,16 @@ export class CacheService {
     if (rows.length === 0) return null;
 
     const entry = rows[0];
-    // Check expiry
-    if (entry.expiresAt && entry.expiresAt.getTime() < Date.now()) {
+    const expired = Boolean(entry.expiresAt && entry.expiresAt.getTime() < Date.now());
+    if (expired && !options?.allowExpired) {
+      return null;
+    }
+
+    let parsedData: T;
+    try {
+      parsedData = JSON.parse(entry.data) as T;
+    } catch {
+      Logger.warn('CacheService', '缓存数据损坏，已自动清理', key);
       await this.invalidate(key);
       return null;
     }
@@ -28,13 +37,14 @@ export class CacheService {
     }
 
     return {
-      data: JSON.parse(entry.data) as T,
+      data: parsedData,
       meta: {
         cached: true,
         cache_time: beijingIsoString(entry.createdAt),
         updated_at: beijingIsoString(options?.touch ? touchedAt : entry.updatedAt),
         expires_at: entry.expiresAt ? beijingIsoString(entry.expiresAt) : undefined,
         source: entry.source || undefined,
+        stale: expired || undefined,
       },
     };
   }

@@ -41,6 +41,7 @@ const ticketBehavior = {
 let upstreamCallCount = 0;
 let upstreamVersion = 0;
 let upstreamInjectedError: Error | null = null;
+let upstreamResolver: (...args: any[]) => Promise<any>;
 
 function makeGradePayload(tag: string) {
   return {
@@ -74,6 +75,16 @@ function makeGradePayload(tag: string) {
   };
 }
 
+function makeUserPayload(name: string, studentId: string, className: string) {
+  return {
+    name,
+    studentId,
+    className,
+    identity: '学生',
+    organizationCode: 'mock-org',
+  };
+}
+
 mock.module('../src/auth/auth-engine.ts', () => ({
   AuthEngine: class {
     constructor(_: any) {}
@@ -97,13 +108,12 @@ mock.module('../src/auth/ticket-exchanger.ts', () => ({
 }));
 
 mock.module('../src/services/upstream.ts', () => ({
-  upstream: async () => {
+  upstream: async (...args: any[]) => {
     upstreamCallCount += 1;
     if (upstreamInjectedError) {
       throw upstreamInjectedError;
     }
-    upstreamVersion += 1;
-    return makeGradePayload(`grade-v${upstreamVersion}`);
+    return upstreamResolver(...args);
   },
 }));
 
@@ -115,6 +125,7 @@ let authRoutes: any;
 let GradeService: any;
 let ScheduleService: any;
 let PortalScheduleService: any;
+let UserService: any;
 let CredentialManager: any;
 let CacheService: any;
 let CryptoHelper: any;
@@ -148,6 +159,7 @@ beforeAll(async () => {
   ({ GradeService } = await import('../src/services/grade-service.ts'));
   ({ ScheduleService } = await import('../src/services/schedule-service.ts'));
   ({ PortalScheduleService } = await import('../src/services/portal-schedule-service.ts'));
+  ({ UserService } = await import('../src/services/user-service.ts'));
   ({ CredentialManager } = await import('../src/auth/credential-manager.ts'));
   ({ CacheService } = await import('../src/services/cache-service.ts'));
   ({ CryptoHelper } = await import('../src/utils/crypto.ts'));
@@ -158,6 +170,10 @@ beforeEach(async () => {
   upstreamCallCount = 0;
   upstreamVersion = 0;
   upstreamInjectedError = null;
+  upstreamResolver = async () => {
+    upstreamVersion += 1;
+    return makeGradePayload(`grade-v${upstreamVersion}`);
+  };
 
   authBehavior.getExecution = async () => 'mock-execution';
   authBehavior.getCaptcha = async () => new Uint8Array([1, 2, 3]).buffer;
@@ -205,6 +221,34 @@ describe('登录流程', () => {
       .where(eq(schema.credentials.userId, users[0].id));
     const systems = creds.map((c: any) => c.system).sort();
     expect(systems).toEqual(['cas_tgc', 'jw_session']);
+  });
+
+  it('同学号并发登录不会触发唯一键冲突', async () => {
+    const app = new Hono();
+    app.route('/auth', authRoutes);
+    const requestBody = JSON.stringify({ username: '2023001886', password: 'pass-concurrent' });
+
+    const [res1, res2] = await Promise.all([
+      app.request('http://localhost/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: requestBody,
+      }),
+      app.request('http://localhost/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: requestBody,
+      }),
+    ]);
+
+    expect(res1.status).toBe(200);
+    expect(res2.status).toBe(200);
+
+    const db = getDb();
+    const users = await db.select()
+      .from(schema.users)
+      .where(eq(schema.users.studentId, '2023001886'));
+    expect(users.length).toBe(1);
   });
 
   it('CAS 要求验证码时返回 challenge，并可用 sessionId + captcha 重试成功', async () => {
@@ -285,6 +329,38 @@ describe('登录流程', () => {
     expect(body.sessionId).toBeUndefined();
     expect(body.needCaptcha).toBeUndefined();
   });
+
+  it('portal token 可用时，登录会回填姓名和班级', async () => {
+    const app = new Hono();
+    app.route('/auth', authRoutes);
+
+    authBehavior.login = async () => ({
+      success: true,
+      portalToken: 'portal-token-login',
+      steps: [{ label: 'portal', ok: true }],
+    });
+    upstreamResolver = async () => makeUserPayload('张三', '2023001666', '机自25101班');
+
+    const res = await app.request('http://localhost/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: '2023001666', password: 'pass-profile' }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.success).toBe(true);
+    expect(body.data.user.name).toBe('张三');
+    expect(body.data.user.className).toBe('机自25101班');
+    expect(upstreamCallCount).toBe(1);
+
+    const db = getDb();
+    const users = await db.select()
+      .from(schema.users)
+      .where(eq(schema.users.studentId, '2023001666'));
+    expect(users[0].name).toBe('张三');
+    expect(users[0].className).toBe('机自25101班');
+  });
 });
 
 describe('静默凭证链路', () => {
@@ -348,6 +424,34 @@ describe('静默凭证链路', () => {
   });
 });
 
+describe('用户资料回填', () => {
+  it('/api/user 成功后会回写数据库姓名和班级', async () => {
+    const db = getDb();
+    const now = new Date();
+    const inserted = await db.insert(schema.users).values({
+      studentId: '2023001777',
+      name: null,
+      className: null,
+      encryptedPassword: CryptoHelper.encryptAES('pass-userinfo', config.jwtSecret),
+      createdAt: now,
+      lastLoginAt: now,
+    }).returning({ id: schema.users.id });
+
+    upstreamResolver = async () => makeUserPayload('李四', '2023001777', '机自25102班');
+
+    const result = await UserService.getUserInfo(inserted[0].id, '2023001777', true);
+    expect(result.data.name).toBe('李四');
+    expect(result.data.className).toBe('机自25102班');
+
+    const users = await db.select()
+      .from(schema.users)
+      .where(eq(schema.users.id, inserted[0].id))
+      .limit(1);
+    expect(users[0].name).toBe('李四');
+    expect(users[0].className).toBe('机自25102班');
+  });
+});
+
 describe('缓存与强制刷新流程', () => {
   it('refresh=false 命中缓存，refresh=true 强制回源并更新缓存', async () => {
     const first = await GradeService.getGrades(1, '2023001004', { term: '2024-2025-1' }, false);
@@ -393,6 +497,48 @@ describe('缓存与强制刷新流程', () => {
     expect(fallback._meta.stale).toBe(true);
     expect(fallback._meta.refresh_failed).toBe(true);
     expect(fallback._meta.last_error).toBe(5000);
+  });
+
+  it('refresh=false 且缓存已过期时，回源失败仍回退 stale 缓存', async () => {
+    const studentId = '2023001012';
+    const queryDate = '2025-03-02';
+    const cacheKey = `schedule:${studentId}:${queryDate}`;
+
+    const first = await ScheduleService.getSchedule(1, studentId, queryDate, false);
+    expect(first._meta.cached).toBe(false);
+    expect(upstreamCallCount).toBe(1);
+
+    const db = getDb();
+    await db.update(schema.cache)
+      .set({ expiresAt: new Date(Date.now() - 5_000) })
+      .where(eq(schema.cache.key, cacheKey));
+
+    upstreamInjectedError = new Error('REQUEST_TIMEOUT');
+    const fallback = await ScheduleService.getSchedule(1, studentId, queryDate, false);
+
+    expect(upstreamCallCount).toBe(2);
+    expect(fallback._meta.cached).toBe(true);
+    expect(fallback._meta.stale).toBe(true);
+    expect(fallback._meta.refresh_failed).toBe(true);
+    expect(fallback._meta.last_error).toBe(3004);
+  });
+
+  it('缓存 JSON 损坏时自动清理，避免请求 500', async () => {
+    const cacheKey = 'cache:broken-json';
+    await CacheService.set(cacheKey, { ok: true }, 60, 'jw');
+
+    const db = getDb();
+    await db.update(schema.cache)
+      .set({ data: 'not-json' })
+      .where(eq(schema.cache.key, cacheKey));
+
+    const cached = await CacheService.get(cacheKey);
+    expect(cached).toBeNull();
+
+    const rows = await db.select()
+      .from(schema.cache)
+      .where(eq(schema.cache.key, cacheKey));
+    expect(rows.length).toBe(0);
   });
 });
 

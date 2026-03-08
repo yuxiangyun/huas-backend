@@ -17,6 +17,28 @@ interface DashboardQuery {
   grade?: string;
 }
 
+function buildStudentGradeSql() {
+  return sql<string>`(
+    CASE
+      WHEN length(${schema.users.studentId}) >= 4
+        AND substr(${schema.users.studentId}, 1, 4) GLOB '[12][0-9][0-9][0-9]' THEN substr(${schema.users.studentId}, 1, 4)
+      WHEN length(${schema.users.studentId}) >= 5
+        AND substr(${schema.users.studentId}, 2, 4) GLOB '[12][0-9][0-9][0-9]' THEN substr(${schema.users.studentId}, 2, 4)
+      WHEN length(${schema.users.studentId}) >= 6
+        AND substr(${schema.users.studentId}, 3, 4) GLOB '[12][0-9][0-9][0-9]' THEN substr(${schema.users.studentId}, 3, 4)
+      WHEN length(${schema.users.studentId}) >= 7
+        AND substr(${schema.users.studentId}, 4, 4) GLOB '[12][0-9][0-9][0-9]' THEN substr(${schema.users.studentId}, 4, 4)
+      ELSE ''
+    END
+  )`;
+}
+
+function parseStudentGrade(studentId: string | null | undefined): string {
+  if (!studentId) return '';
+  const match = studentId.match(/(?:19|20)\d{2}/);
+  return match?.[0] ?? '';
+}
+
 function parsePositiveInt(value: string | undefined, fallback: number): number {
   if (!value) return fallback;
   const n = Number(value);
@@ -117,6 +139,7 @@ export class AdminDashboardService {
     const search = (query.search || '').trim();
     const major = (query.major || '').trim();
     const grade = (query.grade || '').trim();
+    const studentGradeExpr = buildStudentGradeSql();
 
     const nowMs = Date.now();
     const todayStart = startOfBeijingDay(now);
@@ -157,13 +180,13 @@ export class AdminDashboardService {
         .orderBy(desc(sql<number>`count(*)`)),
       db
         .select({
-          grade: sql<string>`substr(${schema.users.studentId}, 1, 4)`,
+          grade: studentGradeExpr,
           count: sql<number>`count(*)`,
         })
         .from(schema.users)
-        .where(sql`length(${schema.users.studentId}) >= 4`)
-        .groupBy(sql`substr(${schema.users.studentId}, 1, 4)`)
-        .orderBy(sql`substr(${schema.users.studentId}, 1, 4)`),
+        .where(sql`${studentGradeExpr} <> ''`)
+        .groupBy(studentGradeExpr)
+        .orderBy(studentGradeExpr),
       AnnouncementService.listAdmin(),
       readLatestTerminalLogs(LOG_LIMIT),
     ]);
@@ -181,7 +204,7 @@ export class AdminDashboardService {
       }
     }
     if (grade) {
-      whereParts.push(sql`substr(${schema.users.studentId}, 1, 4) = ${grade}`);
+      whereParts.push(sql`${studentGradeExpr} = ${grade}`);
     }
 
     const whereExpr = whereParts.length > 0 ? and(...whereParts) : undefined;
@@ -225,6 +248,7 @@ export class AdminDashboardService {
       studentId: row.studentId,
       name: row.name || '',
       className: row.className || '未分配',
+      grade: parseStudentGrade(row.studentId),
       createdAt: toIso(row.createdAt),
       lastLoginAt: toIso(row.lastLoginAt),
     }));

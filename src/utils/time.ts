@@ -16,6 +16,7 @@ const DATE_TIME_FORMATTER = new Intl.DateTimeFormat('en-CA', {
   minute: '2-digit',
   second: '2-digit',
   hour12: false,
+  hourCycle: 'h23',
 });
 
 function toPartsMap(parts: Intl.DateTimeFormatPart[]): Record<string, string> {

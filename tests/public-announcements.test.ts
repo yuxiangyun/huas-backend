@@ -1,7 +1,8 @@
 import { beforeAll, describe, expect, it } from 'bun:test';
 import { Hono } from 'hono';
-import { initDatabase } from '../src/db';
+import { initDatabase, getDb, schema } from '../src/db';
 import { registerRoutes } from '../src/routes';
+import { AdminDashboardService } from '../src/services/admin-dashboard-service';
 
 beforeAll(() => {
   initDatabase();
@@ -38,5 +39,60 @@ describe('public announcements route', () => {
     const body = await res.json() as any;
     expect(body.success).toBe(false);
     expect(body.error_code).toBe(4001);
+  });
+});
+
+describe('admin dashboard 年级解析', () => {
+  async function clearUserTables() {
+    const db = getDb();
+    await db.delete(schema.credentials);
+    await db.delete(schema.cache);
+    await db.delete(schema.users);
+  }
+
+  async function createUser(studentId: string, name: string, className = '测试班') {
+    const db = getDb();
+    const now = new Date();
+    await db.insert(schema.users).values({
+      studentId,
+      name,
+      className,
+      createdAt: now,
+      lastLoginAt: now,
+    });
+  }
+
+  it('统计支持数字学号和带前缀学号', async () => {
+    await clearUserTables();
+    await createUser('202401010404', 'user-a');
+    await createUser('S202307020119', 'user-b');
+    await createUser('Z202507020507', 'user-c');
+    await createUser('ABCD00001', 'user-d');
+
+    const data = await AdminDashboardService.getDashboard({ page: '1' });
+
+    const byGrade = new Map(
+      data.distributions.byGrade.map((item: any) => [item.grade, item.count])
+    );
+
+    expect(byGrade.get('2023')).toBe(1);
+    expect(byGrade.get('2024')).toBe(1);
+    expect(byGrade.get('2025')).toBe(1);
+    expect(byGrade.has('ABCD')).toBe(false);
+    expect(data.users.options.grades).toContain('2023');
+    expect(data.users.options.grades).toContain('2024');
+    expect(data.users.options.grades).toContain('2025');
+  });
+
+  it('按解析年级筛选，而不是学号前四位', async () => {
+    await clearUserTables();
+    await createUser('202401010404', 'user-a');
+    await createUser('S202307020119', 'user-b');
+    await createUser('Z202507020507', 'user-c');
+
+    const data = await AdminDashboardService.getDashboard({ page: '1', grade: '2025' });
+    expect(data.users.items.length).toBe(1);
+    expect(data.users.items[0].studentId).toBe('Z202507020507');
+    expect(data.users.items[0].grade).toBe('2025');
   });
 });

@@ -2,455 +2,231 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>HUAS 运维面板</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+    <title>HUAS 运维监控</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['"IBM Plex Sans SC"', '"PingFang SC"', '"Microsoft YaHei"', 'sans-serif'],
+              mono: ['"JetBrains Mono"', '"Cascadia Code"', '"SF Mono"', 'monospace'],
+            },
+            colors: {
+              term: {
+                bg: 'rgb(var(--term-bg) / <alpha-value>)',
+                panel: 'rgb(var(--term-panel) / <alpha-value>)',
+                sub: 'rgb(var(--term-sub) / <alpha-value>)',
+                border: 'rgb(var(--term-border) / <alpha-value>)',
+                text: 'rgb(var(--term-text) / <alpha-value>)',
+                muted: 'rgb(var(--term-muted) / <alpha-value>)',
+                hi: 'rgb(var(--term-hi) / <alpha-value>)',
+                cyan: 'rgb(var(--term-cyan) / <alpha-value>)',
+                green: 'rgb(var(--term-green) / <alpha-value>)',
+                red: 'rgb(var(--term-red) / <alpha-value>)',
+                yellow: 'rgb(var(--term-yellow) / <alpha-value>)',
+              },
+            },
+          },
+        },
+      };
+    </script>
     <style>
       :root {
-        --bg: #f3f6fb;
-        --panel: #ffffff;
-        --line: #d7dfeb;
-        --text: #182338;
-        --muted: #5f6f87;
-        --primary: #1a66ff;
-        --ok: #177e3e;
-        --warn: #ad6400;
-        --bad: #b42318;
+        --term-bg: 248 250 252;
+        --term-panel: 255 255 255;
+        --term-sub: 243 244 246;
+        --term-border: 226 232 240;
+        --term-text: 71 85 105;
+        --term-muted: 148 163 184;
+        --term-hi: 15 23 42;
+        --term-cyan: 14 116 144;
+        --term-green: 5 150 105;
+        --term-red: 220 38 38;
+        --term-yellow: 202 138 4;
       }
 
-      * {
-        box-sizing: border-box;
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --term-bg: 3 7 18;
+          --term-panel: 10 15 30;
+          --term-sub: 15 23 42;
+          --term-border: 30 41 59;
+          --term-text: 148 163 184;
+          --term-muted: 100 116 139;
+          --term-hi: 226 232 240;
+          --term-cyan: 34 211 238;
+          --term-green: 16 185 129;
+          --term-red: 248 113 113;
+          --term-yellow: 250 204 21;
+        }
       }
 
       body {
-        margin: 0;
-        font-family: "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
-        color: var(--text);
-        background: linear-gradient(140deg, #ebf2ff 0%, #f8fafd 55%, #eef6f1 100%);
+        background:
+          radial-gradient(circle at top right, rgba(var(--term-cyan) / 0.15), transparent 45%),
+          radial-gradient(circle at bottom left, rgba(var(--term-green) / 0.12), transparent 40%),
+          rgb(var(--term-bg));
+        color: rgb(var(--term-text));
+        -webkit-font-smoothing: antialiased;
       }
 
-      .wrap {
-        max-width: 1280px;
-        margin: 0 auto;
-        padding: 18px;
+      ::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
       }
 
-      .header {
-        background: linear-gradient(116deg, #0b4ab8 0%, #1a66ff 58%, #3aa7ff 100%);
-        color: #fff;
-        border-radius: 14px;
-        padding: 16px 18px;
-        margin-bottom: 14px;
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
+      ::-webkit-scrollbar-thumb {
+        background: rgb(var(--term-border));
       }
 
-      .header h1 {
-        margin: 0;
-        font-size: 20px;
-      }
-
-      .header p {
-        margin: 6px 0 0;
-        font-size: 12px;
-        opacity: 0.95;
-      }
-
-      .btn {
-        border: 0;
-        border-radius: 8px;
-        padding: 8px 12px;
-        font-family: inherit;
-        font-size: 12px;
-        cursor: pointer;
-      }
-
-      .btn.primary {
-        background: #fff;
-        color: #1242a9;
-        font-weight: 700;
-      }
-
-      .btn.secondary {
-        background: #dbe7ff;
-        color: #1746a3;
-      }
-
-      .btn.warn {
-        background: #ffe6bf;
-        color: #5f3900;
-      }
-
-      .grid {
-        display: grid;
-        grid-template-columns: repeat(12, 1fr);
-        gap: 12px;
-      }
-
-      .card {
-        background: var(--panel);
-        border: 1px solid var(--line);
-        border-radius: 12px;
-        padding: 12px;
-      }
-
-      .col-12 {
-        grid-column: span 12;
-      }
-
-      .col-8 {
-        grid-column: span 8;
-      }
-
-      .col-6 {
-        grid-column: span 6;
-      }
-
-      .col-4 {
-        grid-column: span 4;
-      }
-
-      .col-3 {
-        grid-column: span 3;
-      }
-
-      .card h2 {
-        margin: 0 0 10px;
-        font-size: 14px;
-      }
-
-      .status {
-        display: inline-block;
-        border-radius: 99px;
-        padding: 3px 8px;
-        font-size: 11px;
-        border: 1px solid var(--line);
-      }
-
-      .status.ok {
-        color: var(--ok);
-        border-color: #b4e0c2;
-        background: #f2fcf5;
-      }
-
-      .status.error {
-        color: var(--bad);
-        border-color: #f2c3c1;
-        background: #fff4f4;
-      }
-
-      .metric {
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-      }
-
-      .metric .label {
-        font-size: 12px;
-        color: var(--muted);
-      }
-
-      .metric .value {
-        font-size: 20px;
-        font-weight: 700;
-      }
-
-      .meta {
-        font-size: 12px;
-        color: var(--muted);
-      }
-
-      .filters {
-        display: grid;
-        grid-template-columns: repeat(12, 1fr);
-        gap: 8px;
-        align-items: end;
-      }
-
-      .field {
-        grid-column: span 12;
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-      }
-
-      .field label {
-        font-size: 12px;
-        color: var(--muted);
+      ::-webkit-scrollbar-track {
+        background: rgb(var(--term-bg));
       }
 
       input,
       select,
       textarea {
-        width: 100%;
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        padding: 8px 10px;
-        font-family: inherit;
-        font-size: 12px;
-        background: #fff;
-        color: var(--text);
+        font-size: 16px !important;
       }
 
-      textarea {
-        min-height: 90px;
-        resize: vertical;
-      }
-
-      .actions {
-        display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
+      @media (min-width: 768px) {
+        input,
+        select,
+        textarea {
+          font-size: 13px !important;
+        }
       }
 
       .table-wrap {
         overflow: auto;
-        border: 1px solid var(--line);
-        border-radius: 8px;
-      }
-
-      table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 12px;
-      }
-
-      th,
-      td {
-        border-bottom: 1px solid var(--line);
-        padding: 8px;
-        text-align: left;
-        white-space: nowrap;
-      }
-
-      th {
-        background: #f8fbff;
-        color: #2b4164;
-      }
-
-      .log-box {
-        min-height: 260px;
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        background: #111a2d;
-        color: #d6e7ff;
-        padding: 10px;
-        font-size: 12px;
-        overflow: auto;
-        white-space: pre-wrap;
-        line-height: 1.4;
-      }
-
-      .ann-item {
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        padding: 8px;
-        margin-bottom: 8px;
-      }
-
-      .ann-title {
-        margin: 0 0 6px;
-        font-size: 13px;
-        font-weight: 700;
-      }
-
-      .ann-meta {
-        font-size: 11px;
-        color: var(--muted);
-        margin-bottom: 6px;
-      }
-
-      .ann-content {
-        margin: 0;
-        white-space: pre-wrap;
-        line-height: 1.5;
-        font-size: 12px;
-      }
-
-      .hint {
-        font-size: 12px;
-        color: var(--muted);
-      }
-
-      .hidden {
-        display: none;
-      }
-
-      @media (max-width: 980px) {
-        .col-8,
-        .col-6,
-        .col-4,
-        .col-3 {
-          grid-column: span 12;
-        }
+        border: 1px solid rgb(var(--term-border));
       }
     </style>
   </head>
-  <body>
-    <div class="wrap">
-      <div class="header">
-        <div>
-          <h1>HUAS 运维管理面板</h1>
-          <p>手动刷新获取：服务状态、用户统计、公告管理、终端日志</p>
+  <body class="font-sans min-h-screen">
+    <header class="sticky top-0 z-40 border-b border-term-border bg-term-bg/90 backdrop-blur">
+      <div class="max-w-[1600px] mx-auto h-14 px-4 flex items-center justify-between gap-3">
+        <div class="flex items-center gap-3">
+          <span class="w-2 h-2 rounded-full bg-term-green animate-pulse"></span>
+          <h1 class="text-sm md:text-base font-mono font-bold tracking-widest text-term-hi">HUAS_MONITOR/OPS</h1>
         </div>
-        <div class="actions">
-          <button id="refreshBtn" class="btn primary" type="button">统一刷新</button>
+        <div class="flex items-center gap-2">
+          <button id="refreshBtn" class="h-8 px-3 border border-term-border bg-term-panel text-term-hi text-xs font-mono hover:text-term-cyan hover:border-term-cyan transition-colors">统一刷新</button>
         </div>
       </div>
+    </header>
 
-      <div class="grid">
-        <div class="card col-12">
-          <span id="serviceStatus" class="status">加载中</span>
-          <span id="lastRefresh" class="meta"></span>
-          <div id="errorMsg" class="hint hidden"></div>
+    <main class="max-w-[1600px] mx-auto p-4 flex flex-col gap-4">
+      <section class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3" id="summaryGrid"></section>
+
+      <section class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div class="lg:col-span-2 border border-term-border bg-term-panel rounded-sm flex flex-col">
+          <div class="p-3 border-b border-term-border bg-term-sub">
+            <h2 class="text-xs font-mono text-term-hi"><span class="text-term-cyan">#</span> 统计分布</h2>
+            <p class="text-[11px] font-mono text-term-muted mt-1">年级由学号中首个四位年份解析，支持 2024... / S2023... / Z2025...</p>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 p-3">
+            <div class="table-wrap">
+              <table class="w-full text-left whitespace-nowrap" id="majorStatsTable"></table>
+            </div>
+            <div class="table-wrap">
+              <table class="w-full text-left whitespace-nowrap" id="gradeStatsTable"></table>
+            </div>
+          </div>
         </div>
 
-        <div class="card col-3"><div class="metric"><span class="label">总用户数</span><span id="mTotalUsers" class="value">-</span></div></div>
-        <div class="card col-3"><div class="metric"><span class="label">今日活跃</span><span id="mTodayActive" class="value">-</span></div></div>
-        <div class="card col-3"><div class="metric"><span class="label">近7天活跃</span><span id="mActive7d" class="value">-</span></div></div>
-        <div class="card col-3"><div class="metric"><span class="label">近7天新增</span><span id="mNew7d" class="value">-</span></div></div>
-        <div class="card col-3"><div class="metric"><span class="label">缓存条数</span><span id="mCache" class="value">-</span></div></div>
-        <div class="card col-3"><div class="metric"><span class="label">凭证条数</span><span id="mCred" class="value">-</span></div></div>
-        <div class="card col-3"><div class="metric"><span class="label">进程内存 (RSS MB)</span><span id="mMem" class="value">-</span></div></div>
-        <div class="card col-3"><div class="metric"><span class="label">运行时长</span><span id="mUptime" class="value">-</span></div></div>
+        <div class="border border-term-border bg-term-panel rounded-sm p-3">
+          <h2 class="text-xs font-mono text-term-hi mb-3"><span class="text-term-cyan">#</span> 系统状态</h2>
+          <div id="systemPanel" class="grid grid-cols-1 gap-2 text-xs font-mono"></div>
+          <div id="statusBadge" class="mt-3 inline-flex items-center gap-2 px-2 py-1 border border-term-border text-xs font-mono">加载中</div>
+          <div id="lastRefresh" class="mt-2 text-[11px] font-mono text-term-muted"></div>
+          <div id="errorMsg" class="mt-2 text-[11px] font-mono text-term-red hidden"></div>
+        </div>
+      </section>
 
-        <div class="card col-6">
-          <h2>按专业统计 (class_name)</h2>
+      <section class="border border-term-border bg-term-panel rounded-sm flex flex-col">
+        <div class="p-3 border-b border-term-border bg-term-sub flex flex-col gap-3">
+          <h2 class="text-xs font-mono text-term-hi"><span class="text-term-cyan">#</span> 用户数据库</h2>
+          <div class="grid grid-cols-1 md:grid-cols-12 gap-2">
+            <input id="searchInput" placeholder="查询: 学号 / 姓名" class="md:col-span-4 h-10 md:h-9 px-3 border border-term-border bg-term-panel text-term-hi font-mono placeholder-term-muted focus:border-term-cyan outline-none" />
+            <select id="majorSelect" class="md:col-span-3 h-10 md:h-9 px-2 border border-term-border bg-term-panel text-term-hi font-mono focus:border-term-cyan outline-none">
+              <option value="">全部专业</option>
+            </select>
+            <select id="gradeSelect" class="md:col-span-3 h-10 md:h-9 px-2 border border-term-border bg-term-panel text-term-hi font-mono focus:border-term-cyan outline-none">
+              <option value="">全部年级</option>
+            </select>
+            <div class="md:col-span-2 grid grid-cols-2 gap-2">
+              <button id="applyFilterBtn" class="h-10 md:h-9 border border-term-border text-term-hi font-mono text-xs hover:text-term-cyan hover:border-term-cyan transition-colors">筛选</button>
+              <button id="resetFilterBtn" class="h-10 md:h-9 border border-term-border text-term-muted font-mono text-xs hover:text-term-hi transition-colors">重置</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="p-3">
           <div class="table-wrap">
-            <table>
-              <thead><tr><th>专业</th><th>人数</th></tr></thead>
-              <tbody id="majorStatsBody"><tr><td colspan="2">暂无数据</td></tr></tbody>
-            </table>
+            <table class="w-full text-left whitespace-nowrap" id="usersTable"></table>
+          </div>
+          <div class="mt-3 flex flex-col md:flex-row items-center justify-between gap-3 text-xs font-mono">
+            <div id="pageInfo" class="text-term-muted">-</div>
+            <div class="flex gap-2">
+              <button id="prevPageBtn" class="h-8 px-3 border border-term-border disabled:opacity-30 hover:text-term-hi transition-colors">&lt;</button>
+              <button id="nextPageBtn" class="h-8 px-3 border border-term-border disabled:opacity-30 hover:text-term-hi transition-colors">&gt;</button>
+            </div>
           </div>
         </div>
+      </section>
 
-        <div class="card col-6">
-          <h2>按年级统计 (学号前4位)</h2>
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>年级</th><th>人数</th></tr></thead>
-              <tbody id="gradeStatsBody"><tr><td colspan="2">暂无数据</td></tr></tbody>
-            </table>
+      <section class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <div class="border border-term-border bg-term-panel rounded-sm flex flex-col">
+          <div class="p-3 border-b border-term-border bg-term-sub">
+            <h2 class="text-xs font-mono text-term-hi"><span class="text-term-cyan">#</span> 公告管理</h2>
           </div>
-        </div>
-
-        <div class="card col-12">
-          <h2>用户表</h2>
-          <div class="filters">
-            <div class="field" style="grid-column: span 4;">
-              <label for="searchInput">搜索（学号/姓名）</label>
-              <input id="searchInput" placeholder="输入关键词" />
+          <form id="annForm" class="p-3 flex flex-col gap-2">
+            <input id="annTitle" required placeholder="公告标题" class="h-10 md:h-9 px-3 border border-term-border bg-term-panel text-term-hi font-mono placeholder-term-muted focus:border-term-cyan outline-none" />
+            <textarea id="annContent" required rows="4" placeholder="公告内容" class="w-full px-3 py-2 border border-term-border bg-term-panel text-term-hi font-mono placeholder-term-muted focus:border-term-cyan outline-none resize-y"></textarea>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+              <input id="annDate" type="date" required class="h-10 md:h-9 px-3 border border-term-border bg-term-panel text-term-hi font-mono focus:border-term-cyan outline-none" />
+              <select id="annType" required class="h-10 md:h-9 px-2 border border-term-border bg-term-panel text-term-hi font-mono focus:border-term-cyan outline-none">
+                <option value="info">info</option>
+                <option value="warning">warning</option>
+                <option value="error">error</option>
+              </select>
             </div>
-            <div class="field" style="grid-column: span 3;">
-              <label for="majorSelect">专业分类</label>
-              <select id="majorSelect"><option value="">全部专业</option></select>
-            </div>
-            <div class="field" style="grid-column: span 3;">
-              <label for="gradeSelect">年级分类</label>
-              <select id="gradeSelect"><option value="">全部年级</option></select>
-            </div>
-            <div class="field" style="grid-column: span 2;">
-              <div class="actions">
-                <button id="applyFilterBtn" type="button" class="btn secondary">筛选</button>
-                <button id="resetFilterBtn" type="button" class="btn warn">重置</button>
-              </div>
-            </div>
-          </div>
-
-          <div style="margin-top: 10px;" class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>学号</th>
-                  <th>姓名</th>
-                  <th>专业</th>
-                </tr>
-              </thead>
-              <tbody id="usersBody">
-                <tr><td colspan="3">暂无数据</td></tr>
-              </tbody>
-            </table>
-          </div>
-
-          <div style="margin-top: 10px;" class="actions">
-            <button id="prevPageBtn" type="button" class="btn secondary">上一页</button>
-            <button id="nextPageBtn" type="button" class="btn secondary">下一页</button>
-            <span id="pageInfo" class="meta"></span>
-          </div>
-        </div>
-
-        <div class="card col-6">
-          <h2>公告管理</h2>
-          <form id="annForm">
-            <div class="field">
-              <label for="annTitle">标题</label>
-              <input id="annTitle" required />
-            </div>
-            <div class="field">
-              <label for="annContent">内容</label>
-              <textarea id="annContent" required></textarea>
-            </div>
-            <div class="filters">
-              <div class="field" style="grid-column: span 6;">
-                <label for="annDate">日期</label>
-                <input id="annDate" type="date" required />
-              </div>
-              <div class="field" style="grid-column: span 6;">
-                <label for="annType">类型</label>
-                <select id="annType" required>
-                  <option value="info">info</option>
-                  <option value="warning">warning</option>
-                  <option value="error">error</option>
-                </select>
-              </div>
-            </div>
-            <div class="actions" style="margin-top: 10px;">
-              <button id="annSubmitBtn" class="btn secondary" type="submit">新增公告</button>
-              <button id="annCancelEditBtn" class="btn warn hidden" type="button">取消编辑</button>
+            <div class="flex gap-2">
+              <button id="annSubmitBtn" class="h-9 px-4 bg-term-green text-white font-mono text-xs font-bold hover:opacity-90 transition-opacity" type="submit">新增公告</button>
+              <button id="annCancelEditBtn" class="h-9 px-4 border border-term-border text-term-muted font-mono text-xs hover:text-term-hi hidden" type="button">取消编辑</button>
             </div>
           </form>
         </div>
 
-        <div class="card col-6">
-          <h2>公告列表</h2>
-          <div id="annList" class="hint">暂无公告</div>
+        <div class="border border-term-border bg-term-panel rounded-sm flex flex-col">
+          <div class="p-3 border-b border-term-border bg-term-sub">
+            <h2 class="text-xs font-mono text-term-hi"><span class="text-term-cyan">#</span> 公告列表</h2>
+          </div>
+          <div class="p-3">
+            <div class="table-wrap">
+              <table class="w-full text-left whitespace-nowrap" id="announcementTable"></table>
+            </div>
+          </div>
         </div>
+      </section>
 
-        <div class="card col-12">
-          <h2>终端最新 50 条</h2>
-          <div id="logsBox" class="log-box">暂无日志</div>
+      <section class="border border-term-border bg-term-panel rounded-sm flex flex-col">
+        <div class="p-3 border-b border-term-border bg-term-sub">
+          <h2 class="text-xs font-mono text-term-hi"><span class="text-term-cyan">#</span> 终端日志</h2>
         </div>
-      </div>
-    </div>
+        <div class="p-3">
+          <div class="table-wrap max-h-[380px]">
+            <table class="w-full text-left whitespace-nowrap" id="logsTable"></table>
+          </div>
+        </div>
+      </section>
+    </main>
 
     <script>
       const BEIJING_TZ = 'Asia/Shanghai';
-
-      function beijingParts(date = new Date()) {
-        const parts = new Intl.DateTimeFormat('en-CA', {
-          timeZone: BEIJING_TZ,
-          year: 'numeric',
-          month: '2-digit',
-          day: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit',
-          hour12: false,
-        }).formatToParts(date);
-        return Object.fromEntries(parts.map((part) => [part.type, part.value]));
-      }
-
-      function beijingDate(date = new Date()) {
-        const p = beijingParts(date);
-        return `${p.year}-${p.month}-${p.day}`;
-      }
-
-      function beijingDateTime(date = new Date()) {
-        const p = beijingParts(date);
-        return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`;
-      }
 
       const state = {
         page: 1,
@@ -461,21 +237,15 @@
 
       const el = {
         refreshBtn: document.getElementById('refreshBtn'),
-        serviceStatus: document.getElementById('serviceStatus'),
+        summaryGrid: document.getElementById('summaryGrid'),
+
+        majorStatsTable: document.getElementById('majorStatsTable'),
+        gradeStatsTable: document.getElementById('gradeStatsTable'),
+
+        systemPanel: document.getElementById('systemPanel'),
+        statusBadge: document.getElementById('statusBadge'),
         lastRefresh: document.getElementById('lastRefresh'),
         errorMsg: document.getElementById('errorMsg'),
-
-        mTotalUsers: document.getElementById('mTotalUsers'),
-        mTodayActive: document.getElementById('mTodayActive'),
-        mActive7d: document.getElementById('mActive7d'),
-        mNew7d: document.getElementById('mNew7d'),
-        mCache: document.getElementById('mCache'),
-        mCred: document.getElementById('mCred'),
-        mMem: document.getElementById('mMem'),
-        mUptime: document.getElementById('mUptime'),
-
-        majorStatsBody: document.getElementById('majorStatsBody'),
-        gradeStatsBody: document.getElementById('gradeStatsBody'),
 
         searchInput: document.getElementById('searchInput'),
         majorSelect: document.getElementById('majorSelect'),
@@ -483,10 +253,10 @@
         applyFilterBtn: document.getElementById('applyFilterBtn'),
         resetFilterBtn: document.getElementById('resetFilterBtn'),
 
-        usersBody: document.getElementById('usersBody'),
+        usersTable: document.getElementById('usersTable'),
+        pageInfo: document.getElementById('pageInfo'),
         prevPageBtn: document.getElementById('prevPageBtn'),
         nextPageBtn: document.getElementById('nextPageBtn'),
-        pageInfo: document.getElementById('pageInfo'),
 
         annForm: document.getElementById('annForm'),
         annTitle: document.getElementById('annTitle'),
@@ -495,13 +265,82 @@
         annType: document.getElementById('annType'),
         annSubmitBtn: document.getElementById('annSubmitBtn'),
         annCancelEditBtn: document.getElementById('annCancelEditBtn'),
-        annList: document.getElementById('annList'),
+        announcementTable: document.getElementById('announcementTable'),
 
-        logsBox: document.getElementById('logsBox'),
+        logsTable: document.getElementById('logsTable'),
       };
 
+      function beijingDateTime(date = new Date()) {
+        const parts = new Intl.DateTimeFormat('en-CA', {
+          timeZone: BEIJING_TZ,
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false,
+          hourCycle: 'h23',
+        }).formatToParts(date);
+        const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+        return `${map.year}-${map.month}-${map.day} ${map.hour}:${map.minute}:${map.second}`;
+      }
+
+      function beijingDate(date = new Date()) {
+        return beijingDateTime(date).slice(0, 10);
+      }
+
+      function requestJson(url, options = {}) {
+        return fetch(url, {
+          headers: {
+            'Content-Type': 'application/json',
+            ...(options.headers || {}),
+          },
+          ...options,
+        })
+          .then(async (res) => {
+            let payload = null;
+            try {
+              payload = await res.json();
+            } catch {
+              payload = null;
+            }
+            if (!res.ok || !payload?.success) {
+              throw new Error(payload?.error_message || `请求失败 (${res.status})`);
+            }
+            return payload.data;
+          });
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? '')
+          .replaceAll('&', '&amp;')
+          .replaceAll('<', '&lt;')
+          .replaceAll('>', '&gt;')
+          .replaceAll('"', '&quot;')
+          .replaceAll("'", '&#39;');
+      }
+
+      function tableHead(columns) {
+        return `<thead class="bg-term-sub text-term-text text-[11px] uppercase tracking-wider font-mono border-b border-term-border"><tr>${columns
+          .map((c) => `<th class="px-3 py-2 font-normal">${c}</th>`)
+          .join('')}</tr></thead>`;
+      }
+
+      function formatDate(value) {
+        if (!value) return '-';
+        const d = new Date(value);
+        if (Number.isNaN(d.getTime())) return String(value);
+        const pad = (n) => String(n).padStart(2, '0');
+        return `${String(d.getFullYear()).slice(2)}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      }
+
+      function formatNumber(value) {
+        return Number(value || 0).toLocaleString('en-US');
+      }
+
       function formatUptime(seconds) {
-        const s = Number(seconds || 0);
+        const s = Math.max(0, Number(seconds || 0));
         const d = Math.floor(s / 86400);
         const h = Math.floor((s % 86400) / 3600);
         const m = Math.floor((s % 3600) / 60);
@@ -518,108 +357,102 @@
           return;
         }
         el.errorMsg.classList.remove('hidden');
-        el.errorMsg.textContent = message;
+        el.errorMsg.textContent = `错误: ${message}`;
       }
 
-      async function requestJson(url, options = {}) {
-        const res = await fetch(url, {
-          headers: {
-            'Content-Type': 'application/json',
-            ...(options.headers || {}),
-          },
-          ...options,
-        });
+      function renderSummary(metrics) {
+        const items = [
+          ['总用户数', formatNumber(metrics.totalUsers)],
+          ['今日活跃', formatNumber(metrics.todayActiveUsers)],
+          ['近7天活跃', formatNumber(metrics.activeUsers7d)],
+          ['近7天新增', formatNumber(metrics.newUsers7d)],
+          ['缓存条数', formatNumber(metrics.cacheEntries)],
+          ['凭证条数', formatNumber(metrics.credentialEntries)],
+          ['RSS 内存', `${metrics.memory.rssMb} MB`],
+          ['运行时长', formatUptime(metrics.uptimeSeconds)],
+        ];
 
-        let payload = null;
-        try {
-          payload = await res.json();
-        } catch {
-          payload = null;
-        }
-
-        if (!res.ok || !payload?.success) {
-          const msg = payload?.error_message || `请求失败(${res.status})`;
-          throw new Error(msg);
-        }
-
-        return payload.data;
+        el.summaryGrid.innerHTML = items
+          .map(
+            ([label, value]) => `
+            <div class="border border-term-border bg-term-panel p-3 rounded-sm hover:border-term-cyan/50 transition-colors">
+              <div class="text-[10px] font-mono text-term-muted mb-1">${label}</div>
+              <div class="text-lg font-mono font-bold text-term-hi">${value}</div>
+            </div>
+          `
+          )
+          .join('');
       }
 
-      function buildDashboardUrl() {
-        const params = new URLSearchParams();
-        params.set('page', String(state.page));
+      function renderSystem(service, metrics) {
+        const ok = service.status === 'ok';
+        el.statusBadge.className = `mt-3 inline-flex items-center gap-2 px-2 py-1 border text-xs font-mono ${ok ? 'text-term-green border-term-green/40 bg-term-green/10' : 'text-term-red border-term-red/40 bg-term-red/10'}`;
+        el.statusBadge.innerHTML = `${ok ? '●' : '■'} ${ok ? '服务正常' : '服务异常'}`;
 
-        const search = el.searchInput.value.trim();
-        const major = el.majorSelect.value;
-        const grade = el.gradeSelect.value;
-
-        if (search) params.set('search', search);
-        if (major) params.set('major', major);
-        if (grade) params.set('grade', grade);
-
-        return `/api/admin/dashboard?${params.toString()}`;
+        el.systemPanel.innerHTML = `
+          <div><span class="text-term-muted">服务时间戳</span> <span class="text-term-hi">${escapeHtml(service.timestamp || '-')}</span></div>
+          <div><span class="text-term-muted">RSS</span> <span class="text-term-cyan">${metrics.memory.rssMb} MB</span></div>
+          <div><span class="text-term-muted">Heap Used</span> <span class="text-term-cyan">${metrics.memory.heapUsedMb} MB</span></div>
+          <div><span class="text-term-muted">Heap Total</span> <span class="text-term-cyan">${metrics.memory.heapTotalMb} MB</span></div>
+        `;
       }
 
-      function escapeHtml(value) {
-        return String(value ?? '')
-          .replaceAll('&', '&amp;')
-          .replaceAll('<', '&lt;')
-          .replaceAll('>', '&gt;')
-          .replaceAll('"', '&quot;')
-          .replaceAll("'", '&#39;');
+      function renderDistTable(table, title, rows, key) {
+        table.innerHTML = `${tableHead([title, '人数'])}<tbody class="text-[12px] font-mono divide-y divide-term-border/50">${
+          rows.length > 0
+            ? rows
+                .map(
+                  (row) =>
+                    `<tr class="hover:bg-term-border/30"><td class="px-3 py-2 text-term-hi">${escapeHtml(row[key])}</td><td class="px-3 py-2 text-term-green">${formatNumber(row.count)}</td></tr>`
+                )
+                .join('')
+            : `<tr><td colspan="2" class="px-3 py-6 text-center text-term-muted">暂无数据</td></tr>`
+        }</tbody>`;
       }
 
       function renderSelectOptions(selectEl, values, placeholder) {
         const current = selectEl.value;
-        const normalized = values.map((entry) => {
-          if (typeof entry === 'string') {
-            return { value: entry, label: entry };
-          }
-          return { value: entry.value, label: entry.label };
-        });
-        const unique = [];
-        const used = new Set();
-        normalized.forEach((entry) => {
-          if (!entry.value || used.has(entry.value)) return;
-          used.add(entry.value);
-          unique.push(entry);
-        });
-        const options = [
-          `<option value="">${escapeHtml(placeholder)}</option>`,
-          ...unique.map(
-            (entry) => `<option value="${escapeHtml(entry.value)}">${escapeHtml(entry.label)}</option>`
-          ),
-        ];
-        selectEl.innerHTML = options.join('');
+        const normalized = values
+          .map((entry) => (typeof entry === 'string' ? { value: entry, label: entry } : entry))
+          .filter((entry) => entry?.value);
 
-        if (current && unique.some((entry) => entry.value === current)) {
+        const seen = new Set();
+        const deduped = normalized.filter((entry) => {
+          if (seen.has(entry.value)) return false;
+          seen.add(entry.value);
+          return true;
+        });
+
+        selectEl.innerHTML = [`<option value="">${escapeHtml(placeholder)}</option>`, ...deduped.map((entry) => `<option value="${escapeHtml(entry.value)}">${escapeHtml(entry.label)}</option>`)].join('');
+
+        if (current && deduped.some((entry) => entry.value === current)) {
           selectEl.value = current;
         }
       }
 
-      function renderStatsRows(tbody, rows, keyName) {
-        if (!rows || rows.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="2">暂无数据</td></tr>';
-          return;
-        }
-        tbody.innerHTML = rows
-          .map((row) => `<tr><td>${escapeHtml(row[keyName])}</td><td>${escapeHtml(row.count)}</td></tr>`)
-          .join('');
-      }
-
       function renderUsers(users) {
-        if (!users.items || users.items.length === 0) {
-          el.usersBody.innerHTML = '<tr><td colspan="3">暂无数据</td></tr>';
-        } else {
-          el.usersBody.innerHTML = users.items
-            .map(
-              (item) =>
-                `<tr><td>${escapeHtml(item.studentId)}</td><td>${escapeHtml(item.name || '-')}</td><td>${escapeHtml(item.className || '-')}</td></tr>`
-            )
-            .join('');
-        }
+        const rows = users.items || [];
+        el.usersTable.innerHTML = `${tableHead(['学号', '姓名', '专业', '解析年级', '最后登录'])}<tbody class="text-[12px] font-mono divide-y divide-term-border/50">${
+          rows.length > 0
+            ? rows
+                .map(
+                  (item) => `
+                <tr class="hover:bg-term-border/30">
+                  <td class="px-3 py-2.5 text-term-cyan">${escapeHtml(item.studentId)}</td>
+                  <td class="px-3 py-2.5 text-term-hi">${escapeHtml(item.name || '-')}</td>
+                  <td class="px-3 py-2.5 text-term-muted">${escapeHtml(item.className || '-')}</td>
+                  <td class="px-3 py-2.5 text-term-green">${escapeHtml(item.grade || '-')}</td>
+                  <td class="px-3 py-2.5 text-term-muted">${formatDate(item.lastLoginAt)}</td>
+                </tr>
+              `
+                )
+                .join('')
+            : `<tr><td colspan="5" class="px-3 py-6 text-center text-term-muted">暂无数据</td></tr>`
+        }</tbody>`;
 
         state.totalPages = users.totalPages || 1;
+        state.page = users.page || 1;
+
         el.pageInfo.textContent = `第 ${users.page} / ${users.totalPages} 页，每页 ${users.pageSize} 条，总计 ${users.total} 条`;
         el.prevPageBtn.disabled = users.page <= 1;
         el.nextPageBtn.disabled = users.page >= users.totalPages;
@@ -630,32 +463,61 @@
 
       function renderAnnouncements(items) {
         state.announcements = items || [];
-        if (state.announcements.length === 0) {
-          el.annList.innerHTML = '<div class="hint">暂无公告</div>';
-          return;
-        }
+        const typeClass = {
+          info: 'text-term-cyan',
+          warning: 'text-term-yellow',
+          error: 'text-term-red',
+        };
 
-        el.annList.innerHTML = state.announcements
-          .map(
-            (item) => `
-              <div class="ann-item">
-                <p class="ann-title">${escapeHtml(item.title)}</p>
-                <div class="ann-meta">${escapeHtml(item.id)} | ${escapeHtml(item.date)} | ${escapeHtml(item.type)}</div>
-                <p class="ann-content">${escapeHtml(item.content)}</p>
-                <div class="actions" style="margin-top:8px;">
-                  <button type="button" class="btn secondary" data-action="edit" data-id="${escapeHtml(item.id)}">编辑</button>
-                  <button type="button" class="btn warn" data-action="delete" data-id="${escapeHtml(item.id)}">删除</button>
-                </div>
-              </div>
-            `
-          )
-          .join('');
+        el.announcementTable.innerHTML = `${tableHead(['标题', '类型', '日期', '操作'])}<tbody class="text-[12px] font-mono divide-y divide-term-border/50">${
+          state.announcements.length > 0
+            ? state.announcements
+                .map(
+                  (item) => `
+                  <tr class="hover:bg-term-border/30">
+                    <td class="px-3 py-2.5 text-term-hi max-w-[280px] truncate" title="${escapeHtml(item.content || '')}">${escapeHtml(item.title)}</td>
+                    <td class="px-3 py-2.5 ${typeClass[item.type] || 'text-term-muted'}">${escapeHtml(item.type)}</td>
+                    <td class="px-3 py-2.5 text-term-muted">${escapeHtml(item.date)}</td>
+                    <td class="px-3 py-2.5">
+                      <button data-action="edit" data-id="${escapeHtml(item.id)}" class="text-term-cyan hover:underline mr-3">编辑</button>
+                      <button data-action="delete" data-id="${escapeHtml(item.id)}" class="text-term-red hover:underline">删除</button>
+                    </td>
+                  </tr>
+                `
+                )
+                .join('')
+            : `<tr><td colspan="4" class="px-3 py-6 text-center text-term-muted">暂无公告</td></tr>`
+        }</tbody>`;
+      }
+
+      function parseLogLine(line) {
+        const tsMatch = line.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})/);
+        const level = /\bERROR\b|\bERR\b/i.test(line)
+          ? 'ERROR'
+          : /\bWARN\b/i.test(line)
+            ? 'WARN'
+            : /\bINFO\b/i.test(line)
+              ? 'INFO'
+              : 'LOG';
+        return {
+          time: tsMatch?.[1] || '-',
+          level,
+          line,
+        };
       }
 
       function renderLogs(logs) {
-        const lines = (logs.items || []).map((item) => item.line);
-        el.logsBox.textContent = lines.length > 0 ? lines.join('\n') : '暂无日志';
-        el.logsBox.scrollTop = el.logsBox.scrollHeight;
+        const rows = (logs.items || []).map((item) => ({ ...parseLogLine(item.line), source: item.source }));
+        el.logsTable.innerHTML = `${tableHead(['时间', '源', '级别', '内容'])}<tbody class="text-[12px] font-mono divide-y divide-term-border/50">${
+          rows.length > 0
+            ? rows
+                .map((row) => {
+                  const levelClass = row.level === 'ERROR' ? 'text-term-red' : row.level === 'WARN' ? 'text-term-yellow' : row.level === 'INFO' ? 'text-term-green' : 'text-term-muted';
+                  return `<tr class="hover:bg-term-border/30"><td class="px-3 py-1.5 text-term-muted">${escapeHtml(row.time)}</td><td class="px-3 py-1.5 text-term-cyan">${escapeHtml(row.source)}</td><td class="px-3 py-1.5 ${levelClass}">${escapeHtml(row.level)}</td><td class="px-3 py-1.5 text-term-hi max-w-[900px] truncate" title="${escapeHtml(row.line)}">${escapeHtml(row.line)}</td></tr>`;
+                })
+                .join('')
+            : `<tr><td colspan="4" class="px-3 py-6 text-center text-term-muted">暂无日志</td></tr>`
+        }</tbody>`;
       }
 
       function resetAnnForm() {
@@ -668,6 +530,18 @@
         el.annCancelEditBtn.classList.add('hidden');
       }
 
+      function buildDashboardUrl() {
+        const params = new URLSearchParams();
+        params.set('page', String(state.page));
+        const search = el.searchInput.value.trim();
+        const major = el.majorSelect.value;
+        const grade = el.gradeSelect.value;
+        if (search) params.set('search', search);
+        if (major) params.set('major', major);
+        if (grade) params.set('grade', grade);
+        return `/api/admin/dashboard?${params.toString()}`;
+      }
+
       async function refreshDashboard() {
         setError('');
         el.refreshBtn.disabled = true;
@@ -675,25 +549,14 @@
 
         try {
           const data = await requestJson(buildDashboardUrl());
-
-          el.serviceStatus.className = `status ${data.service.status === 'ok' ? 'ok' : 'error'}`;
-          el.serviceStatus.textContent = data.service.status === 'ok' ? '服务正常' : '服务异常';
-          el.lastRefresh.textContent = `最后刷新：${beijingDateTime()}（北京时间）`;
-
-          el.mTotalUsers.textContent = data.metrics.totalUsers;
-          el.mTodayActive.textContent = data.metrics.todayActiveUsers;
-          el.mActive7d.textContent = data.metrics.activeUsers7d;
-          el.mNew7d.textContent = data.metrics.newUsers7d;
-          el.mCache.textContent = data.metrics.cacheEntries;
-          el.mCred.textContent = data.metrics.credentialEntries;
-          el.mMem.textContent = data.metrics.memory.rssMb;
-          el.mUptime.textContent = formatUptime(data.metrics.uptimeSeconds);
-
-          renderStatsRows(el.majorStatsBody, data.distributions.byMajor, 'className');
-          renderStatsRows(el.gradeStatsBody, data.distributions.byGrade, 'grade');
-          renderUsers(data.users);
-          renderAnnouncements(data.announcements);
-          renderLogs(data.logs);
+          renderSummary(data.metrics);
+          renderSystem(data.service, data.metrics);
+          renderDistTable(el.majorStatsTable, '专业', data.distributions.byMajor || [], 'className');
+          renderDistTable(el.gradeStatsTable, '年级', data.distributions.byGrade || [], 'grade');
+          renderUsers(data.users || {});
+          renderAnnouncements(data.announcements || []);
+          renderLogs(data.logs || {});
+          el.lastRefresh.textContent = `最后刷新: ${beijingDateTime()} (北京时间)`;
         } catch (err) {
           setError(err.message || '刷新失败');
         } finally {
@@ -707,6 +570,12 @@
       });
 
       el.applyFilterBtn.addEventListener('click', async () => {
+        state.page = 1;
+        await refreshDashboard();
+      });
+
+      el.searchInput.addEventListener('keypress', async (event) => {
+        if (event.key !== 'Enter') return;
         state.page = 1;
         await refreshDashboard();
       });
@@ -731,7 +600,7 @@
         await refreshDashboard();
       });
 
-      el.annList.addEventListener('click', async (event) => {
+      el.announcementTable.addEventListener('click', async (event) => {
         const target = event.target;
         if (!(target instanceof HTMLElement)) return;
         const btn = target.closest('button[data-action]');
@@ -779,6 +648,11 @@
           date: el.annDate.value,
           type: el.annType.value,
         };
+
+        if (!payload.title || !payload.content) {
+          setError('标题和内容不能为空');
+          return;
+        }
 
         try {
           if (state.editingId) {

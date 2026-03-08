@@ -18,15 +18,15 @@ export async function fallbackOnRefreshFailure<T>(options: {
   source: string;
   studentId: string;
 }): Promise<{ data: T; _meta: CacheMeta } | null> {
-  if (!options.forceRefresh) return null;
+  const errorCode = toErrorCode(options.error);
+  if (errorCode === ErrorCode.PARAM_ERROR) return null;
 
-  const cached = await CacheService.get<T>(options.cacheKey, { touch: true });
+  const cached = await CacheService.get<T>(options.cacheKey, { touch: true, allowExpired: true });
   if (!cached) return null;
 
-  const errorCode = toErrorCode(options.error);
   Logger.warn(
     'RefreshFallback',
-    `${options.source} 强制刷新失败，回退缓存`,
+    `${options.source} ${options.forceRefresh ? '强制刷新' : '回源请求'}失败，回退缓存`,
     `error_code=${errorCode}`,
     options.studentId
   );

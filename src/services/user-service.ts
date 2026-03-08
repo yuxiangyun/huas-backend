@@ -4,6 +4,8 @@ import { UserParser } from '../parsers';
 import { URLS } from '../core/url-config';
 import { config, PORTAL_HEADERS } from '../config';
 import { fallbackOnRefreshFailure } from './refresh-fallback';
+import { getDb, schema } from '../db';
+import { eq } from 'drizzle-orm';
 
 export class UserService {
   static async getUserInfo(userId: number, studentId: string, forceRefresh = false) {
@@ -41,6 +43,12 @@ export class UserService {
     }
 
     if (data) {
+      await getDb().update(schema.users)
+        .set({
+          ...(data.name ? { name: data.name } : {}),
+          ...(data.className ? { className: data.className } : {}),
+        })
+        .where(eq(schema.users.id, userId));
       await CacheService.set(cacheKey, data, config.cacheTtl.user, 'portal');
     }
 

@@ -6,13 +6,12 @@ import { TicketExchanger } from '../auth/ticket-exchanger';
 import { CredentialManager } from '../auth/credential-manager';
 import { generateToken } from '../auth/jwt';
 import { CryptoHelper } from '../utils/crypto';
-import { UserParser } from '../parsers';
-import { URLS } from '../core/url-config';
 import { getDb, schema } from '../db';
-import { config, PORTAL_HEADERS } from '../config';
+import { config } from '../config';
 import { Logger } from '../utils/logger';
 import { success, error } from '../utils/response';
 import { ErrorCode } from '../utils/errors';
+import { UserService } from '../services/user-service';
 
 const auth = new Hono();
 
@@ -139,63 +138,43 @@ auth.post('/login', async (c) => {
       return error(c, ErrorCode.CAS_LOGIN_FAILED, '教务系统激活失败', 400);
     }
 
-    // Fetch user info
-    let userName = '';
-    let className = '';
-    if (result.portalToken) {
-      try {
-        const userRes = await client.request(URLS.userInfo, {
-          headers: {
-            'X-Id-Token': result.portalToken,
-            ...PORTAL_HEADERS,
-          },
-          timeout: config.timeout.business,
-        });
-        const userJson = await userRes.json() as any;
-        const userInfo = UserParser.parse(userJson);
-        if (userInfo) {
-          userName = userInfo.name;
-          className = userInfo.className;
-        }
-      } catch {
-        // User info fetch failure doesn't block login
-      }
-    }
-
-    // Upsert user in DB + store encrypted password for silent re-auth
+    // Upsert user in DB + store encrypted password for silent re-auth.
+    // Profile fields are backfilled after credentials are persisted.
     const db = getDb();
     const now = new Date();
     const encryptedPassword = CryptoHelper.encryptAES(password, config.jwtSecret);
 
-    let existingUsers = await db.select()
+    await db.insert(schema.users).values({
+      studentId: username,
+      name: null,
+      className: null,
+      encryptedPassword,
+      createdAt: now,
+      lastLoginAt: now,
+    }).onConflictDoUpdate({
+      target: schema.users.studentId,
+      set: {
+        encryptedPassword,
+        lastLoginAt: now,
+      },
+    });
+
+    const users = await db.select({
+      id: schema.users.id,
+      name: schema.users.name,
+      className: schema.users.className,
+    })
       .from(schema.users)
       .where(eq(schema.users.studentId, username))
       .limit(1);
 
-    let userId: number;
-    if (existingUsers.length > 0) {
-      userId = existingUsers[0].id;
-      await db.update(schema.users)
-        .set({
-          name: userName || existingUsers[0].name,
-          className: className || existingUsers[0].className,
-          encryptedPassword,
-          lastLoginAt: now,
-        })
-        .where(eq(schema.users.id, userId));
-    } else {
-      const inserted = await db.insert(schema.users).values({
-        studentId: username,
-        name: userName || null,
-        className: className || null,
-        encryptedPassword,
-        createdAt: now,
-        lastLoginAt: now,
-      }).returning({ id: schema.users.id });
-      userId = inserted[0].id;
+    if (users.length === 0) {
+      throw new Error('USER_UPSERT_FAILED');
     }
 
-    const resolvedName = userName || existingUsers[0]?.name || undefined;
+    const userId = users[0].id;
+    let resolvedName = users[0].name || undefined;
+    let resolvedClassName = users[0].className || '';
 
     // Store all credentials
     const jarJson = client.serializeJar();
@@ -205,12 +184,31 @@ auth.post('/login', async (c) => {
     }
     await CredentialManager.storeCredential(userId, 'jw_session', null, jarJson, config.ttl.jwSession);
 
+    if (result.portalToken && (!resolvedName || !resolvedClassName)) {
+      try {
+        const profile = await UserService.getUserInfo(userId, username, true);
+        if (profile.data?.name?.trim()) {
+          resolvedName = profile.data.name.trim();
+        }
+        if (profile.data?.className?.trim()) {
+          resolvedClassName = profile.data.className.trim();
+        }
+      } catch (profileError: any) {
+        Logger.warn(
+          'Auth',
+          '用户信息获取失败，继续登录',
+          profileError?.message || String(profileError),
+          username
+        );
+      }
+    }
+
     // Generate our JWT
     const token = await generateToken({ userId, studentId: username, name: resolvedName });
 
     Logger.auth(username, '成功', 200, loginMs, resolvedName, allSteps);
 
-    return success(c, { token, user: { name: resolvedName, studentId: username, className } });
+    return success(c, { token, user: { name: resolvedName, studentId: username, className: resolvedClassName } });
   } catch (e: any) {
     Logger.error('Auth', '登录异常', e);
     if (e.message === 'REQUEST_TIMEOUT') {

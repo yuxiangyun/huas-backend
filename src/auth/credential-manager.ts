@@ -145,7 +145,7 @@ export class CredentialManager {
   /**
    * Silent re-authentication: re-run full CAS flow using stored password.
    * User is completely unaware this is happening.
-   * Max 3 attempts with 10-minute cooldown after exhaustion.
+   * Max 3 attempts with 1-minute cooldown after exhaustion.
    */
   static async silentReAuth(userId: number): Promise<boolean> {
     // Cooldown check
