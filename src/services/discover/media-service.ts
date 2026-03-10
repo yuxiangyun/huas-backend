@@ -1,0 +1,137 @@
+import { and, eq, isNull } from 'drizzle-orm';
+import sharp from 'sharp';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { join, resolve, sep } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { config } from '../../config';
+import { getDb, schema } from '../../db';
+import { AppError, ErrorCode } from '../../utils/errors';
+import { Logger } from '../../utils/logger';
+import type { DiscoverStoredImage } from '../../utils/discover';
+
+interface ResolvedMediaTarget {
+  storageKey: string;
+  filePath: string;
+}
+
+export class DiscoverMediaService {
+  static async compressAndStoreImages(files: File[]) {
+    await mkdir(config.discover.storageRoot, { recursive: true });
+
+    const storageKey = randomUUID();
+    const postDir = resolve(config.discover.storageRoot, storageKey);
+    const images: DiscoverStoredImage[] = [];
+
+    await mkdir(postDir, { recursive: true });
+
+    try {
+      for (const [index, file] of files.entries()) {
+        images.push(await this.compressSingleImage(file, postDir, storageKey, index));
+      }
+    } catch (err) {
+      await rm(postDir, { recursive: true, force: true });
+      throw err;
+    }
+
+    return {
+      storageKey,
+      images,
+      coverUrl: images[0]?.url || '',
+    };
+  }
+
+  static async removeStorage(storageKey: string) {
+    if (!storageKey) return;
+    const target = resolve(config.discover.storageRoot, storageKey);
+    if (!target.startsWith(resolve(config.discover.storageRoot) + sep)) return;
+    await rm(target, { recursive: true, force: true });
+  }
+
+  static async getPublicFile(requestPath: string): Promise<ReturnType<typeof Bun.file> | null> {
+    let decodedPath = requestPath;
+    try {
+      decodedPath = decodeURIComponent(requestPath);
+    } catch {
+      return null;
+    }
+
+    const resolved = this.resolveTargetFromRequestPath(decodedPath);
+    if (!resolved) return null;
+
+    const db = getDb();
+    const rows = await db.select({ id: schema.discoverPosts.id })
+      .from(schema.discoverPosts)
+      .where(and(
+        eq(schema.discoverPosts.storageKey, resolved.storageKey),
+        isNull(schema.discoverPosts.deletedAt),
+      ))
+      .limit(1);
+
+    if (rows.length === 0) return null;
+
+    const file = Bun.file(resolved.filePath);
+    if (!(await file.exists())) return null;
+    return file;
+  }
+
+  private static resolveTargetFromRequestPath(requestPath: string): ResolvedMediaTarget | null {
+    const prefix = `${config.discover.mediaBasePath}/`;
+    if (!requestPath.startsWith(prefix)) return null;
+
+    const relativePath = requestPath.slice(prefix.length);
+    if (!relativePath || relativePath.includes('\0')) return null;
+    const [storageKey] = relativePath.split('/');
+    if (!storageKey) return null;
+
+    const absolutePath = resolve(config.discover.storageRoot, relativePath);
+    const root = resolve(config.discover.storageRoot);
+    if (absolutePath !== root && !absolutePath.startsWith(root + sep)) {
+      return null;
+    }
+
+    return {
+      storageKey,
+      filePath: absolutePath,
+    };
+  }
+
+  private static async compressSingleImage(file: File, postDir: string, storageKey: string, index: number) {
+    if (!file.type.startsWith('image/')) {
+      throw new AppError(ErrorCode.PARAM_ERROR, '仅支持图片文件');
+    }
+
+    if (file.size > config.discover.imageMaxBytes) {
+      throw new AppError(ErrorCode.PARAM_ERROR, `单张图片不能超过 ${Math.floor(config.discover.imageMaxBytes / 1024 / 1024)}MB`);
+    }
+
+    const source = Buffer.from(await file.arrayBuffer());
+    const outputName = `${String(index + 1).padStart(2, '0')}.webp`;
+    const outputPath = join(postDir, outputName);
+
+    try {
+      const { data, info } = await sharp(source)
+        .rotate()
+        .resize({
+          width: config.discover.imageMaxDimension,
+          height: config.discover.imageMaxDimension,
+          fit: 'inside',
+          withoutEnlargement: true,
+        })
+        .webp({ quality: config.discover.imageQuality })
+        .toBuffer({ resolveWithObject: true });
+
+      await writeFile(outputPath, data);
+
+      return {
+        url: `${config.discover.mediaBasePath}/${storageKey}/${outputName}`,
+        width: info.width || 0,
+        height: info.height || 0,
+        sizeBytes: data.byteLength,
+        mimeType: 'image/webp',
+      };
+    } catch (err: any) {
+      Logger.error('DiscoverMedia', '图片压缩失败', err);
+      throw new AppError(ErrorCode.PARAM_ERROR, '图片处理失败，请更换图片后重试');
+    }
+  }
+}

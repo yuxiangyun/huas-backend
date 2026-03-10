@@ -174,6 +174,12 @@ export const Logger = {
     console.log(`${time()} ${c.gray}· ${action}${c.reset}${userStr(studentId, userName)}`);
   },
 
+  operation(scope: string, action: string, actorId?: string, actorName?: string, detail?: string) {
+    console.log(`${time()} ${c.blue}OPS ${c.reset} [${scope}] ${action}${userStr(actorId, actorName)}`);
+    if (detail) subLine('└', detail);
+    fileLogger.info('operation', { scope, action, actorId, actorName, detail });
+  },
+
   detail(text: string) {
     subLine('└', text);
   },

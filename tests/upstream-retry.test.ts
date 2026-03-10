@@ -1,7 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { and, eq } from 'drizzle-orm';
 import { initDatabase, getDb, schema } from '../src/db';
-import { upstream } from '../src/services/upstream';
+import { upstream } from '../src/services/infra/upstream';
 
 const EMPTY_JAR_JSON = JSON.stringify({
   version: 'tough-cookie@5.0.0',
@@ -45,6 +45,8 @@ beforeAll(() => {
 
 beforeEach(async () => {
   const db = getDb();
+  await db.delete(schema.discoverPostRatings);
+  await db.delete(schema.discoverPosts);
   await db.delete(schema.credentials);
   await db.delete(schema.cache);
   await db.delete(schema.users);

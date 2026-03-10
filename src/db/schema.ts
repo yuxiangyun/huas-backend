@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, unique } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, unique } from 'drizzle-orm/sqlite-core';
 
 export const users = sqliteTable('users', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -32,3 +32,33 @@ export const cache = sqliteTable('cache', {
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
   expiresAt: integer('expires_at', { mode: 'timestamp_ms' }),
 });
+
+export const discoverPosts = sqliteTable('discover_posts', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  userId: integer('user_id').notNull().references(() => users.id),
+  title: text('title'),
+  category: text('category').notNull(),
+  storageKey: text('storage_key').notNull(),
+  imagesJson: text('images_json').notNull(),
+  tagsJson: text('tags_json').notNull(),
+  coverUrl: text('cover_url').notNull(),
+  imageCount: integer('image_count').notNull().default(0),
+  ratingCount: integer('rating_count').notNull().default(0),
+  ratingSum: integer('rating_sum').notNull().default(0),
+  ratingAvg: real('rating_avg').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
+  publishedAt: integer('published_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
+  deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
+});
+
+export const discoverPostRatings = sqliteTable('discover_post_ratings', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  postId: integer('post_id').notNull().references(() => discoverPosts.id),
+  userId: integer('user_id').notNull().references(() => users.id),
+  score: integer('score').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
+}, (table) => ({
+  postUserUnique: unique('uq_discover_post_ratings_post_user').on(table.postId, table.userId),
+}));

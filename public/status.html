@@ -103,6 +103,11 @@
         overflow: auto;
         border: 1px solid rgb(var(--term-border));
       }
+
+      .gallery-backdrop {
+        background: rgba(2, 6, 23, 0.8);
+        backdrop-filter: blur(8px);
+      }
     </style>
   </head>
   <body class="font-sans min-h-screen">
@@ -214,6 +219,18 @@
       </section>
 
       <section class="border border-term-border bg-term-panel rounded-sm flex flex-col">
+        <div class="p-3 border-b border-term-border bg-term-sub flex flex-col gap-1">
+          <h2 class="text-xs font-mono text-term-hi"><span class="text-term-cyan">#</span> 发现美食管理</h2>
+          <p id="discoverMeta" class="text-[11px] font-mono text-term-muted">加载中</p>
+        </div>
+        <div class="p-3">
+          <div class="table-wrap">
+            <table class="w-full text-left whitespace-nowrap" id="discoverTable"></table>
+          </div>
+        </div>
+      </section>
+
+      <section class="border border-term-border bg-term-panel rounded-sm flex flex-col">
         <div class="p-3 border-b border-term-border bg-term-sub">
           <h2 class="text-xs font-mono text-term-hi"><span class="text-term-cyan">#</span> 终端日志</h2>
         </div>
@@ -225,6 +242,19 @@
       </section>
     </main>
 
+    <div id="discoverPreviewModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 gallery-backdrop">
+      <div class="w-full max-w-6xl max-h-[90vh] overflow-hidden border border-term-border bg-term-panel rounded-sm shadow-2xl flex flex-col">
+        <div class="px-4 py-3 border-b border-term-border bg-term-sub flex items-center justify-between gap-3">
+          <div>
+            <div id="discoverPreviewTitle" class="text-sm font-mono text-term-hi">帖子图片</div>
+            <div id="discoverPreviewMeta" class="text-[11px] font-mono text-term-muted mt-1">-</div>
+          </div>
+          <button id="discoverPreviewClose" class="h-8 px-3 border border-term-border text-term-muted font-mono text-xs hover:text-term-hi">关闭</button>
+        </div>
+        <div class="p-4 overflow-auto grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" id="discoverPreviewGrid"></div>
+      </div>
+    </div>
+
     <script>
       const BEIJING_TZ = 'Asia/Shanghai';
 
@@ -232,6 +262,7 @@
         page: 1,
         totalPages: 1,
         announcements: [],
+        discoverPosts: [],
         editingId: null,
       };
 
@@ -266,6 +297,14 @@
         annSubmitBtn: document.getElementById('annSubmitBtn'),
         annCancelEditBtn: document.getElementById('annCancelEditBtn'),
         announcementTable: document.getElementById('announcementTable'),
+
+        discoverMeta: document.getElementById('discoverMeta'),
+        discoverTable: document.getElementById('discoverTable'),
+        discoverPreviewModal: document.getElementById('discoverPreviewModal'),
+        discoverPreviewTitle: document.getElementById('discoverPreviewTitle'),
+        discoverPreviewMeta: document.getElementById('discoverPreviewMeta'),
+        discoverPreviewGrid: document.getElementById('discoverPreviewGrid'),
+        discoverPreviewClose: document.getElementById('discoverPreviewClose'),
 
         logsTable: document.getElementById('logsTable'),
       };
@@ -368,6 +407,8 @@
           ['近7天新增', formatNumber(metrics.newUsers7d)],
           ['缓存条数', formatNumber(metrics.cacheEntries)],
           ['凭证条数', formatNumber(metrics.credentialEntries)],
+          ['美食帖子', formatNumber(metrics.totalDiscoverPosts)],
+          ['美食评分', formatNumber(metrics.totalDiscoverRatings)],
           ['RSS 内存', `${metrics.memory.rssMb} MB`],
           ['运行时长', formatUptime(metrics.uptimeSeconds)],
         ];
@@ -490,6 +531,77 @@
         }</tbody>`;
       }
 
+      function renderDiscoverPosts(discover) {
+        state.discoverPosts = discover.items || [];
+        el.discoverMeta.textContent = `当前未删除帖子 ${formatNumber(discover.totalPosts || 0)} 条，累计评分 ${formatNumber(discover.totalRatings || 0)} 条`;
+
+        el.discoverTable.innerHTML = `${tableHead(['ID', '图片', '标题', '分类', '作者', '评分', '发布时间', '操作'])}<tbody class="text-[12px] font-mono divide-y divide-term-border/50">${
+          state.discoverPosts.length > 0
+            ? state.discoverPosts
+                .map(
+                  (item) => `
+                  <tr class="hover:bg-term-border/30">
+                    <td class="px-3 py-2.5 text-term-cyan">${escapeHtml(item.id)}</td>
+                    <td class="px-3 py-2.5">
+                      <button data-action="preview-discover" data-id="${escapeHtml(item.id)}" class="group inline-flex items-center gap-2 h-9 px-3 border border-term-border bg-term-sub text-[11px] font-mono text-term-cyan hover:border-term-cyan hover:text-term-hi">
+                        <span>查看图片</span>
+                        <span class="text-term-muted group-hover:text-term-cyan">(${escapeHtml(item.imageCount)})</span>
+                      </button>
+                    </td>
+                    <td class="px-3 py-2.5 text-term-hi max-w-[260px] truncate" title="${escapeHtml(item.title || '')}">${escapeHtml(item.title || '-')}</td>
+                    <td class="px-3 py-2.5 text-term-muted">${escapeHtml(item.category)}</td>
+                    <td class="px-3 py-2.5 text-term-muted">${escapeHtml(item.authorLabel)}</td>
+                    <td class="px-3 py-2.5 text-term-green">${escapeHtml(item.ratingAverage)} / ${escapeHtml(item.ratingCount)}</td>
+                    <td class="px-3 py-2.5 text-term-muted">${formatDate(item.publishedAt)}</td>
+                    <td class="px-3 py-2.5">
+                      <button data-action="delete-discover" data-id="${escapeHtml(item.id)}" class="text-term-red hover:underline">删除</button>
+                    </td>
+                  </tr>
+                `
+                )
+                .join('')
+            : `<tr><td colspan="8" class="px-3 py-6 text-center text-term-muted">暂无帖子</td></tr>`
+        }</tbody>`;
+      }
+
+      function openDiscoverPreview(item) {
+        const images = Array.isArray(item?.images) ? item.images : [];
+        el.discoverPreviewTitle.textContent = `帖子 #${item.id} 图片预览`;
+        el.discoverPreviewMeta.textContent = `${item.category} / ${item.authorLabel} / 共 ${images.length} 张`;
+
+        el.discoverPreviewGrid.innerHTML = images.length > 0
+          ? images
+              .map(
+                (image, index) => `
+                <div class="border border-term-border bg-term-sub rounded-sm overflow-hidden flex flex-col">
+                  <a href="${escapeHtml(image.url)}" target="_blank" rel="noreferrer" class="block bg-black/80">
+                    <img
+                      src="${escapeHtml(image.url)}"
+                      alt="discover-${escapeHtml(item.id)}-${index + 1}"
+                      class="w-full aspect-[4/3] object-contain bg-black/80"
+                      loading="lazy"
+                    />
+                  </a>
+                  <div class="px-3 py-2 text-[11px] font-mono text-term-muted flex items-center justify-between gap-2">
+                    <span>第 ${index + 1} 张</span>
+                    <a href="${escapeHtml(image.url)}" target="_blank" rel="noreferrer" class="text-term-cyan hover:underline">新窗口打开</a>
+                  </div>
+                </div>
+              `
+              )
+              .join('')
+          : `<div class="col-span-full py-10 text-center text-sm font-mono text-term-muted">该帖子没有可展示的图片</div>`;
+
+        el.discoverPreviewModal.classList.remove('hidden');
+        el.discoverPreviewModal.classList.add('flex');
+      }
+
+      function closeDiscoverPreview() {
+        el.discoverPreviewModal.classList.add('hidden');
+        el.discoverPreviewModal.classList.remove('flex');
+        el.discoverPreviewGrid.innerHTML = '';
+      }
+
       function parseLogLine(line) {
         const tsMatch = line.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})/);
         const level = /\bERROR\b|\bERR\b/i.test(line)
@@ -555,6 +667,7 @@
           renderDistTable(el.gradeStatsTable, '年级', data.distributions.byGrade || [], 'grade');
           renderUsers(data.users || {});
           renderAnnouncements(data.announcements || []);
+          renderDiscoverPosts(data.discover || {});
           renderLogs(data.logs || {});
           el.lastRefresh.textContent = `最后刷新: ${beijingDateTime()} (北京时间)`;
         } catch (err) {
@@ -632,6 +745,49 @@
           } catch (err) {
             setError(err.message || '删除失败');
           }
+        }
+      });
+
+      el.discoverTable.addEventListener('click', async (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+        const btn = target.closest('button[data-action]');
+        if (!btn) return;
+
+        const action = btn.getAttribute('data-action');
+        const id = btn.getAttribute('data-id');
+        if (!id) return;
+
+        if (action === 'preview-discover') {
+          const item = state.discoverPosts.find((post) => String(post.id) === String(id));
+          if (!item) return;
+          openDiscoverPreview(item);
+          return;
+        }
+
+        if (!window.confirm(`确认删除帖子 #${id} ?`)) return;
+
+        try {
+          await requestJson(`/api/admin/discover/posts/${encodeURIComponent(id)}`, { method: 'DELETE' });
+          await refreshDashboard();
+        } catch (err) {
+          setError(err.message || '删除帖子失败');
+        }
+      });
+
+      el.discoverPreviewClose.addEventListener('click', () => {
+        closeDiscoverPreview();
+      });
+
+      el.discoverPreviewModal.addEventListener('click', (event) => {
+        if (event.target === el.discoverPreviewModal) {
+          closeDiscoverPreview();
+        }
+      });
+
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && !el.discoverPreviewModal.classList.contains('hidden')) {
+          closeDiscoverPreview();
         }
       });
 

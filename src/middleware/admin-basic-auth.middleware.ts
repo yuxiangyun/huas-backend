@@ -1,6 +1,12 @@
 import type { Context, Next } from 'hono';
 import { timingSafeEqual } from 'node:crypto';
 
+declare module 'hono' {
+  interface ContextVariableMap {
+    adminUser?: string;
+  }
+}
+
 // Fixed credentials by requirement
 const ADMIN_USERNAME = '202412040130';
 const ADMIN_PASSWORD = 'A18569081662';
@@ -46,5 +52,6 @@ export async function adminBasicAuthMiddleware(c: Context, next: Next) {
     return unauthorized(c);
   }
 
+  c.set('adminUser', username);
   await next();
 }

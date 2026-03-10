@@ -157,7 +157,7 @@ async function createUser(studentId: string, password: string) {
 beforeAll(async () => {
   ({ initDatabase, getDb, schema } = await import('../src/db/index.ts'));
   ({ config } = await import('../src/config.ts'));
-  ({ default: authRoutes } = await import('../src/routes/auth.routes.ts'));
+  ({ default: authRoutes } = await import('../src/routes/auth/auth.routes.ts'));
   ({ GradeService } = await import('../src/services/academic/grade-service.ts'));
   ({ ScheduleService } = await import('../src/services/academic/schedule-service.ts'));
   ({ PortalScheduleService } = await import('../src/services/portal/portal-schedule-service.ts'));

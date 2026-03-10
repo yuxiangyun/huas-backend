@@ -1,18 +1,49 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { cors } from 'hono/cors';
 import { serveStatic } from 'hono/bun';
+import { resolve, sep } from 'node:path';
 import { initDatabase } from './db';
 import { registerRoutes } from './routes';
 import { onAppError } from './middleware/error.middleware';
 import { loggingMiddleware } from './middleware/logging.middleware';
 import { CredentialManager } from './auth/credential-manager';
-import { CacheService } from './services/cache-service';
+import { CacheService } from './services/infra/cache-service';
 import { config } from './config';
 import { Logger } from './utils/logger';
 import { adminBasicAuthMiddleware } from './middleware/admin-basic-auth.middleware';
+import { DiscoverMediaService } from './services/discover/media-service';
 
 const app = new Hono();
 const isDev = process.env.NODE_ENV !== 'production';
+const webDistRoot = resolve('./web/dist');
+
+function toFileResponse(file: ReturnType<typeof Bun.file>, cacheControl: string) {
+  return new Response(file, {
+    headers: {
+      'Cache-Control': cacheControl,
+      'Content-Type': file.type || 'application/octet-stream',
+    },
+  });
+}
+
+async function resolveWebDistFile(requestPath: string) {
+  const relativePath = requestPath.replace(/^\/m\/?/, '') || 'index.html';
+  const absolutePath = resolve(webDistRoot, relativePath);
+
+  if (absolutePath !== webDistRoot && !absolutePath.startsWith(`${webDistRoot}${sep}`)) {
+    return null;
+  }
+
+  const file = Bun.file(absolutePath);
+  if (!(await file.exists())) return null;
+  return file;
+}
+
+async function serveWebIndex(c: Context) {
+  const file = await resolveWebDistFile('/m/index.html');
+  if (!file) return c.notFound();
+  return toFileResponse(file, 'no-store');
+}
 
 // Initialize database
 initDatabase();
@@ -23,6 +54,35 @@ app.onError(onAppError);
 // Global middleware
 app.use('*', cors());
 app.use('*', loggingMiddleware);
+
+app.get(`${config.discover.mediaBasePath}/*`, async (c) => {
+  const file = await DiscoverMediaService.getPublicFile(c.req.path);
+  if (!file) return c.notFound();
+
+  return new Response(file, {
+    headers: {
+      'Cache-Control': 'no-store',
+      'Pragma': 'no-cache',
+      'Content-Type': file.type || 'application/octet-stream',
+    },
+  });
+});
+
+app.get('/m', serveWebIndex);
+app.get('/m/', serveWebIndex);
+app.get('/m/*', async (c) => {
+  const requestPath = c.req.path;
+  const pathAfterBase = requestPath.replace(/^\/m\/?/, '');
+  const looksLikeAsset = pathAfterBase.includes('.');
+
+  if (looksLikeAsset) {
+    const file = await resolveWebDistFile(requestPath);
+    if (!file) return c.notFound();
+    return toFileResponse(file, 'public, max-age=31536000, immutable');
+  }
+
+  return serveWebIndex(c);
+});
 
 // Register all routes
 registerRoutes(app);

@@ -1,12 +1,13 @@
 # HUAS Server 架构与维护文档
 
-> 基线日期：2026-03-08
+> 基线日期：2026-03-09
 > 代码基线：当前工作区
 > 目标读者：前端接入方、后端维护者、后续功能扩展开发者
 
 ## 1. 系统目标
 
 - 对外提供统一的学生服务 API：登录、课表、成绩、一卡通、用户资料、公告、管理面板
+- 对外提供发现美食能力：发帖、列表、推荐、评分、媒体访问
 - 将学校认证链路全部收敛到服务端，客户端只管理本服务 JWT
 - 在尽量减少重新登录的前提下，自动恢复学校侧短效凭证
 - 通过本地缓存降低上游压力，并给前端提供显式的缓存元信息
@@ -40,43 +41,78 @@
 
 ```mermaid
 flowchart LR
+  Browser["Browser / Mobile Web"] -->|No Auth| Web["/m 前端入口"]
   Client["Client / Web / Mini Program"] -->|Bearer JWT| API["/api/* 业务接口"]
   Client -->|No Auth| Public["/auth/login /health /api/public/*"]
   Client -->|Basic Auth| Admin["/status /api/admin/*"]
+  Browser -->|No Auth| Media["/media/discover/*"]
 
+  Web --> Assets["web/dist SPA 资源"]
   API --> Routes
   Routes --> Services
   Services --> Auth["Auth / CredentialManager"]
   Services --> Cache["CacheService"]
+  Services --> Discover["DiscoverService / DiscoverMediaService"]
   Services --> Parsers
   Auth --> DB[(SQLite)]
   Cache --> DB
+  Discover --> DB
+  Discover --> Files["Local Media Storage"]
   Parsers --> Upstream["CAS / Portal / JW"]
 ```
 
 实际路由注册见 `src/routes/index.ts`：
 
+- 前端入口：`/m`、`/m/`、`/m/*`
 - 公共路由：`/auth`、`/health`
 - API 下的免 Bearer 路由：`/api/public/*`、`/api/admin/*`
+- 静态媒体路由：`/media/discover/*`
 - 其余 `/api/*` 全部走 `authMiddleware`
 
 维护时的关键点：
 
+- `/m` 不是 API，而是前端 SPA 入口，静态产物来自 `web/dist`
+- `/m/*` 中带扩展名的路径按静态资源处理，其余路径回退到前端 `index.html`
 - 新增公开接口时，要显式决定是否放在 `/api/public/*` 或 `/auth/*`
 - 新增管理接口时，放在 `/api/admin/*` 可以直接复用 Basic Auth
 - 新增业务接口时，默认会被 Bearer 鉴权保护
+- `discover` 图片访问不是 API 子路由，而是单独挂在 `/media/discover/*`
 
 ## 4. 分层职责
 
 | 目录 | 职责 |
 |---|---|
-| `src/routes/*` | 路由定义、参数读取、返回 `success/error` |
+| `src/routes/{auth,system,content,academic,portal,discover,admin}/*` | 路由定义、参数读取、返回 `success/error`，按业务域和访问边界分类 |
 | `src/middleware/*` | Bearer 鉴权、Basic Auth、日志、全局错误处理 |
-| `src/services/*` | 缓存、上游编排、回源失败回退、管理面板数据聚合 |
+| `src/services/{academic,portal,discover,content,admin,infra}/*` | 业务编排、缓存、上游调用、媒体处理与管理面板聚合 |
 | `src/auth/*` | CAS 登录、票据交换、凭证刷新、静默重认证、JWT 签发 |
-| `src/parsers/*` | 将学校 HTML/JSON 解析成稳定的数据结构 |
+| `src/parsers/{academic,portal}/*` | 将学校 HTML/JSON 解析成稳定的数据结构，按上游来源分类 |
 | `src/db/*` | SQLite 初始化、兼容迁移、Schema |
 | `src/utils/*` | 时间、日志、错误码、响应包装、加密等基础能力 |
+
+当前后端目录按职责归类为：
+
+```text
+src/
+  routes/
+    auth/       登录与认证入口
+    system/     健康检查等系统路由
+    content/    公告等公共内容路由
+    academic/   教务相关路由
+    portal/     门户相关路由
+    discover/   Discover 业务路由
+    admin/      后台管理路由
+  services/
+    academic/   教务业务编排
+    portal/     门户业务编排
+    content/    公共内容服务
+    discover/   Discover 业务与媒体
+    admin/      管理面板聚合
+    infra/      缓存、上游调用、回退逻辑
+  parsers/
+    academic/   教务 HTML 解析
+    portal/     门户 JSON 解析
+```
 
 默认工作流是：
 
@@ -86,6 +122,14 @@ flowchart LR
 4. `parser` 做结构化解析
 5. `CacheService` 写入缓存
 6. `success()` 统一出包
+
+`discover` 模块是这条默认工作流之外的一条独立支线：
+
+1. `src/routes/discover/discover.routes.ts` 读取表单 / JSON / query
+2. `DiscoverService` 做分类、标签、评分与推荐逻辑
+3. `DiscoverMediaService` 做图片压缩、存储和读取控制
+4. 数据直接写 `discover_posts` / `discover_post_ratings`
+5. 不经过学校上游，也不依赖 `CacheService`
 
 ## 5. 认证模型
 
@@ -200,7 +244,7 @@ flowchart LR
 | `updated_at` | 最近写入或触达时间 |
 | `expires_at` | 过期时间，可为空 |
 
-统一封装在 `src/services/cache-service.ts`。
+统一封装在 `src/services/infra/cache-service.ts`。
 
 ### 7.2 `refresh` 语义
 
@@ -341,7 +385,7 @@ flowchart LR
 
 ### 9.1 SQLite 表
 
-`src/db/schema.ts` 当前有三张核心表：
+`src/db/schema.ts` 当前有五张核心表：
 
 #### `users`
 
@@ -361,6 +405,23 @@ flowchart LR
 - JSON 序列化数据
 - 带来源与时间戳
 
+#### `discover_posts`
+
+- `user_id` 关联 `users.id`
+- `category` 存帖子分类：`1食堂 / 2食堂 / 3食堂 / 5食堂 / 校外 / 其他`
+- `images_json` 直接内嵌压缩后图片数组
+- `tags_json` 直接内嵌标签数组
+- `cover_url` / `image_count` 是列表页快速展示字段
+- `rating_count` / `rating_sum` / `rating_avg` 是聚合评分字段
+- `deleted_at` 为空表示可见，不为空表示已删除
+
+#### `discover_post_ratings`
+
+- `(post_id, user_id)` 唯一
+- 一人一帖只保留一条评分
+- `score` 当前只允许 `1-5` 整数
+- 推荐流直接基于这张表和帖子标签/分类做召回
+
 ### 9.2 启动时数据库初始化
 
 `initDatabase()` 会做：
@@ -368,10 +429,11 @@ flowchart LR
 - `PRAGMA journal_mode = WAL`
 - `PRAGMA foreign_keys = ON`
 - `PRAGMA busy_timeout = 5000`
-- 创建三张表
+- 创建五张表
 - 为旧库补齐缺失列
 - 回填关键时间戳
 - 清理重复 `credentials`
+- 清理重复 `discover_post_ratings`
 - 补索引与唯一索引
 
 结论：当前数据库迁移是“启动时兼容修复”，不是独立 migration 文件流。
@@ -383,6 +445,7 @@ flowchart LR
 | 路径 | 用途 |
 |---|---|
 | `data/announcements.json` | 公告数据源 |
+| `data/discover/` | 发现美食图片目录，默认跟随 `DB_PATH` 同级 |
 | `logs/huas-YYYY-MM-DD.log` | 业务日志 |
 | `logs/error-YYYY-MM-DD.log` | 错误日志 |
 | `logs/pm2-out.log` | 管理仪表盘读取的 stdout 聚合日志 |
@@ -417,8 +480,10 @@ flowchart LR
 - 服务健康状态与当前时间
 - 用户总量、今日活跃、7 日活跃、新增
 - 缓存条数、凭证条数、进程内存、运行时长
+- Discover 帖子总数、Discover 评分总数
 - 用户列表分页与筛选
 - 班级分布、年级分布
+- 最近 Discover 帖子列表
 - 最新 50 条 PM2 终端日志
 - 公告列表
 
@@ -427,6 +492,9 @@ flowchart LR
 - 年级不是简单取学号前四位，而是扫描学号中第一个合法年份
 - 未分配班级在筛选值中使用 `__UNASSIGNED__`
 - 如果 `logs/pm2-*.log` 不存在，日志列表会为空，不会报错
+- 管理页中的 Discover 删除操作复用 `/api/admin/discover/posts/:id`
+- 管理页中的 Discover 图片预览直接使用 dashboard 返回的 `coverUrl/images`
+- 管理页刷新时会同时刷新“最近操作日志”，所以公告操作和 Discover 操作会在同一个页面里同步可见
 
 ### 10.3 日志分类
 
@@ -434,6 +502,7 @@ flowchart LR
 
 - `AUTH`：主动登录
 - `CAS↻`：静默刷新 / 静默重认证
+- `OPS`：后台/业务操作日志，例如发帖、评分、删帖、公告管理
 - `WARN`：缓存回退、解析异常、会话告警
 - `ERR`：错误
 - HTTP 访问尾标：
@@ -458,6 +527,15 @@ flowchart LR
 | `BUSINESS_RETRY_BASE_DELAY_MS` | `200` | 基础退避 |
 | `BUSINESS_RETRY_MAX_DELAY_MS` | `800` | 最大退避 |
 | `BUSINESS_RETRY_JITTER_MS` | `100` | 抖动 |
+| `DISCOVER_STORAGE_ROOT` | `data/discover` | 发现美食图片根目录 |
+| `DISCOVER_MEDIA_BASE_PATH` | `/media/discover` | 图片公开访问前缀 |
+| `DISCOVER_MAX_IMAGES` | `9` | 单帖最大图片数 |
+| `DISCOVER_MAX_TAGS` | `6` | 单帖最大标签数 |
+| `DISCOVER_MAX_TITLE_LENGTH` | `80` | 标题最大长度 |
+| `DISCOVER_MAX_TAG_LENGTH` | `12` | 单个标签最大长度 |
+| `DISCOVER_IMAGE_MAX_BYTES` | `8388608` | 单图最大字节数，默认 8 MB |
+| `DISCOVER_IMAGE_MAX_DIMENSION` | `1280` | 压缩后最长边 |
+| `DISCOVER_IMAGE_QUALITY` | `78` | WebP 压缩质量 |
 
 ### 11.2 当前硬编码项
 
@@ -470,12 +548,14 @@ flowchart LR
 | TGC TTL | `src/config.ts` | 24 小时 |
 | Portal/JW 子凭证 TTL | `src/config.ts` | 10 分钟 |
 | 缓存 TTL | `src/config.ts` | 全部为 `0` |
-| 验证码会话上限 | `src/routes/auth.routes.ts` | 1000 |
+| 验证码会话上限 | `src/routes/auth/auth.routes.ts` | 1000 |
 | 验证码会话 TTL | `src/config.ts` | 10 分钟 |
 | 定时清理周期 | `src/config.ts` | 1 小时 |
 | 管理员账号密码 | `src/middleware/admin-basic-auth.middleware.ts` | 写死 |
-| Dashboard 页大小 | `src/services/admin-dashboard-service.ts` | 20 |
-| Dashboard 日志条数 | `src/services/admin-dashboard-service.ts` | 50 |
+| Dashboard 页大小 | `src/services/admin/dashboard-service.ts` | 20 |
+| Dashboard 日志条数 | `src/services/admin/dashboard-service.ts` | 50 |
+| Discover 分类枚举 | `src/utils/discover.ts` | `1食堂/2食堂/3食堂/5食堂/校外/其他` |
+| Discover 常用标签 | `src/utils/discover.ts` | `好吃/便宜/分量足/辣/清淡/排队久/值得再吃` |
 
 维护结论：
 
@@ -488,7 +568,7 @@ flowchart LR
 
 推荐顺序：
 
-1. 在 `src/parsers/` 新增解析器，把学校原始响应收敛成稳定结构
+1. 在 `src/parsers/academic/*` 或 `src/parsers/portal/*` 新增解析器，把学校原始响应收敛成稳定结构
 2. 在 `src/services/` 新增 service
 3. 如果需要学校凭证，走 `upstream(userId, 'jw' | 'portal', handler)`
 4. 明确缓存策略：
@@ -497,7 +577,7 @@ flowchart LR
    - 是否需要前缀限额
    - 命中时是否 `touch`
 5. 如果希望支持“回源失败回退旧缓存”，复用 `fallbackOnRefreshFailure()`
-6. 在 `src/routes/` 注册新路由
+6. 在 `src/routes/<domain>/*` 注册新路由
 7. 补测试
 8. 更新 `API.md` 与本文件
 
@@ -520,7 +600,7 @@ flowchart LR
 
 如果接口仅供后台使用：
 
-- 放到 `src/routes/admin.routes.ts`
+- 放到 `src/routes/admin/admin.routes.ts`
 - 默认复用 Basic Auth
 - 优先复用 `success()` / `error()`
 - 如果需要仪表盘展示，可在 `AdminDashboardService` 做聚合
@@ -529,7 +609,7 @@ flowchart LR
 
 如果接口允许未登录访问：
 
-- 放到 `src/routes/public.routes.ts`
+- 放到 `src/routes/content/public.routes.ts`
 - 或新增 `/auth/*` 下的公开路由
 - 确保不会误落入 Bearer 鉴权路径
 
@@ -541,8 +621,8 @@ flowchart LR
 - `src/auth/credential-manager.ts`
 - `src/auth/ticket-exchanger.ts`
 - `src/core/http-client.ts`
-- `src/routes/auth.routes.ts`
-- `src/parsers/*` 中的会话失效判断
+- `src/routes/auth/auth.routes.ts`
+- `src/parsers/{academic,portal}/*` 中的会话失效判断
 
 至少要验证：
 
@@ -552,7 +632,220 @@ flowchart LR
 - TGC 失效触发静默重认证
 - 运行时 `SESSION_EXPIRED` 自动恢复
 
-## 13. 测试与回归点
+### 12.6 新增或修改 Discover 能力的检查清单
+
+只要碰以下任何一个文件，都要回归 `discover` 相关测试与手工链路：
+
+- `src/routes/discover/discover.routes.ts`
+- `src/routes/admin/admin.routes.ts` 中 `/api/admin/discover/*`
+- `src/services/discover/discover-service.ts`
+- `src/services/discover/media-service.ts`
+- `src/utils/discover.ts`
+- `src/index.ts` 中 `/media/discover/*`
+
+至少要验证：
+
+- 发帖表单能成功创建帖子
+- 图片被压缩成单份 WebP
+- 最新、高分、推荐三种列表正常
+- 一人一帖一分仍然成立
+- 作者不能给自己评分
+- 删除帖子后，详情/列表消失，旧图片 URL 也返回 `404`
+
+## 13. Discover 模块架构
+
+### 13.1 目标与边界
+
+`discover` 是一个有意与教务、Portal、缓存体系解耦的内容模块。
+
+它只复用两样基础设施：
+
+- 现有 `users` 表，作为作者和评分用户来源
+- 现有 Bearer JWT / 管理员 Basic Auth 体系，作为权限边界
+
+它明确不依赖这些能力：
+
+- 学校上游接口
+- `CredentialManager`
+- `upstream()` 凭证恢复链路
+- `CacheService`
+- 公告文件存储
+
+这意味着：
+
+- 学校上游波动不会影响 `discover`
+- `discover` 故障不会拖垮登录、课表、成绩等主业务
+- 部署上它仍是同一个服务进程，但业务逻辑边界是独立的
+
+### 13.2 路由与权限模型
+
+当前 discover 暴露三组路由：
+
+- `GET /api/discover/meta`
+- `GET/POST/DELETE /api/discover/posts*`
+- `DELETE /api/admin/discover/posts/:id`
+- `GET /media/discover/*`
+
+权限规则：
+
+- `/api/discover/*` 全部要求 Bearer JWT
+- `/api/admin/discover/*` 复用管理员 Basic Auth
+- `/media/discover/*` 无需鉴权，但会校验图片所属帖子仍未删除
+
+这里有一个关键实现细节：
+
+- 图片访问不看 JWT
+- 图片访问也不只是“文件存在就返回”
+- 它会先根据 URL 中的 `storageKey` 查 `discover_posts`
+- 只有找到未删除帖子时才真正读文件
+
+所以“删帖后图片仍可访问”不属于允许行为，而是明确被拦截的。
+
+### 13.3 数据模型与落盘策略
+
+当前 discover 只新增两张业务表：
+
+1. `discover_posts`
+2. `discover_post_ratings`
+
+这是有意做的耦合式设计，目标是降低复杂度：
+
+- 图片信息直接放在 `discover_posts.images_json`
+- 标签直接放在 `discover_posts.tags_json`
+- 平均分和评分人数直接聚合到 `discover_posts`
+- 不再单拆图片表、标签表、统计表
+
+当前字段上的关键约束：
+
+- 帖子作者来自 `discover_posts.user_id -> users.id`
+- 评分用户来自 `discover_post_ratings.user_id -> users.id`
+- 评分目标来自 `discover_post_ratings.post_id -> discover_posts.id`
+- `discover_post_ratings(post_id, user_id)` 唯一，保证一人一帖一分
+- `discover_posts.deleted_at IS NULL` 代表帖子可见
+
+设计权衡：
+
+- 优点是实现快、查询直接、迁移成本低
+- 代价是图片和标签不可单独局部更新，复杂统计也不如拆表灵活
+
+对于当前规模，这个权衡是合理的。
+
+### 13.4 发帖、评分、删除的核心链路
+
+发帖链路：
+
+1. 路由层接收 `multipart/form-data`
+2. 校验分类、标签、图片数量
+3. `DiscoverMediaService.compressAndStoreImages()` 同步压缩并落盘
+4. `DiscoverService.createPost()` 写入 `discover_posts`
+5. 返回帖子详情结构
+
+评分链路：
+
+1. 校验 `score` 是否为 `1-5` 整数
+2. 校验帖子存在且未删除
+3. 校验不是作者给自己评分
+4. 对 `discover_post_ratings` 做 upsert
+5. 在事务里重新聚合 `rating_count / rating_sum / rating_avg`
+6. 返回更新后的帖子详情
+
+删除链路：
+
+1. 作者删除只允许命中自己的帖子
+2. 管理员删除可删除任意未删除帖子
+3. 先把 `deleted_at` 写入数据库
+4. 再尝试删除对应 `storageKey` 目录
+5. 即便删文件失败，也不回滚删帖结果，只记日志
+
+这条删除策略的含义是：
+
+- API 语义以“帖子已下线”为第一优先级
+- 文件清理属于伴随动作，不阻塞主删除流程
+
+### 13.5 列表与推荐逻辑
+
+discover 当前有三种列表模式：
+
+- `latest`
+- `score`
+- `recommended`
+
+`latest`：
+
+- 只看未删除帖子
+- 按 `published_at DESC, id DESC`
+
+`score`：
+
+- 只看未删除帖子
+- 按 `rating_avg DESC, published_at DESC, id DESC`
+
+`recommended`：
+
+- 从当前用户评分历史中提取偏好
+- 权重规则是 `max(score - 2, 0)`
+- 基于历史高分帖的分类和标签召回候选帖子
+- 过滤本人发布和已评分帖子
+- 最终按 `匹配分 -> 平均分 -> 发布时间` 排序
+
+这里要特别注意两点：
+
+- 它不是热门推荐，没有浏览量、点赞量、收藏量因子
+- 如果用户没有有效偏好，或召回结果为空，会退化到“最新的可推荐帖子”，但仍排除本人发布和已评分帖子
+
+### 13.6 媒体处理与生产行为
+
+当前媒体实现刻意保持轻量：
+
+- 不做审核
+- 不保留原图
+- 不做多尺寸版本
+- 不做对象存储直传
+
+当前真实行为：
+
+1. 上传图片进入服务端
+2. 使用 `sharp` 同步压缩
+3. 自动旋转图片方向
+4. 输出单份 `WebP`
+5. 最长边压到 `1280`
+6. 质量默认 `78`
+7. 文件落在 `config.discover.storageRoot`
+
+公开访问规则：
+
+- URL 前缀默认是 `/media/discover`
+- Nginx 只做代理，请求仍由应用判断能否访问
+- 应用确认帖子未删除后才会读盘返回
+- 响应使用 `Cache-Control: no-store`，避免删帖后旧图长期留在浏览器或 CDN 缓存里
+
+生产上的边界条件：
+
+- 单帖最多 9 张图
+- 单图默认最多 8 MB
+- Nginx `client_max_body_size` 已提高到 `100m`
+
+这意味着“应用允许但网关拦截”的上传边界已经对齐。
+
+### 13.7 后续切 OSS 的替换点
+
+当前结构是为了后续切 OSS 留了口子，但没有提前引入复杂度。
+
+未来若改对象存储，主要替换点只有 `DiscoverMediaService`：
+
+- `compressAndStoreImages()` 从“写本地文件”改成“上传 OSS”
+- `removeStorage()` 从“删目录”改成“删对象”
+- `getPublicFile()` 从“本地读盘”改成“签名 URL / 代理回源 / 对象存在性检查”
+
+数据库层不需要推翻：
+
+- `discover_posts.images_json` 仍可继续存 URL
+- `cover_url` 仍然有效
+- `storage_key` 仍可作为对象目录前缀
+
+所以当前方案是“先本地跑通，再平滑切 OSS”，不是一次性把 OSS 复杂度带进来。
+
+## 14. 测试与回归点
 
 当前关键测试文件：
 
@@ -561,6 +854,7 @@ flowchart LR
 | `tests/business-flows.test.ts` | 登录、验证码、缓存、回退、限额、防膨胀 |
 | `tests/public-announcements.test.ts` | 公告公开路由、管理面板年级解析 |
 | `tests/upstream-retry.test.ts` | 上游重试 |
+| `tests/discover.test.ts` | 发帖、压缩、评分、推荐、管理员删除、媒体 404 回归 |
 | `tests/e2e.live.test.ts` | 真实账号在线链路 |
 
 修改这些能力时必须优先回归：
@@ -571,9 +865,9 @@ flowchart LR
 - JWT 鉴权与 `studentId` 恢复逻辑
 - 公告读写
 
-## 14. 已知限制与后续建议
+## 15. 已知限制与后续建议
 
-### 14.1 当前限制
+### 15.1 当前限制
 
 1. 所有业务缓存 TTL 目前都是 `0`，不自动过期，前端如果不主动 `refresh=true` 可能长期看到旧数据。
 2. 课表缓存不是真正严格 LRU。
@@ -581,11 +875,14 @@ flowchart LR
 4. 公告是本地文件存储，只适合单实例。
 5. 验证码会话是内存态，只适合同实例二次提交。
 6. `refresh=true` 只保证绕过本地缓存，不保证学校侧一定更“新”。
+7. Discover 图片当前是本地磁盘存储，适合单机或共享盘，不适合多实例直接横向扩容。
+8. Discover 推荐当前只基于评分、标签和分类，没有显式行为日志与特征画像。
 
-### 14.2 优先级较高的演进建议
+### 15.2 优先级较高的演进建议
 
 1. 把缓存 TTL 改为环境变量或配置文件可控。
 2. 把公告与验证码会话迁移到共享存储，解除单实例限制。
 3. 把管理员凭证迁移到环境变量或独立配置。
 4. 为课表命中补 `touch`，让限额真正变成严格 LRU。
 5. 给管理面板增加显式版本号、配置快照与最近失败统计。
+6. 当 discover 需要多实例部署时，把媒体存储从本地磁盘迁到 OSS / S3 / COS。

@@ -1,4 +1,7 @@
+import { dirname, join } from 'node:path';
+
 const BEIJING_TIME_ZONE = 'Asia/Shanghai';
+const DEFAULT_DB_PATH = './data/huas.db';
 
 // Force runtime timezone to Beijing to avoid host-level timezone drift.
 process.env.TZ = BEIJING_TIME_ZONE;
@@ -12,7 +15,7 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
 export const config = {
   port: Number(process.env.PORT) || 3000,
   jwtSecret: process.env.JWT_SECRET || 'huas-server-default-secret-change-me',
-  dbPath: process.env.DB_PATH || './data/huas.db',
+  dbPath: process.env.DB_PATH || DEFAULT_DB_PATH,
   timeZone: BEIJING_TIME_ZONE,
 
   // Credential TTLs (school-side, short-lived)
@@ -59,6 +62,18 @@ export const config = {
 
   // Cleanup interval
   cleanupInterval: 60 * 60 * 1000,    // 1 hour
+
+  discover: {
+    storageRoot: process.env.DISCOVER_STORAGE_ROOT || join(dirname(process.env.DB_PATH || DEFAULT_DB_PATH), 'discover'),
+    mediaBasePath: process.env.DISCOVER_MEDIA_BASE_PATH || '/media/discover',
+    maxImagesPerPost: parsePositiveInt(process.env.DISCOVER_MAX_IMAGES, 9),
+    maxTagsPerPost: parsePositiveInt(process.env.DISCOVER_MAX_TAGS, 6),
+    maxTitleLength: parsePositiveInt(process.env.DISCOVER_MAX_TITLE_LENGTH, 80),
+    maxTagLength: parsePositiveInt(process.env.DISCOVER_MAX_TAG_LENGTH, 12),
+    imageMaxBytes: parsePositiveInt(process.env.DISCOVER_IMAGE_MAX_BYTES, 8 * 1024 * 1024),
+    imageMaxDimension: parsePositiveInt(process.env.DISCOVER_IMAGE_MAX_DIMENSION, 1280),
+    imageQuality: Math.min(95, Math.max(40, parsePositiveInt(process.env.DISCOVER_IMAGE_QUALITY, 78))),
+  },
 };
 
 // Shared constants

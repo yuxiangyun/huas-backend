@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "SF Pro Display", "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
+  --color-shell: #f6f1e8;
+  --color-shell-strong: #efe7da;
+  --color-ink: #181512;
+  --color-muted: #6e655b;
+  --color-line: rgba(77, 61, 45, 0.12);
+  --color-card: rgba(255, 255, 255, 0.68);
+  --color-card-strong: rgba(255, 255, 255, 0.92);
+  --color-tint: #d95f3f;
+  --color-tint-soft: #fce6dc;
+  --radius-shell: 2rem;
+  --radius-card: 1.75rem;
+  --radius-pill: 999px;
+  --shadow-card: 0 20px 60px rgba(45, 32, 20, 0.1);
+  --shadow-glass: 0 10px 30px rgba(45, 32, 20, 0.08);
+}
+
+:root {
+  color: var(--color-ink);
+  background: var(--color-shell);
+  font-synthesis-weight: none;
+  text-rendering: optimizeLegibility;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.8), transparent 38%),
+    radial-gradient(circle at bottom right, rgba(217, 95, 63, 0.08), transparent 30%),
+    linear-gradient(180deg, #faf6f0 0%, #f2ecdf 100%);
+  color: var(--color-ink);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+::selection {
+  background: rgba(217, 95, 63, 0.2);
+}
+
+.glass-panel {
+  border: 1px solid rgba(255, 255, 255, 0.58);
+  background: rgba(255, 255, 255, 0.66);
+  backdrop-filter: blur(28px) saturate(1.15);
+  box-shadow: var(--shadow-glass);
+}
+
+.shell-backdrop {
+  background:
+    radial-gradient(circle at top, rgba(255, 255, 255, 0.78), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0));
+}

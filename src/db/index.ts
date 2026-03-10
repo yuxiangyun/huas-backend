@@ -10,13 +10,13 @@ import { sql } from 'drizzle-orm';
 let db: ReturnType<typeof drizzle<typeof schema>>;
 let sqliteDb: Database;
 
-function getTableColumns(table: 'users' | 'credentials' | 'cache'): Set<string> {
+function getTableColumns(table: 'users' | 'credentials' | 'cache' | 'discover_posts' | 'discover_post_ratings'): Set<string> {
   const rows = sqliteDb.query(`PRAGMA table_info(${table})`).all() as Array<{ name?: string }>;
   return new Set(rows.map((row) => String(row.name || '')));
 }
 
 function ensureColumn(
-  table: 'users' | 'credentials' | 'cache',
+  table: 'users' | 'credentials' | 'cache' | 'discover_posts' | 'discover_post_ratings',
   column: string,
   definition: string
 ): void {
@@ -42,6 +42,25 @@ function ensureLegacyColumns(): void {
   ensureColumn('cache', 'created_at', 'created_at INTEGER');
   ensureColumn('cache', 'updated_at', 'updated_at INTEGER');
   ensureColumn('cache', 'expires_at', 'expires_at INTEGER');
+
+  ensureColumn('discover_posts', 'title', 'title TEXT');
+  ensureColumn('discover_posts', 'category', 'category TEXT NOT NULL DEFAULT \'其他\'');
+  ensureColumn('discover_posts', 'storage_key', 'storage_key TEXT NOT NULL DEFAULT \'\'');
+  ensureColumn('discover_posts', 'images_json', 'images_json TEXT NOT NULL DEFAULT \'[]\'');
+  ensureColumn('discover_posts', 'tags_json', 'tags_json TEXT NOT NULL DEFAULT \'[]\'');
+  ensureColumn('discover_posts', 'cover_url', 'cover_url TEXT NOT NULL DEFAULT \'\'');
+  ensureColumn('discover_posts', 'image_count', 'image_count INTEGER NOT NULL DEFAULT 0');
+  ensureColumn('discover_posts', 'rating_count', 'rating_count INTEGER NOT NULL DEFAULT 0');
+  ensureColumn('discover_posts', 'rating_sum', 'rating_sum INTEGER NOT NULL DEFAULT 0');
+  ensureColumn('discover_posts', 'rating_avg', 'rating_avg REAL NOT NULL DEFAULT 0');
+  ensureColumn('discover_posts', 'created_at', 'created_at INTEGER');
+  ensureColumn('discover_posts', 'updated_at', 'updated_at INTEGER');
+  ensureColumn('discover_posts', 'published_at', 'published_at INTEGER');
+  ensureColumn('discover_posts', 'deleted_at', 'deleted_at INTEGER');
+
+  ensureColumn('discover_post_ratings', 'score', 'score INTEGER NOT NULL DEFAULT 0');
+  ensureColumn('discover_post_ratings', 'created_at', 'created_at INTEGER');
+  ensureColumn('discover_post_ratings', 'updated_at', 'updated_at INTEGER');
 }
 
 function backfillCriticalTimestamps(): void {
@@ -53,6 +72,11 @@ function backfillCriticalTimestamps(): void {
   sqliteDb.exec(`UPDATE credentials SET updated_at = ${now} WHERE updated_at IS NULL OR updated_at <= 0`);
   sqliteDb.exec(`UPDATE cache SET created_at = ${now} WHERE created_at IS NULL OR created_at <= 0`);
   sqliteDb.exec(`UPDATE cache SET updated_at = ${now} WHERE updated_at IS NULL OR updated_at <= 0`);
+  sqliteDb.exec(`UPDATE discover_posts SET created_at = ${now} WHERE created_at IS NULL OR created_at <= 0`);
+  sqliteDb.exec(`UPDATE discover_posts SET updated_at = ${now} WHERE updated_at IS NULL OR updated_at <= 0`);
+  sqliteDb.exec(`UPDATE discover_posts SET published_at = ${now} WHERE published_at IS NULL OR published_at <= 0`);
+  sqliteDb.exec(`UPDATE discover_post_ratings SET created_at = ${now} WHERE created_at IS NULL OR created_at <= 0`);
+  sqliteDb.exec(`UPDATE discover_post_ratings SET updated_at = ${now} WHERE updated_at IS NULL OR updated_at <= 0`);
 }
 
 export function getDb() {
@@ -104,6 +128,34 @@ export function initDatabase() {
     expires_at INTEGER
   )`);
 
+  database.run(sql`CREATE TABLE IF NOT EXISTS discover_posts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    title TEXT,
+    category TEXT NOT NULL,
+    storage_key TEXT NOT NULL,
+    images_json TEXT NOT NULL,
+    tags_json TEXT NOT NULL,
+    cover_url TEXT NOT NULL,
+    image_count INTEGER NOT NULL DEFAULT 0,
+    rating_count INTEGER NOT NULL DEFAULT 0,
+    rating_sum INTEGER NOT NULL DEFAULT 0,
+    rating_avg REAL NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+    updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+    published_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+    deleted_at INTEGER
+  )`);
+
+  database.run(sql`CREATE TABLE IF NOT EXISTS discover_post_ratings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    post_id INTEGER NOT NULL REFERENCES discover_posts(id),
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    score INTEGER NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+    updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+  )`);
+
   // Backward-compatible migration for older SQLite files.
   ensureLegacyColumns();
   backfillCriticalTimestamps();
@@ -117,6 +169,15 @@ export function initDatabase() {
   database.run(sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_credentials_user_system ON credentials(user_id, system)`);
   database.run(sql`CREATE INDEX IF NOT EXISTS idx_cache_key ON cache(key)`);
   database.run(sql`CREATE INDEX IF NOT EXISTS idx_cache_expires ON cache(expires_at)`);
+  database.run(sql`CREATE INDEX IF NOT EXISTS idx_discover_posts_user_id ON discover_posts(user_id)`);
+  database.run(sql`CREATE INDEX IF NOT EXISTS idx_discover_posts_category ON discover_posts(category)`);
+  database.run(sql`CREATE INDEX IF NOT EXISTS idx_discover_posts_deleted_published ON discover_posts(deleted_at, published_at DESC)`);
+  database.run(sql`CREATE INDEX IF NOT EXISTS idx_discover_posts_deleted_rating_avg ON discover_posts(deleted_at, rating_avg DESC, published_at DESC)`);
+  database.run(sql`DELETE FROM discover_post_ratings WHERE id NOT IN (
+    SELECT MAX(id) FROM discover_post_ratings GROUP BY post_id, user_id
+  )`);
+  database.run(sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_discover_post_ratings_post_user ON discover_post_ratings(post_id, user_id)`);
+  database.run(sql`CREATE INDEX IF NOT EXISTS idx_discover_post_ratings_user_id ON discover_post_ratings(user_id)`);
 
   Logger.server('数据库初始化完成');
 }

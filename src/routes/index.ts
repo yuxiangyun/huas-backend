@@ -1,15 +1,16 @@
 import { Hono } from 'hono';
 import { authMiddleware } from '../middleware/auth.middleware';
 import { onAppError } from '../middleware/error.middleware';
-import authRoutes from './auth.routes';
-import scheduleRoutes from './schedule.routes';
-import v1ScheduleRoutes from './v1-schedule.routes';
-import gradeRoutes from './grade.routes';
-import ecardRoutes from './ecard.routes';
-import userRoutes from './user.routes';
-import healthRoutes from './health.routes';
-import publicRoutes from './public.routes';
-import adminRoutes from './admin.routes';
+import authRoutes from './auth/auth.routes';
+import scheduleRoutes from './academic/schedule.routes';
+import v1ScheduleRoutes from './portal/v1-schedule.routes';
+import gradeRoutes from './academic/grade.routes';
+import ecardRoutes from './portal/ecard.routes';
+import userRoutes from './portal/user.routes';
+import healthRoutes from './system/health.routes';
+import publicRoutes from './content/public.routes';
+import adminRoutes from './admin/admin.routes';
+import discoverRoutes from './discover/discover.routes';
 
 export function registerRoutes(app: Hono) {
   // Public routes
@@ -42,6 +43,7 @@ export function registerRoutes(app: Hono) {
   api.route('/grades', gradeRoutes);
   api.route('/ecard', ecardRoutes);
   api.route('/user', userRoutes);
+  api.route('/discover', discoverRoutes);
 
   app.route('/api', api);
 }
