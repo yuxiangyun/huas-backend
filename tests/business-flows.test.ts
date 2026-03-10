@@ -107,7 +107,7 @@ mock.module('../src/auth/ticket-exchanger.ts', () => ({
   },
 }));
 
-mock.module('../src/services/upstream.ts', () => ({
+mock.module('../src/services/infra/upstream.ts', () => ({
   upstream: async (...args: any[]) => {
     upstreamCallCount += 1;
     if (upstreamInjectedError) {
@@ -132,6 +132,8 @@ let CryptoHelper: any;
 
 async function resetDb() {
   const db = getDb();
+  await db.delete(schema.discoverPostRatings);
+  await db.delete(schema.discoverPosts);
   await db.delete(schema.credentials);
   await db.delete(schema.cache);
   await db.delete(schema.users);
@@ -156,12 +158,12 @@ beforeAll(async () => {
   ({ initDatabase, getDb, schema } = await import('../src/db/index.ts'));
   ({ config } = await import('../src/config.ts'));
   ({ default: authRoutes } = await import('../src/routes/auth.routes.ts'));
-  ({ GradeService } = await import('../src/services/grade-service.ts'));
-  ({ ScheduleService } = await import('../src/services/schedule-service.ts'));
-  ({ PortalScheduleService } = await import('../src/services/portal-schedule-service.ts'));
-  ({ UserService } = await import('../src/services/user-service.ts'));
+  ({ GradeService } = await import('../src/services/academic/grade-service.ts'));
+  ({ ScheduleService } = await import('../src/services/academic/schedule-service.ts'));
+  ({ PortalScheduleService } = await import('../src/services/portal/portal-schedule-service.ts'));
+  ({ UserService } = await import('../src/services/portal/user-service.ts'));
   ({ CredentialManager } = await import('../src/auth/credential-manager.ts'));
-  ({ CacheService } = await import('../src/services/cache-service.ts'));
+  ({ CacheService } = await import('../src/services/infra/cache-service.ts'));
   ({ CryptoHelper } = await import('../src/utils/crypto.ts'));
   initDatabase();
 });
@@ -221,6 +223,90 @@ describe('登录流程', () => {
       .where(eq(schema.credentials.userId, users[0].id));
     const systems = creds.map((c: any) => c.system).sort();
     expect(systems).toEqual(['cas_tgc', 'jw_session']);
+  });
+
+  it('数据库已有用户时可本地登录，不触发 CAS 且无需现有凭证', async () => {
+    const app = new Hono();
+    app.route('/auth', authRoutes);
+
+    const userId = await createUser('2023001444', 'pass-local');
+    const db = getDb();
+    const staleLoginAt = new Date(Date.now() - 60_000);
+
+    await db.update(schema.users)
+      .set({ lastLoginAt: staleLoginAt })
+      .where(eq(schema.users.id, userId));
+
+    let executionCallCount = 0;
+    let loginCallCount = 0;
+    authBehavior.getExecution = async () => {
+      executionCallCount += 1;
+      return 'should-not-run';
+    };
+    authBehavior.login = async () => {
+      loginCallCount += 1;
+      return { success: true, portalToken: null, steps: [] };
+    };
+
+    const res = await app.request('http://localhost/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: '2023001444', password: 'pass-local' }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.success).toBe(true);
+    expect(typeof body.data?.token).toBe('string');
+
+    const users = await db.select()
+      .from(schema.users)
+      .where(eq(schema.users.id, userId))
+      .limit(1);
+    expect(users[0].lastLoginAt.getTime()).toBeGreaterThan(staleLoginAt.getTime());
+
+    const creds = await db.select()
+      .from(schema.credentials)
+      .where(eq(schema.credentials.userId, userId));
+    expect(creds.length).toBe(0);
+    expect(executionCallCount).toBe(0);
+    expect(loginCallCount).toBe(0);
+  });
+
+  it('本地密码不匹配时回退 CAS 并刷新已存密码', async () => {
+    const app = new Hono();
+    app.route('/auth', authRoutes);
+
+    const userId = await createUser('2023001555', 'pass-old');
+    let executionCallCount = 0;
+    let loginCallCount = 0;
+
+    authBehavior.getExecution = async () => {
+      executionCallCount += 1;
+      return 'exec-fallback';
+    };
+    authBehavior.login = async (_username, password) => {
+      loginCallCount += 1;
+      expect(password).toBe('pass-new');
+      return { success: true, portalToken: null, steps: [] };
+    };
+
+    const res = await app.request('http://localhost/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: '2023001555', password: 'pass-new' }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(executionCallCount).toBe(1);
+    expect(loginCallCount).toBe(1);
+
+    const db = getDb();
+    const users = await db.select()
+      .from(schema.users)
+      .where(eq(schema.users.id, userId))
+      .limit(1);
+    expect(CryptoHelper.decryptAES(users[0].encryptedPassword, config.jwtSecret)).toBe('pass-new');
   });
 
   it('同学号并发登录不会触发唯一键冲突', async () => {

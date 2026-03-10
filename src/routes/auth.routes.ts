@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
+import { timingSafeEqual } from 'node:crypto';
 import { HttpClient } from '../core/http-client';
 import { AuthEngine } from '../auth/auth-engine';
 import { TicketExchanger } from '../auth/ticket-exchanger';
@@ -18,6 +19,13 @@ const auth = new Hono();
 // Temporary storage for captcha sessions (pre-login, no user yet)
 const MAX_CAPTCHA_SESSIONS = 1000;
 const captchaSessions = new Map<string, { jarJson: string; execution: string; createdAt: number }>();
+
+function safeEqual(a: string, b: string): boolean {
+  const aBuf = Buffer.from(a, 'utf8');
+  const bBuf = Buffer.from(b, 'utf8');
+  if (aBuf.length !== bBuf.length) return false;
+  return timingSafeEqual(aBuf, bBuf);
+}
 
 // Cleanup old captcha sessions every 10 minutes
 setInterval(() => {
@@ -41,6 +49,44 @@ auth.post('/login', async (c) => {
 
   if (!username || !password) {
     return error(c, ErrorCode.PARAM_ERROR, '用户名和密码不能为空', 400);
+  }
+
+  const db = getDb();
+
+  if (!sessionId) {
+    const users = await db.select({
+      id: schema.users.id,
+      name: schema.users.name,
+      className: schema.users.className,
+      encryptedPassword: schema.users.encryptedPassword,
+    })
+      .from(schema.users)
+      .where(eq(schema.users.studentId, username))
+      .limit(1);
+
+    const existingUser = users[0];
+    if (existingUser?.encryptedPassword) {
+      const storedPassword = CryptoHelper.decryptAES(existingUser.encryptedPassword, config.jwtSecret);
+      if (storedPassword && safeEqual(storedPassword, password)) {
+        const now = new Date();
+        await db.update(schema.users)
+          .set({ lastLoginAt: now })
+          .where(eq(schema.users.id, existingUser.id));
+
+        const resolvedName = existingUser.name?.trim() || undefined;
+        const resolvedClassName = existingUser.className?.trim() || '';
+        const token = await generateToken({ userId: existingUser.id, studentId: username, name: resolvedName });
+
+        Logger.auth(username, '本地登录成功', 200, 0, resolvedName, [
+          { label: 'local', ok: true },
+        ]);
+
+        return success(c, {
+          token,
+          user: { name: resolvedName, studentId: username, className: resolvedClassName },
+        });
+      }
+    }
   }
 
   let client: HttpClient;
@@ -140,7 +186,6 @@ auth.post('/login', async (c) => {
 
     // Upsert user in DB + store encrypted password for silent re-auth.
     // Profile fields are backfilled after credentials are persisted.
-    const db = getDb();
     const now = new Date();
     const encryptedPassword = CryptoHelper.encryptAES(password, config.jwtSecret);
 
