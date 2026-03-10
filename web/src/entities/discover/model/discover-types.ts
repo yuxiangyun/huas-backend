@@ -15,6 +15,9 @@ export interface DiscoverImage {
 export interface DiscoverPost {
   id: number;
   title: string;
+  storeName: string;
+  priceText: string;
+  content: string;
   category: DiscoverCategory;
   tags: string[];
   images: DiscoverImage[];
@@ -52,5 +55,8 @@ export interface DiscoverMeta {
     maxTagsPerPost: number;
     maxTitleLength: number;
     maxTagLength: number;
+    maxStoreNameLength: number;
+    maxPriceTextLength: number;
+    maxContentLength: number;
   };
 }

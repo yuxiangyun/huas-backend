@@ -5,12 +5,13 @@ import { appRoutes } from '@/app/router/paths';
 import { useToastStore } from '@/app/state/toast-store';
 import { useUiStore } from '@/app/state/ui-store';
 import { useMyDiscoverInfinitePostsQuery } from '@/entities/discover/api/discover-queries';
+import { useAuthStore } from '@/entities/auth/model/auth-store';
 import { refreshUserInfo, useUserInfoQuery } from '@/entities/user/api/user-queries';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
+import { PageHeader } from '@/shared/ui/page-header';
 import { MyPostsPanel } from '@/widgets/my-posts-panel/my-posts-panel';
 import { ProfileSummary } from '@/widgets/profile-summary/profile-summary';
-import { useAuthStore } from '@/entities/auth/model/auth-store';
 
 export function MePage() {
   const navigate = useNavigate();
@@ -22,12 +23,14 @@ export function MePage() {
   const myPostsQuery = useMyDiscoverInfinitePostsQuery({ pageSize: 10 });
   const myPosts = myPostsQuery.data?.pages.flatMap((page) => page.items) ?? [];
   const isRefreshing = profileQuery.isRefetching || myPostsQuery.isRefetching;
-  const upcomingServices = [
-    { title: '课表', description: '一周安排和节次提醒' },
-    { title: '成绩', description: '学期成绩与绩点查看' },
-    { title: '一卡通', description: '余额、消费和充值记录' },
-    { title: '设置', description: '通知、反馈和偏好项' },
-  ];
+  const averageRating = myPosts.length
+    ? myPosts.reduce((sum, post) => sum + post.rating.average, 0) / myPosts.length
+    : 0;
+  const categoryCounts = myPosts.reduce<Record<string, number>>((acc, post) => {
+    acc[post.category] = (acc[post.category] || 0) + 1;
+    return acc;
+  }, {});
+  const topCategoryEntry = Object.entries(categoryCounts).sort((a, b) => b[1] - a[1])[0];
 
   const handleRefreshAll = async () => {
     const [profileResult, postsResult] = await Promise.allSettled([
@@ -56,29 +59,24 @@ export function MePage() {
   }, [setActiveTab]);
 
   return (
-    <div className="space-y-6">
-      <header className="space-y-3 px-1 pt-3">
-        <div className="flex items-start justify-between gap-4">
-          <div className="space-y-2">
-            <p className="text-sm font-medium uppercase tracking-[0.22em] text-muted">
-              profile
-            </p>
-            <h1 className="text-4xl font-semibold tracking-[-0.05em] text-ink">我的</h1>
-            <p className="max-w-sm text-sm leading-7 text-muted">
-              这里放你的资料、发布记录，以及之后常用的校园服务。
-            </p>
-          </div>
+    <div className="page-stack-mobile">
+      <PageHeader
+        action={(
           <Button
-            className="min-w-[6.5rem]"
+            className="min-w-[5.25rem]"
             size="sm"
             type="button"
-            variant="ghost"
+            variant="subtle"
             onClick={() => void handleRefreshAll()}
           >
-            {isRefreshing ? '刷新中...' : '全部刷新'}
+            {isRefreshing ? '刷新中' : '刷新'}
           </Button>
-        </div>
-      </header>
+        )}
+        compact
+        description="这里应该只放真实有用的内容: 资料、发布记录、同步状态和账号操作。"
+        eyebrow="profile"
+        title="我的"
+      />
 
       {profileQuery.isError ? (
         <Card className="space-y-2">
@@ -91,68 +89,87 @@ export function MePage() {
 
       <ProfileSummary loading={profileQuery.isLoading} profile={profileQuery.data ?? null} />
 
-      {myPostsQuery.isError ? (
-        <Card className="space-y-2">
-          <p className="text-base font-semibold text-ink">我的发布加载失败</p>
-          <p className="text-sm leading-6 text-muted">
-            {myPostsQuery.error instanceof Error ? myPostsQuery.error.message : '请求失败'}
-          </p>
-        </Card>
-      ) : null}
-
-      <MyPostsPanel
-        hasMore={Boolean(myPostsQuery.hasNextPage)}
-        loading={myPostsQuery.isLoading}
-        loadingMore={myPostsQuery.isFetchingNextPage}
-        posts={myPosts}
-        refreshing={myPostsQuery.isRefetching}
-        onLoadMore={() => void myPostsQuery.fetchNextPage()}
-        onOpenPost={(postId) => navigate(`${appRoutes.discover}?postId=${postId}`)}
-        onRefresh={() => void myPostsQuery.refetch()}
-      />
-
-      <Card className="space-y-4 bg-card-strong">
-        <div className="flex items-center justify-between gap-3">
+      <section className="page-stack-mobile">
+        <Card className="space-y-3 bg-card-strong">
           <div className="space-y-1">
-            <p className="text-base font-semibold text-ink">更多服务</p>
+            <p className="text-base font-semibold text-ink">发现美食</p>
             <p className="text-sm leading-6 text-muted">
-              常用校园功能会逐步集中到这里。
+              这里先集中放 Discover 相关内容。后面扩展其他功能时，“我的”页会继续按模块往下加。
             </p>
           </div>
-          <span className="rounded-pill bg-white/80 px-3 py-1 text-xs font-medium text-muted ring-1 ring-line">
-            即将加入
-          </span>
-        </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          {upcomingServices.map((service) => (
-            <div
-              key={service.title}
-              className="rounded-[1.35rem] bg-white/78 px-4 py-4 ring-1 ring-line"
-            >
-              <p className="text-sm font-semibold text-ink">{service.title}</p>
-              <p className="mt-2 text-sm leading-6 text-muted">{service.description}</p>
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+            <div className="rounded-[1.1rem] bg-white/78 px-3.5 py-3 ring-1 ring-line">
+              <p className="text-xs uppercase tracking-[0.18em] text-muted">发布数</p>
+              <p className="mt-2 text-[1.45rem] font-semibold tracking-[-0.04em] text-ink">{myPosts.length}</p>
+              <p className="mt-1.5 text-[0.82rem] leading-5 text-muted">目前累计公开推荐</p>
             </div>
-          ))}
-        </div>
-      </Card>
+            <div className="rounded-[1.1rem] bg-white/78 px-3.5 py-3 ring-1 ring-line">
+              <p className="text-xs uppercase tracking-[0.18em] text-muted">平均评分</p>
+              <p className="mt-2 text-[1.45rem] font-semibold tracking-[-0.04em] text-ink">
+                {myPosts.length ? averageRating.toFixed(1) : '--'}
+              </p>
+              <p className="mt-1.5 text-[0.82rem] leading-5 text-muted">按全部帖子当前评分均值计算</p>
+            </div>
+            <div className="col-span-2 rounded-[1.1rem] bg-white/78 px-3.5 py-3 ring-1 ring-line sm:col-span-1">
+              <p className="text-xs uppercase tracking-[0.18em] text-muted">最常发布</p>
+              <p className="mt-2 text-[1.45rem] font-semibold tracking-[-0.04em] text-ink">
+                {topCategoryEntry?.[0] || '--'}
+              </p>
+              <p className="mt-1.5 text-[0.82rem] leading-5 text-muted">
+                {topCategoryEntry ? `${topCategoryEntry[1]} 次` : '还没有足够数据'}
+              </p>
+            </div>
+          </div>
+        </Card>
 
-      <Button
-        fullWidth
-        type="button"
-        variant="secondary"
-        onClick={() => {
-          queryClient.clear();
-          logout();
-          pushToast({
-            title: '已退出登录',
-            variant: 'info',
-          });
-          navigate(appRoutes.login, { replace: true });
-        }}
-      >
-        退出登录
-      </Button>
+        {myPostsQuery.isError ? (
+          <Card className="space-y-2">
+            <p className="text-base font-semibold text-ink">我的发布加载失败</p>
+            <p className="text-sm leading-6 text-muted">
+              {myPostsQuery.error instanceof Error ? myPostsQuery.error.message : '请求失败'}
+            </p>
+          </Card>
+        ) : null}
+
+        <MyPostsPanel
+          hasMore={Boolean(myPostsQuery.hasNextPage)}
+          loading={myPostsQuery.isLoading}
+          loadingMore={myPostsQuery.isFetchingNextPage}
+          posts={myPosts}
+          refreshing={myPostsQuery.isRefetching}
+          onLoadMore={() => void myPostsQuery.fetchNextPage()}
+          onOpenPost={(postId) => navigate(`${appRoutes.discover}?postId=${postId}`)}
+          onRefresh={() => void myPostsQuery.refetch()}
+        />
+      </section>
+
+      <Card className="space-y-3 bg-card-strong">
+        <div className="space-y-1">
+          <p className="text-base font-semibold text-ink">账号</p>
+          <p className="text-sm leading-6 text-muted">
+            这里只保留账号操作，避免把不同功能模块混在一起。
+          </p>
+        </div>
+
+        <Button
+          fullWidth
+          size="md"
+          type="button"
+          variant="secondary"
+          onClick={() => {
+            queryClient.clear();
+            logout();
+            pushToast({
+              title: '已退出登录',
+              variant: 'info',
+            });
+            navigate(appRoutes.login, { replace: true });
+          }}
+        >
+          退出登录
+        </Button>
+      </Card>
     </div>
   );
 }

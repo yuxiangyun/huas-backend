@@ -2,6 +2,15 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useEffect } from 'react';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
+import { IconButton } from '@/shared/ui/icon-button';
+
+function CloseIcon() {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4" viewBox="0 0 20 20" fill="none">
+      <path d="M5 5L15 15M15 5L5 15" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+    </svg>
+  );
+}
 
 export interface ImageViewerItem {
   src: string;
@@ -29,6 +38,9 @@ export function ImageViewer({
   useEffect(() => {
     if (!isOpen) return;
 
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         onClose();
@@ -45,7 +57,10 @@ export function ImageViewer({
     };
 
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', onKeyDown);
+    };
   }, [activeIndex, isOpen, items.length, onClose, onIndexChange]);
 
   return (
@@ -64,27 +79,26 @@ export function ImageViewer({
             onClick={onClose}
           />
 
-          <div className="absolute inset-0 mx-auto flex max-w-[430px] flex-col justify-center px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))]">
-            <Card className="space-y-4 rounded-[2rem] border-white/15 bg-[#191613]/92 p-4 text-white shadow-[0_24px_80px_rgba(0,0,0,0.45)]">
-              <div className="flex items-center justify-between gap-4">
+          <div className="absolute inset-0 mx-auto flex w-full max-w-[min(100%,72rem)] flex-col justify-center px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] sm:px-6">
+            <Card className="space-y-3 rounded-[1.45rem] border-white/15 bg-[#191613]/92 p-4 text-white shadow-[0_24px_80px_rgba(0,0,0,0.45)] sm:space-y-4 sm:rounded-[2rem] sm:p-5">
+              <div className="flex items-center justify-between gap-3">
                 <span className="rounded-pill bg-white/10 px-3 py-1 text-xs font-medium text-white/80">
                   {activeIndex + 1} / {items.length}
                 </span>
-                <Button
+                <IconButton
                   className="border-white/10 bg-white/12 text-white hover:bg-white/18"
+                  icon={<CloseIcon />}
+                  label="关闭图片预览"
                   size="sm"
-                  type="button"
                   variant="secondary"
                   onClick={onClose}
-                >
-                  关闭
-                </Button>
+                />
               </div>
 
-              <div className="overflow-hidden rounded-[1.6rem] bg-black/30">
+              <div className="overflow-hidden rounded-[1.2rem] bg-black/30 sm:rounded-[1.6rem]">
                 <img
                   alt={activeItem.alt}
-                  className="max-h-[68vh] w-full object-contain"
+                  className="max-h-[70vh] w-full object-contain"
                   src={activeItem.src}
                 />
               </div>
@@ -116,7 +130,7 @@ export function ImageViewer({
               </div>
 
               {items.length > 1 ? (
-                <div className="flex gap-3 overflow-x-auto pb-1">
+                <div className="flex gap-2.5 overflow-x-auto pb-1">
                   {items.map((item, itemIndex) => (
                     <button
                       key={item.key ?? `${item.src}-${itemIndex}`}
@@ -129,7 +143,7 @@ export function ImageViewer({
                     >
                       <img
                         alt={item.alt}
-                        className="h-[4.5rem] w-[3.5rem] object-cover"
+                        className="h-[4rem] w-[3.1rem] object-cover sm:h-[4.5rem] sm:w-[3.5rem]"
                         src={item.src}
                       />
                     </button>

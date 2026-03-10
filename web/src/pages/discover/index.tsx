@@ -12,6 +12,7 @@ import {
 } from '@/entities/discover/model/discover-types';
 import { ComposeFab } from '@/features/discover-create-post/ui/compose-fab';
 import { Button } from '@/shared/ui/button';
+import { PageHeader } from '@/shared/ui/page-header';
 import { DiscoverComposeSheet } from '@/widgets/discover-compose-sheet/discover-compose-sheet';
 import { DiscoverDetailSheet } from '@/widgets/discover-detail-sheet/discover-detail-sheet';
 import { DiscoverFeed } from '@/widgets/discover-feed/discover-feed';
@@ -88,31 +89,24 @@ export function DiscoverPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <header className="space-y-3 px-1 pt-3">
-        <div className="flex items-start justify-between gap-4">
-          <div className="space-y-2">
-            <p className="text-sm font-medium uppercase tracking-[0.22em] text-muted">
-              discover
-            </p>
-            <h1 className="text-4xl font-semibold tracking-[-0.05em] text-ink">
-              拍好饭
-            </h1>
-            <p className="max-w-sm text-sm leading-7 text-muted">
-              看今天吃什么，也把你觉得值得的一顿分享出来。
-            </p>
-          </div>
+    <div className="page-stack-mobile">
+      <PageHeader
+        action={(
           <Button
-            className="min-w-[5.75rem]"
+            className="min-w-[4.5rem]"
             size="sm"
             type="button"
-            variant="ghost"
+            variant="subtle"
             onClick={() => void handleRefreshDiscover()}
           >
-            {discoverFetchingCount > 0 ? '刷新中...' : '刷新'}
+            {discoverFetchingCount > 0 ? '刷新中' : '刷新'}
           </Button>
-        </div>
-      </header>
+        )}
+        compact
+        description="看今天吃什么，也把你觉得值得的一顿分享出来。"
+        eyebrow="discover"
+        title="拍好饭"
+      />
 
       <DiscoverFeed
         categories={metaQuery.data?.categories ?? DISCOVER_CATEGORIES}
@@ -139,14 +133,14 @@ export function DiscoverPage() {
 
       {metaQuery.isError ? (
         <div className="px-1">
-          <div className="rounded-[1.5rem] bg-tint-soft px-4 py-3 text-sm leading-6 text-[#7e3925]">
+          <div className="rounded-[1.2rem] bg-tint-soft px-4 py-3 text-sm leading-6 text-[#7e3925]">
             {metaQuery.error instanceof Error ? metaQuery.error.message : '分类信息加载失败'}
           </div>
         </div>
       ) : null}
 
-      <div className="fixed inset-x-0 bottom-[calc(6.75rem+env(safe-area-inset-bottom))] z-20">
-        <div className="mx-auto flex max-w-[430px] justify-end px-4">
+      <div className="fixed inset-x-0 bottom-[var(--space-fab-offset)] z-20 lg:bottom-6">
+        <div className="mx-auto flex max-w-[var(--layout-shell-max)] justify-end px-[var(--space-shell-x)] sm:px-6">
           <ComposeFab onClick={openComposeSheet} />
         </div>
       </div>

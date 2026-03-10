@@ -1,4 +1,5 @@
 import type { PropsWithChildren } from 'react';
+import { useEffect } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { cn } from '@/shared/lib/cn';
 import { Card } from '@/shared/ui/card';
@@ -25,6 +26,25 @@ export function BottomSheet({
   showHandle = true,
   children,
 }: BottomSheetProps) {
+  useEffect(() => {
+    if (!open) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [onClose, open]);
+
   return (
     <AnimatePresence>
       {open ? (
@@ -44,7 +64,7 @@ export function BottomSheet({
           <motion.div
             aria-modal="true"
             className={cn(
-              'fixed inset-x-0 bottom-0 z-50 mx-auto max-w-[430px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))]',
+              'fixed inset-x-0 bottom-0 z-50 mx-auto w-full max-w-[var(--layout-sheet-max)] px-[var(--space-sheet-x)] pb-[var(--space-tab-bottom)] sm:px-6',
               viewportClassName
             )}
             initial={{ y: '100%', opacity: 0.84 }}
@@ -55,19 +75,19 @@ export function BottomSheet({
           >
             <Card
               className={cn(
-                'max-h-[88dvh] overflow-hidden rounded-[2rem] border-white/70 bg-card-strong p-0',
+                'max-h-[min(88dvh,56rem)] overflow-hidden rounded-[1.55rem] border-white/70 bg-card-strong p-0 sm:rounded-[2rem]',
                 sheetClassName
               )}
             >
               {showHandle ? (
-                <div className="flex justify-center pt-3">
-                  <span className="h-1.5 w-12 rounded-pill bg-black/10" />
+                <div className="flex justify-center pt-2.5 sm:pt-3">
+                  <span className="h-1.5 w-10 rounded-pill bg-black/10 sm:w-12" />
                 </div>
               ) : null}
               <div
                 className={cn(
-                  'max-h-[calc(88dvh-1.25rem)] overflow-y-auto px-6 pb-6',
-                  showHandle ? 'pt-3' : 'pt-6',
+                  'max-h-[calc(min(88dvh,56rem)-1rem)] overflow-y-auto px-[var(--space-card-padding)] pb-[var(--space-sheet-y)] sm:px-6',
+                  showHandle ? 'pt-2.5 sm:pt-3' : 'pt-[var(--space-sheet-y)]',
                   contentClassName
                 )}
               >

@@ -44,6 +44,9 @@ function ensureLegacyColumns(): void {
   ensureColumn('cache', 'expires_at', 'expires_at INTEGER');
 
   ensureColumn('discover_posts', 'title', 'title TEXT');
+  ensureColumn('discover_posts', 'store_name', 'store_name TEXT');
+  ensureColumn('discover_posts', 'price_text', 'price_text TEXT');
+  ensureColumn('discover_posts', 'content', 'content TEXT');
   ensureColumn('discover_posts', 'category', 'category TEXT NOT NULL DEFAULT \'其他\'');
   ensureColumn('discover_posts', 'storage_key', 'storage_key TEXT NOT NULL DEFAULT \'\'');
   ensureColumn('discover_posts', 'images_json', 'images_json TEXT NOT NULL DEFAULT \'[]\'');
@@ -132,6 +135,9 @@ export function initDatabase() {
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL REFERENCES users(id),
     title TEXT,
+    store_name TEXT,
+    price_text TEXT,
+    content TEXT,
     category TEXT NOT NULL,
     storage_key TEXT NOT NULL,
     images_json TEXT NOT NULL,

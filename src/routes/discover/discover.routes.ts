@@ -47,6 +47,9 @@ discover.post('/posts', async (c) => {
   const data = await DiscoverService.createPost({
     userId: c.get('userId'),
     title: typeof form.get('title') === 'string' ? String(form.get('title')) : undefined,
+    storeName: typeof form.get('storeName') === 'string' ? String(form.get('storeName')) : undefined,
+    priceText: typeof form.get('priceText') === 'string' ? String(form.get('priceText')) : undefined,
+    content: typeof form.get('content') === 'string' ? String(form.get('content')) : undefined,
     category,
     tags: readTagValues(form),
     images: readImageFiles(form),

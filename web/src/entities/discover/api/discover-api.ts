@@ -33,7 +33,10 @@ export interface DiscoverMyListParams {
 
 export interface CreateDiscoverPostPayload {
   category: string;
-  title?: string;
+  title: string;
+  storeName?: string;
+  priceText?: string;
+  content: string;
   tags: string[];
   images: File[];
 }
@@ -71,9 +74,17 @@ export async function createDiscoverPost(payload: CreateDiscoverPostPayload) {
   const formData = new FormData();
   formData.set('category', payload.category);
 
-  if (payload.title?.trim()) {
-    formData.set('title', payload.title.trim());
+  formData.set('title', payload.title.trim());
+
+  if (payload.storeName?.trim()) {
+    formData.set('storeName', payload.storeName.trim());
   }
+
+  if (payload.priceText?.trim()) {
+    formData.set('priceText', payload.priceText.trim());
+  }
+
+  formData.set('content', payload.content.trim());
 
   payload.tags.forEach((tag) => {
     formData.append('tags', tag);

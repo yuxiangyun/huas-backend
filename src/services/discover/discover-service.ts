@@ -27,6 +27,9 @@ interface DiscoverRow {
   id: number;
   userId: number;
   title: string | null;
+  storeName: string | null;
+  priceText: string | null;
+  content: string | null;
   category: string;
   imagesJson: string;
   tagsJson: string;
@@ -46,6 +49,9 @@ interface DiscoverRow {
 interface CreatePostInput {
   userId: number;
   title?: string;
+  storeName?: string;
+  priceText?: string;
+  content?: string;
   category: string;
   tags: string[];
   images: File[];
@@ -54,6 +60,9 @@ interface CreatePostInput {
 interface DiscoverPostResponse {
   id: number;
   title: string;
+  storeName: string;
+  priceText: string;
+  content: string;
   category: string;
   tags: string[];
   images: DiscoverStoredImage[];
@@ -94,6 +103,9 @@ function postSelect() {
     id: schema.discoverPosts.id,
     userId: schema.discoverPosts.userId,
     title: schema.discoverPosts.title,
+    storeName: schema.discoverPosts.storeName,
+    priceText: schema.discoverPosts.priceText,
+    content: schema.discoverPosts.content,
     category: schema.discoverPosts.category,
     storageKey: schema.discoverPosts.storageKey,
     imagesJson: schema.discoverPosts.imagesJson,
@@ -135,11 +147,42 @@ function recommendedRatingJoin(userId: number) {
 
 function normalizeTitle(value: string | undefined) {
   const title = value?.trim() || '';
-  if (!title) return null;
+  if (!title) {
+    throw new AppError(ErrorCode.PARAM_ERROR, '请写清楚这顿饭叫什么');
+  }
   if (title.length > config.discover.maxTitleLength) {
     throw new AppError(ErrorCode.PARAM_ERROR, `标题不能超过 ${config.discover.maxTitleLength} 个字`);
   }
   return title;
+}
+
+function normalizeStoreName(value: string | undefined) {
+  const storeName = value?.trim() || '';
+  if (!storeName) return null;
+  if (storeName.length > config.discover.maxStoreNameLength) {
+    throw new AppError(ErrorCode.PARAM_ERROR, `档口或店名不能超过 ${config.discover.maxStoreNameLength} 个字`);
+  }
+  return storeName;
+}
+
+function normalizePriceText(value: string | undefined) {
+  const priceText = value?.trim() || '';
+  if (!priceText) return null;
+  if (priceText.length > config.discover.maxPriceTextLength) {
+    throw new AppError(ErrorCode.PARAM_ERROR, `价格信息不能超过 ${config.discover.maxPriceTextLength} 个字`);
+  }
+  return priceText;
+}
+
+function normalizeContent(value: string | undefined) {
+  const content = value?.trim() || '';
+  if (!content) {
+    throw new AppError(ErrorCode.PARAM_ERROR, '请写几句口味、分量或排队情况');
+  }
+  if (content.length > config.discover.maxContentLength) {
+    throw new AppError(ErrorCode.PARAM_ERROR, `推荐说明不能超过 ${config.discover.maxContentLength} 个字`);
+  }
+  return content;
 }
 
 function normalizeTags(tags: string[]) {
@@ -192,6 +235,9 @@ export class DiscoverService {
         maxTagsPerPost: config.discover.maxTagsPerPost,
         maxTitleLength: config.discover.maxTitleLength,
         maxTagLength: config.discover.maxTagLength,
+        maxStoreNameLength: config.discover.maxStoreNameLength,
+        maxPriceTextLength: config.discover.maxPriceTextLength,
+        maxContentLength: config.discover.maxContentLength,
       },
     };
   }
@@ -200,6 +246,9 @@ export class DiscoverService {
     const category = normalizeCategory(input.category);
     const tags = normalizeTags(input.tags);
     const title = normalizeTitle(input.title);
+    const storeName = normalizeStoreName(input.storeName);
+    const priceText = normalizePriceText(input.priceText);
+    const content = normalizeContent(input.content);
 
     if (input.images.length === 0) {
       throw new AppError(ErrorCode.PARAM_ERROR, '至少上传一张图片');
@@ -216,6 +265,9 @@ export class DiscoverService {
       const inserted = await db.insert(schema.discoverPosts).values({
         userId: input.userId,
         title,
+        storeName,
+        priceText,
+        content,
         category,
         storageKey: media.storageKey,
         imagesJson: JSON.stringify(media.images),
@@ -617,6 +669,9 @@ export class DiscoverService {
     return {
       id: row.id,
       title: row.title || '',
+      storeName: row.storeName || '',
+      priceText: row.priceText || '',
+      content: row.content || '',
       category: row.category,
       tags,
       images,

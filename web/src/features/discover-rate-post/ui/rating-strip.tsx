@@ -1,4 +1,4 @@
-import { cn } from '@/shared/lib/cn';
+import { FilterChip } from '@/shared/ui/filter-chip';
 
 interface RatingStripProps {
   disabled?: boolean;
@@ -21,22 +21,17 @@ export function RatingStrip({ disabled = false, pendingScore = null, value, onRa
       <div className="grid grid-cols-5 gap-2">
         {Array.from({ length: 5 }, (_, index) => {
           const score = index + 1;
-          const active = currentValue ? score <= currentValue : false;
           return (
-            <button
+            <FilterChip
               key={score}
-              className={cn(
-                'h-11 rounded-[1rem] text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-55',
-                active
-                  ? 'bg-tint text-white'
-                  : 'bg-white/75 text-muted ring-1 ring-line'
-              )}
-              type="button"
+              className="w-full justify-center rounded-[1rem] disabled:cursor-not-allowed disabled:opacity-55"
+              selected={currentValue ? score <= currentValue : false}
+              size="sm"
               disabled={disabled}
               onClick={() => onRate?.(score)}
             >
               {score}
-            </button>
+            </FilterChip>
           );
         })}
       </div>

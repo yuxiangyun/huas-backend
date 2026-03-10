@@ -2,7 +2,8 @@ import {
   type DiscoverCategory,
   type DiscoverSort,
 } from '@/entities/discover/model/discover-types';
-import { cn } from '@/shared/lib/cn';
+import { FilterChip } from '@/shared/ui/filter-chip';
+import { SegmentedControl } from '@/shared/ui/segmented-control';
 
 type DiscoverCategoryFilter = DiscoverCategory | 'all';
 
@@ -36,45 +37,25 @@ export function DiscoverControls({
   ];
 
   return (
-    <div className="space-y-4">
-      <div className="glass-panel flex items-center gap-2 rounded-[1.7rem] p-1.5">
-        {sortOptions.map((option) => {
-          const isActive = option.value === sort;
-          return (
-            <button
-              key={option.value}
-              className={cn(
-                'h-11 flex-1 rounded-pill text-sm font-medium transition',
-                isActive
-                  ? 'bg-ink text-white shadow-card'
-                  : 'text-muted hover:bg-white/60 hover:text-ink'
-              )}
-              type="button"
-              onClick={() => onSortChange(option.value)}
-            >
-              {option.label}
-            </button>
-          );
-        })}
-      </div>
+    <div className="space-y-3">
+      <SegmentedControl
+        items={sortOptions}
+        size="md"
+        value={sort}
+        onChange={onSortChange}
+      />
 
-      <div className="flex gap-2 overflow-x-auto pb-1">
+      <div className="flex gap-2 overflow-x-auto px-0.5 py-0.5 lg:flex-wrap lg:overflow-visible">
         {categoryOptions.map((option) => {
-          const isActive = option.value === category;
           return (
-            <button
+            <FilterChip
               key={option.value}
-              className={cn(
-                'shrink-0 rounded-pill px-4 py-2 text-sm transition',
-                isActive
-                  ? 'bg-tint text-white shadow-card'
-                  : 'bg-white/75 text-muted ring-1 ring-line hover:bg-white hover:text-ink'
-              )}
-              type="button"
+              selected={option.value === category}
+              size="md"
               onClick={() => onCategoryChange(option.value)}
             >
               {option.label}
-            </button>
+            </FilterChip>
           );
         })}
       </div>

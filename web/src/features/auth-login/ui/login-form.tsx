@@ -113,7 +113,7 @@ export function LoginForm() {
   });
 
   return (
-    <Card className="space-y-5 p-6">
+    <Card className="space-y-4 bg-card-strong">
       <div className="space-y-1">
         <h2 className="text-lg font-semibold text-ink">统一认证登录</h2>
         <p className="text-sm leading-6 text-muted">
@@ -125,7 +125,7 @@ export function LoginForm() {
         <label className="block space-y-2">
           <span className="text-sm font-medium text-ink">学号</span>
           <input
-            className="h-12 w-full rounded-[1.25rem] border border-line bg-white/75 px-4 text-ink outline-none transition focus:border-transparent focus:ring-2 focus:ring-tint/20"
+            className="h-11 w-full rounded-[1.05rem] border border-line bg-white/82 px-3.5 text-ink outline-none transition focus:border-transparent focus:ring-2 focus:ring-tint/20"
             placeholder="请输入学号"
             {...register('username')}
           />
@@ -135,7 +135,7 @@ export function LoginForm() {
         <label className="block space-y-2">
           <span className="text-sm font-medium text-ink">密码</span>
           <input
-            className="h-12 w-full rounded-[1.25rem] border border-line bg-white/75 px-4 text-ink outline-none transition focus:border-transparent focus:ring-2 focus:ring-tint/20"
+            className="h-11 w-full rounded-[1.05rem] border border-line bg-white/82 px-3.5 text-ink outline-none transition focus:border-transparent focus:ring-2 focus:ring-tint/20"
             placeholder="请输入密码"
             type="password"
             {...register('password')}
@@ -144,7 +144,7 @@ export function LoginForm() {
         </label>
 
         {captchaSessionId ? (
-          <div className="space-y-3 rounded-[1.5rem] bg-tint-soft/70 p-4">
+          <div className="space-y-3 rounded-[1.2rem] bg-tint-soft/70 p-3.5 sm:p-4">
             <div className="space-y-1">
               <p className="text-sm font-semibold text-[#7e3925]">输入验证码</p>
               <p className="text-sm leading-6 text-[#8b503f]">
@@ -152,7 +152,7 @@ export function LoginForm() {
               </p>
             </div>
             {captchaImage ? (
-              <div className="overflow-hidden rounded-[1.25rem] border border-white/70 bg-white p-3">
+              <div className="overflow-hidden rounded-[1.05rem] border border-white/70 bg-white p-3">
                 <img
                   alt="验证码"
                   className="mx-auto h-24 w-auto"
@@ -163,7 +163,7 @@ export function LoginForm() {
             <label className="block space-y-2">
               <span className="text-sm font-medium text-ink">验证码</span>
               <input
-                className="h-12 w-full rounded-[1.25rem] border border-line bg-white/75 px-4 text-ink outline-none transition focus:border-transparent focus:ring-2 focus:ring-tint/20"
+                className="h-11 w-full rounded-[1.05rem] border border-line bg-white/82 px-3.5 text-ink outline-none transition focus:border-transparent focus:ring-2 focus:ring-tint/20"
                 placeholder="请输入图中验证码"
                 {...register('captcha')}
               />
@@ -173,13 +173,13 @@ export function LoginForm() {
         ) : null}
 
         {statusMessage ? (
-          <div className="rounded-[1.25rem] bg-tint-soft px-4 py-3 text-sm leading-6 text-[#7e3925]">
+          <div className="rounded-[1.05rem] bg-tint-soft px-4 py-3 text-sm leading-6 text-[#7e3925]">
             {statusMessage}
           </div>
         ) : null}
 
         {redirectPath !== appRoutes.discover ? (
-          <div className="rounded-[1.25rem] bg-white/75 px-4 py-3 text-sm leading-6 text-muted ring-1 ring-line">
+          <div className="rounded-[1.05rem] bg-white/75 px-4 py-3 text-sm leading-6 text-muted ring-1 ring-line">
             登录成功后会返回到 <span className="font-medium text-ink">{redirectPath}</span>
           </div>
         ) : null}
@@ -199,9 +199,9 @@ export function LoginForm() {
               <Button
                 className="min-w-[8.5rem]"
                 fullWidth
-                size="md"
+                size="sm"
                 type="button"
-                variant="ghost"
+                variant="subtle"
                 disabled={loginMutation.isPending || isSubmitting}
                 onClick={async () => {
                   const passed = await trigger(['username', 'password']);
@@ -234,9 +234,9 @@ export function LoginForm() {
               <Button
                 className="min-w-[8.5rem]"
                 fullWidth
-                size="md"
+                size="sm"
                 type="button"
-                variant="ghost"
+                variant="subtle"
                 onClick={() => {
                   setCaptchaSessionId(null);
                   setCaptchaImage(null);

@@ -18,6 +18,15 @@ interface DiscoverFeedProps {
   onOpenPost: (postId: number) => void;
 }
 
+function formatPublishedAt(value: string) {
+  return new Date(value).toLocaleString('zh-CN', {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 export function DiscoverFeed({
   categories,
   sort,
@@ -33,11 +42,6 @@ export function DiscoverFeed({
   });
   const posts = postsQuery.data?.pages.flatMap((page) => page.items) ?? [];
   const total = postsQuery.data?.pages[0]?.total ?? 0;
-  const sortLabelMap: Record<DiscoverSort, string> = {
-    latest: '最新',
-    score: '高分',
-    recommended: '推荐',
-  };
 
   return (
     <div className="space-y-4">
@@ -49,30 +53,14 @@ export function DiscoverFeed({
         onSortChange={onSortChange}
       />
 
-      <Card className="flex items-start justify-between gap-4 bg-card-strong">
-        <div className="space-y-1">
-          <p className="text-sm font-semibold text-ink">今日推荐</p>
-          <p className="text-sm leading-6 text-muted">
-            按分类慢慢逛，也可以切到高分或推荐看看大家最爱的选择。
-          </p>
-        </div>
-        <div className="space-y-2 text-right">
-          <span className="inline-flex rounded-pill bg-tint-soft px-3 py-1 text-xs font-medium text-[#7e3925]">
-            {sortLabelMap[sort]}
-          </span>
-          <div className="text-xs text-muted">
-            {total > 0 ? `已展示 ${posts.length} / ${total}` : '正在整理内容'}
-          </div>
-        </div>
-      </Card>
-
       {postsQuery.isLoading ? (
-        <div className="space-y-4">
+        <div className="space-y-3">
           {Array.from({ length: 3 }, (_, index) => (
-            <Card key={index} className="space-y-4">
-              <div className="h-40 animate-pulse rounded-[1.4rem] bg-shell-strong" />
+            <Card key={index} className="space-y-3">
+              <div className="aspect-[16/10] animate-pulse rounded-[1.15rem] bg-shell-strong" />
               <div className="h-5 w-2/3 animate-pulse rounded bg-shell-strong" />
               <div className="h-4 w-full animate-pulse rounded bg-shell-strong" />
+              <div className="h-4 w-5/6 animate-pulse rounded bg-shell-strong" />
             </Card>
           ))}
         </div>
@@ -91,86 +79,112 @@ export function DiscoverFeed({
         <Card className="space-y-2">
           <p className="text-base font-semibold text-ink">还没有内容</p>
           <p className="text-sm leading-6 text-muted">
-            这一栏暂时还很安静，换个分类看看，或者先来分享你的这一顿。
+            这一栏暂时还很安静。先发一顿，把档口、价格和推荐理由说清楚。
           </p>
         </Card>
       ) : null}
 
       {!postsQuery.isLoading && !postsQuery.isError ? (
-        <div className="space-y-4">
+        <div className="space-y-3">
           {posts.map((post) => (
             <button
               key={post.id}
-              className="block w-full text-left"
+              className="block w-full text-left active:scale-[0.995]"
               type="button"
               onClick={() => onOpenPost(post.id)}
             >
-              <Card className="space-y-4 transition hover:-translate-y-0.5 hover:bg-card-strong">
-                <div className="relative overflow-hidden rounded-[1.5rem]">
-                  {post.coverUrl ? (
-                    <img
-                      alt={post.title || '帖子封面'}
-                      className="aspect-[4/3] w-full object-cover"
-                      loading="lazy"
-                      src={buildMediaUrl(post.coverUrl)}
-                    />
-                  ) : (
-                    <div className="aspect-[4/3] bg-shell-strong" />
-                  )}
-                  <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/35 to-transparent p-4 text-white">
-                    <div className="flex flex-wrap gap-2">
-                      <span className="rounded-pill bg-white/18 px-3 py-1 text-xs font-medium backdrop-blur-md">
+              <Card className="overflow-hidden p-0 transition hover:-translate-y-0.5 hover:bg-card-strong">
+                <div className="grid gap-0 sm:grid-cols-[15rem_minmax(0,1fr)]">
+                  <div className="relative overflow-hidden sm:min-h-full">
+                    {post.coverUrl ? (
+                      <img
+                        alt={post.title || '帖子封面'}
+                        className="aspect-[16/10] h-full w-full object-cover sm:aspect-[4/3]"
+                        loading="lazy"
+                        src={buildMediaUrl(post.coverUrl)}
+                      />
+                    ) : (
+                      <div className="aspect-[16/10] bg-shell-strong sm:aspect-[4/3]" />
+                    )}
+                    <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/40 to-transparent p-3 text-white sm:hidden">
+                      <div className="flex flex-wrap gap-2">
+                        <span className="rounded-pill bg-white/18 px-3 py-1 text-xs font-medium backdrop-blur-md">
+                          {post.category}
+                        </span>
+                        {post.isMine ? (
+                          <span className="rounded-pill bg-white/18 px-3 py-1 text-xs font-medium backdrop-blur-md">
+                            我的
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3 p-4 sm:p-5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="hidden rounded-pill bg-tint-soft px-3 py-1 text-xs font-medium text-[#7e3925] sm:inline-flex">
                         {post.category}
                       </span>
+                      {post.storeName ? (
+                        <span className="rounded-pill bg-white/85 px-3 py-1 text-xs text-muted ring-1 ring-line">
+                          {post.storeName}
+                        </span>
+                      ) : null}
+                      {post.priceText ? (
+                        <span className="rounded-pill bg-white/85 px-3 py-1 text-xs text-muted ring-1 ring-line">
+                          {post.priceText}
+                        </span>
+                      ) : null}
                       {post.isMine ? (
-                        <span className="rounded-pill bg-white/18 px-3 py-1 text-xs font-medium backdrop-blur-md">
+                        <span className="rounded-pill bg-white/85 px-3 py-1 text-xs text-muted ring-1 ring-line">
                           我的
                         </span>
                       ) : null}
                     </div>
-                  </div>
-                </div>
 
-                <div className="space-y-2">
-                  <div className="flex flex-wrap gap-2">
-                    {post.tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="rounded-pill bg-white/80 px-3 py-1 text-xs text-muted ring-1 ring-line"
-                      >
-                        #{tag}
+                    <div className="space-y-2">
+                      <h3 className="text-[1.08rem] font-semibold tracking-[-0.04em] text-ink sm:text-xl">
+                        {post.title || `${post.category} · 同学推荐`}
+                      </h3>
+                      <p className="text-clamp-3 text-sm leading-6 text-muted sm:leading-7">
+                        {post.content || '这条旧帖子还没有正文说明。'}
+                      </p>
+                    </div>
+
+                    {post.tags.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {post.tags.map((tag) => (
+                          <span
+                            key={tag}
+                            className="rounded-pill bg-white/80 px-3 py-1 text-xs text-muted ring-1 ring-line"
+                          >
+                            #{tag}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    <div className="flex flex-wrap items-center justify-between gap-2.5 text-[0.82rem] text-muted sm:text-sm">
+                      <span>{buildClassmateLabel(post.author.label)} · {formatPublishedAt(post.publishedAt)}</span>
+                      <span>
+                        {post.rating.average.toFixed(1)} 分 · {post.rating.count} 人 · {post.imageCount} 张图
                       </span>
-                    ))}
+                    </div>
                   </div>
-                  <h3 className="text-lg font-semibold text-ink">
-                    {post.title || `${post.category} · 同学推荐`}
-                  </h3>
-                  <p className="text-sm leading-6 text-muted">
-                    {buildClassmateLabel(post.author.label)} · {new Date(post.publishedAt).toLocaleString('zh-CN', {
-                      month: 'numeric',
-                      day: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </p>
-                </div>
-
-                <div className="flex items-center justify-between text-sm text-muted">
-                  <span>{post.imageCount} 张图</span>
-                  <span>
-                    {post.rating.average.toFixed(1)} 分 · {post.rating.count} 人
-                  </span>
                 </div>
               </Card>
             </button>
           ))}
 
           <div className="flex items-center justify-between gap-3 pt-1">
+            <div className="text-sm text-muted">
+              {total > 0 ? `已展示 ${posts.length} / ${total}` : '正在整理内容'}
+            </div>
             <Button
               className="min-w-[6rem]"
-              size="md"
+              size="sm"
               type="button"
-              variant="ghost"
+              variant="subtle"
               onClick={() => void postsQuery.refetch()}
             >
               {postsQuery.isRefetching ? '刷新中...' : '刷新列表'}
@@ -178,7 +192,7 @@ export function DiscoverFeed({
             {postsQuery.hasNextPage ? (
               <Button
                 className="min-w-[6rem]"
-                size="md"
+                size="sm"
                 type="button"
                 variant="secondary"
                 disabled={postsQuery.isFetchingNextPage}

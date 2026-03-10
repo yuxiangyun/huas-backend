@@ -88,7 +88,10 @@ describe('discover module', () => {
     const app = createApp();
     const form = new FormData();
     form.set('category', '其他');
-    form.set('title', '今天午饭');
+    form.set('title', '红油牛肉粉');
+    form.set('storeName', '二楼川味档');
+    form.set('priceText', '12元');
+    form.set('content', '汤底够辣，牛肉给得不少，午高峰要稍微等一会。');
     form.append('tags', '辣');
     form.append('tags', '便宜');
     form.append('images', new File([await createImageBuffer('#ff8844')], 'food-a.jpg', { type: 'image/jpeg' }));
@@ -103,6 +106,9 @@ describe('discover module', () => {
     const body = await res.json() as any;
     expect(body.success).toBe(true);
     expect(body.data.category).toBe('其他');
+    expect(body.data.storeName).toBe('二楼川味档');
+    expect(body.data.priceText).toBe('12元');
+    expect(body.data.content).toContain('牛肉给得不少');
     expect(body.data.tags).toEqual(['辣', '便宜']);
     expect(body.data.images).toHaveLength(1);
     expect(body.data.images[0].url.endsWith('.webp')).toBe(true);
@@ -127,10 +133,20 @@ describe('discover module', () => {
   it('评分会更新平均分，高分列表与推荐列表按 discover 逻辑工作', async () => {
     const app = createApp();
 
-    async function createPost(userId: number, studentId: string, title: string, category: string, tags: string[], color: string) {
+    async function createPost(
+      userId: number,
+      studentId: string,
+      title: string,
+      category: string,
+      tags: string[],
+      color: string
+    ) {
       const form = new FormData();
       form.set('category', category);
       form.set('title', title);
+      form.set('storeName', '测试档口');
+      form.set('priceText', '15元');
+      form.set('content', `${title} 很下饭，分量稳定，愿意回头再吃。`);
       for (const tag of tags) form.append('tags', tag);
       form.append('images', new File([await createImageBuffer(color)], `${title}.jpg`, { type: 'image/jpeg' }));
 
@@ -181,10 +197,19 @@ describe('discover module', () => {
   it('推荐流在冷启动或无匹配时，不会返回自己的帖子或已评分帖子', async () => {
     const app = createApp();
 
-    async function createPost(userId: number, studentId: string, title: string, tags: string[], color: string) {
+    async function createPost(
+      userId: number,
+      studentId: string,
+      title: string,
+      tags: string[],
+      color: string
+    ) {
       const form = new FormData();
       form.set('category', '其他');
       form.set('title', title);
+      form.set('storeName', '测试档口');
+      form.set('priceText', '11元');
+      form.set('content', `${title} 有明显口味特点，适合推荐给别人。`);
       for (const tag of tags) form.append('tags', tag);
       form.append('images', new File([await createImageBuffer(color)], `${title}.jpg`, { type: 'image/jpeg' }));
 
@@ -234,6 +259,10 @@ describe('discover module', () => {
     const app = createApp();
     const form = new FormData();
     form.set('category', '1食堂');
+    form.set('title', '番茄鸡排饭');
+    form.set('storeName', '一食堂快餐档');
+    form.set('priceText', '14元');
+    form.set('content', '味道稳定，鸡排现炸，番茄汁偏甜，适合不想吃辣的时候。');
     form.append('tags', '好吃');
     form.append('images', new File([await createImageBuffer('#44aa66')], 'food-c.jpg', { type: 'image/jpeg' }));
 
