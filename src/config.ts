@@ -77,6 +77,15 @@ export const config = {
     imageMaxDimension: parsePositiveInt(process.env.DISCOVER_IMAGE_MAX_DIMENSION, 1280),
     imageQuality: Math.min(95, Math.max(40, parsePositiveInt(process.env.DISCOVER_IMAGE_QUALITY, 78))),
   },
+
+  treehole: {
+    maxPostLength: parsePositiveInt(process.env.TREEHOLE_MAX_POST_LENGTH, 500),
+    maxCommentLength: parsePositiveInt(process.env.TREEHOLE_MAX_COMMENT_LENGTH, 200),
+    defaultPageSize: parsePositiveInt(process.env.TREEHOLE_DEFAULT_PAGE_SIZE, 20),
+    maxPageSize: parsePositiveInt(process.env.TREEHOLE_MAX_PAGE_SIZE, 50),
+    defaultCommentPageSize: parsePositiveInt(process.env.TREEHOLE_DEFAULT_COMMENT_PAGE_SIZE, 50),
+    maxCommentPageSize: parsePositiveInt(process.env.TREEHOLE_MAX_COMMENT_PAGE_SIZE, 100),
+  },
 };
 
 // Shared constants

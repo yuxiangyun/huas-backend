@@ -10,15 +10,55 @@ import { getDiscoverMeta } from '@/entities/discover/api/discover-api';
 import { loginWithPassword } from '@/entities/auth/api/auth-api';
 import { useAuthStore } from '@/entities/auth/model/auth-store';
 import { loginSchema, type LoginFormValues } from '@/features/auth-login/model/login-schema';
-import { getUserInfo } from '@/entities/user/api/user-api';
-import { userQueryKeys } from '@/entities/user/api/user-queries';
 import { ApiError } from '@/shared/api/http-client';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
 
 function FieldMessage({ message }: { message?: string }) {
   if (!message) return null;
-  return <p className="text-sm text-[#9e2e22]">{message}</p>;
+  return <p className="text-sm text-error">{message}</p>;
+}
+
+const fieldClassName =
+  'h-12 w-full rounded-[1.15rem] border border-line bg-white/86 px-3.5 text-ink outline-none transition focus:border-transparent focus:ring-2 focus:ring-black/10';
+
+const noteClassName =
+  'rounded-[1.1rem] bg-white/78 px-4 py-3 text-sm leading-6 text-muted ring-1 ring-line';
+
+const REMEMBERED_CREDENTIALS_STORAGE_KEY = 'huas-web.remembered-credentials';
+
+interface RememberedCredentials {
+  username: string;
+  password: string;
+}
+
+function readRememberedCredentials(): RememberedCredentials | null {
+  if (typeof window === 'undefined') return null;
+
+  try {
+    const raw = window.localStorage.getItem(REMEMBERED_CREDENTIALS_STORAGE_KEY);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw) as Partial<RememberedCredentials>;
+    if (!parsed.username || !parsed.password) return null;
+
+    return {
+      username: parsed.username,
+      password: parsed.password,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeRememberedCredentials(credentials: RememberedCredentials) {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(REMEMBERED_CREDENTIALS_STORAGE_KEY, JSON.stringify(credentials));
+}
+
+function clearRememberedCredentials() {
+  if (typeof window === 'undefined') return;
+  window.localStorage.removeItem(REMEMBERED_CREDENTIALS_STORAGE_KEY);
 }
 
 export function LoginForm() {
@@ -26,6 +66,8 @@ export function LoginForm() {
   const location = useLocation();
   const queryClient = useQueryClient();
   const login = useAuthStore((state) => state.login);
+  const [rememberedCredentials] = useState<RememberedCredentials | null>(() => readRememberedCredentials());
+  const [rememberPassword, setRememberPassword] = useState(rememberedCredentials !== null);
   const [captchaSessionId, setCaptchaSessionId] = useState<string | null>(null);
   const [captchaImage, setCaptchaImage] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -43,8 +85,8 @@ export function LoginForm() {
   } = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
-      username: '',
-      password: '',
+      username: rememberedCredentials?.username ?? '',
+      password: rememberedCredentials?.password ?? '',
       captcha: '',
     },
   });
@@ -55,13 +97,22 @@ export function LoginForm() {
 
   const redirectPath = resolveRedirectPath(location, appRoutes.discover);
 
-  const finalizeLogin = async (result: Awaited<ReturnType<typeof loginWithPassword>>) => {
+  const finalizeLogin = async (
+    result: Awaited<ReturnType<typeof loginWithPassword>>,
+    credentials: RememberedCredentials
+  ) => {
     if (result.type === 'captcha_required') {
       setCaptchaSessionId(result.sessionId);
       setCaptchaImage(result.captchaImage);
       setValue('captcha', '');
       setStatusMessage(result.message);
       return;
+    }
+
+    if (rememberPassword) {
+      writeRememberedCredentials(credentials);
+    } else {
+      clearRememberedCredentials();
     }
 
     setCaptchaSessionId(null);
@@ -73,16 +124,10 @@ export function LoginForm() {
       userBrief: result.user,
     });
 
-    void Promise.allSettled([
-      queryClient.prefetchQuery({
-        queryKey: discoverQueryKeys.meta(),
-        queryFn: getDiscoverMeta,
-      }),
-      queryClient.prefetchQuery({
-        queryKey: userQueryKeys.detail(false),
-        queryFn: () => getUserInfo(false),
-      }),
-    ]);
+    void queryClient.prefetchQuery({
+      queryKey: discoverQueryKeys.meta(),
+      queryFn: getDiscoverMeta,
+    });
 
     navigate(redirectPath, { replace: true });
   };
@@ -102,7 +147,10 @@ export function LoginForm() {
         captcha: captchaSessionId ? values.captcha?.trim() || undefined : undefined,
         sessionId: captchaSessionId || undefined,
       });
-      await finalizeLogin(result);
+      await finalizeLogin(result, {
+        username: values.username.trim(),
+        password: values.password,
+      });
     } catch (error) {
       const message = error instanceof ApiError ? error.message : '登录失败，请稍后重试';
       setStatusMessage(message);
@@ -113,19 +161,20 @@ export function LoginForm() {
   });
 
   return (
-    <Card className="space-y-4 bg-card-strong">
-      <div className="space-y-1">
-        <h2 className="text-lg font-semibold text-ink">统一认证登录</h2>
+    <Card className="space-y-5 bg-card-strong sm:space-y-6">
+      <div className="space-y-1.5">
+        <h2 className="text-xl font-semibold tracking-[-0.03em] text-ink">登录</h2>
         <p className="text-sm leading-6 text-muted">
-          输入学号和密码即可登录，若需要验证码会自动切换到对应步骤。
+          输入学号和密码
         </p>
       </div>
 
-      <form className="space-y-4" onSubmit={onLogin}>
+      <form className="space-y-4 sm:space-y-[1.125rem]" onSubmit={onLogin}>
         <label className="block space-y-2">
           <span className="text-sm font-medium text-ink">学号</span>
           <input
-            className="h-11 w-full rounded-[1.05rem] border border-line bg-white/82 px-3.5 text-ink outline-none transition focus:border-transparent focus:ring-2 focus:ring-tint/20"
+            autoComplete="username"
+            className={fieldClassName}
             placeholder="请输入学号"
             {...register('username')}
           />
@@ -135,7 +184,8 @@ export function LoginForm() {
         <label className="block space-y-2">
           <span className="text-sm font-medium text-ink">密码</span>
           <input
-            className="h-11 w-full rounded-[1.05rem] border border-line bg-white/82 px-3.5 text-ink outline-none transition focus:border-transparent focus:ring-2 focus:ring-tint/20"
+            autoComplete="current-password"
+            className={fieldClassName}
             placeholder="请输入密码"
             type="password"
             {...register('password')}
@@ -143,16 +193,36 @@ export function LoginForm() {
           <FieldMessage message={errors.password?.message} />
         </label>
 
+        <div className="flex items-center justify-between gap-3">
+          <label className="inline-flex items-center gap-2.5 text-sm text-muted">
+            <input
+              checked={rememberPassword}
+              className="size-4 rounded border border-line accent-black"
+              type="checkbox"
+              onChange={(event) => {
+                const nextChecked = event.target.checked;
+                setRememberPassword(nextChecked);
+
+                if (!nextChecked) {
+                  clearRememberedCredentials();
+                }
+              }}
+            />
+            <span>记住密码</span>
+          </label>
+          <span className="text-xs text-muted">仅当前设备</span>
+        </div>
+
         {captchaSessionId ? (
-          <div className="space-y-3 rounded-[1.2rem] bg-tint-soft/70 p-3.5 sm:p-4">
+          <div className="space-y-3 rounded-[1.25rem] bg-tint-soft p-3.5 ring-1 ring-line sm:p-4">
             <div className="space-y-1">
-              <p className="text-sm font-semibold text-[#7e3925]">输入验证码</p>
-              <p className="text-sm leading-6 text-[#8b503f]">
-                请根据图片内容补全验证码，学号和密码会自动保留。
+              <p className="text-sm font-semibold text-ink">输入验证码</p>
+              <p className="text-sm leading-6 text-muted">
+                输入图中验证码
               </p>
             </div>
             {captchaImage ? (
-              <div className="overflow-hidden rounded-[1.05rem] border border-white/70 bg-white p-3">
+              <div className="overflow-hidden rounded-[1.05rem] border border-line bg-white/90 p-3">
                 <img
                   alt="验证码"
                   className="mx-auto h-24 w-auto"
@@ -163,7 +233,7 @@ export function LoginForm() {
             <label className="block space-y-2">
               <span className="text-sm font-medium text-ink">验证码</span>
               <input
-                className="h-11 w-full rounded-[1.05rem] border border-line bg-white/82 px-3.5 text-ink outline-none transition focus:border-transparent focus:ring-2 focus:ring-tint/20"
+                className={fieldClassName}
                 placeholder="请输入图中验证码"
                 {...register('captcha')}
               />
@@ -173,14 +243,8 @@ export function LoginForm() {
         ) : null}
 
         {statusMessage ? (
-          <div className="rounded-[1.05rem] bg-tint-soft px-4 py-3 text-sm leading-6 text-[#7e3925]">
+          <div className={noteClassName}>
             {statusMessage}
-          </div>
-        ) : null}
-
-        {redirectPath !== appRoutes.discover ? (
-          <div className="rounded-[1.05rem] bg-white/75 px-4 py-3 text-sm leading-6 text-muted ring-1 ring-line">
-            登录成功后会返回到 <span className="font-medium text-ink">{redirectPath}</span>
           </div>
         ) : null}
 
@@ -217,7 +281,10 @@ export function LoginForm() {
                       username: values.username.trim(),
                       password: values.password,
                     });
-                    await finalizeLogin(result);
+                    await finalizeLogin(result, {
+                      username: values.username.trim(),
+                      password: values.password,
+                    });
                     if (result.type === 'captcha_required') {
                       setStatusMessage('验证码已更新，请输入新的内容。');
                     }

@@ -22,11 +22,11 @@ export function FilterChip({
     <button
       aria-pressed={selected}
       className={cn(
-        'inline-flex shrink-0 items-center justify-center rounded-pill font-medium leading-none whitespace-nowrap transition duration-150 active:scale-[0.985]',
+        'inline-flex shrink-0 items-center justify-center rounded-pill font-medium leading-none whitespace-nowrap transition duration-150 active:scale-[0.985] motion-reduce:transform-none motion-reduce:transition-none',
         sizeClasses[size],
         selected
-          ? 'bg-tint text-white shadow-card'
-          : 'bg-white/75 text-muted ring-1 ring-line hover:bg-white hover:text-ink active:bg-white/95',
+          ? 'bg-ink text-white shadow-card max-sm:shadow-none'
+          : 'bg-white/78 text-muted ring-1 ring-line hover:bg-white hover:text-ink active:bg-[#f4f5f6] max-sm:bg-white/92',
         className
       )}
       type={type}

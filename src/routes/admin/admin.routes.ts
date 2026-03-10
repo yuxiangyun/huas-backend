@@ -5,6 +5,7 @@ import { ErrorCode } from '../../utils/errors';
 import { AdminDashboardService } from '../../services/admin/dashboard-service';
 import { AnnouncementService } from '../../services/content/announcement-service';
 import { DiscoverService } from '../../services/discover/discover-service';
+import { TreeholeService } from '../../services/treehole/treehole-service';
 import { Logger } from '../../utils/logger';
 
 const admin = new Hono();
@@ -96,6 +97,48 @@ admin.delete('/discover/posts/:id', async (c) => {
     return success(c, { id: removed.id });
   } catch (e: any) {
     return error(c, ErrorCode.INTERNAL_ERROR, e?.message || '删除帖子失败', 500);
+  }
+});
+
+admin.delete('/treehole/posts/:id', async (c) => {
+  const postId = Number(c.req.param('id'));
+  if (!Number.isInteger(postId) || postId <= 0) {
+    return error(c, ErrorCode.PARAM_ERROR, '帖子 ID 不合法', 400);
+  }
+
+  try {
+    const removed = await TreeholeService.adminDeletePost(postId);
+    if (!removed) {
+      return error(c, ErrorCode.PARAM_ERROR, '帖子不存在', 404);
+    }
+    Logger.operation('Admin', `删除 Treehole 帖子 #${removed.id}`, c.get('adminUser'), '管理员');
+    return success(c, { id: removed.id });
+  } catch (e: any) {
+    return error(c, ErrorCode.INTERNAL_ERROR, e?.message || '删除帖子失败', 500);
+  }
+});
+
+admin.delete('/treehole/comments/:id', async (c) => {
+  const commentId = Number(c.req.param('id'));
+  if (!Number.isInteger(commentId) || commentId <= 0) {
+    return error(c, ErrorCode.PARAM_ERROR, '评论 ID 不合法', 400);
+  }
+
+  try {
+    const removed = await TreeholeService.adminDeleteComment(commentId);
+    if (!removed) {
+      return error(c, ErrorCode.PARAM_ERROR, '评论不存在', 404);
+    }
+    Logger.operation(
+      'Admin',
+      `删除 Treehole 评论 #${removed.id}`,
+      c.get('adminUser'),
+      '管理员',
+      `postId=${removed.postId}`
+    );
+    return success(c, removed);
+  } catch (e: any) {
+    return error(c, ErrorCode.INTERNAL_ERROR, e?.message || '删除评论失败', 500);
   }
 });
 

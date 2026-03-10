@@ -6,6 +6,7 @@ export interface PageHeaderProps {
   title: string;
   description?: string;
   action?: ReactNode;
+  visual?: ReactNode;
   compact?: boolean;
   className?: string;
 }
@@ -15,36 +16,45 @@ export function PageHeader({
   title,
   description,
   action,
+  visual,
   compact = false,
   className,
 }: PageHeaderProps) {
   return (
     <header className={cn('page-header-mobile px-1', className)}>
-      <div className="flex items-start justify-between gap-3 sm:gap-4">
-        <div className={cn('min-w-0', compact ? 'space-y-1.5' : 'space-y-2')}>
-          {eyebrow ? (
-            <p
-              className="text-[0.74rem] font-medium uppercase text-muted"
-              style={{ letterSpacing: 'var(--tracking-eyebrow)' }}
+      <div className={cn(visual ? 'flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between' : 'flex items-start justify-between gap-3 sm:gap-4')}>
+        <div className="flex items-start justify-between gap-3 sm:gap-4">
+          <div className={cn('min-w-0', compact ? 'space-y-1.5' : 'space-y-2')}>
+            {eyebrow ? (
+              <p
+                className="text-[0.74rem] font-medium uppercase text-muted"
+                style={{ letterSpacing: 'var(--tracking-eyebrow)' }}
+              >
+                {eyebrow}
+              </p>
+            ) : null}
+            <h1
+              className={cn(
+                'max-w-[13ch] font-semibold leading-[0.94] tracking-[-0.05em] text-ink sm:max-w-none sm:text-4xl',
+                compact ? 'text-[var(--font-title-section)]' : 'text-[var(--font-title-page)]'
+              )}
             >
-              {eyebrow}
-            </p>
-          ) : null}
-          <h1
-            className={cn(
-              'max-w-[13ch] font-semibold leading-[0.94] tracking-[-0.05em] text-ink sm:max-w-none sm:text-4xl',
-              compact ? 'text-[var(--font-title-section)]' : 'text-[var(--font-title-page)]'
-            )}
-          >
-            {title}
-          </h1>
-          {description ? (
-            <p className="max-w-[28rem] text-[0.95rem] leading-7 text-muted sm:text-sm">
-              {description}
-            </p>
-          ) : null}
+              {title}
+            </h1>
+            {description ? (
+              <p className="max-w-[28rem] text-[0.95rem] leading-7 text-muted sm:text-sm">
+                {description}
+              </p>
+            ) : null}
+          </div>
+          {action ? <div className="shrink-0 pt-1">{action}</div> : null}
         </div>
-        {action ? <div className="shrink-0 pt-1">{action}</div> : null}
+
+        {visual ? (
+          <div className="w-full self-stretch sm:w-auto sm:self-auto sm:pt-1">
+            {visual}
+          </div>
+        ) : null}
       </div>
     </header>
   );

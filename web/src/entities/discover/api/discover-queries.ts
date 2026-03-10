@@ -18,14 +18,14 @@ import type { DiscoverPost } from '@/entities/discover/model/discover-types';
 export function useDiscoverMetaQuery() {
   return useQuery({
     queryKey: discoverQueryKeys.meta(),
-    queryFn: getDiscoverMeta,
+    queryFn: ({ signal }) => getDiscoverMeta({ signal }),
   });
 }
 
 export function useDiscoverPostsQuery(params: DiscoverListParams) {
   return useQuery({
     queryKey: discoverQueryKeys.list(params),
-    queryFn: () => getDiscoverPosts(params),
+    queryFn: ({ signal }) => getDiscoverPosts(params, { signal }),
   });
 }
 
@@ -33,11 +33,11 @@ export function useDiscoverInfinitePostsQuery(params: Omit<DiscoverListParams, '
   return useInfiniteQuery({
     initialPageParam: 1,
     queryKey: discoverQueryKeys.list(params),
-    queryFn: ({ pageParam }) =>
+    queryFn: ({ pageParam, signal }) =>
       getDiscoverPosts({
         ...params,
         page: pageParam,
-      }),
+      }, { signal }),
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
   });
 }
@@ -45,7 +45,7 @@ export function useDiscoverInfinitePostsQuery(params: Omit<DiscoverListParams, '
 export function useMyDiscoverPostsQuery(params: DiscoverMyListParams) {
   return useQuery({
     queryKey: discoverQueryKeys.mine(params),
-    queryFn: () => getMyDiscoverPosts(params),
+    queryFn: ({ signal }) => getMyDiscoverPosts(params, { signal }),
   });
 }
 
@@ -53,11 +53,11 @@ export function useMyDiscoverInfinitePostsQuery(params: Omit<DiscoverMyListParam
   return useInfiniteQuery({
     initialPageParam: 1,
     queryKey: discoverQueryKeys.mine(params),
-    queryFn: ({ pageParam }) =>
+    queryFn: ({ pageParam, signal }) =>
       getMyDiscoverPosts({
         ...params,
         page: pageParam,
-      }),
+      }, { signal }),
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
   });
 }
@@ -65,7 +65,7 @@ export function useMyDiscoverInfinitePostsQuery(params: Omit<DiscoverMyListParam
 export function useDiscoverPostDetailQuery(postId: number | null) {
   return useQuery({
     queryKey: discoverQueryKeys.detail(postId ?? 0),
-    queryFn: () => getDiscoverPostDetail(postId!),
+    queryFn: ({ signal }) => getDiscoverPostDetail(postId!, { signal }),
     enabled: postId !== null,
   });
 }

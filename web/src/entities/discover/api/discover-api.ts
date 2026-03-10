@@ -6,6 +6,10 @@ import type {
   DiscoverSort,
 } from '@/entities/discover/model/discover-types';
 
+interface RequestOptions {
+  signal?: AbortSignal;
+}
+
 function buildQueryString(params: Record<string, string | number | undefined>) {
   const searchParams = new URLSearchParams();
 
@@ -41,33 +45,41 @@ export interface CreateDiscoverPostPayload {
   images: File[];
 }
 
-export async function getDiscoverMeta() {
-  return apiRequest<DiscoverMeta>('/api/discover/meta');
+export async function getDiscoverMeta(options?: RequestOptions) {
+  return apiRequest<DiscoverMeta>('/api/discover/meta', {}, { signal: options?.signal });
 }
 
-export async function getDiscoverPosts(params: DiscoverListParams) {
+export async function getDiscoverPosts(params: DiscoverListParams, options?: RequestOptions) {
   return apiRequest<DiscoverListResponse>(
     `/api/discover/posts${buildQueryString({
       sort: params.sort,
       category: params.category,
       page: params.page,
       pageSize: params.pageSize,
-    })}`
+    })}`,
+    {},
+    { signal: options?.signal }
   );
 }
 
-export async function getMyDiscoverPosts(params: DiscoverMyListParams) {
+export async function getMyDiscoverPosts(params: DiscoverMyListParams, options?: RequestOptions) {
   return apiRequest<DiscoverListResponse>(
     `/api/discover/posts/me${buildQueryString({
       category: params.category,
       page: params.page,
       pageSize: params.pageSize,
-    })}`
+    })}`,
+    {},
+    { signal: options?.signal }
   );
 }
 
-export async function getDiscoverPostDetail(postId: number) {
-  return apiRequest<DiscoverPost>(`/api/discover/posts/${postId}`);
+export async function getDiscoverPostDetail(postId: number, options?: RequestOptions) {
+  return apiRequest<DiscoverPost>(
+    `/api/discover/posts/${postId}`,
+    {},
+    { signal: options?.signal }
+  );
 }
 
 export async function createDiscoverPost(payload: CreateDiscoverPostPayload) {

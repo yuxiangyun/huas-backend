@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { useToastStore } from '@/app/state/toast-store';
 import {
   useDeleteDiscoverPostMutation,
@@ -8,11 +8,18 @@ import {
 import { DeletePostButton } from '@/features/discover-delete-post/ui/delete-post-button';
 import { RatingStrip } from '@/features/discover-rate-post/ui/rating-strip';
 import { buildMediaUrl } from '@/shared/api/media';
+import { cn } from '@/shared/lib/cn';
 import { buildClassmateLabel } from '@/shared/lib/student';
 import { Button } from '@/shared/ui/button';
 import { BottomSheet } from '@/shared/ui/bottom-sheet';
 import { Card } from '@/shared/ui/card';
-import { ImageViewer } from '@/shared/ui/image-viewer';
+
+const loadImageViewer = () => import('@/shared/ui/image-viewer');
+
+const LazyImageViewer = lazy(async () => {
+  const module = await loadImageViewer();
+  return { default: module.ImageViewer };
+});
 
 interface DiscoverDetailSheetProps {
   postId: number | null;
@@ -35,12 +42,19 @@ export function DiscoverDetailSheet({ postId, onClose }: DiscoverDetailSheetProp
   const post = postQuery.data;
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [activeImageIndex, setActiveImageIndex] = useState<number | null>(null);
+  const [imageViewerRequested, setImageViewerRequested] = useState(false);
   const pushToast = useToastStore((state) => state.pushToast);
 
   useEffect(() => {
     setActionMessage(null);
     setActiveImageIndex(null);
   }, [postId]);
+
+  useEffect(() => {
+    if (activeImageIndex === null) return;
+    setImageViewerRequested(true);
+    void loadImageViewer();
+  }, [activeImageIndex]);
 
   const handleDelete = async () => {
     if (!postId) return;
@@ -51,7 +65,6 @@ export function DiscoverDetailSheet({ postId, onClose }: DiscoverDetailSheetProp
       await deleteMutation.mutateAsync({ postId });
       pushToast({
         title: '删除成功',
-        message: '帖子已经从列表中移除。',
         variant: 'success',
       });
       onClose();
@@ -65,6 +78,25 @@ export function DiscoverDetailSheet({ postId, onClose }: DiscoverDetailSheetProp
     alt: `${post.title || `${post.category} · 同学推荐`} · 第 ${imageIndex + 1} 张`,
     key: image.url,
   })) ?? [];
+  const imageCount = post?.images.length ?? 0;
+  const imageGridClassName = cn(
+    'grid gap-3',
+    imageCount <= 1
+      ? 'grid-cols-1'
+      : imageCount === 2
+        ? 'grid-cols-2'
+        : 'grid-cols-3 sm:grid-cols-4'
+  );
+  const imageButtonClassName = cn(
+    'overflow-hidden rounded-[1.1rem] sm:rounded-[1.4rem]',
+    imageCount === 1 && 'mx-auto w-full max-w-[22rem] sm:max-w-[26rem]'
+  );
+  const imageClassName = cn(
+    'w-full object-cover',
+    imageCount === 1
+      ? 'aspect-[4/5] max-h-[26rem] sm:max-h-[32rem]'
+      : 'aspect-[3/4]'
+  );
 
   return (
     <>
@@ -112,7 +144,7 @@ export function DiscoverDetailSheet({ postId, onClose }: DiscoverDetailSheetProp
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-3">
                 <div className="flex flex-wrap gap-2">
-                  <span className="rounded-pill bg-tint-soft px-3 py-1 text-xs font-medium text-[#7e3925]">
+                  <span className="rounded-pill bg-tint-soft px-3 py-1 text-xs font-medium text-ink">
                     {post.category}
                   </span>
                   {post.storeName ? (
@@ -145,18 +177,18 @@ export function DiscoverDetailSheet({ postId, onClose }: DiscoverDetailSheetProp
             <div className="grid gap-3 sm:grid-cols-[minmax(0,1.45fr)_minmax(16rem,1fr)]">
               <Card className="space-y-3 rounded-[1.2rem] bg-white/78 p-3.5 shadow-none sm:rounded-[1.5rem] sm:p-4">
                 <div className="flex items-center justify-between gap-4">
-                  <p className="text-sm font-semibold text-ink">这顿饭值不值得去</p>
+                  <p className="text-sm font-semibold text-ink">内容</p>
                   <span className="text-sm text-muted">
                     {post.rating.average.toFixed(1)} 分 · {post.rating.count} 人
                   </span>
                 </div>
                 <p className="text-sm leading-7 whitespace-pre-wrap text-muted">
-                  {post.content || '这条旧帖子没有留下正文说明。'}
+                  {post.content || '未填写'}
                 </p>
               </Card>
 
               <Card className="space-y-3 rounded-[1.2rem] bg-white/78 p-3.5 shadow-none sm:rounded-[1.5rem] sm:p-4">
-                <p className="text-sm font-semibold text-ink">关键信息</p>
+                <p className="text-sm font-semibold text-ink">信息</p>
                 <div className="grid grid-cols-2 gap-3 text-sm text-muted">
                   <div className="rounded-[1.1rem] bg-white/80 px-3 py-3 ring-1 ring-line">
                     <p className="text-xs uppercase tracking-[0.18em] text-muted">档口</p>
@@ -191,17 +223,21 @@ export function DiscoverDetailSheet({ postId, onClose }: DiscoverDetailSheetProp
               </div>
             ) : null}
 
-            <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
+            <div className={imageGridClassName}>
               {post.images.map((image, imageIndex) => (
                 <button
                   key={image.url}
-                  className="overflow-hidden rounded-[1.1rem] sm:rounded-[1.4rem]"
+                  className={imageButtonClassName}
                   type="button"
-                  onClick={() => setActiveImageIndex(imageIndex)}
+                  onClick={() => {
+                    setImageViewerRequested(true);
+                    void loadImageViewer();
+                    setActiveImageIndex(imageIndex);
+                  }}
                 >
                   <img
                     alt={post.title || '帖子图片'}
-                    className="aspect-[3/4] w-full object-cover"
+                    className={imageClassName}
                     src={buildMediaUrl(image.url)}
                   />
                 </button>
@@ -213,10 +249,10 @@ export function DiscoverDetailSheet({ postId, onClose }: DiscoverDetailSheetProp
                 <p className="text-sm font-semibold text-ink">帖子评分</p>
                 <p className="text-sm leading-6 text-muted">
                   {post.isMine
-                    ? '自己的帖子不能评分，但可以实时看到大家给出的反馈。'
+                    ? '自己的帖子不能评分'
                     : post.rating.userScore
-                      ? `你已经打了 ${post.rating.userScore} 分，再次评分会自动更新。`
-                      : '如果这条推荐对你有帮助，直接给 1-5 分。'}
+                      ? `你打了 ${post.rating.userScore} 分`
+                      : '可打 1-5 分'}
                 </p>
               </div>
 
@@ -232,7 +268,6 @@ export function DiscoverDetailSheet({ postId, onClose }: DiscoverDetailSheetProp
                       onSuccess: () => {
                         pushToast({
                           title: '评分成功',
-                          message: `你给这条帖子打了 ${score} 分。`,
                           variant: 'success',
                         });
                       },
@@ -246,7 +281,7 @@ export function DiscoverDetailSheet({ postId, onClose }: DiscoverDetailSheetProp
             </Card>
 
             {actionMessage ? (
-              <div className="rounded-[1.05rem] bg-tint-soft px-4 py-3 text-sm leading-6 text-[#7e3925]">
+              <div className="rounded-[1.05rem] bg-error-soft px-4 py-3 text-sm leading-6 text-error">
                 {actionMessage}
               </div>
             ) : null}
@@ -260,12 +295,16 @@ export function DiscoverDetailSheet({ postId, onClose }: DiscoverDetailSheetProp
         ) : null}
       </BottomSheet>
 
-      <ImageViewer
-        index={activeImageIndex}
-        items={imageItems}
-        onClose={() => setActiveImageIndex(null)}
-        onIndexChange={setActiveImageIndex}
-      />
+      {imageViewerRequested ? (
+        <Suspense fallback={null}>
+          <LazyImageViewer
+            index={activeImageIndex}
+            items={imageItems}
+            onClose={() => setActiveImageIndex(null)}
+            onIndexChange={setActiveImageIndex}
+          />
+        </Suspense>
+      ) : null}
     </>
   );
 }

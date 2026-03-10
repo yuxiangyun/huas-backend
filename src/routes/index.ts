@@ -11,6 +11,7 @@ import healthRoutes from './system/health.routes';
 import publicRoutes from './content/public.routes';
 import adminRoutes from './admin/admin.routes';
 import discoverRoutes from './discover/discover.routes';
+import treeholeRoutes from './treehole/treehole.routes';
 
 export function registerRoutes(app: Hono) {
   // Public routes
@@ -44,6 +45,7 @@ export function registerRoutes(app: Hono) {
   api.route('/ecard', ecardRoutes);
   api.route('/user', userRoutes);
   api.route('/discover', discoverRoutes);
+  api.route('/treehole', treeholeRoutes);
 
   app.route('/api', api);
 }

@@ -33,10 +33,31 @@ export const router = createBrowserRouter(
           },
         },
         {
+          path: appRoutes.treehole.slice(1),
+          lazy: async () => {
+            const module = await import('@/pages/treehole');
+            return { Component: module.TreeholePage };
+          },
+        },
+        {
           path: appRoutes.me.slice(1),
           lazy: async () => {
             const module = await import('@/pages/me');
             return { Component: module.MePage };
+          },
+        },
+        {
+          path: appRoutes.meDiscover.slice(1),
+          lazy: async () => {
+            const module = await import('@/pages/me-discover');
+            return { Component: module.MeDiscoverPage };
+          },
+        },
+        {
+          path: appRoutes.meTreehole.slice(1),
+          lazy: async () => {
+            const module = await import('@/pages/me-treehole');
+            return { Component: module.MeTreeholePage };
           },
         },
       ],

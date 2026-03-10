@@ -1,5 +1,5 @@
 import { and, eq, isNull } from 'drizzle-orm';
-import sharp from 'sharp';
+import sharp, { type Metadata } from 'sharp';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -13,6 +13,9 @@ interface ResolvedMediaTarget {
   storageKey: string;
   filePath: string;
 }
+
+const SUPPORTED_INPUT_FORMATS = new Set(['jpeg', 'png', 'webp', 'gif', 'heif', 'tiff']);
+const SUPPORTED_FORMAT_MESSAGE = '支持 JPG、PNG、WebP、GIF、HEIC、HEIF、AVIF、TIFF 等主流手机图片格式，动图会保留动画';
 
 export class DiscoverMediaService {
   static async compressAndStoreImages(files: File[]) {
@@ -96,36 +99,50 @@ export class DiscoverMediaService {
   }
 
   private static async compressSingleImage(file: File, postDir: string, storageKey: string, index: number) {
-    if (!file.type.startsWith('image/')) {
-      throw new AppError(ErrorCode.PARAM_ERROR, '仅支持图片文件');
-    }
-
     if (file.size > config.discover.imageMaxBytes) {
       throw new AppError(ErrorCode.PARAM_ERROR, `单张图片不能超过 ${Math.floor(config.discover.imageMaxBytes / 1024 / 1024)}MB`);
     }
 
     const source = Buffer.from(await file.arrayBuffer());
+    const sourceMetadata = await this.readSourceMetadata(source);
+    const isAnimated = this.isAnimatedImage(sourceMetadata);
     const outputName = `${String(index + 1).padStart(2, '0')}.webp`;
     const outputPath = join(postDir, outputName);
 
     try {
-      const { data, info } = await sharp(source)
+      const transformer = sharp(source, isAnimated ? { animated: true, pages: -1 } : undefined)
         .rotate()
         .resize({
           width: config.discover.imageMaxDimension,
           height: config.discover.imageMaxDimension,
           fit: 'inside',
           withoutEnlargement: true,
-        })
-        .webp({ quality: config.discover.imageQuality })
+        });
+      const { data, info } = await transformer
+        .webp(
+          isAnimated
+            ? {
+              quality: config.discover.imageQuality,
+              effort: 4,
+              loop: sourceMetadata.loop ?? 0,
+              delay: sourceMetadata.delay,
+              mixed: true,
+            }
+            : { quality: config.discover.imageQuality }
+        )
         .toBuffer({ resolveWithObject: true });
+
+      const width = info.width || sourceMetadata.width || 0;
+      const height = isAnimated
+        ? info.pageHeight || sourceMetadata.pageHeight || info.height || sourceMetadata.height || 0
+        : info.height || sourceMetadata.height || 0;
 
       await writeFile(outputPath, data);
 
       return {
         url: `${config.discover.mediaBasePath}/${storageKey}/${outputName}`,
-        width: info.width || 0,
-        height: info.height || 0,
+        width,
+        height,
         sizeBytes: data.byteLength,
         mimeType: 'image/webp',
       };
@@ -133,5 +150,32 @@ export class DiscoverMediaService {
       Logger.error('DiscoverMedia', '图片压缩失败', err);
       throw new AppError(ErrorCode.PARAM_ERROR, '图片处理失败，请更换图片后重试');
     }
+  }
+
+  private static async readSourceMetadata(source: Buffer): Promise<Metadata> {
+    try {
+      const metadata = await sharp(source, { animated: true, pages: -1 }).metadata();
+      if (!metadata.format || !SUPPORTED_INPUT_FORMATS.has(metadata.format)) {
+        throw new AppError(ErrorCode.PARAM_ERROR, SUPPORTED_FORMAT_MESSAGE);
+      }
+      return metadata;
+    } catch (err) {
+      if (err instanceof AppError) {
+        throw err;
+      }
+
+      Logger.error('DiscoverMedia', '不支持的图片格式', err);
+      throw new AppError(ErrorCode.PARAM_ERROR, SUPPORTED_FORMAT_MESSAGE);
+    }
+  }
+
+  private static isAnimatedImage(metadata: Metadata) {
+    return Boolean(
+      (metadata.pages ?? 1) > 1
+      && (
+        (Array.isArray(metadata.delay) && metadata.delay.length > 0)
+        || typeof metadata.loop === 'number'
+      )
+    );
   }
 }

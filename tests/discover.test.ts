@@ -43,6 +43,46 @@ async function createImageBuffer(color: string) {
   }).jpeg({ quality: 92 }).toBuffer();
 }
 
+async function createHeifFamilyBuffer(color: string) {
+  return sharp({
+    create: {
+      width: 640,
+      height: 480,
+      channels: 3,
+      background: color,
+    },
+  }).avif({ quality: 62 }).toBuffer();
+}
+
+async function createAnimatedWebpBuffer() {
+  const width = 32;
+  const pageHeight = 24;
+  const channels = 4;
+  const frameA = Buffer.alloc(width * pageHeight * channels, 0);
+  const frameB = Buffer.alloc(width * pageHeight * channels, 0);
+
+  for (let index = 0; index < frameA.length; index += 4) {
+    frameA[index] = 255;
+    frameA[index + 1] = 82;
+    frameA[index + 3] = 255;
+    frameB[index + 2] = 255;
+    frameB[index + 1] = 138;
+    frameB[index + 3] = 255;
+  }
+
+  return sharp(Buffer.concat([frameA, frameB]), {
+    raw: {
+      width,
+      height: pageHeight * 2,
+      channels,
+      pageHeight,
+    },
+  }).webp({
+    loop: 0,
+    delay: [120, 180],
+  }).toBuffer();
+}
+
 async function createUser(studentId: string, className: string) {
   const db = getDb();
   const now = new Date();
@@ -64,6 +104,9 @@ async function authHeaderFor(userId: number, studentId: string) {
 
 async function resetDiscoverData() {
   const db = getDb();
+  await db.delete(schema.treeholePostLikes);
+  await db.delete(schema.treeholeComments);
+  await db.delete(schema.treeholePosts);
   await db.delete(schema.discoverPostRatings);
   await db.delete(schema.discoverPosts);
   await db.delete(schema.credentials);
@@ -128,6 +171,70 @@ describe('discover module', () => {
     expect(myBody.data.items).toHaveLength(1);
     expect(myBody.data.items[0].id).toBe(body.data.id);
     expect(myBody.data.items[0].isMine).toBe(true);
+  });
+
+  it('支持 HEIF 家族图片，即使移动端没有带标准 MIME 也能上传', async () => {
+    const app = createApp();
+    const form = new FormData();
+    form.set('category', '其他');
+    form.set('title', 'HEIC 手机图');
+    form.set('storeName', '移动端测试');
+    form.set('priceText', '13元');
+    form.set('content', '这是一张来自手机相册的高效格式图片，应该能正常上传和转码。');
+    form.append('tags', '清晰');
+    form.append('images', new File([await createHeifFamilyBuffer('#33aaff')], 'mobile.heic'));
+
+    const res = await app.request('http://localhost/api/discover/posts', {
+      method: 'POST',
+      headers: await authHeaderFor(authorId, '2023001001'),
+      body: form,
+    });
+
+    expect(res.status).toBe(201);
+    const body = await res.json() as any;
+    expect(body.success).toBe(true);
+    expect(body.data.images).toHaveLength(1);
+    expect(body.data.images[0].mimeType).toBe('image/webp');
+    expect(body.data.images[0].url.endsWith('.webp')).toBe(true);
+
+    const relativePath = body.data.images[0].url.replace(`${config.discover.mediaBasePath}/`, '');
+    const output = Buffer.from(await Bun.file(join(config.discover.storageRoot, relativePath)).arrayBuffer());
+    const metadata = await sharp(output).metadata();
+    expect(metadata.format).toBe('webp');
+    expect(metadata.width).toBeGreaterThan(0);
+    expect(metadata.height).toBeGreaterThan(0);
+  });
+
+  it('上传动图时会保留动画帧并转为 animated webp', async () => {
+    const app = createApp();
+    const form = new FormData();
+    form.set('category', '其他');
+    form.set('title', '会动的图');
+    form.set('storeName', '动图测试');
+    form.set('priceText', '14元');
+    form.set('content', '动图上传后不应该被压成静态首帧。');
+    form.append('tags', '动图');
+    form.append('images', new File([await createAnimatedWebpBuffer()], 'animated.webp', { type: 'image/webp' }));
+
+    const res = await app.request('http://localhost/api/discover/posts', {
+      method: 'POST',
+      headers: await authHeaderFor(authorId, '2023001001'),
+      body: form,
+    });
+
+    expect(res.status).toBe(201);
+    const body = await res.json() as any;
+    expect(body.success).toBe(true);
+    expect(body.data.images[0].mimeType).toBe('image/webp');
+
+    const relativePath = body.data.images[0].url.replace(`${config.discover.mediaBasePath}/`, '');
+    const output = Buffer.from(await Bun.file(join(config.discover.storageRoot, relativePath)).arrayBuffer());
+    const metadata = await sharp(output, { animated: true, pages: -1 }).metadata();
+    expect(metadata.format).toBe('webp');
+    expect(metadata.pages).toBeGreaterThan(1);
+    expect(Array.isArray(metadata.delay)).toBe(true);
+    expect(metadata.delay?.length).toBeGreaterThan(1);
+    expect(metadata.pageHeight).toBeGreaterThan(0);
   });
 
   it('评分会更新平均分，高分列表与推荐列表按 discover 逻辑工作', async () => {

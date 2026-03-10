@@ -19,6 +19,11 @@ interface ErrorEnvelope {
 
 export type ApiEnvelope<T> = SuccessEnvelope<T> | ErrorEnvelope;
 
+interface RequestOptions {
+  auth?: boolean;
+  signal?: AbortSignal;
+}
+
 export class ApiError extends Error {
   constructor(
     public readonly httpStatus: number,
@@ -60,7 +65,7 @@ function handleUnauthorized(response: Response) {
 export async function requestEnvelope<T>(
   path: string,
   init: RequestInit = {},
-  options: { auth?: boolean } = {}
+  options: RequestOptions = {}
 ) {
   const headers = new Headers(init.headers);
   const token = useAuthStore.getState().token;
@@ -76,6 +81,7 @@ export async function requestEnvelope<T>(
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     headers,
+    signal: options.signal ?? init.signal,
   });
 
   const payload = await parsePayload<ApiEnvelope<T>>(response);
@@ -87,7 +93,7 @@ export async function requestEnvelope<T>(
 export async function apiRequest<T>(
   path: string,
   init: RequestInit = {},
-  options: { auth?: boolean } = {}
+  options: RequestOptions = {}
 ) {
   const { status, payload } = await requestEnvelope<T>(path, init, options);
 

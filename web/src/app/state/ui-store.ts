@@ -1,19 +1,25 @@
 import { create } from 'zustand';
 
-export type AppTab = 'discover' | 'me';
+export type AppTab = 'discover' | 'treehole' | 'me';
 
 interface UiStore {
   activeTab: AppTab;
-  composeSheetOpen: boolean;
+  discoverComposeSheetOpen: boolean;
+  treeholeComposeSheetOpen: boolean;
   setActiveTab: (tab: AppTab) => void;
-  openComposeSheet: () => void;
-  closeComposeSheet: () => void;
+  openDiscoverComposeSheet: () => void;
+  closeDiscoverComposeSheet: () => void;
+  openTreeholeComposeSheet: () => void;
+  closeTreeholeComposeSheet: () => void;
 }
 
 export const useUiStore = create<UiStore>((set) => ({
   activeTab: 'discover',
-  composeSheetOpen: false,
+  discoverComposeSheetOpen: false,
+  treeholeComposeSheetOpen: false,
   setActiveTab: (tab) => set({ activeTab: tab }),
-  openComposeSheet: () => set({ composeSheetOpen: true }),
-  closeComposeSheet: () => set({ composeSheetOpen: false }),
+  openDiscoverComposeSheet: () => set({ discoverComposeSheetOpen: true }),
+  closeDiscoverComposeSheet: () => set({ discoverComposeSheetOpen: false }),
+  openTreeholeComposeSheet: () => set({ treeholeComposeSheetOpen: true }),
+  closeTreeholeComposeSheet: () => set({ treeholeComposeSheetOpen: false }),
 }));

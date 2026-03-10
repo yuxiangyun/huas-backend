@@ -8,6 +8,7 @@ interface MyPostsPanelProps {
   loadingMore?: boolean;
   loading?: boolean;
   posts: DiscoverPost[];
+  totalCount?: number;
   onLoadMore?: () => void;
   onOpenPost?: (postId: number) => void;
   onRefresh?: () => void;
@@ -28,11 +29,14 @@ export function MyPostsPanel({
   loading = false,
   loadingMore = false,
   posts,
+  totalCount,
   onLoadMore,
   onOpenPost,
   onRefresh,
   refreshing = false,
 }: MyPostsPanelProps) {
+  const displayCount = totalCount ?? posts.length;
+
   if (loading) {
     return (
       <div className="space-y-3">
@@ -55,11 +59,11 @@ export function MyPostsPanel({
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-base font-semibold text-ink">我的发布</p>
               <span className="rounded-pill bg-white/80 px-3 py-1 text-xs font-medium text-muted ring-1 ring-line">
-                {posts.length} 篇
+                {displayCount} 篇
               </span>
             </div>
             <p className="text-sm leading-6 text-muted">
-              这里直接看到你发出去的信息是不是足够清楚，也方便回头继续管理。
+              查看自己发的内容
             </p>
           </div>
           <Button
@@ -78,7 +82,7 @@ export function MyPostsPanel({
         <Card className="space-y-2">
           <p className="text-base font-semibold text-ink">还没有发布</p>
           <p className="text-sm leading-6 text-muted">
-            等你分享第一顿好饭，这里会开始积累你的真实推荐记录。
+            去发第一条
           </p>
         </Card>
       ) : null}
@@ -105,7 +109,7 @@ export function MyPostsPanel({
 
               <div className="space-y-3 p-4 sm:p-5">
                 <div className="flex flex-wrap gap-2">
-                  <span className="rounded-pill bg-tint-soft px-3 py-1 text-xs font-medium text-[#7e3925]">
+                  <span className="rounded-pill bg-tint-soft px-3 py-1 text-xs font-medium text-ink">
                     {post.category}
                   </span>
                   {post.storeName ? (
@@ -125,7 +129,7 @@ export function MyPostsPanel({
                     {post.title || `${post.category} · 我的发布`}
                   </p>
                   <p className="text-clamp-2 text-sm leading-6 text-muted sm:leading-7">
-                    {post.content || '这条旧帖子还没有正文说明。'}
+                    {post.content || '未填写'}
                   </p>
                 </div>
 

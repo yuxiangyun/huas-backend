@@ -1,6 +1,6 @@
 # HUAS Server API 文档
 
-> 基线日期：2026-03-09
+> 基线日期：2026-03-10
 > Base URL：`http://localhost:3000`
 > 时区约定：服务端固定使用 `Asia/Shanghai`，文档中的时间示例均为 `+08:00`
 
@@ -19,7 +19,9 @@
 | `GET /api/ecard` | Bearer JWT | 一卡通余额 |
 | `GET /api/user` | Bearer JWT | 用户资料 |
 | `GET/POST/DELETE /api/discover/*` | Bearer JWT | 发现美食接口 |
+| `GET/POST/PUT/DELETE /api/treehole/*` | Bearer JWT | 树洞接口 |
 | `GET /media/discover/*` | 无 | 发现美食图片访问，仅未删除帖子可访问 |
+| `DELETE /api/admin/treehole/*` | Basic Auth | 树洞管理接口 |
 
 Bearer Token 使用：
 
@@ -487,10 +489,139 @@ async function apiRequest<T>(path: string, token?: string): Promise<ApiResponse<
     "maxImagesPerPost": 9,
     "maxTagsPerPost": 6,
     "maxTitleLength": 80,
-    "maxTagLength": 12
+    "maxTagLength": 12,
+    "maxStoreNameLength": 32,
+    "maxPriceTextLength": 20,
+    "maxContentLength": 400
   }
 }
 ```
+
+### 5.10 `TreeholeMeta`
+
+```json
+{
+  "limits": {
+    "maxPostLength": 500,
+    "maxCommentLength": 200
+  },
+  "pagination": {
+    "defaultPageSize": 20,
+    "maxPageSize": 50,
+    "defaultCommentPageSize": 50,
+    "maxCommentPageSize": 100
+  }
+}
+```
+
+### 5.11 `TreeholePost`
+
+树洞列表项与详情共用同一结构：
+
+```json
+{
+  "id": 18,
+  "content": "今天有点累。",
+  "stats": {
+    "likeCount": 3,
+    "commentCount": 2
+  },
+  "viewer": {
+    "liked": false,
+    "isMine": true
+  },
+  "publishedAt": "2026-03-10T21:30:00.000+08:00",
+  "createdAt": "2026-03-10T21:30:00.000+08:00",
+  "updatedAt": "2026-03-10T21:30:00.000+08:00"
+}
+```
+
+字段说明：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | number | 树洞 ID |
+| `content` | string | 树洞正文 |
+| `stats.likeCount` | number | 点赞数 |
+| `stats.commentCount` | number | 评论数 |
+| `viewer.liked` | boolean | 当前登录用户是否已点赞 |
+| `viewer.isMine` | boolean | 是否是当前登录用户自己发的 |
+| `publishedAt` | string | 发布时间，北京时间 ISO 字符串 |
+| `createdAt` | string | 创建时间，北京时间 ISO 字符串 |
+| `updatedAt` | string | 更新时间，北京时间 ISO 字符串 |
+
+当前实现说明：
+
+- 返回内容默认匿名，不返回作者公开信息
+- 服务端仍按 `userId` 追踪作者，用于 `isMine`、删除和“我的树洞”列表
+
+### 5.12 `TreeholeListResponse`
+
+```json
+{
+  "items": [],
+  "page": 1,
+  "pageSize": 20,
+  "total": 8,
+  "hasMore": false
+}
+```
+
+字段说明：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `items` | `TreeholePost[]` | 当前页树洞 |
+| `page` | number | 当前页码，最小为 `1` |
+| `pageSize` | number | 每页数量，最大为 `50` |
+| `total` | number | 命中总数 |
+| `hasMore` | boolean | 是否还有下一页 |
+
+### 5.13 `TreeholeComment`
+
+```json
+{
+  "id": 6,
+  "postId": 18,
+  "content": "抱抱你。",
+  "isMine": false,
+  "createdAt": "2026-03-10T21:40:00.000+08:00",
+  "updatedAt": "2026-03-10T21:40:00.000+08:00"
+}
+```
+
+字段说明：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | number | 评论 ID |
+| `postId` | number | 所属树洞 ID |
+| `content` | string | 评论正文 |
+| `isMine` | boolean | 是否是当前登录用户自己的评论 |
+| `createdAt` | string | 创建时间，北京时间 ISO 字符串 |
+| `updatedAt` | string | 更新时间，北京时间 ISO 字符串 |
+
+### 5.14 `TreeholeCommentListResponse`
+
+```json
+{
+  "items": [],
+  "page": 1,
+  "pageSize": 50,
+  "total": 2,
+  "hasMore": false
+}
+```
+
+字段说明：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `items` | `TreeholeComment[]` | 当前页评论 |
+| `page` | number | 当前页码，最小为 `1` |
+| `pageSize` | number | 每页数量，最大为 `100` |
+| `total` | number | 命中总数 |
+| `hasMore` | boolean | 是否还有下一页 |
 
 ## 6. 接口明细
 
@@ -1341,6 +1472,401 @@ Cache-Control: no-store
 - 删除帖子后，旧图片 URL 不再可用
 - 图片不应被长期缓存，否则会和删帖语义冲突
 
+### 6.23 `GET /api/treehole/meta`
+
+获取树洞元信息，需 Bearer JWT。
+
+请求示例：
+
+```http
+GET /api/treehole/meta
+Authorization: Bearer <token>
+```
+
+成功响应：
+
+返回 [5.10 `TreeholeMeta`](#510-treeholemeta)。
+
+### 6.24 `GET /api/treehole/posts`
+
+获取树洞公共列表，需 Bearer JWT。
+
+查询参数：
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|---|---|---|---|---|
+| `page` | number | 否 | `1` | 页码 |
+| `pageSize` | number | 否 | `20` | 每页数量，最大 `50` |
+
+当前实现说明：
+
+- 只返回未删除树洞
+- 按 `publishedAt DESC, id DESC` 排序
+- 返回结果中会带当前登录用户的 `viewer.isMine` 与 `viewer.liked`
+
+请求示例：
+
+```http
+GET /api/treehole/posts?page=1&pageSize=20
+Authorization: Bearer <token>
+```
+
+成功响应：
+
+返回 [5.12 `TreeholeListResponse`](#512-treeholelistresponse)。
+
+错误：
+
+| 场景 | `error_code` | HTTP |
+|---|---:|---:|
+| 分页参数不合法 | 4002 | 400 |
+
+### 6.25 `GET /api/treehole/posts/me`
+
+获取“我的树洞”列表，需 Bearer JWT。
+
+查询参数与公共列表一致：
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|---|---|---|---|---|
+| `page` | number | 否 | `1` | 页码 |
+| `pageSize` | number | 否 | `20` | 每页数量，最大 `50` |
+
+当前实现说明：
+
+- 只返回当前用户自己发布且未删除的树洞
+- 按 `publishedAt DESC, id DESC` 排序
+
+请求示例：
+
+```http
+GET /api/treehole/posts/me?page=1&pageSize=20
+Authorization: Bearer <token>
+```
+
+成功响应：
+
+返回 [5.12 `TreeholeListResponse`](#512-treeholelistresponse)。
+
+错误：
+
+| 场景 | `error_code` | HTTP |
+|---|---:|---:|
+| 分页参数不合法 | 4002 | 400 |
+
+### 6.26 `POST /api/treehole/posts`
+
+发布树洞，需 Bearer JWT。
+
+请求体：
+
+```json
+{
+  "content": "今天有点累。"
+}
+```
+
+规则：
+
+- 请求体必须是合法 JSON
+- `content.trim()` 不能为空
+- 内容长度不能超过 `500` 字
+
+请求示例：
+
+```http
+POST /api/treehole/posts
+Authorization: Bearer <token>
+Content-Type: application/json
+```
+
+成功响应：
+
+返回新建后的 [5.11 `TreeholePost`](#511-treeholepost)。
+
+错误：
+
+| 场景 | `error_code` | HTTP |
+|---|---:|---:|
+| 请求体不是合法 JSON | 4002 | 400 |
+| 内容为空或超长 | 4002 | 400 |
+
+### 6.27 `GET /api/treehole/posts/:id`
+
+获取树洞详情，需 Bearer JWT。
+
+请求示例：
+
+```http
+GET /api/treehole/posts/18
+Authorization: Bearer <token>
+```
+
+成功响应：
+
+返回 [5.11 `TreeholePost`](#511-treeholepost)。
+
+错误：
+
+| 场景 | `error_code` | HTTP |
+|---|---:|---:|
+| 帖子 ID 非法 | 4002 | 400 |
+| 树洞不存在或已删除 | 4002 | 404 |
+
+### 6.28 `PUT /api/treehole/posts/:id/like`
+
+点赞树洞，需 Bearer JWT。
+
+规则：
+
+- 同一用户对同一树洞只保留一条点赞记录
+- 重复点赞是幂等的
+
+请求示例：
+
+```http
+PUT /api/treehole/posts/18/like
+Authorization: Bearer <token>
+```
+
+成功响应：
+
+返回更新后的 [5.11 `TreeholePost`](#511-treeholepost)。
+
+错误：
+
+| 场景 | `error_code` | HTTP |
+|---|---:|---:|
+| 帖子 ID 非法 | 4002 | 400 |
+| 树洞不存在或已删除 | 4002 | 404 |
+
+### 6.29 `DELETE /api/treehole/posts/:id/like`
+
+取消点赞树洞，需 Bearer JWT。
+
+规则：
+
+- 重复取消点赞是幂等的
+
+请求示例：
+
+```http
+DELETE /api/treehole/posts/18/like
+Authorization: Bearer <token>
+```
+
+成功响应：
+
+返回更新后的 [5.11 `TreeholePost`](#511-treeholepost)。
+
+错误：
+
+| 场景 | `error_code` | HTTP |
+|---|---:|---:|
+| 帖子 ID 非法 | 4002 | 400 |
+| 树洞不存在或已删除 | 4002 | 404 |
+
+### 6.30 `GET /api/treehole/posts/:id/comments`
+
+获取树洞评论列表，需 Bearer JWT。
+
+查询参数：
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|---|---|---|---|---|
+| `page` | number | 否 | `1` | 页码 |
+| `pageSize` | number | 否 | `50` | 每页数量，最大 `100` |
+
+当前实现说明：
+
+- 只返回未删除评论
+- 按 `createdAt ASC, id ASC` 排序
+
+请求示例：
+
+```http
+GET /api/treehole/posts/18/comments?page=1&pageSize=50
+Authorization: Bearer <token>
+```
+
+成功响应：
+
+返回 [5.14 `TreeholeCommentListResponse`](#514-treeholecommentlistresponse)。
+
+错误：
+
+| 场景 | `error_code` | HTTP |
+|---|---:|---:|
+| 帖子 ID 非法 | 4002 | 400 |
+| 分页参数不合法 | 4002 | 400 |
+| 树洞不存在或已删除 | 4002 | 404 |
+
+### 6.31 `POST /api/treehole/posts/:id/comments`
+
+发布树洞评论，需 Bearer JWT。
+
+请求体：
+
+```json
+{
+  "content": "抱抱你。"
+}
+```
+
+规则：
+
+- 请求体必须是合法 JSON
+- `content.trim()` 不能为空
+- 内容长度不能超过 `200` 字
+
+请求示例：
+
+```http
+POST /api/treehole/posts/18/comments
+Authorization: Bearer <token>
+Content-Type: application/json
+```
+
+成功响应：
+
+返回 [5.13 `TreeholeComment`](#513-treeholecomment)。
+
+错误：
+
+| 场景 | `error_code` | HTTP |
+|---|---:|---:|
+| 帖子 ID 非法 | 4002 | 400 |
+| 请求体不是合法 JSON | 4002 | 400 |
+| 评论内容为空或超长 | 4002 | 400 |
+| 树洞不存在或已删除 | 4002 | 404 |
+
+### 6.32 `DELETE /api/treehole/posts/:id`
+
+删除自己的树洞，需 Bearer JWT。
+
+行为：
+
+- 只允许作者删除自己的树洞
+- 删除后公共列表、我的树洞列表、详情和评论列表都不可再访问
+
+请求示例：
+
+```http
+DELETE /api/treehole/posts/18
+Authorization: Bearer <token>
+```
+
+成功响应：
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": 18
+  }
+}
+```
+
+错误：
+
+| 场景 | `error_code` | HTTP |
+|---|---:|---:|
+| 帖子 ID 非法 | 4002 | 400 |
+| 树洞不存在、已删除或无权删除 | 4002 | 404 |
+
+### 6.33 `DELETE /api/treehole/comments/:id`
+
+删除自己的评论，需 Bearer JWT。
+
+请求示例：
+
+```http
+DELETE /api/treehole/comments/6
+Authorization: Bearer <token>
+```
+
+成功响应：
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": 6,
+    "postId": 18
+  }
+}
+```
+
+错误：
+
+| 场景 | `error_code` | HTTP |
+|---|---:|---:|
+| 评论 ID 非法 | 4002 | 400 |
+| 评论不存在、已删除或无权删除 | 4002 | 404 |
+
+### 6.34 `DELETE /api/admin/treehole/posts/:id`
+
+管理员删除树洞，需 HTTP Basic Auth。
+
+请求示例：
+
+```http
+DELETE /api/admin/treehole/posts/18
+Authorization: Basic <base64(username:password)>
+```
+
+成功响应：
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": 18
+  }
+}
+```
+
+错误：
+
+| 场景 | `error_code` | HTTP |
+|---|---:|---:|
+| Basic Auth 缺失或错误 | 4001 | 401 |
+| 帖子 ID 非法 | 4002 | 400 |
+| 树洞不存在 | 4002 | 404 |
+| 删除过程中出现未处理异常 | 5000 | 500 |
+
+### 6.35 `DELETE /api/admin/treehole/comments/:id`
+
+管理员删除树洞评论，需 HTTP Basic Auth。
+
+请求示例：
+
+```http
+DELETE /api/admin/treehole/comments/6
+Authorization: Basic <base64(username:password)>
+```
+
+成功响应：
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": 6,
+    "postId": 18
+  }
+}
+```
+
+错误：
+
+| 场景 | `error_code` | HTTP |
+|---|---:|---:|
+| Basic Auth 缺失或错误 | 4001 | 401 |
+| 评论 ID 非法 | 4002 | 400 |
+| 评论不存在 | 4002 | 404 |
+| 删除过程中出现未处理异常 | 5000 | 500 |
+
 ## 7. 前端易踩坑清单
 
 1. `schedule` 和 `v1/schedule` 当前都返回 `{ week, courses }`，不是数组，也不是“按日期分组对象”。
@@ -1355,3 +1881,5 @@ Cache-Control: no-store
 10. `DiscoverImage.url` 是相对路径，前端如果自己拼域名，要注意 Base URL。
 11. `recommended` 当前只依赖用户评分偏好，不会因为浏览次数高就自动更靠前。
 12. 发现美食里的“帖子不存在”很多场景会返回 `HTTP 404 + error_code=4002`，前端不要只盯 `error_code` 判断是否是参数错误。
+13. 树洞对外匿名，但接口仍会根据当前登录用户返回 `viewer.isMine` / `isMine`，前端不要把匿名和“无法管理自己内容”混为一谈。
+14. `GET /api/treehole/posts/me` 与公共列表使用同一分页结构，但只返回当前用户自己的未删除树洞。

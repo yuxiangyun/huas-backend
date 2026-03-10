@@ -66,6 +66,7 @@ flowchart LR
 - 前端入口：`/m`、`/m/`、`/m/*`
 - 公共路由：`/auth`、`/health`
 - API 下的免 Bearer 路由：`/api/public/*`、`/api/admin/*`
+- Bearer 业务路由：`/api/schedule`、`/api/v1/schedule`、`/api/grades`、`/api/ecard`、`/api/user`、`/api/discover/*`、`/api/treehole/*`
 - 静态媒体路由：`/media/discover/*`
 - 其余 `/api/*` 全部走 `authMiddleware`
 
@@ -82,9 +83,9 @@ flowchart LR
 
 | 目录 | 职责 |
 |---|---|
-| `src/routes/{auth,system,content,academic,portal,discover,admin}/*` | 路由定义、参数读取、返回 `success/error`，按业务域和访问边界分类 |
+| `src/routes/{auth,system,content,academic,portal,discover,treehole,admin}/*` | 路由定义、参数读取、返回 `success/error`，按业务域和访问边界分类 |
 | `src/middleware/*` | Bearer 鉴权、Basic Auth、日志、全局错误处理 |
-| `src/services/{academic,portal,discover,content,admin,infra}/*` | 业务编排、缓存、上游调用、媒体处理与管理面板聚合 |
+| `src/services/{academic,portal,discover,treehole,content,admin,infra}/*` | 业务编排、缓存、上游调用、媒体处理与管理面板聚合 |
 | `src/auth/*` | CAS 登录、票据交换、凭证刷新、静默重认证、JWT 签发 |
 | `src/parsers/{academic,portal}/*` | 将学校 HTML/JSON 解析成稳定的数据结构，按上游来源分类 |
 | `src/db/*` | SQLite 初始化、兼容迁移、Schema |
@@ -101,12 +102,14 @@ src/
     academic/   教务相关路由
     portal/     门户相关路由
     discover/   Discover 业务路由
+    treehole/   Treehole 业务路由
     admin/      后台管理路由
   services/
     academic/   教务业务编排
     portal/     门户业务编排
     content/    公共内容服务
     discover/   Discover 业务与媒体
+    treehole/   Treehole 业务
     admin/      管理面板聚合
     infra/      缓存、上游调用、回退逻辑
   parsers/
@@ -701,7 +704,35 @@ src/
 
 所以“删帖后图片仍可访问”不属于允许行为，而是明确被拦截的。
 
-### 13.3 数据模型与落盘策略
+### 13.3 Treehole 边界
+
+当前 treehole 暴露两组路由：
+
+- `GET/POST/PUT/DELETE /api/treehole/*`
+- `DELETE /api/admin/treehole/*`
+
+权限规则：
+
+- `/api/treehole/*` 全部要求 Bearer JWT
+- `/api/admin/treehole/*` 复用管理员 Basic Auth
+- treehole 没有公开媒体路由，所有内容都通过 API JSON 返回
+
+当前 treehole 的数据模型由三张表组成：
+
+1. `treehole_posts`
+2. `treehole_post_likes`
+3. `treehole_comments`
+
+关键约束：
+
+- 作者来自 `treehole_posts.user_id -> users.id`
+- 点赞来自 `treehole_post_likes.user_id -> users.id`
+- 评论作者来自 `treehole_comments.user_id -> users.id`
+- `treehole_post_likes(post_id, user_id)` 唯一，保证同一用户不会重复点赞
+- `treehole_posts.deleted_at IS NULL` 代表帖子仍可见
+- `treehole_comments.deleted_at IS NULL` 代表评论仍可见
+
+### 13.4 Discover 数据模型与落盘策略
 
 当前 discover 只新增两张业务表：
 

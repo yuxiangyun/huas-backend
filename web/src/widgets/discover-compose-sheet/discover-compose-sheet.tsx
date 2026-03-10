@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useToastStore } from '@/app/state/toast-store';
 import { useUiStore } from '@/app/state/ui-store';
@@ -9,7 +9,13 @@ import { Button } from '@/shared/ui/button';
 import { BottomSheet } from '@/shared/ui/bottom-sheet';
 import { Card } from '@/shared/ui/card';
 import { FilterChip } from '@/shared/ui/filter-chip';
-import { ImageViewer } from '@/shared/ui/image-viewer';
+
+const loadImageViewer = () => import('@/shared/ui/image-viewer');
+
+const LazyImageViewer = lazy(async () => {
+  const module = await loadImageViewer();
+  return { default: module.ImageViewer };
+});
 
 function parseCustomTags(raw: string | undefined) {
   return (raw || '')
@@ -18,15 +24,19 @@ function parseCustomTags(raw: string | undefined) {
     .filter(Boolean);
 }
 
+const DISCOVER_IMAGE_ACCEPT =
+  'image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,image/avif,image/tiff,.jpg,.jpeg,.png,.webp,.gif,.heic,.heif,.avif,.tif,.tiff';
+
 export function DiscoverComposeSheet() {
-  const composeSheetOpen = useUiStore((state) => state.composeSheetOpen);
-  const closeComposeSheet = useUiStore((state) => state.closeComposeSheet);
+  const composeSheetOpen = useUiStore((state) => state.discoverComposeSheetOpen);
+  const closeComposeSheet = useUiStore((state) => state.closeDiscoverComposeSheet);
   const pushToast = useToastStore((state) => state.pushToast);
   const metaQuery = useDiscoverMetaQuery();
   const createMutation = useCreateDiscoverPostMutation();
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [activePreviewIndex, setActivePreviewIndex] = useState<number | null>(null);
+  const [imageViewerRequested, setImageViewerRequested] = useState(false);
 
   const {
     register,
@@ -80,6 +90,12 @@ export function DiscoverComposeSheet() {
     setActivePreviewIndex(null);
   }, [composeSheetOpen, metaQuery.data, reset]);
 
+  useEffect(() => {
+    if (activePreviewIndex === null) return;
+    setImageViewerRequested(true);
+    void loadImageViewer();
+  }, [activePreviewIndex]);
+
   const previewUrls = useMemo(
     () => selectedFiles.map((file) => ({ file, url: URL.createObjectURL(file) })),
     [selectedFiles]
@@ -111,7 +127,6 @@ export function DiscoverComposeSheet() {
 
     pushToast({
       title: '发布成功',
-      message: '这份好饭已经加入最新列表。',
       variant: 'success',
     });
     closeComposeSheet();
@@ -135,7 +150,7 @@ export function DiscoverComposeSheet() {
           <div className="space-y-1">
             <p className="text-lg font-semibold text-ink">发布好饭</p>
             <p className="text-sm leading-6 text-muted">
-              把这顿饭说清楚，别人才能真正判断值不值得专门去吃。
+              填完就发
             </p>
           </div>
           <Button size="xs" type="button" variant="subtle" onClick={closeComposeSheet}>
@@ -150,7 +165,7 @@ export function DiscoverComposeSheet() {
         ) : null}
 
         {metaQuery.isError ? (
-          <div className="rounded-[1.05rem] bg-tint-soft p-4 text-sm leading-6 text-[#7e3925]">
+          <div className="rounded-[1.05rem] bg-error-soft p-4 text-sm leading-6 text-error">
             {metaQuery.error instanceof Error ? metaQuery.error.message : '暂时无法加载发布选项'}
           </div>
         ) : null}
@@ -167,7 +182,7 @@ export function DiscoverComposeSheet() {
                   {...register('title')}
                 />
                 <div className="flex items-center justify-between gap-3 text-xs text-muted">
-                  <span>{errors.title?.message || '标题会直接影响别人是否点开这条推荐。'}</span>
+                  <span>{errors.title?.message || '写菜名或套餐名'}</span>
                   <span>{titleValue.length} / {maxTitleLength}</span>
                 </div>
               </label>
@@ -196,7 +211,7 @@ export function DiscoverComposeSheet() {
                   {...register('storeName')}
                 />
                 <div className="flex items-center justify-between gap-3 text-xs text-muted">
-                  <span>{errors.storeName?.message || '让别人知道具体去哪一档、哪一家。'}</span>
+                  <span>{errors.storeName?.message || '写档口或店名'}</span>
                   <span>{watch('storeName').length} / {maxStoreNameLength}</span>
                 </div>
               </label>
@@ -214,9 +229,9 @@ export function DiscoverComposeSheet() {
                   ))}
                 </select>
                 {errors.category ? (
-                  <p className="text-xs text-[#9e2e22]">{errors.category.message}</p>
+                  <p className="text-xs text-error">{errors.category.message}</p>
                 ) : (
-                  <p className="text-xs text-muted">先按食堂或校外区分，再让别人缩小范围。</p>
+                  <p className="text-xs text-muted">选分类</p>
                 )}
               </label>
             </div>
@@ -226,11 +241,11 @@ export function DiscoverComposeSheet() {
               <textarea
                 className="min-h-28 w-full rounded-[1.05rem] border border-line bg-white/80 px-3.5 py-3 text-ink outline-none focus:border-transparent focus:ring-2 focus:ring-tint/20"
                 maxLength={maxContentLength}
-                placeholder="写清楚味道、分量、排队时间、是否值得专门去吃。别人最需要的是这些决策信息。"
+                placeholder="写味道、分量、排队情况"
                 {...register('content')}
               />
               <div className="flex items-center justify-between gap-3 text-xs text-muted">
-                <span>{errors.content?.message || '至少写 10 个字，不要只发图。'}</span>
+                <span>{errors.content?.message || '至少 10 个字'}</span>
                 <span>{contentValue.length} / {maxContentLength}</span>
               </div>
             </label>
@@ -239,7 +254,7 @@ export function DiscoverComposeSheet() {
               <div className="space-y-1">
                 <p className="text-sm font-semibold text-ink">标签</p>
                 <p className="text-sm leading-6 text-muted">
-                  标签负责快速筛选，正文负责让别人真正做决定。
+                  可选常用标签
                 </p>
               </div>
 
@@ -268,7 +283,7 @@ export function DiscoverComposeSheet() {
                 <span className="text-sm font-medium text-ink">补充标签</span>
                 <textarea
                   className="min-h-24 w-full rounded-[1.05rem] border border-line bg-white/80 px-3.5 py-3 text-ink outline-none focus:border-transparent focus:ring-2 focus:ring-tint/20"
-                  placeholder="用逗号或换行分隔，例如：现炒、汤底浓、晚饭排队快。"
+                  placeholder="用逗号或换行分隔"
                   {...register('customTags')}
                 />
               </label>
@@ -282,13 +297,13 @@ export function DiscoverComposeSheet() {
               <div className="space-y-1">
                 <p className="text-sm font-semibold text-ink">图片</p>
                 <p className="text-sm leading-6 text-muted">
-                  至少上传一张图，最好能看清摆盘、份量和窗口环境。
+                  至少上传一张
                 </p>
               </div>
 
               <label className="block space-y-2">
                 <input
-                  accept="image/*"
+                  accept={DISCOVER_IMAGE_ACCEPT}
                   className="block w-full text-sm text-muted file:mr-4 file:rounded-pill file:border-0 file:bg-ink file:px-4 file:py-2 file:text-sm file:font-medium file:text-white"
                   multiple
                   type="file"
@@ -299,7 +314,7 @@ export function DiscoverComposeSheet() {
                   }}
                 />
                 <p className="text-xs text-muted">
-                  最多 {maxImages} 张，系统会自动优化图片质量。
+                  最多 {maxImages} 张，支持 JPG、PNG、WebP、GIF、HEIC、HEIF、AVIF、TIFF，动图会保留动画
                 </p>
               </label>
 
@@ -310,7 +325,11 @@ export function DiscoverComposeSheet() {
                       key={`${item.file.name}-${item.file.lastModified}`}
                       className="overflow-hidden rounded-[1.2rem]"
                       type="button"
-                      onClick={() => setActivePreviewIndex(itemIndex)}
+                      onClick={() => {
+                        setImageViewerRequested(true);
+                        void loadImageViewer();
+                        setActivePreviewIndex(itemIndex);
+                      }}
                     >
                       <img
                         alt={item.file.name}
@@ -324,38 +343,37 @@ export function DiscoverComposeSheet() {
             </Card>
 
             {createMutation.isError ? (
-              <div className="rounded-[1.05rem] bg-tint-soft p-4 text-sm leading-6 text-[#7e3925]">
+              <div className="rounded-[1.05rem] bg-error-soft p-4 text-sm leading-6 text-error">
                 {createMutation.error instanceof Error ? createMutation.error.message : '发布失败'}
               </div>
             ) : null}
 
             {totalTagCount === 0 ? (
               <div className="rounded-[1.05rem] bg-white/75 px-4 py-3 text-sm text-muted ring-1 ring-line">
-                请至少选择或输入一个标签。
+                请至少选择或输入一个标签
               </div>
             ) : null}
 
             {totalTagCount > maxTags ? (
-              <div className="rounded-[1.05rem] bg-tint-soft px-4 py-3 text-sm leading-6 text-[#7e3925]">
-                标签总数不能超过 {maxTags} 个，请删减后再发布。
+              <div className="rounded-[1.05rem] bg-error-soft px-4 py-3 text-sm leading-6 text-error">
+                标签总数不能超过 {maxTags} 个，请删减后再发布
               </div>
             ) : null}
 
             {selectedFiles.length === 0 ? (
               <div className="rounded-[1.05rem] bg-white/75 px-4 py-3 text-sm text-muted ring-1 ring-line">
-                请至少上传一张图片。
+                请至少上传一张图片
               </div>
             ) : null}
 
             <div className="flex flex-col gap-3 border-t border-line pt-4 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-sm leading-6 text-muted">
-                发出去之前再看一眼: 这条内容能不能帮别人节省一次试错成本。
+                确认后发布
               </p>
               <Button
                 className="sm:min-w-[9rem]"
                 size="md"
                 type="submit"
-                variant="secondary"
                 disabled={!canSubmit}
               >
                 {createMutation.isPending ? '发布中...' : '发布'}
@@ -365,12 +383,16 @@ export function DiscoverComposeSheet() {
         ) : null}
       </BottomSheet>
 
-      <ImageViewer
-        index={activePreviewIndex}
-        items={previewItems}
-        onClose={() => setActivePreviewIndex(null)}
-        onIndexChange={setActivePreviewIndex}
-      />
+      {imageViewerRequested ? (
+        <Suspense fallback={null}>
+          <LazyImageViewer
+            index={activePreviewIndex}
+            items={previewItems}
+            onClose={() => setActivePreviewIndex(null)}
+            onIndexChange={setActivePreviewIndex}
+          />
+        </Suspense>
+      ) : null}
     </>
   );
 }

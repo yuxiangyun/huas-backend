@@ -1,4 +1,4 @@
-import { startTransition, useEffect } from 'react';
+import { lazy, startTransition, Suspense, useEffect, useState } from 'react';
 import { useIsFetching, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { useToastStore } from '@/app/state/toast-store';
@@ -10,12 +10,25 @@ import {
   type DiscoverCategory,
   type DiscoverSort,
 } from '@/entities/discover/model/discover-types';
-import { ComposeFab } from '@/features/discover-create-post/ui/compose-fab';
-import { Button } from '@/shared/ui/button';
 import { PageHeader } from '@/shared/ui/page-header';
-import { DiscoverComposeSheet } from '@/widgets/discover-compose-sheet/discover-compose-sheet';
-import { DiscoverDetailSheet } from '@/widgets/discover-detail-sheet/discover-detail-sheet';
+import { PageOrnament } from '@/shared/ui/page-ornament';
 import { DiscoverFeed } from '@/widgets/discover-feed/discover-feed';
+import { Apps20Filled } from '@fluentui/react-icons/svg/apps';
+import { ArrowTrendingSparkle20Filled } from '@fluentui/react-icons/svg/arrow-trending-sparkle';
+import { BowlChopsticks24Filled } from '@fluentui/react-icons/svg/bowl-chopsticks';
+
+const loadDiscoverComposeSheet = () => import('@/widgets/discover-compose-sheet/discover-compose-sheet');
+const loadDiscoverDetailSheet = () => import('@/widgets/discover-detail-sheet/discover-detail-sheet');
+
+const LazyDiscoverComposeSheet = lazy(async () => {
+  const module = await loadDiscoverComposeSheet();
+  return { default: module.DiscoverComposeSheet };
+});
+
+const LazyDiscoverDetailSheet = lazy(async () => {
+  const module = await loadDiscoverDetailSheet();
+  return { default: module.DiscoverDetailSheet };
+});
 
 function parseSort(value: string | null): DiscoverSort {
   if (value === 'score' || value === 'recommended') return value;
@@ -35,9 +48,11 @@ export function DiscoverPage() {
   const queryClient = useQueryClient();
   const pushToast = useToastStore((state) => state.pushToast);
   const setActiveTab = useUiStore((state) => state.setActiveTab);
-  const openComposeSheet = useUiStore((state) => state.openComposeSheet);
+  const composeSheetOpen = useUiStore((state) => state.discoverComposeSheetOpen);
+  const openComposeSheet = useUiStore((state) => state.openDiscoverComposeSheet);
   const metaQuery = useDiscoverMetaQuery();
-  const discoverFetchingCount = useIsFetching({ queryKey: discoverQueryKeys.all });
+  const [composeSheetRequested, setComposeSheetRequested] = useState(false);
+  const [detailSheetRequested, setDetailSheetRequested] = useState(false);
 
   useEffect(() => {
     setActiveTab('discover');
@@ -45,8 +60,26 @@ export function DiscoverPage() {
 
   const sort = parseSort(searchParams.get('sort'));
   const category = parseCategory(searchParams.get('category'));
+  const currentListQueryKey = discoverQueryKeys.list({
+    sort,
+    category: category === 'all' ? undefined : category,
+    pageSize: 12,
+  });
   const rawPostId = Number(searchParams.get('postId'));
   const postId = Number.isInteger(rawPostId) && rawPostId > 0 ? rawPostId : null;
+  const discoverFetchingCount = useIsFetching({ queryKey: currentListQueryKey, exact: true });
+
+  useEffect(() => {
+    if (!composeSheetOpen) return;
+    setComposeSheetRequested(true);
+    void loadDiscoverComposeSheet();
+  }, [composeSheetOpen]);
+
+  useEffect(() => {
+    if (postId === null) return;
+    setDetailSheetRequested(true);
+    void loadDiscoverDetailSheet();
+  }, [postId]);
 
   function patchSearchParams(
     patcher: (params: URLSearchParams) => void
@@ -73,56 +106,84 @@ export function DiscoverPage() {
 
   const handleRefreshDiscover = async () => {
     try {
-      await queryClient.invalidateQueries({ queryKey: discoverQueryKeys.all });
+      await queryClient.refetchQueries({
+        queryKey: currentListQueryKey,
+        exact: true,
+        type: 'active',
+      }, {
+        throwOnError: true,
+      });
       pushToast({
-        title: '内容已更新',
-        message: '最新推荐已经同步完成。',
+        title: '已刷新',
         variant: 'success',
       });
     } catch {
       pushToast({
         title: '刷新失败',
-        message: '请稍后再试。',
         variant: 'error',
       });
     }
   };
 
+  const handleOpenComposeSheet = () => {
+    setComposeSheetRequested(true);
+    void loadDiscoverComposeSheet();
+    openComposeSheet();
+  };
+
+  const handleOpenPost = (nextPostId: number) => {
+    setDetailSheetRequested(true);
+    void loadDiscoverDetailSheet();
+    patchSearchParams((params) => {
+      params.set('postId', String(nextPostId));
+    });
+  };
+
   return (
     <div className="page-stack-mobile">
       <PageHeader
-        action={(
-          <Button
-            className="min-w-[4.5rem]"
-            size="sm"
-            type="button"
-            variant="subtle"
-            onClick={() => void handleRefreshDiscover()}
-          >
-            {discoverFetchingCount > 0 ? '刷新中' : '刷新'}
-          </Button>
-        )}
         compact
-        description="看今天吃什么，也把你觉得值得的一顿分享出来。"
+        description="看推荐，也能发"
         eyebrow="discover"
         title="拍好饭"
+        visual={(
+          <PageOrnament
+            badges={[
+              {
+                icon: <ArrowTrendingSparkle20Filled aria-hidden="true" className="size-3.5" />,
+                label: '推荐',
+                tone: 'rose',
+              },
+              {
+                icon: <Apps20Filled aria-hidden="true" className="size-3.5" />,
+                label: '分类',
+                tone: 'blue',
+              },
+            ]}
+            className="w-full sm:w-[13rem]"
+            compact
+            icon={<BowlChopsticks24Filled aria-hidden="true" className="size-6" />}
+            label="Campus Picks"
+            title="推荐、分类、发布"
+            tone="amber"
+          />
+        )}
       />
 
       <DiscoverFeed
         categories={metaQuery.data?.categories ?? DISCOVER_CATEGORIES}
         category={category}
         sort={sort}
+        onComposeClick={handleOpenComposeSheet}
+        onRefreshClick={() => void handleRefreshDiscover()}
+        refreshing={discoverFetchingCount > 0}
         onCategoryChange={(nextCategory) =>
           patchSearchParams((params) => {
             params.set('category', nextCategory);
             params.delete('postId');
           })
         }
-        onOpenPost={(nextPostId) =>
-          patchSearchParams((params) => {
-            params.set('postId', String(nextPostId));
-          })
-        }
+        onOpenPost={handleOpenPost}
         onSortChange={(nextSort) =>
           patchSearchParams((params) => {
             params.set('sort', nextSort);
@@ -133,27 +194,30 @@ export function DiscoverPage() {
 
       {metaQuery.isError ? (
         <div className="px-1">
-          <div className="rounded-[1.2rem] bg-tint-soft px-4 py-3 text-sm leading-6 text-[#7e3925]">
+          <div className="rounded-[1.2rem] bg-error-soft px-4 py-3 text-sm leading-6 text-error">
             {metaQuery.error instanceof Error ? metaQuery.error.message : '分类信息加载失败'}
           </div>
         </div>
       ) : null}
 
-      <div className="fixed inset-x-0 bottom-[var(--space-fab-offset)] z-20 lg:bottom-6">
-        <div className="mx-auto flex max-w-[var(--layout-shell-max)] justify-end px-[var(--space-shell-x)] sm:px-6">
-          <ComposeFab onClick={openComposeSheet} />
-        </div>
-      </div>
+      {composeSheetRequested ? (
+        <Suspense fallback={null}>
+          <LazyDiscoverComposeSheet />
+        </Suspense>
+      ) : null}
 
-      <DiscoverComposeSheet />
-      <DiscoverDetailSheet
-        postId={postId}
-        onClose={() =>
-          patchSearchParams((params) => {
-            params.delete('postId');
-          })
-        }
-      />
+      {detailSheetRequested ? (
+        <Suspense fallback={null}>
+          <LazyDiscoverDetailSheet
+            postId={postId}
+            onClose={() =>
+              patchSearchParams((params) => {
+                params.delete('postId');
+              })
+            }
+          />
+        </Suspense>
+      ) : null}
     </div>
   );
 }

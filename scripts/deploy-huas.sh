@@ -7,11 +7,14 @@ APP_NAME="${APP_NAME:-huas-server}"
 SYNC_DELETE="${SYNC_DELETE:-0}"
 BUILD_WEB="${BUILD_WEB:-1}"
 INSTALL_WEB_DEPS="${INSTALL_WEB_DEPS:-1}"
+INSTALL_SERVER_DEPS="${INSTALL_SERVER_DEPS:-1}"
+WEB_PACKAGE_MANAGER="${WEB_PACKAGE_MANAGER:-auto}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 WEB_DIR="$ROOT_DIR/web"
 WEB_DIST_DIR="$WEB_DIR/dist"
+WEB_PACKAGE_MANAGER_RESOLVED=""
 DRY_RUN=0
 
 for arg in "$@"; do
@@ -49,7 +52,7 @@ fi
 
 if [[ "$DRY_RUN" == "1" ]]; then
   RSYNC_ARGS+=(--dry-run)
-  echo "[dry-run] rsync only, no restart"
+  echo "[dry-run] only sync files, skip remote PM2 actions"
 fi
 
 require_command() {
@@ -59,6 +62,68 @@ require_command() {
     echo "Missing required command: $command_name" >&2
     exit 1
   fi
+}
+
+resolve_web_package_manager() {
+  if [[ "$WEB_PACKAGE_MANAGER" != "auto" ]]; then
+    WEB_PACKAGE_MANAGER_RESOLVED="$WEB_PACKAGE_MANAGER"
+    return
+  fi
+
+  if [[ -f "$WEB_DIR/package-lock.json" ]]; then
+    WEB_PACKAGE_MANAGER_RESOLVED="npm"
+    return
+  fi
+
+  if [[ -f "$WEB_DIR/bun.lock" ]]; then
+    WEB_PACKAGE_MANAGER_RESOLVED="bun"
+    return
+  fi
+
+  echo "Could not determine web package manager in $WEB_DIR" >&2
+  exit 1
+}
+
+install_web_dependencies() {
+  case "$WEB_PACKAGE_MANAGER_RESOLVED" in
+    npm)
+      (
+        cd "$WEB_DIR"
+        npm ci --include=dev
+      )
+      ;;
+    bun)
+      (
+        cd "$WEB_DIR"
+        bun install --frozen-lockfile
+      )
+      ;;
+    *)
+      echo "Unsupported web package manager: $WEB_PACKAGE_MANAGER_RESOLVED" >&2
+      exit 1
+      ;;
+  esac
+}
+
+run_web_build() {
+  case "$WEB_PACKAGE_MANAGER_RESOLVED" in
+    npm)
+      (
+        cd "$WEB_DIR"
+        npm run build
+      )
+      ;;
+    bun)
+      (
+        cd "$WEB_DIR"
+        bun run build
+      )
+      ;;
+    *)
+      echo "Unsupported web package manager: $WEB_PACKAGE_MANAGER_RESOLVED" >&2
+      exit 1
+      ;;
+  esac
 }
 
 build_web() {
@@ -73,18 +138,13 @@ build_web() {
   fi
 
   echo "Building web app in $WEB_DIR"
+  echo "Using web package manager: $WEB_PACKAGE_MANAGER_RESOLVED"
 
   if [[ "$INSTALL_WEB_DEPS" == "1" ]]; then
-    (
-      cd "$WEB_DIR"
-      bun install --frozen-lockfile
-    )
+    install_web_dependencies
   fi
 
-  (
-    cd "$WEB_DIR"
-    bun run build
-  )
+  run_web_build
 
   if [[ ! -f "$WEB_DIST_DIR/index.html" ]]; then
     echo "web build did not produce $WEB_DIST_DIR/index.html" >&2
@@ -92,20 +152,64 @@ build_web() {
   fi
 }
 
-require_command bun
+run_remote_deploy() {
+  local remote_script
+  remote_script=$(cat <<EOF
+set -eu
+cd '$REMOTE_DIR'
+mkdir -p data logs
+test -f './web/dist/index.html'
+
+if [ '$INSTALL_SERVER_DEPS' = '1' ]; then
+  bun install --frozen-lockfile --production
+fi
+
+if ! command -v pm2 >/dev/null 2>&1; then
+  echo 'pm2 is not installed on remote host' >&2
+  exit 1
+fi
+
+if pm2 describe '$APP_NAME' >/dev/null 2>&1; then
+  pm2 restart '$APP_NAME'
+else
+  pm2 start ecosystem.config.cjs --only '$APP_NAME'
+fi
+
+pm2 save
+pm2 status '$APP_NAME' --no-color
+EOF
+)
+
+  ssh "$REMOTE_HOST" "$remote_script"
+}
+
 require_command rsync
 require_command ssh
+resolve_web_package_manager
+
+case "$WEB_PACKAGE_MANAGER_RESOLVED" in
+  npm)
+    require_command npm
+    ;;
+  bun)
+    require_command bun
+    ;;
+  *)
+    echo "Unsupported web package manager: $WEB_PACKAGE_MANAGER_RESOLVED" >&2
+    exit 1
+    ;;
+esac
 
 build_web
 
-echo "Deploying $ROOT_DIR -> $REMOTE_HOST:$REMOTE_DIR"
+echo "Syncing $ROOT_DIR -> $REMOTE_HOST:$REMOTE_DIR"
 rsync "${RSYNC_ARGS[@]}" "$ROOT_DIR/" "$REMOTE_HOST:$REMOTE_DIR/"
 
 if [[ "$DRY_RUN" == "1" ]]; then
   exit 0
 fi
 
-echo "Installing deps and restarting PM2 app: $APP_NAME"
-ssh "$REMOTE_HOST" "cd '$REMOTE_DIR' && test -f './web/dist/index.html' && bun install --frozen-lockfile --production && pm2 restart '$APP_NAME' && pm2 status '$APP_NAME' --no-color"
+echo "Restarting PM2 app on remote host: $APP_NAME"
+run_remote_deploy
 
 echo "Done."

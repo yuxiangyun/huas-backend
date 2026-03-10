@@ -2,153 +2,93 @@
 
 > 基线日期：2026-03-10
 > 当前代码位置：`/Users/xiangyun/Desktop/huas-server/web`
-> 当前访问入口：`/m`
+> 当前线上入口：`/m`
 
 ## 1. 文档目标
 
-本文档描述 `HUAS Web` 的当前产品边界、前端架构、状态分层、接口接入方式、运行方式和后续扩展约束。
+本文档只描述当前已经落地的前端实现，不记录已经废弃的设计稿。
 
-这不是一份纯规划文档，而是以当前已落地实现为基线的维护文档。
+目标是让后续维护者直接回答三件事：
 
-## 2. 已确认需求
+1. 现在有哪些真实页面和路由
+2. 状态、请求和 UI 分层是怎么组织的
+3. 哪些文档约束仍然有效，哪些实现已经变化
 
-### 2.1 产品目标
+## 2. 当前产品边界
 
-- 在现有 `huas-server` 仓库内新增一个移动端优先的 Web 前端
-- 面向移动端用户提供“拍好饭”和“我的”两个核心 Tab
-- 前端风格采用 `iOS` 软件设计语言
-- 使用现有后端接口，不额外设计平行 API
+当前 Web 前端仍然是移动端优先的校园应用，主业务覆盖 Discover、Treehole 与账号入口。
 
-### 2.2 已确认产品决策
+已落地的页面角色：
 
-- 业务首页不提供游客态
-- 用户必须先登录，才能访问 Discover 与我的页面
-- 默认排序使用 `latest`
-- 帖子详情采用 `底部弹层`
-- 发帖入口放在 Discover 页右下角悬浮按钮，不单独拆第三个 Tab
-- “我的”页当前承载资料与我的发布，并预留更多入口区域
+- 登录页：统一认证登录与验证码二段提交
+- Discover 页：浏览、筛选、打开详情、发帖
+- Treehole 页：浏览匿名流、打开详情、发帖
+- 我的页：作为账号与业务入口页，不再直接承载资料卡和内容列表
+- 我的 Discover 页：承载发布概览和我的帖子列表
+- 我的 Treehole 页：承载树洞概览和我的树洞列表
 
-### 2.3 已接入接口范围
+当前不支持游客态：
 
-- `POST /auth/login`
-- `GET /api/user`
-- `GET /api/discover/meta`
-- `GET /api/discover/posts`
-- `GET /api/discover/posts/me`
-- `GET /api/discover/posts/:id`
-- `POST /api/discover/posts`
-- `POST /api/discover/posts/:id/rating`
-- `DELETE /api/discover/posts/:id`
-- `GET /media/discover/*`
+- 未登录用户只能访问 `/m/login`
+- 所有业务路由都经过 `ProtectedRoute`
 
-## 3. 当前实现状态
-
-当前前端已经完成以下能力：
-
-- `web/` 独立前端工程已建立，使用 `Vite + React + TypeScript + Tailwind CSS`
-- 生产构建产物由后端托管到 `/m`
-- 登录页已接入真实 `POST /auth/login`
-- 已实现验证码二段登录：`needCaptcha + sessionId + captchaImage`
-- 已实现 JWT 本地持久化、路由守卫、401 自动回收
-- 已实现 401 强制重登后的原页面回跳
-- Discover 已接入真实分类、列表、详情、发帖、评分、删除接口
-- Discover 列表和“我的发布”都已切到分页加载
-- 我的页已接入真实 `/api/user` 和 `/api/discover/posts/me`
-- 页面已有全局 Toast、底部详情弹层、发帖弹层、底部 Tab 壳子
-- 详情图集和发帖预览图已支持站内图片预览层
-
-当前仍建议继续补强的部分：
-
-- 真人账号浏览器联调与异常流回归
-- 更细的空态、网络波动提示和移动端交互打磨
-- 后续业务入口接入时的复用组件沉淀
-
-## 4. 技术栈
+## 3. 技术栈
 
 | 类别 | 当前选型 | 职责 |
 |---|---|---|
 | 构建 | `Vite 7` | 开发、构建、代理 |
-| 视图 | `React 19` | 组件和页面组织 |
+| 视图 | `React 19` | 页面与组件渲染 |
 | 语言 | `TypeScript` | 类型约束 |
-| 路由 | `React Router 7` | 路由、懒加载、登录守卫 |
-| 客户端状态 | `Zustand` | 登录态、全局 UI 状态、Toast |
-| 服务端状态 | `TanStack Query 5` | 列表、详情、资料查询与缓存失效 |
-| 样式 | `Tailwind CSS 4` | 原子样式与设计令牌 |
-| 表单 | `React Hook Form` | 登录和发帖表单状态 |
-| 校验 | `Zod` | 表单输入约束 |
-| 动效 | `motion` | 弹层、Toast、切换动画 |
+| 路由 | `React Router 7` | 路由、懒加载、守卫 |
+| 客户端状态 | `Zustand` | 登录态、UI 状态、Toast |
+| 服务端状态 | `TanStack Query 5` | 列表、详情、元信息缓存 |
+| 表单 | `React Hook Form` | 登录与发帖表单 |
+| 校验 | `Zod` | 表单约束 |
+| 样式 | `Tailwind CSS 4` | 设计令牌与原子样式 |
+| 动效 | `motion` | 底部弹层、Toast、过渡动画 |
 
-## 5. 运行与部署
+## 4. 运行方式
 
-### 5.1 仓库结构
+开发与生产都基于 `/m`：
 
-```txt
-/Users/xiangyun/Desktop/huas-server
-├─ src/                        后端服务
-├─ web/                        前端应用
-│  ├─ index.html
-│  ├─ package.json
-│  ├─ vite.config.ts
-│  └─ src/
-│     ├─ app/
-│     ├─ entities/
-│     ├─ features/
-│     ├─ pages/
-│     ├─ shared/
-│     └─ widgets/
-└─ WEB_ARCHITECTURE.md
-```
+- 开发期：Vite 独立端口运行，`/api`、`/auth`、`/media` 走代理
+- 生产期：后端直接托管 `web/dist`
 
-### 5.2 开发命令
-
-根目录脚本：
-
-- `bun run web:dev`
-- `bun run web:build`
-- `bun run web:preview`
-- `bun run web:typecheck`
-
-前端子应用内部脚本：
-
-- `npm --prefix ./web run dev`
-- `npm --prefix ./web run build`
-- `npm --prefix ./web run preview`
-
-### 5.3 开发与生产访问方式
-
-- 开发期：Vite 运行在独立端口，`/api`、`/auth`、`/media` 通过代理转发到 Bun 服务
-- 生产期：`web/dist` 由后端 `src/index.ts` 托管
-- 前端基准路径固定为 `/m`
-
-当前后端已处理以下前端入口：
+后端已处理：
 
 - `/m`
 - `/m/`
 - `/m/*`
 
-其中：
+规则：
 
 - 带文件扩展名的路径按静态资源处理
-- 其余路径回退到 `index.html`
+- 其余路径回退到前端 `index.html`
 
-## 6. 路由架构
+## 5. 当前真实路由
 
 当前路由结构：
 
 - `/m/login`
 - `/m/discover`
+- `/m/treehole`
 - `/m/me`
+- `/m/me/discover`
+- `/m/me/treehole`
 
 实现方式：
 
 - `createBrowserRouter` 使用 `basename='/m'`
-- 业务路由挂在 `MobileTabShell` 下
-- 业务壳子外层统一经过 `ProtectedRoute`
+- 登录页单独挂载
+- 业务页统一挂在 `MobileTabShell` 下
+- `ProtectedRoute` 负责登录态守卫
 - `/m` 默认重定向到 `/m/discover`
 
-帖子详情不单独建子页面，而是使用 URL search params 控制底部弹层：
+帖子详情不单独建页面，继续使用 query 参数控制底部弹层：
 
 - `/m/discover?postId=12`
+- `/m/treehole?postId=12`
+- `/m/me/treehole?postId=12`
 
 当前 URL 承载的页面状态：
 
@@ -156,336 +96,410 @@
 - `category`
 - `postId`
 
-这保证了刷新恢复、分享直达和回退行为的稳定性。
+## 6. 页面职责
+
+### 6.1 登录页
+
+文件：
+
+- `web/src/pages/login/index.tsx`
+- `web/src/features/auth-login/ui/login-form.tsx`
+
+当前能力：
+
+- 学号登录
+- 密码登录
+- 验证码挑战展示
+- 验证码重新获取
+- 登录后按来源路由回跳
+- 登录成功后预取 `discover meta`
+
+视觉上，登录页现在使用 `PageHero + LoginForm` 的组合，而不是原先双栏宣传布局。
+
+### 6.2 Discover 页
+
+文件：
+
+- `web/src/pages/discover/index.tsx`
+- `web/src/widgets/discover-feed/discover-feed.tsx`
+- `web/src/features/discover-filter/ui/discover-controls.tsx`
+
+当前能力：
+
+- 排序切换：`最新 / 高分 / 推荐`
+- 分类筛选
+- 打开帖子详情
+- 刷新列表
+- 打开发帖弹层
+
+实现变化：
+
+- 发帖入口不再是页面右下角悬浮按钮
+- 现在集成在 Discover 顶部筛选控件区，和排序控件同排显示
+
+### 6.3 发帖弹层
+
+文件：
+
+- `web/src/widgets/discover-compose-sheet/discover-compose-sheet.tsx`
+
+当前能力：
+
+- 分类、标题、档口、价格、推荐说明
+- 常用标签 + 自定义标签
+- 多图上传
+- 图片本地预览
+- 数量与长度限制提示
+
+弹层状态放在 `ui-store` 中：
+
+- `composeSheetOpen`
+- `openComposeSheet()`
+- `closeComposeSheet()`
+
+### 6.4 详情弹层
+
+文件：
+
+- `web/src/widgets/discover-detail-sheet/discover-detail-sheet.tsx`
+- `web/src/shared/ui/image-viewer.tsx`
+
+当前能力：
+
+- 拉取帖子详情
+- 展示图片与站内预览
+- 评分
+- 删除自己的帖子
+- 操作结果提示
+
+详情弹层由 `postId` URL 参数控制，而不是单独的本地布尔状态。
+
+### 6.5 Treehole 页
+
+文件：
+
+- `web/src/pages/treehole/index.tsx`
+- `web/src/widgets/treehole-feed/treehole-feed.tsx`
+
+当前能力：
+
+- 浏览最新树洞列表
+- 打开树洞详情
+- 刷新列表
+- 打开发帖弹层
+
+### 6.6 Treehole 弹层
+
+文件：
+
+- `web/src/widgets/treehole-compose-sheet/treehole-compose-sheet.tsx`
+- `web/src/widgets/treehole-detail-sheet/treehole-detail-sheet.tsx`
+
+当前能力：
+
+- 发布树洞
+- 查看树洞详情
+- 点赞 / 取消点赞
+- 单层评论与删除自己的评论
+- 删除自己的树洞
+
+### 6.7 我的页
+
+文件：
+
+- `web/src/pages/me/index.tsx`
+
+当前页角色已经变化：
+
+- 它现在是“入口页”
+- 不再直接展示资料卡
+- 不再直接展示内容列表
+
+当前只保留三类动作：
+
+- 进入“拍好饭”子页面
+- 进入“树洞”子页面
+- 退出登录
+
+### 6.8 我的 Discover 页
+
+文件：
+
+- `web/src/pages/me-discover/index.tsx`
+- `web/src/widgets/my-posts-panel/my-posts-panel.tsx`
+
+当前能力：
+
+- 发布概览统计
+- 我的帖子分页列表
+- 刷新我的列表
+- 加载更多
+- 点击帖子跳回 Discover 详情
+
+这部分是原先“我的”页中 Discover 区域的拆分结果。
+
+### 6.9 我的 Treehole 页
+
+文件：
+
+- `web/src/pages/me-treehole/index.tsx`
+- `web/src/widgets/my-treehole-posts-panel/my-treehole-posts-panel.tsx`
+
+当前能力：
+
+- 树洞概览统计
+- 我的树洞分页列表
+- 刷新我的树洞列表
+- 点击树洞直接打开详情弹层
+
+这部分是“树洞”内容的个人管理页。
 
 ## 7. 目录与分层
 
-当前目录已经按业务边界拆分：
+当前目录结构：
 
 ```txt
 web/src/
 ├─ app/
-│  ├─ bootstrap/               QueryClient 初始化
-│  ├─ providers/               全局 Provider 挂载
-│  ├─ router/                  路由和守卫
-│  ├─ state/                   UI Store / Toast Store
-│  └─ styles/                  全局样式和设计令牌
+│  ├─ bootstrap/
+│  ├─ providers/
+│  ├─ router/
+│  ├─ state/
+│  └─ styles/
 ├─ entities/
-│  ├─ auth/                    Auth 类型、API、Store
-│  ├─ discover/                Discover 类型、API、Query
-│  └─ user/                    User 类型、API、Query
+│  ├─ auth/
+│  ├─ discover/
+│  ├─ treehole/
+│  └─ user/
 ├─ features/
 │  ├─ auth-login/
 │  ├─ discover-create-post/
 │  ├─ discover-delete-post/
 │  ├─ discover-filter/
-│  └─ discover-rate-post/
+│  ├─ discover-rate-post/
+│  └─ treehole-create-post/
 ├─ pages/
 │  ├─ login/
 │  ├─ discover/
-│  └─ me/
+│  ├─ me/
+│  ├─ me-discover/
+│  ├─ me-treehole/
+│  └─ treehole/
 ├─ shared/
-│  ├─ api/                     HTTP client / media helpers
-│  ├─ config/                  basename 与环境配置
-│  ├─ lib/                     工具函数
-│  └─ ui/                      Button / Card / Toast 等通用组件
+│  ├─ api/
+│  ├─ config/
+│  ├─ lib/
+│  └─ ui/
 └─ widgets/
    ├─ mobile-tab-shell/
    ├─ discover-compose-sheet/
    ├─ discover-detail-sheet/
    ├─ discover-feed/
    ├─ my-posts-panel/
+   ├─ my-treehole-posts-panel/
+   ├─ treehole-compose-sheet/
+   ├─ treehole-detail-sheet/
+   ├─ treehole-feed/
    └─ profile-summary/
 ```
 
-维护约束：
+分层约束：
 
-- `pages` 只做路由装配，不直接写请求细节
-- `entities/*/api` 负责领域接口
-- `entities/*/queries` 负责 Query hooks 和 mutation hooks
-- `shared/api/http-client.ts` 统一处理鉴权头和错误归一化
+- `pages` 只做路由与页面级装配
+- `entities/*/api` 定义领域接口
+- `entities/*/api/*-queries.ts` 负责 Query / Mutation hooks
+- `shared/api/http-client.ts` 统一注入 Bearer Token 和处理 401
 - `shared/ui` 不依赖业务模块
 
-## 8. 状态管理设计
+## 8. 状态设计
 
-### 8.1 分层原则
-
-状态按三类拆分：
+状态继续分三类：
 
 | 类型 | 当前方案 | 示例 |
 |---|---|---|
-| 客户端状态 | `Zustand` | `token`、`userBrief`、`composeSheetOpen`、Toast 队列 |
-| 服务端状态 | `TanStack Query` | 用户资料、Discover Meta、帖子列表、帖子详情 |
+| 客户端状态 | `Zustand` | `token`、`userBrief`、`discoverComposeSheetOpen`、`treeholeComposeSheetOpen`、Toast 队列 |
+| 服务端状态 | `TanStack Query` | Discover / Treehole 的 meta、列表、详情、评论、我的内容 |
 | 可分享页面状态 | `URL Search Params` | `sort`、`category`、`postId` |
 
-### 8.2 Zustand 现状
+### 8.1 Auth Store
 
-当前已有 Store：
+`auth-store.ts` 当前维护：
 
-- `auth-store.ts`
-  - `token`
-  - `userBrief`
-  - `isAuthenticated`
-  - `login()`
-  - `logout()`
-  - `restore()`
-- `ui-store.ts`
-  - `activeTab`
-  - `composeSheetOpen`
-  - `setActiveTab()`
-  - `openComposeSheet()`
-  - `closeComposeSheet()`
-- `toast-store.ts`
-  - `items`
-  - `pushToast()`
-  - `dismissToast()`
+- `token`
+- `userBrief`
+- `isAuthenticated`
+- `login()`
+- `logout()`
+- `restore()`
 
-### 8.3 TanStack Query 现状
+`token` 和 `userBrief` 会持久化到 `localStorage`。
 
-当前 Query 负责以下数据：
+### 8.2 UI Store
 
-- `discover meta`
-- `discover list`
-- `discover detail`
-- `my discover posts`
-- `user info`
+`ui-store.ts` 当前维护：
 
-当前 Mutation 负责以下动作：
+- `activeTab`
+- `discoverComposeSheetOpen`
+- `treeholeComposeSheetOpen`
+- `setActiveTab()`
+- `openDiscoverComposeSheet()`
+- `closeDiscoverComposeSheet()`
+- `openTreeholeComposeSheet()`
+- `closeTreeholeComposeSheet()`
 
-- `create post`
-- `rate post`
-- `delete post`
+### 8.3 Toast Store
 
-缓存规则已落地：
+`toast-store.ts` 当前维护：
 
-- 发帖成功后失效 Discover 列表和我的发布
-- 评分成功后同步更新详情缓存和分页列表缓存
-- 删除成功后清理详情缓存并失效相关列表
+- `items`
+- `pushToast()`
+- `dismissToast()`
 
-## 9. 鉴权与登录
+## 9. 请求层设计
 
-### 9.1 登录态守卫
-
-系统不支持游客态，因此所有业务路由都必须经过登录态守卫。
-
-实际流程：
-
-1. 应用启动时从 `localStorage` 恢复 `token`
-2. 未登录访问业务页时跳转 `/m/login`
-3. 登录后回跳到原本想访问的页面
-4. 任意请求返回 `401` 时，统一清理登录态并回到 `/m/login`
-
-### 9.2 登录流程
-
-当前已经对接真实 `POST /auth/login`，支持两种分支：
-
-1. 账号密码直接成功
-2. 服务端返回 `needCaptcha=true`
-
-验证码分支当前实现：
-
-- 展示服务端返回的 `captchaImage`
-- 保存 `sessionId`
-- 要求用户输入验证码再发起第二次提交
-
-### 9.3 Token 存储
-
-- `token` 和 `userBrief` 存在 `localStorage`
-- 请求层统一从 `authStore` 读取并注入 `Authorization: Bearer <token>`
-- 业务页面不直接读写本地存储
-
-## 10. API 接入方式
-
-### 10.1 请求层分层
-
-当前分层如下：
+当前请求层仍是三层：
 
 1. `shared/api/http-client.ts`
-   - 封装 `fetch`
-   - 注入 Bearer Token
-   - 解析统一响应格式
-   - 归一化业务错误
-   - 处理 401 回登录
 2. `entities/*/api/*.ts`
-   - 定义领域接口函数
 3. `entities/*/api/*-queries.ts`
-   - 封装 Query / Mutation hooks
 
-### 10.2 Discover 接入矩阵
+`shared/api/http-client.ts` 负责：
 
-| 功能 | 接口 | 当前落点 |
+- 注入 `Authorization: Bearer <token>`
+- 处理表单和 JSON 请求
+- 解析统一响应 envelope
+- `401` 时清理登录态并回登录页
+
+## 10. 当前 API 使用矩阵
+
+### 10.1 Discover
+
+| 功能 | 接口 | 当前页面/组件 |
 |---|---|---|
-| 元信息 | `GET /api/discover/meta` | 分类、常用标签、限制 |
-| 列表 | `GET /api/discover/posts` | Discover 主列表，支持分页与筛选 |
-| 我的发布 | `GET /api/discover/posts/me` | 我的页列表，支持分页 |
-| 详情 | `GET /api/discover/posts/:id` | 底部详情弹层 |
-| 发布 | `POST /api/discover/posts` | 发帖弹层，`multipart/form-data` |
-| 评分 | `POST /api/discover/posts/:id/rating` | 详情弹层评分条 |
-| 删除 | `DELETE /api/discover/posts/:id` | 详情弹层删除动作 |
+| 元信息 | `GET /api/discover/meta` | Discover 页、发帖弹层 |
+| 列表 | `GET /api/discover/posts` | Discover 页 |
+| 我的帖子 | `GET /api/discover/posts/me` | `/m/me/discover` |
+| 详情 | `GET /api/discover/posts/:id` | 详情弹层 |
+| 发帖 | `POST /api/discover/posts` | 发帖弹层 |
+| 评分 | `POST /api/discover/posts/:id/rating` | 详情弹层 |
+| 删除 | `DELETE /api/discover/posts/:id` | 详情弹层 |
 
-### 10.3 User 接入矩阵
+### 10.2 Treehole
 
-| 功能 | 接口 | 当前落点 |
+| 功能 | 接口 | 当前页面/组件 |
 |---|---|---|
-| 个人资料 | `GET /api/user` | 我的页资料卡 |
-| 强制刷新资料 | `GET /api/user?refresh=true` | “我的”页全部刷新 |
+| 元信息 | `GET /api/treehole/meta` | 树洞发帖弹层、评论输入约束 |
+| 列表 | `GET /api/treehole/posts` | `/m/treehole` |
+| 我的树洞 | `GET /api/treehole/posts/me` | `/m/me/treehole` |
+| 详情 | `GET /api/treehole/posts/:id` | 树洞详情弹层 |
+| 发帖 | `POST /api/treehole/posts` | 树洞发帖弹层 |
+| 点赞 | `PUT /api/treehole/posts/:id/like` | 树洞详情弹层 |
+| 取消点赞 | `DELETE /api/treehole/posts/:id/like` | 树洞详情弹层 |
+| 评论列表 | `GET /api/treehole/posts/:id/comments` | 树洞详情弹层 |
+| 评论 | `POST /api/treehole/posts/:id/comments` | 树洞详情弹层 |
+| 删除帖子 | `DELETE /api/treehole/posts/:id` | 树洞详情弹层 |
+| 删除评论 | `DELETE /api/treehole/comments/:id` | 树洞详情弹层 |
 
-## 11. 页面设计与实现方式
+### 10.3 User
 
-### 11.1 登录页
+`GET /api/user` 当前仍然有 API 与 Query 层封装，但现状是：
 
-当前能力：
+- 当前路由页面没有直接展示个人资料卡
 
-- 学号输入
-- 密码输入
-- 验证码展示与输入
-- 验证码重新获取
-- 错误提示
-- 登录后回跳
+这意味着：
 
-实现方式：
+- `user` 领域层还在
+- 但 UI 层当前没有直接消费它来渲染“我的”页
 
-- `React Hook Form + Zod`
-- Mutation 直连真实登录接口
-- 登录成功后预取 `discoverMeta` 和 `userInfo`
+## 11. 鉴权与登录流程
 
-### 11.2 Discover 页
+### 11.1 守卫
 
-当前能力：
+业务路由统一受保护：
 
-- 顶部大标题
-- 分类筛选
-- 排序切换
-- 实时列表
-- 底部详情弹层
-- 右下角发帖按钮
-- 顶部刷新
+1. 启动时从 `localStorage` 恢复 token
+2. 未登录访问业务页时跳转 `/m/login`
+3. 登录成功后按来源路由回跳
+4. 任何请求返回 `401` 时，统一清理登录态并回登录页
 
-实现方式：
+### 11.2 验证码分支
 
-- 页面状态由 `URL Search Params` 维护
-- 列表走 `useInfiniteQuery`
-- 详情通过 `postId` 控制打开
-- 发帖弹层由 `ui-store` 控制
+登录接口支持两段式流程：
 
-### 11.3 发帖弹层
+1. 提交学号和密码
+2. 如果服务端要求验证码，展示 `captchaImage`
+3. 保存 `sessionId`
+4. 用户输入验证码后再次提交
 
-当前能力：
+## 12. UI 系统
 
-- 分类选择
-- 标题输入
-- 常用标签选择
-- 自定义标签输入
-- 多图上传
-- 本地图片预览
-- 预览图放大查看
-- 标签和图片数量限制提示
-
-实现方式：
-
-- 表单使用 `React Hook Form + Zod`
-- 图片通过 `FormData` 提交
-- 发帖成功后关闭弹层、刷新列表、弹出 Toast
-
-### 11.4 详情弹层
-
-当前能力：
-
-- 帖子详情拉取
-- 图片展示
-- 站内图片预览
-- 评分
-- 删除自己的帖子
-- 错误提示与成功 Toast
-
-实现方式：
-
-- 根据 `postId` 请求详情
-- 评分 Mutation 成功后同步详情和列表缓存
-- 删除 Mutation 成功后关闭弹层并失效列表
-
-### 11.5 我的页
-
-当前能力：
-
-- 用户信息卡片
-- 我的发布列表
-- 全部刷新
-- 退出登录
-- 后续入口预留区
-
-当前扩展预留方向：
-
-- 课表
-- 成绩
-- 一卡通
-- 设置
-- 反馈
-
-## 12. UI 系统与交互原则
-
-当前样式系统已经基于 Tailwind v4 的主题变量落地：
-
-- `--color-shell`
-- `--color-card`
-- `--color-card-strong`
-- `--color-tint`
-- `--radius-card`
-- `--radius-pill`
-- `--shadow-card`
-- `--shadow-glass`
-
-当前视觉策略：
-
-- 移动端优先，最大内容宽度约 `430px`
-- 大标题 + 次级说明
-- 卡片化信息流
-- 毛玻璃底部 Tab
-- 强调 `safe-area` 适配
-- 浅色暖调背景，避免默认白底紫色方案
-
-当前已沉淀的通用 UI：
+当前前端已经沉淀的共享 UI 包括：
 
 - `Button`
+- `IconButton`
 - `Card`
+- `PageHeader`
+- `PageHero`
+- `BottomSheet`
+- `SegmentedControl`
+- `FilterChip`
 - `ImageViewer`
 - `ToastViewport`
 
-后续适合继续沉淀的组件：
+### 12.1 当前视觉方向
 
-- `EmptyState`
-- `ErrorState`
-- `Sheet`
+目前主题已经从早期暖色方案切到更冷静的浅色系统：
 
-## 13. 测试与验证
+- shell 背景偏灰蓝
+- 卡片是半透明浅底
+- 主强调色以深色文本和深色按钮为主
+- 移动端底部 Tab 缩成中间 dock，而不是铺满整宽
 
-当前至少做过以下验证：
+### 12.2 Safe Area
 
-- `bun run build` in `web/`
-- `bunx tsc --noEmit` in repo root
-- `/m` 与 `/m/assets/*` 本地 HTTP 返回验证
-- Vite 开发态 `/m/` 路由返回验证
+样式系统仍大量依赖 CSS 变量处理：
 
-当前仍缺少的验证：
+- `safe-area-inset-top`
+- `safe-area-inset-bottom`
+- `--space-shell-bottom`
+- `--space-tab-bottom`
 
-- 真实学校账号浏览器联调
-- 真实验证码分支全链路回归
-- 发布、评分、删除的浏览器端交互验收
+这部分不要随意移除，否则 iPhone 底部区域会退化。
 
-## 14. 维护约束
+## 13. 已知遗留与说明
 
-- 新增页面状态时，先判断是否应放进 URL，而不是直接塞进 Store
-- 不要把服务端列表和详情缓存迁回 Zustand
+### 13.1 `ProfileSummary` 组件仍在仓库中
+
+`widgets/profile-summary/profile-summary.tsx` 目前仍存在，但当前真实页面不再使用它。
+
+它现在更像是保留实现，不是当前活跃 UI。
+
+### 13.2 `useUserInfoQuery` 仍存在
+
+`entities/user/api/user-queries.ts` 仍然保留，但当前登录流程不再主动预取，且“我的”页也不直接消费这份数据。
+
+如果未来重新恢复资料卡展示，可以继续复用这一层。
+
+## 14. 当前验证基线
+
+至少已确认：
+
+- `npm run typecheck` 通过
+- `npm run build` 通过
+- `/m` 路由由后端正确托管
+- `/m/me/discover` 已进入真实路由树
+- `/m/treehole` 与 `/m/me/treehole` 已进入真实路由树
+
+仍建议继续补强：
+
+- 真人账号浏览器联调
+- 验证码全链路回归
+- 移动端交互与空态打磨
+
+## 15. 维护约束
+
+- 新增页面状态时，优先判断是否应进入 URL
+- 不要把服务端列表缓存迁回 Zustand
 - 页面组件里不要直接写 `fetch`
-- 新增业务模块时，优先复用 `entities + features + widgets` 分层
 - 所有业务请求统一走 `shared/api/http-client.ts`
-- `/m` 是当前固定前端入口，除非全链路调整，否则不要随意改基准路径
-
-## 15. 下一步建议
-
-从当前基线继续推进，优先级建议是：
-
-1. 完成浏览器真人联调和异常态修正
-2. 继续打磨移动端交互，例如图集预览、空态、加载态
-3. 为“我的”页后续服务入口预留复用卡片组件
-4. 新业务接入时保持同一套请求层和状态分层，不再重复造状态容器
+- `/m` 是固定前端入口，除非全链路调整，不要随意改 basename
