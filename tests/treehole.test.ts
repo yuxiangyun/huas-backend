@@ -270,6 +270,47 @@ describe('treehole module', () => {
     expect(listBody.data.items).toHaveLength(0);
   });
 
+  it('管理员可查看树洞帖子与评论列表，并看到真实作者信息', async () => {
+    const app = createApp();
+    const firstPostId = await createTreeholePost(app, authorId, '2023002001', '图书馆三楼今天空调开得很足。');
+    const secondPostId = await createTreeholePost(app, otherUserId, '2023002002', '今晚操场风很大，跑步很舒服。');
+    await createTreeholeComment(app, secondPostId, authorId, '2023002001', '晚上人也不算太多。');
+    const secondCommentId = await createTreeholeComment(app, secondPostId, thirdUserId, '2023002003', '风大但是很适合散步。');
+
+    const listRes = await app.request('http://localhost/api/admin/treehole/posts?page=1&pageSize=10&keyword=操场', {
+      headers: adminAuthHeader(),
+    });
+    expect(listRes.status).toBe(200);
+
+    const listBody = await listRes.json() as any;
+    expect(listBody.data.summary.totalPosts).toBe(2);
+    expect(listBody.data.summary.totalComments).toBe(2);
+    expect(listBody.data.total).toBe(1);
+    expect(listBody.data.items).toHaveLength(1);
+    expect(listBody.data.items[0].id).toBe(secondPostId);
+    expect(listBody.data.items[0].author.studentId).toBe('2023002002');
+    expect(listBody.data.items[0].author.className).toBe('软件工程2402班');
+    expect(listBody.data.items[0].stats.commentCount).toBe(2);
+
+    const commentsRes = await app.request(`http://localhost/api/admin/treehole/posts/${secondPostId}/comments?page=1&pageSize=10`, {
+      headers: adminAuthHeader(),
+    });
+    expect(commentsRes.status).toBe(200);
+
+    const commentsBody = await commentsRes.json() as any;
+    expect(commentsBody.data.total).toBe(2);
+    expect(commentsBody.data.items[0].id).toBe(secondCommentId);
+    expect(commentsBody.data.items[0].author.studentId).toBe('2023002003');
+    expect(commentsBody.data.items[1].author.studentId).toBe('2023002001');
+
+    const firstPostCommentsRes = await app.request(`http://localhost/api/admin/treehole/posts/${firstPostId}/comments?page=1&pageSize=10`, {
+      headers: adminAuthHeader(),
+    });
+    expect(firstPostCommentsRes.status).toBe(200);
+    const firstPostCommentsBody = await firstPostCommentsRes.json() as any;
+    expect(firstPostCommentsBody.data.items).toHaveLength(0);
+  });
+
   it('管理员可删除帖子和评论，未登录与非法分页参数会被拒绝', async () => {
     const app = createApp();
     const postId = await createTreeholePost(app, authorId, '2023002001', '树洞第一条消息。');
@@ -282,6 +323,24 @@ describe('treehole module', () => {
       headers: await authHeaderFor(authorId, '2023002001'),
     });
     expect(invalidPageRes.status).toBe(400);
+
+    const invalidAdminPageRes = await app.request('http://localhost/api/admin/treehole/posts?page=0', {
+      headers: adminAuthHeader(),
+    });
+    expect(invalidAdminPageRes.status).toBe(400);
+
+    const invalidLogLimitRes = await app.request('http://localhost/api/admin/logs?limit=0', {
+      headers: adminAuthHeader(),
+    });
+    expect(invalidLogLimitRes.status).toBe(400);
+
+    const logsRes = await app.request('http://localhost/api/admin/logs?limit=5&keyword=Treehole', {
+      headers: adminAuthHeader(),
+    });
+    expect(logsRes.status).toBe(200);
+    const logsBody = await logsRes.json() as any;
+    expect(logsBody.data.limit).toBe(5);
+    expect(Array.isArray(logsBody.data.items)).toBe(true);
 
     const adminDeleteComment = await app.request(`http://localhost/api/admin/treehole/comments/${commentId}`, {
       method: 'DELETE',

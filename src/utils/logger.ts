@@ -75,7 +75,16 @@ const fileLogger = winston.createLogger({
 });
 
 export const Logger = {
-  http(method: string, path: string, status: number, ms: number, studentId?: string, name?: string, meta?: { cached?: boolean; source?: string }) {
+  http(
+    method: string,
+    path: string,
+    status: number,
+    ms: number,
+    studentId?: string,
+    name?: string,
+    meta?: { cached?: boolean; source?: string },
+    detail?: string[]
+  ) {
     const tag = method === 'POST'
       ? `${c.magenta}${method.padEnd(4)}${c.reset}`
       : `${c.cyan}${method.padEnd(4)}${c.reset}`;
@@ -92,7 +101,23 @@ export const Logger = {
     console.log(
       `${time()} ${tag} ${path} ${statusColor(status)} ${durationStr(ms)}${userStr(studentId, name)}${cacheTag}`
     );
-    fileLogger.info('http', { method, path, status, ms, studentId, name, cached: meta?.cached, source: meta?.source });
+
+    const detailLines = detail?.filter(Boolean) ?? [];
+    detailLines.forEach((line, index) => {
+      subLine(index === detailLines.length - 1 ? '└' : '├', line);
+    });
+
+    fileLogger.info('http', {
+      method,
+      path,
+      status,
+      ms,
+      studentId,
+      name,
+      cached: meta?.cached,
+      source: meta?.source,
+      detail: detailLines.length > 0 ? detailLines : undefined,
+    });
   },
 
   auth(

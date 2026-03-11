@@ -16,6 +16,7 @@ interface ResolvedMediaTarget {
 
 const SUPPORTED_INPUT_FORMATS = new Set(['jpeg', 'png', 'webp', 'gif', 'heif', 'tiff']);
 const SUPPORTED_FORMAT_MESSAGE = '支持 JPG、PNG、WebP、GIF、HEIC、HEIF、AVIF、TIFF 等主流手机图片格式，动图会保留动画';
+export const DISCOVER_MEDIA_CACHE_CONTROL = 'public, max-age=31536000, immutable';
 
 export class DiscoverMediaService {
   static async compressAndStoreImages(files: File[]) {

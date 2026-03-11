@@ -1,16 +1,13 @@
-import { open } from 'node:fs/promises';
-import { resolve } from 'node:path';
 import { and, desc, eq, isNull, like, or, sql } from 'drizzle-orm';
 import { getDb, schema } from '../../db';
 import { AnnouncementService } from '../content/announcement-service';
 import { buildDiscoverAuthorLabel, safeParseJsonArray, type DiscoverStoredImage } from '../../utils/discover';
-import { beijingIsoString, parseBeijingDateTimeToEpoch, startOfBeijingDay } from '../../utils/time';
+import { beijingIsoString, startOfBeijingDay } from '../../utils/time';
+import { TerminalLogService } from './terminal-log-service';
 
 const PAGE_SIZE = 20;
 const LOG_LIMIT = 50;
 const DISCOVER_POST_LIMIT = 20;
-
-type LogSource = 'out' | 'error';
 
 interface DashboardQuery {
   page?: string;
@@ -61,77 +58,6 @@ function formatLikeKeyword(value: string): string {
   return `%${value.replaceAll('%', '\\%').replaceAll('_', '\\_')}%`;
 }
 
-function extractLineTimestamp(line: string): number {
-  const match = line.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})/);
-  if (!match) return 0;
-  return parseBeijingDateTimeToEpoch(match[1]);
-}
-
-async function tailLines(filePath: string, maxLines: number): Promise<string[]> {
-  let handle: Awaited<ReturnType<typeof open>> | null = null;
-  try {
-    handle = await open(filePath, 'r');
-    const stat = await handle.stat();
-    if (stat.size <= 0) return [];
-
-    const chunkSize = 16 * 1024;
-    let position = stat.size;
-    let content = '';
-
-    while (position > 0) {
-      const size = Math.min(chunkSize, position);
-      position -= size;
-      const buffer = Buffer.alloc(size);
-      await handle.read(buffer, 0, size, position);
-      content = buffer.toString('utf8') + content;
-
-      const lines = content.split(/\r?\n/).filter(Boolean);
-      if (lines.length >= maxLines + 5) {
-        break;
-      }
-    }
-
-    const lines = content.split(/\r?\n/).filter(Boolean);
-    return lines.slice(-maxLines);
-  } catch {
-    return [];
-  } finally {
-    if (handle) {
-      await handle.close();
-    }
-  }
-}
-
-async function readLatestTerminalLogs(limit: number) {
-  const sources: Array<{ source: LogSource; file: string }> = [
-    { source: 'out', file: resolve(process.cwd(), 'logs/pm2-out.log') },
-    { source: 'error', file: resolve(process.cwd(), 'logs/pm2-error.log') },
-  ];
-
-  const perFile = limit;
-  const lineGroups = await Promise.all(
-    sources.map(async ({ source, file }) => {
-      const lines = await tailLines(file, perFile);
-      return lines.map((line, idx) => ({
-        source,
-        line,
-        ts: extractLineTimestamp(line),
-        idx,
-      }));
-    })
-  );
-
-  const merged = lineGroups
-    .flat()
-    .sort((a, b) => {
-      if (a.ts !== b.ts) return a.ts - b.ts;
-      return a.idx - b.idx;
-    })
-    .slice(-limit)
-    .map(({ source, line }) => ({ source, line }));
-
-  return merged;
-}
 
 export class AdminDashboardService {
   static async getDashboard(query: DashboardQuery) {
@@ -213,7 +139,7 @@ export class AdminDashboardService {
         .orderBy(desc(schema.discoverPosts.publishedAt), desc(schema.discoverPosts.id))
         .limit(DISCOVER_POST_LIMIT),
       AnnouncementService.listAdmin(),
-      readLatestTerminalLogs(LOG_LIMIT),
+      TerminalLogService.list({ limit: LOG_LIMIT }),
     ]);
 
     const whereParts = [];
@@ -352,10 +278,7 @@ export class AdminDashboardService {
           publishedAt: toIso(row.publishedAt),
         })),
       },
-      logs: {
-        limit: LOG_LIMIT,
-        items: logs,
-      },
+      logs,
       announcements,
     };
   }

@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { config } from '../../config';
 import { TreeholeService } from '../../services/treehole/treehole-service';
 import { ErrorCode } from '../../utils/errors';
+import { appendHttpLogDetail, formatHttpLogDetail } from '../../utils/http-log';
 import { Logger } from '../../utils/logger';
 import { error, success } from '../../utils/response';
 
@@ -19,7 +20,14 @@ function parseEntityId(value: string) {
   return Number.isInteger(id) && id > 0 ? id : null;
 }
 
-treehole.get('/meta', (c) => success(c, TreeholeService.getMeta()));
+treehole.get('/meta', (c) => {
+  const data = TreeholeService.getMeta();
+  appendHttpLogDetail(c, formatHttpLogDetail({
+    maxPostLength: data.limits.maxPostLength,
+    maxCommentLength: data.limits.maxCommentLength,
+  }));
+  return success(c, data);
+});
 
 treehole.get('/posts', async (c) => {
   const page = parsePositiveInt(c.req.query('page'), 1);
@@ -28,11 +36,18 @@ treehole.get('/posts', async (c) => {
     return error(c, ErrorCode.PARAM_ERROR, '分页参数不合法', 400);
   }
 
+  appendHttpLogDetail(c, formatHttpLogDetail({ page, pageSize }));
   const data = await TreeholeService.listPosts({
     userId: c.get('userId'),
     page,
     pageSize,
   });
+
+  appendHttpLogDetail(c, formatHttpLogDetail({
+    total: data.total,
+    items: data.items.length,
+    hasMore: data.hasMore,
+  }));
   return success(c, data);
 });
 
@@ -43,11 +58,22 @@ treehole.get('/posts/me', async (c) => {
     return error(c, ErrorCode.PARAM_ERROR, '分页参数不合法', 400);
   }
 
+  appendHttpLogDetail(c, formatHttpLogDetail({
+    scope: 'me',
+    page,
+    pageSize,
+  }));
   const data = await TreeholeService.listMyPosts({
     userId: c.get('userId'),
     page,
     pageSize,
   });
+
+  appendHttpLogDetail(c, formatHttpLogDetail({
+    total: data.total,
+    items: data.items.length,
+    hasMore: data.hasMore,
+  }));
   return success(c, data);
 });
 
@@ -59,10 +85,16 @@ treehole.post('/posts', async (c) => {
     return error(c, ErrorCode.PARAM_ERROR, '请求体必须是有效的 JSON', 400);
   }
 
+  appendHttpLogDetail(c, formatHttpLogDetail({
+    contentLength: typeof body?.content === 'string' ? body.content.trim().length : 0,
+  }));
+
   const data = await TreeholeService.createPost({
     userId: c.get('userId'),
     content: typeof body?.content === 'string' ? body.content : '',
   });
+
+  appendHttpLogDetail(c, formatHttpLogDetail({ postId: data?.id }));
 
   Logger.operation(
     'Treehole',
@@ -80,6 +112,7 @@ treehole.get('/posts/:id', async (c) => {
     return error(c, ErrorCode.PARAM_ERROR, '帖子 ID 不合法', 400);
   }
 
+  appendHttpLogDetail(c, formatHttpLogDetail({ postId }));
   const data = await TreeholeService.getPostDetail(c.get('userId'), postId);
   if (!data) {
     return error(c, ErrorCode.PARAM_ERROR, '帖子不存在', 404);
@@ -94,10 +127,16 @@ treehole.put('/posts/:id/like', async (c) => {
     return error(c, ErrorCode.PARAM_ERROR, '帖子 ID 不合法', 400);
   }
 
+  appendHttpLogDetail(c, formatHttpLogDetail({ postId, action: 'like' }));
   const data = await TreeholeService.likePost(c.get('userId'), postId);
   if (!data) {
     return error(c, ErrorCode.PARAM_ERROR, '帖子不存在', 404);
   }
+
+  appendHttpLogDetail(c, formatHttpLogDetail({
+    liked: data.viewer.liked,
+    likeCount: data.stats.likeCount,
+  }));
 
   Logger.operation(
     'Treehole',
@@ -115,10 +154,16 @@ treehole.delete('/posts/:id/like', async (c) => {
     return error(c, ErrorCode.PARAM_ERROR, '帖子 ID 不合法', 400);
   }
 
+  appendHttpLogDetail(c, formatHttpLogDetail({ postId, action: 'unlike' }));
   const data = await TreeholeService.unlikePost(c.get('userId'), postId);
   if (!data) {
     return error(c, ErrorCode.PARAM_ERROR, '帖子不存在', 404);
   }
+
+  appendHttpLogDetail(c, formatHttpLogDetail({
+    liked: data.viewer.liked,
+    likeCount: data.stats.likeCount,
+  }));
 
   Logger.operation(
     'Treehole',
@@ -142,6 +187,11 @@ treehole.get('/posts/:id/comments', async (c) => {
     return error(c, ErrorCode.PARAM_ERROR, '分页参数不合法', 400);
   }
 
+  appendHttpLogDetail(c, formatHttpLogDetail({
+    postId,
+    page,
+    pageSize,
+  }));
   const data = await TreeholeService.listComments(c.get('userId'), postId, {
     page,
     pageSize,
@@ -149,6 +199,12 @@ treehole.get('/posts/:id/comments', async (c) => {
   if (!data) {
     return error(c, ErrorCode.PARAM_ERROR, '帖子不存在', 404);
   }
+
+  appendHttpLogDetail(c, formatHttpLogDetail({
+    total: data.total,
+    items: data.items.length,
+    hasMore: data.hasMore,
+  }));
 
   return success(c, data);
 });
@@ -166,6 +222,11 @@ treehole.post('/posts/:id/comments', async (c) => {
     return error(c, ErrorCode.PARAM_ERROR, '请求体必须是有效的 JSON', 400);
   }
 
+  appendHttpLogDetail(c, formatHttpLogDetail({
+    postId,
+    contentLength: typeof body?.content === 'string' ? body.content.trim().length : 0,
+  }));
+
   const data = await TreeholeService.createComment({
     userId: c.get('userId'),
     postId,
@@ -174,6 +235,8 @@ treehole.post('/posts/:id/comments', async (c) => {
   if (!data) {
     return error(c, ErrorCode.PARAM_ERROR, '帖子不存在', 404);
   }
+
+  appendHttpLogDetail(c, formatHttpLogDetail({ commentId: data.id }));
 
   Logger.operation(
     'Treehole',
@@ -191,6 +254,7 @@ treehole.delete('/posts/:id', async (c) => {
     return error(c, ErrorCode.PARAM_ERROR, '帖子 ID 不合法', 400);
   }
 
+  appendHttpLogDetail(c, formatHttpLogDetail({ postId }));
   const removed = await TreeholeService.deletePost(postId, c.get('userId'));
   if (!removed) {
     return error(c, ErrorCode.PARAM_ERROR, '帖子不存在或无权删除', 404);
@@ -212,10 +276,13 @@ treehole.delete('/comments/:id', async (c) => {
     return error(c, ErrorCode.PARAM_ERROR, '评论 ID 不合法', 400);
   }
 
+  appendHttpLogDetail(c, formatHttpLogDetail({ commentId }));
   const removed = await TreeholeService.deleteComment(commentId, c.get('userId'));
   if (!removed) {
     return error(c, ErrorCode.PARAM_ERROR, '评论不存在或无权删除', 404);
   }
+
+  appendHttpLogDetail(c, formatHttpLogDetail({ postId: removed.postId }));
 
   Logger.operation(
     'Treehole',

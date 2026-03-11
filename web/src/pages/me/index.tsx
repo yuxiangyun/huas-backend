@@ -79,6 +79,19 @@ export function MePage() {
       tone: 'slate' as const,
       variant: 'subtle' as const,
     },
+    {
+      id: 'admin-treehole',
+      buttonLabel: '进入',
+      chip: '后台',
+      description: '查看树洞真实作者并执行删帖删评',
+      glowClass: 'bg-[#efbfd2]/72',
+      icon: <ContactCard20Filled aria-hidden="true" className="size-5" />,
+      accent: <Chat20Filled aria-hidden="true" className="size-4" />,
+      onClick: () => navigate(appRoutes.adminTreehole),
+      title: '树洞管理',
+      tone: 'rose' as const,
+      variant: 'secondary' as const,
+    },
   ];
 
   return (

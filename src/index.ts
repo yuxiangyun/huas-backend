@@ -11,7 +11,10 @@ import { CacheService } from './services/infra/cache-service';
 import { config } from './config';
 import { Logger } from './utils/logger';
 import { adminBasicAuthMiddleware } from './middleware/admin-basic-auth.middleware';
-import { DiscoverMediaService } from './services/discover/media-service';
+import {
+  DiscoverMediaService,
+  DISCOVER_MEDIA_CACHE_CONTROL,
+} from './services/discover/media-service';
 
 const app = new Hono();
 const isDev = process.env.NODE_ENV !== 'production';
@@ -61,8 +64,7 @@ app.get(`${config.discover.mediaBasePath}/*`, async (c) => {
 
   return new Response(file, {
     headers: {
-      'Cache-Control': 'no-store',
-      'Pragma': 'no-cache',
+      'Cache-Control': DISCOVER_MEDIA_CACHE_CONTROL,
       'Content-Type': file.type || 'application/octet-stream',
     },
   });

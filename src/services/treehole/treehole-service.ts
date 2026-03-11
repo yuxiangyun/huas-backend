@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, like, or, sql } from 'drizzle-orm';
 import { config } from '../../config';
 import { getDb, schema } from '../../db';
 import { AppError, ErrorCode } from '../../utils/errors';
@@ -43,6 +43,18 @@ interface TreeholeCommentRow {
   deletedAt: Date | null;
 }
 
+interface AdminTreeholePostRow extends TreeholePostRow {
+  authorStudentId: string;
+  authorName: string | null;
+  authorClassName: string | null;
+}
+
+interface AdminTreeholeCommentRow extends TreeholeCommentRow {
+  authorStudentId: string;
+  authorName: string | null;
+  authorClassName: string | null;
+}
+
 interface TreeholePostResponse {
   id: number;
   content: string;
@@ -68,6 +80,35 @@ interface TreeholeCommentResponse {
   updatedAt: string;
 }
 
+interface AdminAuthorSummary {
+  id: number;
+  studentId: string;
+  name: string;
+  className: string;
+}
+
+interface AdminTreeholePostResponse {
+  id: number;
+  content: string;
+  stats: {
+    likeCount: number;
+    commentCount: number;
+  };
+  author: AdminAuthorSummary;
+  publishedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface AdminTreeholeCommentResponse {
+  id: number;
+  postId: number;
+  content: string;
+  author: AdminAuthorSummary;
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface TreeholeListResponse {
   items: TreeholePostResponse[];
   page: number;
@@ -84,6 +125,38 @@ interface TreeholeCommentListResponse {
   hasMore: boolean;
 }
 
+interface AdminTreeholePostListResponse {
+  summary: {
+    totalPosts: number;
+    totalComments: number;
+    totalLikes: number;
+  };
+  items: AdminTreeholePostResponse[];
+  page: number;
+  pageSize: number;
+  total: number;
+  hasMore: boolean;
+}
+
+interface AdminTreeholeCommentListResponse {
+  items: AdminTreeholeCommentResponse[];
+  page: number;
+  pageSize: number;
+  total: number;
+  hasMore: boolean;
+}
+
+interface AdminTreeholePostListOptions {
+  page?: number;
+  pageSize?: number;
+  keyword?: string;
+}
+
+interface AdminTreeholeCommentListOptions {
+  page?: number;
+  pageSize?: number;
+}
+
 function postSelect() {
   return {
     id: schema.treeholePosts.id,
@@ -98,6 +171,15 @@ function postSelect() {
   };
 }
 
+function adminPostSelect() {
+  return {
+    ...postSelect(),
+    authorStudentId: schema.users.studentId,
+    authorName: schema.users.name,
+    authorClassName: schema.users.className,
+  };
+}
+
 function commentSelect() {
   return {
     id: schema.treeholeComments.id,
@@ -107,6 +189,15 @@ function commentSelect() {
     createdAt: schema.treeholeComments.createdAt,
     updatedAt: schema.treeholeComments.updatedAt,
     deletedAt: schema.treeholeComments.deletedAt,
+  };
+}
+
+function adminCommentSelect() {
+  return {
+    ...commentSelect(),
+    authorStudentId: schema.users.studentId,
+    authorName: schema.users.name,
+    authorClassName: schema.users.className,
   };
 }
 
@@ -159,6 +250,19 @@ function normalizeCommentContent(value: string) {
   return content;
 }
 
+function formatLikeKeyword(value: string) {
+  return `%${value.replaceAll('%', '\\%').replaceAll('_', '\\_')}%`;
+}
+
+function toAdminAuthorSummary(row: { userId: number; authorStudentId: string; authorName: string | null; authorClassName: string | null }): AdminAuthorSummary {
+  return {
+    id: row.userId,
+    studentId: row.authorStudentId,
+    name: row.authorName?.trim() || '',
+    className: row.authorClassName?.trim() || '',
+  };
+}
+
 function toPostResponse(row: TreeholePostRow, userId: number, liked: boolean): TreeholePostResponse {
   return {
     id: row.id,
@@ -177,12 +281,38 @@ function toPostResponse(row: TreeholePostRow, userId: number, liked: boolean): T
   };
 }
 
+function toAdminPostResponse(row: AdminTreeholePostRow): AdminTreeholePostResponse {
+  return {
+    id: row.id,
+    content: row.content,
+    stats: {
+      likeCount: row.likeCount,
+      commentCount: row.commentCount,
+    },
+    author: toAdminAuthorSummary(row),
+    publishedAt: beijingIsoString(row.publishedAt),
+    createdAt: beijingIsoString(row.createdAt),
+    updatedAt: beijingIsoString(row.updatedAt),
+  };
+}
+
 function toCommentResponse(row: TreeholeCommentRow, userId: number): TreeholeCommentResponse {
   return {
     id: row.id,
     postId: row.postId,
     content: row.content,
     isMine: row.userId === userId,
+    createdAt: beijingIsoString(row.createdAt),
+    updatedAt: beijingIsoString(row.updatedAt),
+  };
+}
+
+function toAdminCommentResponse(row: AdminTreeholeCommentRow): AdminTreeholeCommentResponse {
+  return {
+    id: row.id,
+    postId: row.postId,
+    content: row.content,
+    author: toAdminAuthorSummary(row),
     createdAt: beijingIsoString(row.createdAt),
     updatedAt: beijingIsoString(row.updatedAt),
   };
@@ -434,6 +564,119 @@ export class TreeholeService {
       await this.refreshPostCommentCount(tx, updated[0].postId, now);
       return updated[0];
     });
+  }
+
+  static async adminListPosts(options: AdminTreeholePostListOptions): Promise<AdminTreeholePostListResponse> {
+    const db = getDb();
+    const page = clampPage(options.page);
+    const pageSize = clampPageSize(options.pageSize);
+    const keyword = options.keyword?.trim() || '';
+    const whereParts = [isNull(schema.treeholePosts.deletedAt)];
+
+    if (keyword) {
+      const match = formatLikeKeyword(keyword);
+      whereParts.push(or(
+        like(schema.treeholePosts.content, match),
+        like(schema.users.studentId, match),
+        like(schema.users.name, match),
+        like(schema.users.className, match),
+      )!);
+    }
+
+    const whereExpr = and(...whereParts);
+    const [
+      totalRows,
+      totalPostRows,
+      totalCommentRows,
+      totalLikeRows,
+      rows,
+    ] = await Promise.all([
+      db.select({ count: sql<number>`count(*)` })
+        .from(schema.treeholePosts)
+        .innerJoin(schema.users, eq(schema.treeholePosts.userId, schema.users.id))
+        .where(whereExpr),
+      db.select({ count: sql<number>`count(*)` })
+        .from(schema.treeholePosts)
+        .where(isNull(schema.treeholePosts.deletedAt)),
+      db.select({ count: sql<number>`count(*)` })
+        .from(schema.treeholeComments)
+        .innerJoin(schema.treeholePosts, eq(schema.treeholeComments.postId, schema.treeholePosts.id))
+        .where(and(
+          isNull(schema.treeholeComments.deletedAt),
+          isNull(schema.treeholePosts.deletedAt),
+        )),
+      db.select({ count: sql<number>`count(*)` })
+        .from(schema.treeholePostLikes)
+        .innerJoin(schema.treeholePosts, eq(schema.treeholePostLikes.postId, schema.treeholePosts.id))
+        .where(isNull(schema.treeholePosts.deletedAt)),
+      db.select(adminPostSelect())
+        .from(schema.treeholePosts)
+        .innerJoin(schema.users, eq(schema.treeholePosts.userId, schema.users.id))
+        .where(whereExpr)
+        .orderBy(desc(schema.treeholePosts.publishedAt), desc(schema.treeholePosts.id))
+        .limit(pageSize)
+        .offset((page - 1) * pageSize),
+    ]);
+
+    const total = Number(totalRows[0]?.count || 0);
+
+    return {
+      summary: {
+        totalPosts: Number(totalPostRows[0]?.count || 0),
+        totalComments: Number(totalCommentRows[0]?.count || 0),
+        totalLikes: Number(totalLikeRows[0]?.count || 0),
+      },
+      items: (rows as AdminTreeholePostRow[]).map(toAdminPostResponse),
+      page,
+      pageSize,
+      total,
+      hasMore: page * pageSize < total,
+    };
+  }
+
+  static async adminListComments(
+    postId: number,
+    options: AdminTreeholeCommentListOptions
+  ): Promise<AdminTreeholeCommentListResponse | null> {
+    const db = getDb();
+    const postRows = await db.select({ id: schema.treeholePosts.id })
+      .from(schema.treeholePosts)
+      .where(and(
+        eq(schema.treeholePosts.id, postId),
+        isNull(schema.treeholePosts.deletedAt),
+      ))
+      .limit(1);
+
+    if (!postRows[0]) return null;
+
+    const page = clampPage(options.page);
+    const pageSize = clampCommentPageSize(options.pageSize);
+    const whereExpr = and(
+      eq(schema.treeholeComments.postId, postId),
+      isNull(schema.treeholeComments.deletedAt),
+    );
+
+    const [totalRows, rows] = await Promise.all([
+      db.select({ count: sql<number>`count(*)` })
+        .from(schema.treeholeComments)
+        .where(whereExpr),
+      db.select(adminCommentSelect())
+        .from(schema.treeholeComments)
+        .innerJoin(schema.users, eq(schema.treeholeComments.userId, schema.users.id))
+        .where(whereExpr)
+        .orderBy(desc(schema.treeholeComments.createdAt), desc(schema.treeholeComments.id))
+        .limit(pageSize)
+        .offset((page - 1) * pageSize),
+    ]);
+
+    const total = Number(totalRows[0]?.count || 0);
+    return {
+      items: (rows as AdminTreeholeCommentRow[]).map(toAdminCommentResponse),
+      page,
+      pageSize,
+      total,
+      hasMore: page * pageSize < total,
+    };
   }
 
   static async adminDeletePost(postId: number) {

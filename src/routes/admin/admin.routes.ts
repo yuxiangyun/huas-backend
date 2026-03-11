@@ -5,6 +5,7 @@ import { ErrorCode } from '../../utils/errors';
 import { AdminDashboardService } from '../../services/admin/dashboard-service';
 import { AnnouncementService } from '../../services/content/announcement-service';
 import { DiscoverService } from '../../services/discover/discover-service';
+import { TerminalLogService } from '../../services/admin/terminal-log-service';
 import { TreeholeService } from '../../services/treehole/treehole-service';
 import { Logger } from '../../utils/logger';
 
@@ -27,6 +28,25 @@ admin.get('/announcements', async (c) => {
     return success(c, data);
   } catch (e: any) {
     return error(c, ErrorCode.INTERNAL_ERROR, e?.message || '获取公告列表失败', 500);
+  }
+});
+
+admin.get('/logs', async (c) => {
+  const limitParam = c.req.query('limit');
+  const parsedLimit = limitParam ? Number(limitParam) : null;
+
+  if (limitParam && (typeof parsedLimit !== 'number' || !Number.isInteger(parsedLimit) || parsedLimit <= 0)) {
+    return error(c, ErrorCode.PARAM_ERROR, '日志条数不合法', 400);
+  }
+
+  try {
+    const data = await TerminalLogService.list({
+      limit: parsedLimit ?? undefined,
+      keyword: c.req.query('keyword'),
+    });
+    return success(c, data);
+  } catch (e: any) {
+    return error(c, ErrorCode.INTERNAL_ERROR, e?.message || '获取终端日志失败', 500);
   }
 });
 
@@ -97,6 +117,53 @@ admin.delete('/discover/posts/:id', async (c) => {
     return success(c, { id: removed.id });
   } catch (e: any) {
     return error(c, ErrorCode.INTERNAL_ERROR, e?.message || '删除帖子失败', 500);
+  }
+});
+
+admin.get('/treehole/posts', async (c) => {
+  const query = c.req.query();
+  const page = query.page ? Number(query.page) : undefined;
+  const pageSize = query.pageSize ? Number(query.pageSize) : undefined;
+
+  if ((page !== undefined && (!Number.isInteger(page) || page <= 0))
+    || (pageSize !== undefined && (!Number.isInteger(pageSize) || pageSize <= 0))) {
+    return error(c, ErrorCode.PARAM_ERROR, '分页参数不合法', 400);
+  }
+
+  try {
+    const data = await TreeholeService.adminListPosts({
+      page,
+      pageSize,
+      keyword: query.keyword,
+    });
+    return success(c, data);
+  } catch (e: any) {
+    return error(c, ErrorCode.INTERNAL_ERROR, e?.message || '获取树洞列表失败', 500);
+  }
+});
+
+admin.get('/treehole/posts/:id/comments', async (c) => {
+  const postId = Number(c.req.param('id'));
+  const query = c.req.query();
+  const page = query.page ? Number(query.page) : undefined;
+  const pageSize = query.pageSize ? Number(query.pageSize) : undefined;
+
+  if (!Number.isInteger(postId) || postId <= 0) {
+    return error(c, ErrorCode.PARAM_ERROR, '帖子 ID 不合法', 400);
+  }
+  if ((page !== undefined && (!Number.isInteger(page) || page <= 0))
+    || (pageSize !== undefined && (!Number.isInteger(pageSize) || pageSize <= 0))) {
+    return error(c, ErrorCode.PARAM_ERROR, '分页参数不合法', 400);
+  }
+
+  try {
+    const data = await TreeholeService.adminListComments(postId, { page, pageSize });
+    if (!data) {
+      return error(c, ErrorCode.PARAM_ERROR, '帖子不存在', 404);
+    }
+    return success(c, data);
+  } catch (e: any) {
+    return error(c, ErrorCode.INTERNAL_ERROR, e?.message || '获取评论列表失败', 500);
   }
 });
 

@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { DiscoverService } from '../../services/discover/discover-service';
 import { ErrorCode } from '../../utils/errors';
 import { parseStringArray } from '../../utils/discover';
+import { appendHttpLogDetail, formatHttpLogDetail } from '../../utils/http-log';
 import { Logger } from '../../utils/logger';
 import { error, success } from '../../utils/response';
 
@@ -29,7 +30,14 @@ function readImageFiles(form: FormData) {
     .filter((value): value is File => value instanceof File);
 }
 
-discover.get('/meta', (c) => success(c, DiscoverService.getMeta()));
+discover.get('/meta', (c) => {
+  const data = DiscoverService.getMeta();
+  appendHttpLogDetail(c, formatHttpLogDetail({
+    categories: data.categories.length,
+    commonTags: data.commonTags.length,
+  }));
+  return success(c, data);
+});
 
 discover.post('/posts', async (c) => {
   let form: FormData;
@@ -44,16 +52,36 @@ discover.post('/posts', async (c) => {
     return error(c, ErrorCode.PARAM_ERROR, '分类不能为空', 400);
   }
 
+  const title = typeof form.get('title') === 'string' ? String(form.get('title')) : undefined;
+  const storeName = typeof form.get('storeName') === 'string' ? String(form.get('storeName')) : undefined;
+  const priceText = typeof form.get('priceText') === 'string' ? String(form.get('priceText')) : undefined;
+  const content = typeof form.get('content') === 'string' ? String(form.get('content')) : undefined;
+  const tags = readTagValues(form);
+  const images = readImageFiles(form);
+
+  appendHttpLogDetail(c, formatHttpLogDetail({
+    category,
+    titleLength: title?.trim().length || 0,
+    contentLength: content?.trim().length || 0,
+    tags: tags.length,
+    images: images.length,
+  }));
+
   const data = await DiscoverService.createPost({
     userId: c.get('userId'),
-    title: typeof form.get('title') === 'string' ? String(form.get('title')) : undefined,
-    storeName: typeof form.get('storeName') === 'string' ? String(form.get('storeName')) : undefined,
-    priceText: typeof form.get('priceText') === 'string' ? String(form.get('priceText')) : undefined,
-    content: typeof form.get('content') === 'string' ? String(form.get('content')) : undefined,
+    title,
+    storeName,
+    priceText,
+    content,
     category,
-    tags: readTagValues(form),
-    images: readImageFiles(form),
+    tags,
+    images,
   });
+
+  appendHttpLogDetail(c, formatHttpLogDetail({
+    postId: data?.id,
+    imageCount: data?.imageCount ?? 0,
+  }));
 
   Logger.operation(
     'Discover',
@@ -67,12 +95,29 @@ discover.post('/posts', async (c) => {
 });
 
 discover.get('/posts/me', async (c) => {
+  const category = c.req.query('category');
+  const page = parsePositiveInt(c.req.query('page'), 1);
+  const pageSize = parsePositiveInt(c.req.query('pageSize'), 20);
+
+  appendHttpLogDetail(c, formatHttpLogDetail({
+    scope: 'me',
+    category,
+    page,
+    pageSize,
+  }));
+
   const data = await DiscoverService.listMyPosts({
     userId: c.get('userId'),
-    category: c.req.query('category'),
-    page: parsePositiveInt(c.req.query('page'), 1),
-    pageSize: parsePositiveInt(c.req.query('pageSize'), 20),
+    category,
+    page,
+    pageSize,
   });
+
+  appendHttpLogDetail(c, formatHttpLogDetail({
+    total: data.total,
+    items: data.items.length,
+    hasMore: data.hasMore,
+  }));
 
   return success(c, data);
 });
@@ -83,6 +128,7 @@ discover.get('/posts/:id', async (c) => {
     return error(c, ErrorCode.PARAM_ERROR, '帖子 ID 不合法', 400);
   }
 
+  appendHttpLogDetail(c, formatHttpLogDetail({ postId }));
   const data = await DiscoverService.getPostDetail(c.get('userId'), postId);
   if (!data) {
     return error(c, ErrorCode.PARAM_ERROR, '帖子不存在', 404);
@@ -97,12 +143,29 @@ discover.get('/posts', async (c) => {
     return error(c, ErrorCode.PARAM_ERROR, '排序方式不合法', 400);
   }
 
+  const category = c.req.query('category');
+  const page = parsePositiveInt(c.req.query('page'), 1);
+  const pageSize = parsePositiveInt(c.req.query('pageSize'), 20);
+
+  appendHttpLogDetail(c, formatHttpLogDetail({
+    sort,
+    category,
+    page,
+    pageSize,
+  }));
+
   const data = await DiscoverService.listPosts(sort as 'latest' | 'score' | 'recommended', {
     userId: c.get('userId'),
-    category: c.req.query('category'),
-    page: parsePositiveInt(c.req.query('page'), 1),
-    pageSize: parsePositiveInt(c.req.query('pageSize'), 20),
+    category,
+    page,
+    pageSize,
   });
+
+  appendHttpLogDetail(c, formatHttpLogDetail({
+    total: data.total,
+    items: data.items.length,
+    hasMore: data.hasMore,
+  }));
 
   return success(c, data);
 });
@@ -119,6 +182,11 @@ discover.post('/posts/:id/rating', async (c) => {
   } catch {
     return error(c, ErrorCode.PARAM_ERROR, '请求体必须是有效的 JSON', 400);
   }
+
+  appendHttpLogDetail(c, formatHttpLogDetail({
+    postId,
+    score: Number(body?.score),
+  }));
 
   const data = await DiscoverService.ratePost(c.get('userId'), postId, Number(body?.score));
   if (!data) {
@@ -142,6 +210,7 @@ discover.delete('/posts/:id', async (c) => {
     return error(c, ErrorCode.PARAM_ERROR, '帖子 ID 不合法', 400);
   }
 
+  appendHttpLogDetail(c, formatHttpLogDetail({ postId }));
   const removed = await DiscoverService.deletePost(postId, c.get('userId'));
   if (!removed) {
     return error(c, ErrorCode.PARAM_ERROR, '帖子不存在或无权删除', 404);

@@ -8,7 +8,10 @@ import { initDatabase, getDb, schema } from '../src/db';
 import { registerRoutes } from '../src/routes';
 import { generateToken } from '../src/auth/jwt';
 import { config } from '../src/config';
-import { DiscoverMediaService } from '../src/services/discover/media-service';
+import {
+  DiscoverMediaService,
+  DISCOVER_MEDIA_CACHE_CONTROL,
+} from '../src/services/discover/media-service';
 
 let authorId = 0;
 let otherAuthorId = 0;
@@ -22,8 +25,7 @@ function createApp() {
 
     return new Response(file, {
       headers: {
-        'Cache-Control': 'no-store',
-        'Pragma': 'no-cache',
+        'Cache-Control': DISCOVER_MEDIA_CACHE_CONTROL,
         'Content-Type': file.type || 'application/octet-stream',
       },
     });
@@ -388,7 +390,7 @@ describe('discover module', () => {
 
     const mediaBeforeDelete = await app.request(imageUrl);
     expect(mediaBeforeDelete.status).toBe(200);
-    expect(mediaBeforeDelete.headers.get('cache-control')).toBe('no-store');
+    expect(mediaBeforeDelete.headers.get('cache-control')).toBe(DISCOVER_MEDIA_CACHE_CONTROL);
     expect(await Bun.file(filePath).exists()).toBe(true);
 
     const adminAuth = `Basic ${Buffer.from('202412040130:A18569081662').toString('base64')}`;

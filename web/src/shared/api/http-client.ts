@@ -85,7 +85,9 @@ export async function requestEnvelope<T>(
   });
 
   const payload = await parsePayload<ApiEnvelope<T>>(response);
-  handleUnauthorized(response);
+  if (options.auth !== false) {
+    handleUnauthorized(response);
+  }
 
   return { status: response.status, payload };
 }

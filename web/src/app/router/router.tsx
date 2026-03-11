@@ -14,6 +14,13 @@ export const router = createBrowserRouter(
       },
     },
     {
+      path: appRoutes.adminTreehole,
+      lazy: async () => {
+        const module = await import('@/pages/admin-treehole');
+        return { Component: module.AdminTreeholePage };
+      },
+    },
+    {
       path: appRoutes.root,
       element: (
         <ProtectedRoute>

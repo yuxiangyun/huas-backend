@@ -6,4 +6,5 @@ export const appRoutes = {
   me: '/me',
   meDiscover: '/me/discover',
   meTreehole: '/me/treehole',
+  adminTreehole: '/admin/treehole',
 } as const;

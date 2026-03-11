@@ -9,6 +9,7 @@ import { generateToken } from '../../auth/jwt';
 import { CryptoHelper } from '../../utils/crypto';
 import { getDb, schema } from '../../db';
 import { config } from '../../config';
+import { appendHttpLogDetail, formatHttpLogDetail } from '../../utils/http-log';
 import { Logger } from '../../utils/logger';
 import { success, error } from '../../utils/response';
 import { ErrorCode } from '../../utils/errors';
@@ -51,6 +52,12 @@ auth.post('/login', async (c) => {
     return error(c, ErrorCode.PARAM_ERROR, '用户名和密码不能为空', 400);
   }
 
+  appendHttpLogDetail(c, formatHttpLogDetail({
+    username,
+    loginMode: sessionId ? 'captcha' : 'password',
+    hasCaptcha: Boolean(captcha),
+  }));
+
   const db = getDb();
 
   if (!sessionId) {
@@ -80,6 +87,7 @@ auth.post('/login', async (c) => {
         Logger.auth(username, '本地登录成功', 200, 0, resolvedName, [
           { label: 'local', ok: true },
         ]);
+        appendHttpLogDetail(c, 'result=local-success');
 
         return success(c, {
           token,
@@ -95,10 +103,12 @@ auth.post('/login', async (c) => {
   if (sessionId) {
     const session = captchaSessions.get(sessionId);
     if (!session) {
+      appendHttpLogDetail(c, 'result=captcha-session-missing');
       return error(c, ErrorCode.CAPTCHA_ERROR, '验证码会话不存在或已过期，请重新获取验证码', 400);
     }
     captchaSessions.delete(sessionId);
     if (!session.execution) {
+      appendHttpLogDetail(c, 'result=captcha-session-invalid');
       return error(c, ErrorCode.CAPTCHA_ERROR, '验证码会话已失效，请重新获取验证码', 400);
     }
 
@@ -114,6 +124,7 @@ auth.post('/login', async (c) => {
     try {
       execution = await engine.getExecution();
     } catch (e: any) {
+      appendHttpLogDetail(c, 'result=execution-fetch-failed');
       Logger.error('Auth', 'execution 获取失败', e);
       if (e.message === 'REQUEST_TIMEOUT') {
         return error(c, ErrorCode.UPSTREAM_TIMEOUT, '学校服务器超时', 504);
@@ -123,6 +134,7 @@ auth.post('/login', async (c) => {
   }
 
   if (!execution) {
+    appendHttpLogDetail(c, 'result=missing-execution');
     return error(c, ErrorCode.CAS_LOGIN_FAILED, '无法获取登录凭据', 400);
   }
 
@@ -141,6 +153,7 @@ auth.post('/login', async (c) => {
           const buffer = await engine.getCaptcha();
           const newExecution = await engine.getExecution();
           if (!newExecution) {
+            appendHttpLogDetail(c, 'result=captcha-session-init-failed');
             Logger.auth(username, '验证码会话初始化失败', 400, loginMs, undefined, result.steps);
             return error(c, ErrorCode.CAPTCHA_ERROR, '需要验证码，但验证码会话初始化失败，请重试', 400);
           }
@@ -157,6 +170,7 @@ auth.post('/login', async (c) => {
             createdAt: Date.now(),
           });
 
+          appendHttpLogDetail(c, 'result=captcha-required');
           Logger.auth(username, '需要验证码', 400, loginMs, undefined, result.steps);
           return c.json({
             success: false,
@@ -167,10 +181,12 @@ auth.post('/login', async (c) => {
             captchaImage: Buffer.from(buffer).toString('base64'),
           }, 400);
         } catch {
+          appendHttpLogDetail(c, 'result=captcha-fetch-failed');
           Logger.auth(username, '验证码获取失败', 400, loginMs, undefined, result.steps);
           return error(c, ErrorCode.CAPTCHA_ERROR, '需要验证码，但获取失败', 400);
         }
       }
+      appendHttpLogDetail(c, 'result=cas-failed');
       Logger.auth(username, result.message || '登录失败', 400, loginMs, undefined, result.steps);
       return error(c, ErrorCode.CAS_LOGIN_FAILED, result.message || '登录失败', 400);
     }
@@ -180,6 +196,7 @@ auth.post('/login', async (c) => {
     const allSteps = [...(result.steps || []), ...jwResult.steps];
 
     if (!jwResult.success) {
+      appendHttpLogDetail(c, 'result=jw-activation-failed');
       Logger.auth(username, '教务系统激活失败', 200, loginMs, undefined, allSteps);
       return error(c, ErrorCode.CAS_LOGIN_FAILED, '教务系统激活失败', 400);
     }
@@ -251,10 +268,17 @@ auth.post('/login', async (c) => {
     // Generate our JWT
     const token = await generateToken({ userId, studentId: username, name: resolvedName });
 
+    appendHttpLogDetail(c, formatHttpLogDetail({
+      result: 'success',
+      userId,
+    }));
     Logger.auth(username, '成功', 200, loginMs, resolvedName, allSteps);
 
     return success(c, { token, user: { name: resolvedName, studentId: username, className: resolvedClassName } });
   } catch (e: any) {
+    appendHttpLogDetail(c, formatHttpLogDetail({
+      result: e.message === 'REQUEST_TIMEOUT' ? 'upstream-timeout' : 'exception',
+    }));
     Logger.error('Auth', '登录异常', e);
     if (e.message === 'REQUEST_TIMEOUT') {
       return error(c, ErrorCode.UPSTREAM_TIMEOUT, '学校服务器超时', 504);
