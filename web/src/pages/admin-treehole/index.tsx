@@ -29,6 +29,7 @@ import {
 import { ApiError } from '@/shared/api/http-client';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
+import { ConfirmSheet } from '@/shared/ui/confirm-sheet';
 import { PageHeader } from '@/shared/ui/page-header';
 import { IconBubble, PageOrnament } from '@/shared/ui/page-ornament';
 
@@ -104,6 +105,8 @@ export function AdminTreeholePage() {
   const [username, setUsername] = useState(() => readAdminBasicSession()?.username ?? '');
   const [password, setPassword] = useState('');
   const [authMessage, setAuthMessage] = useState<string | null>(null);
+  const [pendingDeletePostId, setPendingDeletePostId] = useState<number | null>(null);
+  const [pendingDeleteCommentId, setPendingDeleteCommentId] = useState<number | null>(null);
 
   const keyword = searchParams.get('keyword') ?? '';
   const page = parsePositiveParam(searchParams.get('page'), 1);
@@ -181,6 +184,8 @@ export function AdminTreeholePage() {
     setAdminSession(null);
     setPassword('');
     setAuthMessage(message ?? null);
+    setPendingDeletePostId(null);
+    setPendingDeleteCommentId(null);
     patchSearchParams((params) => {
       params.delete('postId');
       params.delete('commentsPage');
@@ -258,8 +263,6 @@ export function AdminTreeholePage() {
   }
 
   async function handleDeletePost(nextPostId: number) {
-    if (!window.confirm(`确认删除树洞 #${nextPostId} ?`)) return;
-
     try {
       await deletePostMutation.mutateAsync({ postId: nextPostId });
       queryClient.invalidateQueries({ queryKey: adminTreeholeQueryKeys.postsAll() });
@@ -277,6 +280,7 @@ export function AdminTreeholePage() {
         title: `已删除树洞 #${nextPostId}`,
         variant: 'success',
       });
+      setPendingDeletePostId(null);
     } catch (error) {
       if (error instanceof ApiError && error.httpStatus === 401) {
         resetAdminSession('管理员会话已失效，请重新登录');
@@ -290,8 +294,6 @@ export function AdminTreeholePage() {
   }
 
   async function handleDeleteComment(commentId: number) {
-    if (!window.confirm(`确认删除评论 #${commentId} ?`)) return;
-
     try {
       const result = await deleteCommentMutation.mutateAsync({ commentId });
       queryClient.invalidateQueries({ queryKey: adminTreeholeQueryKeys.postsAll() });
@@ -301,6 +303,7 @@ export function AdminTreeholePage() {
         title: `已删除评论 #${commentId}`,
         variant: 'success',
       });
+      setPendingDeleteCommentId(null);
     } catch (error) {
       if (error instanceof ApiError && error.httpStatus === 401) {
         resetAdminSession('管理员会话已失效，请重新登录');
@@ -646,7 +649,7 @@ export function AdminTreeholePage() {
                               type="button"
                               variant="danger"
                               disabled={deletePostMutation.isPending}
-                              onClick={() => void handleDeletePost(post.id)}
+                              onClick={() => setPendingDeletePostId(post.id)}
                             >
                               删除树洞
                             </Button>
@@ -818,7 +821,7 @@ export function AdminTreeholePage() {
                             type="button"
                             variant="danger"
                             disabled={deleteCommentMutation.isPending}
-                            onClick={() => void handleDeleteComment(comment.id)}
+                            onClick={() => setPendingDeleteCommentId(comment.id)}
                           >
                             删除评论
                           </Button>
@@ -953,6 +956,34 @@ export function AdminTreeholePage() {
           </>
         )}
       </div>
+
+      <ConfirmSheet
+        open={pendingDeletePostId !== null}
+        busy={deletePostMutation.isPending}
+        title={pendingDeletePostId ? `确认删除树洞 #${pendingDeletePostId}？` : '确认删除该树洞？'}
+        description="删除后不可恢复。"
+        confirmLabel="确认删帖"
+        tone="danger"
+        onClose={() => setPendingDeletePostId(null)}
+        onConfirm={() => {
+          if (pendingDeletePostId === null) return;
+          void handleDeletePost(pendingDeletePostId);
+        }}
+      />
+
+      <ConfirmSheet
+        open={pendingDeleteCommentId !== null}
+        busy={deleteCommentMutation.isPending}
+        title={pendingDeleteCommentId ? `确认删除评论 #${pendingDeleteCommentId}？` : '确认删除该评论？'}
+        description="删除后不可恢复。"
+        confirmLabel="确认删除"
+        tone="danger"
+        onClose={() => setPendingDeleteCommentId(null)}
+        onConfirm={() => {
+          if (pendingDeleteCommentId === null) return;
+          void handleDeleteComment(pendingDeleteCommentId);
+        }}
+      />
     </div>
   );
 }

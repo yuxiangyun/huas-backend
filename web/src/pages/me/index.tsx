@@ -16,7 +16,6 @@ import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
 import { PageHeader } from '@/shared/ui/page-header';
 import { IconBubble, PageOrnament } from '@/shared/ui/page-ornament';
-import { ProfileSummary } from '@/widgets/profile-summary/profile-summary';
 
 export function MePage() {
   const navigate = useNavigate();
@@ -79,19 +78,6 @@ export function MePage() {
       tone: 'slate' as const,
       variant: 'subtle' as const,
     },
-    {
-      id: 'admin-treehole',
-      buttonLabel: '进入',
-      chip: '后台',
-      description: '查看树洞真实作者并执行删帖删评',
-      glowClass: 'bg-[#efbfd2]/72',
-      icon: <ContactCard20Filled aria-hidden="true" className="size-5" />,
-      accent: <Chat20Filled aria-hidden="true" className="size-4" />,
-      onClick: () => navigate(appRoutes.adminTreehole),
-      title: '树洞管理',
-      tone: 'rose' as const,
-      variant: 'secondary' as const,
-    },
   ];
 
   return (
@@ -99,7 +85,7 @@ export function MePage() {
       <PageHeader
         compact
         description="常用入口"
-        eyebrow="Profile"
+        eyebrow="我的"
         title="我的"
         visual={(
           <PageOrnament
@@ -109,25 +95,15 @@ export function MePage() {
                 label: profile?.studentId || (profileQuery.isLoading ? '资料同步中' : '学号待同步'),
                 tone: 'slate',
               },
-              {
-                icon: <PersonCircle24Filled aria-hidden="true" className="size-3.5" />,
-                label: profile?.identity || (profileQuery.isLoading ? '身份同步中' : '校园用户'),
-                tone: 'blue',
-              },
             ]}
             className="w-full sm:w-[13rem]"
             compact
             icon={<PersonCircle24Filled aria-hidden="true" className="size-6" />}
-            label="Shortcut"
+            label="快捷入口"
             title={profile?.name || '内容与账号入口'}
             tone="slate"
           />
         )}
-      />
-
-      <ProfileSummary
-        loading={profileQuery.isLoading}
-        profile={profile}
       />
 
       {profileQuery.isError ? (

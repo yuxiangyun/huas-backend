@@ -1,5 +1,7 @@
 import { startTransition, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { ArrowLeft20Filled } from '@fluentui/react-icons/svg/arrow-left';
+import { appRoutes } from '@/app/router/paths';
 import { useUiStore } from '@/app/state/ui-store';
 import { useMyTreeholeInfinitePostsQuery } from '@/entities/treehole/api/treehole-queries';
 import { Button } from '@/shared/ui/button';
@@ -10,6 +12,7 @@ import { TreeholeComposeSheet } from '@/widgets/treehole-compose-sheet/treehole-
 import { TreeholeDetailSheet } from '@/widgets/treehole-detail-sheet/treehole-detail-sheet';
 
 export function MeTreeholePage() {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const setActiveTab = useUiStore((state) => state.setActiveTab);
   const openComposeSheet = useUiStore((state) => state.openTreeholeComposeSheet);
@@ -49,13 +52,18 @@ export function MeTreeholePage() {
     <div className="page-stack-mobile">
       <PageHeader
         action={(
-          <Button className="min-w-[4.5rem]" size="sm" type="button" variant="subtle" onClick={openComposeSheet}>
-            发一条
-          </Button>
+          <div className="flex items-center gap-1.5">
+            <Button className="px-2.5" size="sm" type="button" variant="ghost" onClick={() => navigate(appRoutes.me)}>
+              <ArrowLeft20Filled aria-hidden="true" className="size-4" />
+              返回
+            </Button>
+            <Button className="min-w-[4.25rem]" size="sm" type="button" variant="secondary" onClick={openComposeSheet}>
+              发一条
+            </Button>
+          </div>
         )}
         compact
-        description="我的树洞"
-        eyebrow="treehole"
+        eyebrow="树洞"
         title="我的树洞"
       />
 

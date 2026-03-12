@@ -231,6 +231,47 @@
       </section>
 
       <section class="border border-term-border bg-term-panel rounded-sm flex flex-col">
+        <div class="p-3 border-b border-term-border bg-term-sub flex flex-col gap-2">
+          <h2 class="text-xs font-mono text-term-hi"><span class="text-term-cyan">#</span> 树洞管理</h2>
+          <p id="treeholeMeta" class="text-[11px] font-mono text-term-muted">加载中</p>
+          <div class="grid grid-cols-1 md:grid-cols-12 gap-2">
+            <input id="treeholeKeywordInput" placeholder="搜索内容 / 学号 / 姓名 / 班级" class="md:col-span-8 h-10 md:h-9 px-3 border border-term-border bg-term-panel text-term-hi font-mono placeholder-term-muted focus:border-term-cyan outline-none" />
+            <button id="treeholeApplyBtn" class="md:col-span-2 h-10 md:h-9 border border-term-border text-term-hi font-mono text-xs hover:text-term-cyan hover:border-term-cyan transition-colors">搜索</button>
+            <button id="treeholeResetBtn" class="md:col-span-2 h-10 md:h-9 border border-term-border text-term-muted font-mono text-xs hover:text-term-hi transition-colors">重置</button>
+          </div>
+        </div>
+        <div class="p-3 grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <div class="border border-term-border rounded-sm">
+            <div class="p-3 border-b border-term-border bg-term-sub text-[11px] font-mono text-term-muted">树洞列表</div>
+            <div class="table-wrap">
+              <table class="w-full text-left whitespace-nowrap" id="treeholePostsTable"></table>
+            </div>
+            <div class="p-3 flex flex-col md:flex-row items-center justify-between gap-2 text-xs font-mono">
+              <div id="treeholePageInfo" class="text-term-muted">-</div>
+              <div class="flex gap-2">
+                <button id="treeholePrevPageBtn" class="h-8 px-3 border border-term-border disabled:opacity-30 hover:text-term-hi transition-colors">&lt;</button>
+                <button id="treeholeNextPageBtn" class="h-8 px-3 border border-term-border disabled:opacity-30 hover:text-term-hi transition-colors">&gt;</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="border border-term-border rounded-sm">
+            <div id="treeholeCommentsMeta" class="p-3 border-b border-term-border bg-term-sub text-[11px] font-mono text-term-muted">请选择一条树洞查看评论</div>
+            <div class="table-wrap">
+              <table class="w-full text-left whitespace-nowrap" id="treeholeCommentsTable"></table>
+            </div>
+            <div class="p-3 flex flex-col md:flex-row items-center justify-between gap-2 text-xs font-mono">
+              <div id="treeholeCommentsPageInfo" class="text-term-muted">-</div>
+              <div class="flex gap-2">
+                <button id="treeholeCommentsPrevPageBtn" class="h-8 px-3 border border-term-border disabled:opacity-30 hover:text-term-hi transition-colors">&lt;</button>
+                <button id="treeholeCommentsNextPageBtn" class="h-8 px-3 border border-term-border disabled:opacity-30 hover:text-term-hi transition-colors">&gt;</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="border border-term-border bg-term-panel rounded-sm flex flex-col">
         <div class="p-3 border-b border-term-border bg-term-sub">
           <h2 class="text-xs font-mono text-term-hi"><span class="text-term-cyan">#</span> 终端日志</h2>
         </div>
@@ -264,6 +305,16 @@
         announcements: [],
         discoverPosts: [],
         editingId: null,
+        treehole: {
+          page: 1,
+          totalPages: 1,
+          pageSize: 10,
+          keyword: '',
+          selectedPostId: null,
+          commentsPage: 1,
+          commentsTotalPages: 1,
+          posts: [],
+        },
       };
 
       const el = {
@@ -305,6 +356,20 @@
         discoverPreviewMeta: document.getElementById('discoverPreviewMeta'),
         discoverPreviewGrid: document.getElementById('discoverPreviewGrid'),
         discoverPreviewClose: document.getElementById('discoverPreviewClose'),
+
+        treeholeMeta: document.getElementById('treeholeMeta'),
+        treeholeKeywordInput: document.getElementById('treeholeKeywordInput'),
+        treeholeApplyBtn: document.getElementById('treeholeApplyBtn'),
+        treeholeResetBtn: document.getElementById('treeholeResetBtn'),
+        treeholePostsTable: document.getElementById('treeholePostsTable'),
+        treeholePageInfo: document.getElementById('treeholePageInfo'),
+        treeholePrevPageBtn: document.getElementById('treeholePrevPageBtn'),
+        treeholeNextPageBtn: document.getElementById('treeholeNextPageBtn'),
+        treeholeCommentsMeta: document.getElementById('treeholeCommentsMeta'),
+        treeholeCommentsTable: document.getElementById('treeholeCommentsTable'),
+        treeholeCommentsPageInfo: document.getElementById('treeholeCommentsPageInfo'),
+        treeholeCommentsPrevPageBtn: document.getElementById('treeholeCommentsPrevPageBtn'),
+        treeholeCommentsNextPageBtn: document.getElementById('treeholeCommentsNextPageBtn'),
 
         logsTable: document.getElementById('logsTable'),
       };
@@ -564,6 +629,141 @@
         }</tbody>`;
       }
 
+      function formatTreeholeAuthor(author) {
+        if (!author || typeof author !== 'object') return '-';
+        const parts = [author.studentId, author.name, author.className]
+          .map((item) => String(item || '').trim())
+          .filter(Boolean);
+        return parts.length > 0 ? parts.join(' · ') : '-';
+      }
+
+      function buildTreeholePostsUrl() {
+        const params = new URLSearchParams();
+        params.set('page', String(state.treehole.page));
+        params.set('pageSize', String(state.treehole.pageSize));
+        if (state.treehole.keyword) {
+          params.set('keyword', state.treehole.keyword);
+        }
+        return `/api/admin/treehole/posts?${params.toString()}`;
+      }
+
+      function buildTreeholeCommentsUrl(postId) {
+        const params = new URLSearchParams();
+        params.set('page', String(state.treehole.commentsPage));
+        params.set('pageSize', '20');
+        return `/api/admin/treehole/posts/${encodeURIComponent(postId)}/comments?${params.toString()}`;
+      }
+
+      function renderTreeholePosts(data) {
+        state.treehole.posts = data.items || [];
+        state.treehole.page = data.page || 1;
+        state.treehole.totalPages = Math.max(1, Math.ceil(Number(data.total || 0) / Number(data.pageSize || state.treehole.pageSize || 10)));
+
+        const summary = data.summary || {};
+        el.treeholeMeta.textContent = `树洞 ${formatNumber(summary.totalPosts || 0)} 条，评论 ${formatNumber(summary.totalComments || 0)} 条，点赞 ${formatNumber(summary.totalLikes || 0)} 次；当前命中 ${formatNumber(data.total || 0)} 条`;
+
+        el.treeholePostsTable.innerHTML = `${tableHead(['ID', '作者', '内容', '互动', '发布时间', '操作'])}<tbody class="text-[12px] font-mono divide-y divide-term-border/50">${
+          state.treehole.posts.length > 0
+            ? state.treehole.posts
+                .map((item) => {
+                  const selected = Number(state.treehole.selectedPostId) === Number(item.id);
+                  return `
+                    <tr class="hover:bg-term-border/30">
+                      <td class="px-3 py-2.5 text-term-cyan">#${escapeHtml(item.id)}</td>
+                      <td class="px-3 py-2.5 text-term-muted max-w-[220px] truncate" title="${escapeHtml(formatTreeholeAuthor(item.author))}">${escapeHtml(formatTreeholeAuthor(item.author))}</td>
+                      <td class="px-3 py-2.5 text-term-hi max-w-[320px] truncate" title="${escapeHtml(item.content || '')}">${escapeHtml(item.content || '-')}</td>
+                      <td class="px-3 py-2.5 text-term-muted">${escapeHtml(item.stats?.likeCount || 0)} / ${escapeHtml(item.stats?.commentCount || 0)}</td>
+                      <td class="px-3 py-2.5 text-term-muted">${formatDate(item.publishedAt)}</td>
+                      <td class="px-3 py-2.5">
+                        <button data-action="select-treehole-post" data-id="${escapeHtml(item.id)}" class="${selected ? 'text-term-green' : 'text-term-cyan'} hover:underline mr-3">${selected ? '已选中' : '评论'}</button>
+                        <button data-action="delete-treehole-post" data-id="${escapeHtml(item.id)}" class="text-term-red hover:underline">删帖</button>
+                      </td>
+                    </tr>
+                  `;
+                })
+                .join('')
+            : `<tr><td colspan="6" class="px-3 py-6 text-center text-term-muted">暂无树洞</td></tr>`
+        }</tbody>`;
+
+        el.treeholePageInfo.textContent = `第 ${state.treehole.page} / ${state.treehole.totalPages} 页`;
+        el.treeholePrevPageBtn.disabled = state.treehole.page <= 1;
+        el.treeholeNextPageBtn.disabled = state.treehole.page >= state.treehole.totalPages;
+      }
+
+      function renderTreeholeComments(data) {
+        if (!state.treehole.selectedPostId) {
+          el.treeholeCommentsMeta.textContent = '请选择一条树洞查看评论';
+          el.treeholeCommentsTable.innerHTML = `${tableHead(['ID', '作者', '内容', '时间', '操作'])}<tbody class="text-[12px] font-mono divide-y divide-term-border/50"><tr><td colspan="5" class="px-3 py-6 text-center text-term-muted">未选中树洞</td></tr></tbody>`;
+          el.treeholeCommentsPageInfo.textContent = '-';
+          el.treeholeCommentsPrevPageBtn.disabled = true;
+          el.treeholeCommentsNextPageBtn.disabled = true;
+          return;
+        }
+
+        const selectedPost = state.treehole.posts.find((item) => Number(item.id) === Number(state.treehole.selectedPostId));
+        const selectedMeta = selectedPost
+          ? `树洞 #${selectedPost.id} / ${formatTreeholeAuthor(selectedPost.author)}`
+          : `树洞 #${state.treehole.selectedPostId}`;
+        el.treeholeCommentsMeta.textContent = selectedMeta;
+
+        const rows = data?.items || [];
+        el.treeholeCommentsTable.innerHTML = `${tableHead(['ID', '作者', '内容', '时间', '操作'])}<tbody class="text-[12px] font-mono divide-y divide-term-border/50">${
+          rows.length > 0
+            ? rows
+                .map((item) => `
+                  <tr class="hover:bg-term-border/30">
+                    <td class="px-3 py-2.5 text-term-cyan">#${escapeHtml(item.id)}</td>
+                    <td class="px-3 py-2.5 text-term-muted max-w-[220px] truncate" title="${escapeHtml(formatTreeholeAuthor(item.author))}">${escapeHtml(formatTreeholeAuthor(item.author))}</td>
+                    <td class="px-3 py-2.5 text-term-hi max-w-[300px] truncate" title="${escapeHtml(item.content || '')}">${escapeHtml(item.content || '-')}</td>
+                    <td class="px-3 py-2.5 text-term-muted">${formatDate(item.createdAt)}</td>
+                    <td class="px-3 py-2.5">
+                      <button data-action="delete-treehole-comment" data-id="${escapeHtml(item.id)}" class="text-term-red hover:underline">删评</button>
+                    </td>
+                  </tr>
+                `)
+                .join('')
+            : `<tr><td colspan="5" class="px-3 py-6 text-center text-term-muted">该树洞暂无评论</td></tr>`
+        }</tbody>`;
+
+        const page = Number(data?.page || 1);
+        const pageSize = Number(data?.pageSize || 20);
+        const total = Number(data?.total || 0);
+        const totalPages = Math.max(1, Math.ceil(total / pageSize));
+        state.treehole.commentsPage = page;
+        state.treehole.commentsTotalPages = totalPages;
+
+        el.treeholeCommentsPageInfo.textContent = `第 ${page} / ${totalPages} 页`;
+        el.treeholeCommentsPrevPageBtn.disabled = page <= 1;
+        el.treeholeCommentsNextPageBtn.disabled = page >= totalPages;
+      }
+
+      async function refreshTreeholeCommentsPanel() {
+        if (!state.treehole.selectedPostId) {
+          renderTreeholeComments(null);
+          return;
+        }
+
+        try {
+          const data = await requestJson(buildTreeholeCommentsUrl(state.treehole.selectedPostId));
+          renderTreeholeComments(data);
+        } catch (err) {
+          const message = err?.message || '';
+          if (String(message).includes('帖子不存在')) {
+            state.treehole.selectedPostId = null;
+            state.treehole.commentsPage = 1;
+            renderTreeholeComments(null);
+            return;
+          }
+          throw err;
+        }
+      }
+
+      async function refreshTreeholePanel() {
+        const posts = await requestJson(buildTreeholePostsUrl());
+        renderTreeholePosts(posts);
+        await refreshTreeholeCommentsPanel();
+      }
+
       function openDiscoverPreview(item) {
         const images = Array.isArray(item?.images) ? item.images : [];
         el.discoverPreviewTitle.textContent = `帖子 #${item.id} 图片预览`;
@@ -669,6 +869,7 @@
           renderAnnouncements(data.announcements || []);
           renderDiscoverPosts(data.discover || {});
           renderLogs(data.logs || {});
+          await refreshTreeholePanel();
           el.lastRefresh.textContent = `最后刷新: ${beijingDateTime()} (北京时间)`;
         } catch (err) {
           setError(err.message || '刷新失败');
@@ -711,6 +912,144 @@
         if (state.page >= state.totalPages) return;
         state.page += 1;
         await refreshDashboard();
+      });
+
+      el.treeholeApplyBtn.addEventListener('click', async () => {
+        state.treehole.keyword = el.treeholeKeywordInput.value.trim();
+        state.treehole.page = 1;
+        state.treehole.selectedPostId = null;
+        state.treehole.commentsPage = 1;
+        try {
+          await refreshTreeholePanel();
+        } catch (err) {
+          setError(err.message || '树洞列表刷新失败');
+        }
+      });
+
+      el.treeholeKeywordInput.addEventListener('keypress', async (event) => {
+        if (event.key !== 'Enter') return;
+        state.treehole.keyword = el.treeholeKeywordInput.value.trim();
+        state.treehole.page = 1;
+        state.treehole.selectedPostId = null;
+        state.treehole.commentsPage = 1;
+        try {
+          await refreshTreeholePanel();
+        } catch (err) {
+          setError(err.message || '树洞列表刷新失败');
+        }
+      });
+
+      el.treeholeResetBtn.addEventListener('click', async () => {
+        state.treehole.keyword = '';
+        state.treehole.page = 1;
+        state.treehole.selectedPostId = null;
+        state.treehole.commentsPage = 1;
+        el.treeholeKeywordInput.value = '';
+        try {
+          await refreshTreeholePanel();
+        } catch (err) {
+          setError(err.message || '树洞列表刷新失败');
+        }
+      });
+
+      el.treeholePrevPageBtn.addEventListener('click', async () => {
+        if (state.treehole.page <= 1) return;
+        state.treehole.page -= 1;
+        state.treehole.selectedPostId = null;
+        state.treehole.commentsPage = 1;
+        try {
+          await refreshTreeholePanel();
+        } catch (err) {
+          setError(err.message || '树洞列表刷新失败');
+        }
+      });
+
+      el.treeholeNextPageBtn.addEventListener('click', async () => {
+        if (state.treehole.page >= state.treehole.totalPages) return;
+        state.treehole.page += 1;
+        state.treehole.selectedPostId = null;
+        state.treehole.commentsPage = 1;
+        try {
+          await refreshTreeholePanel();
+        } catch (err) {
+          setError(err.message || '树洞列表刷新失败');
+        }
+      });
+
+      el.treeholePostsTable.addEventListener('click', async (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+        const btn = target.closest('button[data-action]');
+        if (!btn) return;
+
+        const action = btn.getAttribute('data-action');
+        const id = Number(btn.getAttribute('data-id'));
+        if (!Number.isInteger(id) || id <= 0) return;
+
+        if (action === 'select-treehole-post') {
+          state.treehole.selectedPostId = id;
+          state.treehole.commentsPage = 1;
+          try {
+            await refreshTreeholeCommentsPanel();
+          } catch (err) {
+            setError(err.message || '评论刷新失败');
+          }
+          return;
+        }
+
+        if (action === 'delete-treehole-post') {
+          if (!window.confirm(`确认删除树洞 #${id} ?`)) return;
+          try {
+            await requestJson(`/api/admin/treehole/posts/${encodeURIComponent(id)}`, { method: 'DELETE' });
+            if (Number(state.treehole.selectedPostId) === id) {
+              state.treehole.selectedPostId = null;
+              state.treehole.commentsPage = 1;
+            }
+            await refreshDashboard();
+          } catch (err) {
+            setError(err.message || '删除树洞失败');
+          }
+        }
+      });
+
+      el.treeholeCommentsTable.addEventListener('click', async (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+        const btn = target.closest('button[data-action]');
+        if (!btn) return;
+
+        const action = btn.getAttribute('data-action');
+        const id = Number(btn.getAttribute('data-id'));
+        if (action !== 'delete-treehole-comment' || !Number.isInteger(id) || id <= 0) return;
+
+        if (!window.confirm(`确认删除评论 #${id} ?`)) return;
+
+        try {
+          await requestJson(`/api/admin/treehole/comments/${encodeURIComponent(id)}`, { method: 'DELETE' });
+          await refreshDashboard();
+        } catch (err) {
+          setError(err.message || '删除评论失败');
+        }
+      });
+
+      el.treeholeCommentsPrevPageBtn.addEventListener('click', async () => {
+        if (state.treehole.commentsPage <= 1 || !state.treehole.selectedPostId) return;
+        state.treehole.commentsPage -= 1;
+        try {
+          await refreshTreeholeCommentsPanel();
+        } catch (err) {
+          setError(err.message || '评论刷新失败');
+        }
+      });
+
+      el.treeholeCommentsNextPageBtn.addEventListener('click', async () => {
+        if (state.treehole.commentsPage >= state.treehole.commentsTotalPages || !state.treehole.selectedPostId) return;
+        state.treehole.commentsPage += 1;
+        try {
+          await refreshTreeholeCommentsPanel();
+        } catch (err) {
+          setError(err.message || '评论刷新失败');
+        }
       });
 
       el.announcementTable.addEventListener('click', async (event) => {
@@ -830,6 +1169,7 @@
         }
       });
 
+      el.treeholeKeywordInput.value = state.treehole.keyword;
       resetAnnForm();
       refreshDashboard();
     </script>

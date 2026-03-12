@@ -25,7 +25,7 @@ export function PageHero({
       <div className="flex items-start justify-between gap-3 sm:gap-4">
         <div className="min-w-0 space-y-2">
           {eyebrow ? (
-            <p className="text-[0.72rem] font-medium uppercase tracking-[0.24em] text-muted">
+            <p className="text-[0.8rem] font-medium tracking-[0.12em] text-muted">
               {eyebrow}
             </p>
           ) : null}

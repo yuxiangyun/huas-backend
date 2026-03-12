@@ -89,7 +89,7 @@ export function TreeholePage() {
         )}
         compact
         description="匿名发言"
-        eyebrow="treehole"
+        eyebrow="树洞"
         title="树洞"
         visual={(
           <PageOrnament
@@ -99,16 +99,11 @@ export function TreeholePage() {
                 label: '匿名',
                 tone: 'rose',
               },
-              {
-                icon: <Comment20Filled aria-hidden="true" className="size-3.5" />,
-                label: '互动',
-                tone: 'mint',
-              },
             ]}
             className="w-full sm:w-[13rem]"
             compact
             icon={<Chat24Filled aria-hidden="true" className="size-6" />}
-            label="Anonymous"
+            label="匿名树洞"
             title="发声，也留一点回响"
             tone="blue"
           />

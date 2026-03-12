@@ -14,11 +14,52 @@ export const router = createBrowserRouter(
       },
     },
     {
-      path: appRoutes.adminTreehole,
+      path: appRoutes.adminRoot,
       lazy: async () => {
-        const module = await import('@/pages/admin-treehole');
-        return { Component: module.AdminTreeholePage };
+        const module = await import('@/pages/admin/layout');
+        return { Component: module.AdminLayout };
       },
+      children: [
+        {
+          index: true,
+          element: <Navigate to={appRoutes.adminDashboard} replace />,
+        },
+        {
+          path: 'dashboard',
+          lazy: async () => {
+            const module = await import('@/pages/admin/dashboard');
+            return { Component: module.AdminDashboardPage };
+          },
+        },
+        {
+          path: 'announcements',
+          lazy: async () => {
+            const module = await import('@/pages/admin/announcements');
+            return { Component: module.AdminAnnouncementsPage };
+          },
+        },
+        {
+          path: 'discover',
+          lazy: async () => {
+            const module = await import('@/pages/admin/discover');
+            return { Component: module.AdminDiscoverPage };
+          },
+        },
+        {
+          path: 'treehole',
+          lazy: async () => {
+            const module = await import('@/pages/admin/treehole');
+            return { Component: module.AdminTreeholeSubPage };
+          },
+        },
+        {
+          path: 'logs',
+          lazy: async () => {
+            const module = await import('@/pages/admin/logs');
+            return { Component: module.AdminLogsPage };
+          },
+        },
+      ],
     },
     {
       path: appRoutes.root,

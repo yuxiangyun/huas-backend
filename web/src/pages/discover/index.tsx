@@ -144,7 +144,7 @@ export function DiscoverPage() {
       <PageHeader
         compact
         description="看推荐，也能发"
-        eyebrow="discover"
+        eyebrow="拍好饭"
         title="拍好饭"
         visual={(
           <PageOrnament
@@ -154,16 +154,11 @@ export function DiscoverPage() {
                 label: '推荐',
                 tone: 'rose',
               },
-              {
-                icon: <Apps20Filled aria-hidden="true" className="size-3.5" />,
-                label: '分类',
-                tone: 'blue',
-              },
             ]}
             className="w-full sm:w-[13rem]"
             compact
             icon={<BowlChopsticks24Filled aria-hidden="true" className="size-6" />}
-            label="Campus Picks"
+            label="校园推荐"
             title="推荐、分类、发布"
             tone="amber"
           />

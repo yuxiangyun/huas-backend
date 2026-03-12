@@ -50,7 +50,7 @@
   --font-title-section: 2rem;
   --font-body-regular: 0.98rem;
   --font-meta: 0.78rem;
-  --tracking-eyebrow: 0.22em;
+  --tracking-eyebrow: 0.14em;
 }
 
 @media (max-width: 639px) {
@@ -83,7 +83,7 @@
     --font-title-section: 1.6rem;
     --font-body-regular: 0.95rem;
     --font-meta: 0.76rem;
-    --tracking-eyebrow: 0.18em;
+    --tracking-eyebrow: 0.12em;
   }
 }
 
@@ -159,10 +159,23 @@ button {
 }
 
 @media (max-width: 639px) {
+  body {
+    background: linear-gradient(180deg, #f9fafc 0%, #edf2f7 100%);
+  }
+
+  body::before,
+  body::after {
+    display: none;
+  }
+
   .glass-panel {
     border-color: rgba(17, 19, 21, 0.08);
     background: rgba(255, 255, 255, 0.9);
     backdrop-filter: none;
+  }
+
+  .shell-backdrop {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.46), rgba(255, 255, 255, 0));
   }
 }
 

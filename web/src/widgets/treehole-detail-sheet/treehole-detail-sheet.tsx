@@ -13,6 +13,7 @@ import {
 import { BottomSheet } from '@/shared/ui/bottom-sheet';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
+import { ConfirmSheet } from '@/shared/ui/confirm-sheet';
 
 interface TreeholeDetailSheetProps {
   postId: number | null;
@@ -40,6 +41,7 @@ export function TreeholeDetailSheet({ postId, onClose }: TreeholeDetailSheetProp
   const pushToast = useToastStore((state) => state.pushToast);
   const [commentDraft, setCommentDraft] = useState('');
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const post = postQuery.data;
   const comments = commentsQuery.data?.pages.flatMap((page) => page.items) ?? [];
   const maxCommentLength = metaQuery.data?.limits.maxCommentLength ?? 200;
@@ -48,6 +50,7 @@ export function TreeholeDetailSheet({ postId, onClose }: TreeholeDetailSheetProp
   useEffect(() => {
     setCommentDraft('');
     setActionMessage(null);
+    setDeleteConfirmOpen(false);
   }, [postId]);
 
   const submitComment = async () => {
@@ -93,7 +96,6 @@ export function TreeholeDetailSheet({ postId, onClose }: TreeholeDetailSheetProp
 
   const handleDeletePost = async () => {
     if (!postId) return;
-    if (!window.confirm('确认删除这条树洞？删除后不可恢复')) return;
 
     try {
       setActionMessage(null);
@@ -102,6 +104,7 @@ export function TreeholeDetailSheet({ postId, onClose }: TreeholeDetailSheetProp
         title: '树洞已删除',
         variant: 'success',
       });
+      setDeleteConfirmOpen(false);
       onClose();
     } catch (error) {
       setActionMessage(error instanceof Error ? error.message : '删除失败，请稍后重试');
@@ -109,7 +112,8 @@ export function TreeholeDetailSheet({ postId, onClose }: TreeholeDetailSheetProp
   };
 
   return (
-    <BottomSheet open={Boolean(postId)} closeLabel="关闭树洞详情" contentClassName="space-y-4" onClose={onClose}>
+    <>
+      <BottomSheet open={Boolean(postId)} closeLabel="关闭树洞详情" contentClassName="space-y-4" onClose={onClose}>
       {postQuery.isLoading ? (
         <div className="space-y-4">
           <div className="h-7 w-40 animate-pulse rounded bg-shell-strong" />
@@ -178,7 +182,7 @@ export function TreeholeDetailSheet({ postId, onClose }: TreeholeDetailSheetProp
                   size="sm"
                   type="button"
                   variant="danger"
-                  onClick={() => void handleDeletePost()}
+                  onClick={() => setDeleteConfirmOpen(true)}
                 >
                   {deletePostMutation.isPending ? '删除中...' : '删除'}
                 </Button>
@@ -319,6 +323,19 @@ export function TreeholeDetailSheet({ postId, onClose }: TreeholeDetailSheetProp
           ) : null}
         </>
       ) : null}
-    </BottomSheet>
+
+      </BottomSheet>
+
+      <ConfirmSheet
+        open={deleteConfirmOpen}
+        busy={deletePostMutation.isPending}
+        description="删除后不可恢复。"
+        title="确认删除这条树洞？"
+        confirmLabel="确认删除"
+        tone="danger"
+        onClose={() => setDeleteConfirmOpen(false)}
+        onConfirm={() => void handleDeletePost()}
+      />
+    </>
   );
 }

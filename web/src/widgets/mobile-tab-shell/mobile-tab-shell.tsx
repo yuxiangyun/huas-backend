@@ -9,22 +9,22 @@ const tabs = [
   {
     to: appRoutes.discover,
     label: '拍好饭',
-    eyebrow: 'Discover',
+    eyebrow: '推荐',
     description: '看推荐和发布',
     icon: BowlChopsticks20Filled,
   },
   {
     to: appRoutes.treehole,
     label: '树洞',
-    eyebrow: 'Treehole',
+    eyebrow: '匿名',
     description: '匿名发言',
     icon: Chat20Filled,
   },
   {
     to: appRoutes.me,
     label: '我的',
-    eyebrow: 'Profile',
-    description: '内容和账号',
+    eyebrow: '账号',
+    description: '内容与账号',
     icon: Person20Filled,
   },
 ];
@@ -39,7 +39,7 @@ export function MobileTabShell() {
           <div className="glass-panel sticky top-6 space-y-6 rounded-[2rem] p-6">
             <div className="space-y-3">
               <span className="inline-flex rounded-pill bg-white/84 px-4 py-2 text-sm font-medium text-muted ring-1 ring-line">
-                HUAS Discover
+                HUAS 校园
               </span>
               <div className="space-y-2">
                 <h1 className="text-[2rem] font-semibold tracking-[-0.05em] text-ink">
@@ -82,7 +82,7 @@ export function MobileTabShell() {
                         <span className="text-base font-semibold">{tab.label}</span>
                         <span
                           className={cn(
-                            'rounded-pill px-2.5 py-1 text-[11px] uppercase tracking-[0.18em]',
+                            'rounded-pill px-2.5 py-1 text-[0.8rem] tracking-[0.08em]',
                             isActive ? 'bg-white/12 text-white/72' : 'bg-white/85 text-muted'
                           )}
                         >

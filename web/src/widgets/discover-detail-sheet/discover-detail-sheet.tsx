@@ -13,6 +13,7 @@ import { buildClassmateLabel } from '@/shared/lib/student';
 import { Button } from '@/shared/ui/button';
 import { BottomSheet } from '@/shared/ui/bottom-sheet';
 import { Card } from '@/shared/ui/card';
+import { ConfirmSheet } from '@/shared/ui/confirm-sheet';
 
 const loadImageViewer = () => import('@/shared/ui/image-viewer');
 
@@ -43,11 +44,13 @@ export function DiscoverDetailSheet({ postId, onClose }: DiscoverDetailSheetProp
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [activeImageIndex, setActiveImageIndex] = useState<number | null>(null);
   const [imageViewerRequested, setImageViewerRequested] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const pushToast = useToastStore((state) => state.pushToast);
 
   useEffect(() => {
     setActionMessage(null);
     setActiveImageIndex(null);
+    setDeleteConfirmOpen(false);
   }, [postId]);
 
   useEffect(() => {
@@ -58,7 +61,6 @@ export function DiscoverDetailSheet({ postId, onClose }: DiscoverDetailSheetProp
 
   const handleDelete = async () => {
     if (!postId) return;
-    if (!window.confirm('确认删除这条帖子？删除后不可恢复。')) return;
 
     try {
       setActionMessage(null);
@@ -67,6 +69,7 @@ export function DiscoverDetailSheet({ postId, onClose }: DiscoverDetailSheetProp
         title: '删除成功',
         variant: 'success',
       });
+      setDeleteConfirmOpen(false);
       onClose();
     } catch (error) {
       setActionMessage(error instanceof Error ? error.message : '删除失败，请稍后重试');
@@ -288,12 +291,23 @@ export function DiscoverDetailSheet({ postId, onClose }: DiscoverDetailSheetProp
 
             <DeletePostButton
               busy={deleteMutation.isPending}
-              onDelete={handleDelete}
+              onDelete={() => setDeleteConfirmOpen(true)}
               visible={post.isMine}
             />
           </>
         ) : null}
       </BottomSheet>
+
+      <ConfirmSheet
+        open={deleteConfirmOpen}
+        busy={deleteMutation.isPending}
+        description="删除后不可恢复。"
+        title="确认删除这条帖子？"
+        confirmLabel="确认删除"
+        tone="danger"
+        onClose={() => setDeleteConfirmOpen(false)}
+        onConfirm={() => void handleDelete()}
+      />
 
       {imageViewerRequested ? (
         <Suspense fallback={null}>

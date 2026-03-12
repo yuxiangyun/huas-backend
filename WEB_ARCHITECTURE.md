@@ -26,11 +26,13 @@
 - 我的页：作为账号与业务入口页，不再直接承载资料卡和内容列表
 - 我的 Discover 页：承载发布概览和我的帖子列表
 - 我的 Treehole 页：承载树洞概览和我的树洞列表
+- 管理后台：按子路由拆分总览、公告、Discover、Treehole、日志
 
 当前不支持游客态：
 
 - 未登录用户只能访问 `/m/login`
-- 所有业务路由都经过 `ProtectedRoute`
+- 普通业务路由经过 `ProtectedRoute`
+- 管理路由 `/m/admin/*` 由管理员 Basic Auth 单独鉴权
 
 ## 3. 技术栈
 
@@ -75,6 +77,12 @@
 - `/m/me`
 - `/m/me/discover`
 - `/m/me/treehole`
+- `/m/admin`
+- `/m/admin/dashboard`
+- `/m/admin/announcements`
+- `/m/admin/discover`
+- `/m/admin/treehole`
+- `/m/admin/logs`
 
 实现方式：
 
@@ -254,6 +262,22 @@
 
 这部分是“树洞”内容的个人管理页。
 
+### 6.10 管理后台
+
+文件：
+
+- `web/src/pages/admin/layout.tsx`
+- `web/src/pages/admin/{dashboard,announcements,discover,treehole,logs}.tsx`
+
+当前能力：
+
+- 管理员 Basic Auth 登录与会话持久化
+- Dashboard 总览（指标、分布、用户筛选分页）
+- 公告增删改
+- Discover 列表与删帖、图片预览
+- Treehole 列表/评论查看与删帖删评
+- 终端日志过滤、限额、自动刷新
+
 ## 7. 目录与分层
 
 当前目录结构：
@@ -267,11 +291,13 @@ web/src/
 │  ├─ state/
 │  └─ styles/
 ├─ entities/
+│  ├─ admin/
 │  ├─ auth/
 │  ├─ discover/
 │  ├─ treehole/
 │  └─ user/
 ├─ features/
+│  ├─ admin-treehole/
 │  ├─ auth-login/
 │  ├─ discover-create-post/
 │  ├─ discover-delete-post/
@@ -279,6 +305,7 @@ web/src/
 │  ├─ discover-rate-post/
 │  └─ treehole-create-post/
 ├─ pages/
+│  ├─ admin/
 │  ├─ login/
 │  ├─ discover/
 │  ├─ me/

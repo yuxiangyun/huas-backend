@@ -252,7 +252,7 @@ export function DiscoverFeed({
               tone="slate"
             />
             <div className="min-w-0 space-y-1">
-              <p className="text-[0.7rem] font-medium uppercase tracking-[0.22em] text-muted">
+              <p className="text-[0.8rem] font-medium tracking-[0.12em] text-muted">
                 列表
               </p>
               <p className="text-sm text-muted">

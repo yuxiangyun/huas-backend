@@ -1,8 +1,10 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { ArrowLeft20Filled } from '@fluentui/react-icons/svg/arrow-left';
 import { appRoutes } from '@/app/router/paths';
 import { useUiStore } from '@/app/state/ui-store';
 import { useMyDiscoverInfinitePostsQuery } from '@/entities/discover/api/discover-queries';
+import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
 import { PageHeader } from '@/shared/ui/page-header';
 import { MyPostsPanel } from '@/widgets/my-posts-panel/my-posts-panel';
@@ -29,9 +31,15 @@ export function MeDiscoverPage() {
   return (
     <div className="page-stack-mobile">
       <PageHeader
+        action={(
+          <Button className="px-2.5" size="sm" type="button" variant="ghost" onClick={() => navigate(appRoutes.me)}>
+            <ArrowLeft20Filled aria-hidden="true" className="size-4" />
+            返回
+          </Button>
+        )}
         compact
         description="我的发布"
-        eyebrow="discover"
+        eyebrow="拍好饭"
         title="拍好饭"
       />
 
