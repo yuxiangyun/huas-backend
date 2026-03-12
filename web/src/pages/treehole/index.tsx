@@ -5,6 +5,7 @@ import { Chat24Filled } from '@fluentui/react-icons/svg/chat';
 import { Comment20Filled } from '@fluentui/react-icons/svg/comment';
 import { TextQuote20Filled } from '@fluentui/react-icons/svg/text-quote';
 import { useUiStore } from '@/app/state/ui-store';
+import { useToastStore } from '@/app/state/toast-store';
 import { useReadAllTreeholeNotificationsMutation } from '@/entities/treehole/api/treehole-queries';
 import { PageHeader } from '@/shared/ui/page-header';
 import { Button } from '@/shared/ui/button';
@@ -29,6 +30,7 @@ export function TreeholePage() {
   const setActiveTab = useUiStore((state) => state.setActiveTab);
   const composeSheetOpen = useUiStore((state) => state.treeholeComposeSheetOpen);
   const openComposeSheet = useUiStore((state) => state.openTreeholeComposeSheet);
+  const pushToast = useToastStore((state) => state.pushToast);
   const readAllNotificationsMutation = useReadAllTreeholeNotificationsMutation();
   const notificationsReadTriggeredRef = useRef(false);
   const rawPostId = Number(searchParams.get('postId'));
@@ -43,8 +45,15 @@ export function TreeholePage() {
   useEffect(() => {
     if (notificationsReadTriggeredRef.current) return;
     notificationsReadTriggeredRef.current = true;
-    readAllNotificationsMutation.mutate();
-  }, [readAllNotificationsMutation]);
+    readAllNotificationsMutation.mutate(undefined, {
+      onError: (error) => {
+        pushToast({
+          title: error instanceof Error ? error.message : '提醒已读同步失败',
+          variant: 'error',
+        });
+      },
+    });
+  }, [pushToast, readAllNotificationsMutation]);
 
   useEffect(() => {
     if (!composeSheetOpen) return;

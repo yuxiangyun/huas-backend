@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 import { getDb, schema } from '../../db';
 import { AppError, ErrorCode } from '../../utils/errors';
 import {
@@ -49,6 +49,7 @@ export class TreeholeUserService {
   static async markAllNotificationsRead(userId: number): Promise<TreeholeReadAllNotificationsResponse> {
     const db = getDb();
     const now = new Date();
+    const pruneBefore = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     const updated = await db.update(schema.treeholeCommentNotifications)
       .set({ readAt: now })
       .where(and(
@@ -56,6 +57,13 @@ export class TreeholeUserService {
         isNull(schema.treeholeCommentNotifications.readAt),
       ))
       .returning({ id: schema.treeholeCommentNotifications.id });
+
+    await db.delete(schema.treeholeCommentNotifications)
+      .where(and(
+        eq(schema.treeholeCommentNotifications.recipientUserId, userId),
+        isNotNull(schema.treeholeCommentNotifications.readAt),
+        lt(schema.treeholeCommentNotifications.readAt, pruneBefore),
+      ));
 
     return { readCount: updated.length };
   }

@@ -2,6 +2,7 @@ import { startTransition, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft20Filled } from '@fluentui/react-icons/svg/arrow-left';
 import { appRoutes } from '@/app/router/paths';
+import { useToastStore } from '@/app/state/toast-store';
 import { useUiStore } from '@/app/state/ui-store';
 import {
   useMyTreeholeInfinitePostsQuery,
@@ -19,6 +20,7 @@ export function MeTreeholePage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const setActiveTab = useUiStore((state) => state.setActiveTab);
   const openComposeSheet = useUiStore((state) => state.openTreeholeComposeSheet);
+  const pushToast = useToastStore((state) => state.pushToast);
   const readAllNotificationsMutation = useReadAllTreeholeNotificationsMutation();
   const notificationsReadTriggeredRef = useRef(false);
   const myPostsQuery = useMyTreeholeInfinitePostsQuery({ pageSize: 12 });
@@ -41,8 +43,15 @@ export function MeTreeholePage() {
   useEffect(() => {
     if (notificationsReadTriggeredRef.current) return;
     notificationsReadTriggeredRef.current = true;
-    readAllNotificationsMutation.mutate();
-  }, [readAllNotificationsMutation]);
+    readAllNotificationsMutation.mutate(undefined, {
+      onError: (error) => {
+        pushToast({
+          title: error instanceof Error ? error.message : '提醒已读同步失败',
+          variant: 'error',
+        });
+      },
+    });
+  }, [pushToast, readAllNotificationsMutation]);
 
   function patchSearchParams(
     patcher: (params: URLSearchParams) => void
