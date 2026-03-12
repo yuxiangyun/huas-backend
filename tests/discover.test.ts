@@ -106,6 +106,7 @@ async function authHeaderFor(userId: number, studentId: string) {
 
 async function resetDiscoverData() {
   const db = getDb();
+  await db.delete(schema.treeholeCommentNotifications);
   await db.delete(schema.treeholePostLikes);
   await db.delete(schema.treeholeComments);
   await db.delete(schema.treeholePosts);

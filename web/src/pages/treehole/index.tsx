@@ -1,10 +1,11 @@
-import { lazy, startTransition, Suspense, useEffect, useState } from 'react';
+import { lazy, startTransition, Suspense, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Add20Filled } from '@fluentui/react-icons/svg/add';
 import { Chat24Filled } from '@fluentui/react-icons/svg/chat';
 import { Comment20Filled } from '@fluentui/react-icons/svg/comment';
 import { TextQuote20Filled } from '@fluentui/react-icons/svg/text-quote';
 import { useUiStore } from '@/app/state/ui-store';
+import { useReadAllTreeholeNotificationsMutation } from '@/entities/treehole/api/treehole-queries';
 import { PageHeader } from '@/shared/ui/page-header';
 import { Button } from '@/shared/ui/button';
 import { PageOrnament } from '@/shared/ui/page-ornament';
@@ -28,6 +29,8 @@ export function TreeholePage() {
   const setActiveTab = useUiStore((state) => state.setActiveTab);
   const composeSheetOpen = useUiStore((state) => state.treeholeComposeSheetOpen);
   const openComposeSheet = useUiStore((state) => state.openTreeholeComposeSheet);
+  const readAllNotificationsMutation = useReadAllTreeholeNotificationsMutation();
+  const notificationsReadTriggeredRef = useRef(false);
   const rawPostId = Number(searchParams.get('postId'));
   const postId = Number.isInteger(rawPostId) && rawPostId > 0 ? rawPostId : null;
   const [composeSheetRequested, setComposeSheetRequested] = useState(false);
@@ -36,6 +39,12 @@ export function TreeholePage() {
   useEffect(() => {
     setActiveTab('treehole');
   }, [setActiveTab]);
+
+  useEffect(() => {
+    if (notificationsReadTriggeredRef.current) return;
+    notificationsReadTriggeredRef.current = true;
+    readAllNotificationsMutation.mutate();
+  }, [readAllNotificationsMutation]);
 
   useEffect(() => {
     if (!composeSheetOpen) return;

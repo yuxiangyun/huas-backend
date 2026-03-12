@@ -9,4 +9,6 @@ export const treeholeQueryKeys = {
   comments: (postId: number) => [...treeholeQueryKeys.all, 'comments', postId] as const,
   commentList: (postId: number, params: unknown) =>
     [...treeholeQueryKeys.comments(postId), params] as const,
+  notifications: () => [...treeholeQueryKeys.all, 'notifications'] as const,
+  unreadCount: () => [...treeholeQueryKeys.notifications(), 'unreadCount'] as const,
 };

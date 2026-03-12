@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
 import { getDb, schema } from '../../db';
+import { AppError, ErrorCode } from '../../utils/errors';
 import {
   clampCommentPageSize,
   clampPage,
@@ -20,14 +21,43 @@ import {
   toPostResponse,
   type TreeholeCommentListResponse,
   type TreeholeCommentRow,
+  type TreeholeNotificationType,
   type TreeholeListResponse,
   type TreeholePostResponse,
   type TreeholePostRow,
+  type TreeholeReadAllNotificationsResponse,
+  type TreeholeUnreadNotificationCountResponse,
 } from './treehole-shared';
 
 export class TreeholeUserService {
   static getMeta() {
     return getTreeholeMeta();
+  }
+
+  static async getUnreadNotificationCount(userId: number): Promise<TreeholeUnreadNotificationCountResponse> {
+    const db = getDb();
+    const rows = await db.select({ count: sql<number>`count(*)` })
+      .from(schema.treeholeCommentNotifications)
+      .where(and(
+        eq(schema.treeholeCommentNotifications.recipientUserId, userId),
+        isNull(schema.treeholeCommentNotifications.readAt),
+      ));
+
+    return { unreadCount: Number(rows[0]?.count || 0) };
+  }
+
+  static async markAllNotificationsRead(userId: number): Promise<TreeholeReadAllNotificationsResponse> {
+    const db = getDb();
+    const now = new Date();
+    const updated = await db.update(schema.treeholeCommentNotifications)
+      .set({ readAt: now })
+      .where(and(
+        eq(schema.treeholeCommentNotifications.recipientUserId, userId),
+        isNull(schema.treeholeCommentNotifications.readAt),
+      ))
+      .returning({ id: schema.treeholeCommentNotifications.id });
+
+    return { readCount: updated.length };
   }
 
   static async listPosts(options: { userId: number; page?: number; pageSize?: number }): Promise<TreeholeListResponse> {
@@ -189,9 +219,17 @@ export class TreeholeUserService {
 
   static async createComment(input: CreateTreeholeCommentInput) {
     const content = normalizeCommentContent(input.content);
+    const parentCommentId = input.parentCommentId ?? null;
+    if (parentCommentId !== null && (!Number.isInteger(parentCommentId) || parentCommentId <= 0)) {
+      throw new AppError(ErrorCode.PARAM_ERROR, '父评论 ID 不合法');
+    }
+
     const db = getDb();
     const created = await db.transaction(async (tx) => {
-      const postRows = await tx.select({ id: schema.treeholePosts.id })
+      const postRows = await tx.select({
+        id: schema.treeholePosts.id,
+        userId: schema.treeholePosts.userId,
+      })
         .from(schema.treeholePosts)
         .where(and(
           eq(schema.treeholePosts.id, input.postId),
@@ -201,10 +239,32 @@ export class TreeholeUserService {
 
       if (!postRows[0]) return null;
 
+      let parentCommentUserId: number | null = null;
+      if (parentCommentId !== null) {
+        const parentRows = await tx.select({
+          id: schema.treeholeComments.id,
+          userId: schema.treeholeComments.userId,
+        })
+          .from(schema.treeholeComments)
+          .where(and(
+            eq(schema.treeholeComments.id, parentCommentId),
+            eq(schema.treeholeComments.postId, input.postId),
+            isNull(schema.treeholeComments.deletedAt),
+          ))
+          .limit(1);
+
+        if (!parentRows[0]) {
+          throw new AppError(ErrorCode.PARAM_ERROR, '回复的评论不存在');
+        }
+
+        parentCommentUserId = parentRows[0].userId;
+      }
+
       const now = new Date();
       const inserted = await tx.insert(schema.treeholeComments).values({
         postId: input.postId,
         userId: input.userId,
+        parentCommentId,
         content,
         createdAt: now,
         updatedAt: now,
@@ -212,6 +272,29 @@ export class TreeholeUserService {
       }).returning(commentSelect());
 
       await refreshPostCommentCount(tx, input.postId, now);
+
+      const recipientTypeMap = new Map<number, TreeholeNotificationType>();
+      if (postRows[0].userId !== input.userId) {
+        recipientTypeMap.set(postRows[0].userId, 'post_comment');
+      }
+      if (parentCommentUserId !== null && parentCommentUserId !== input.userId) {
+        recipientTypeMap.set(parentCommentUserId, 'comment_reply');
+      }
+
+      const notificationValues = Array.from(recipientTypeMap.entries()).map(([recipientUserId, type]) => ({
+        recipientUserId,
+        actorUserId: input.userId,
+        postId: input.postId,
+        commentId: inserted[0].id,
+        type,
+        readAt: null,
+        createdAt: now,
+      }));
+
+      if (notificationValues.length > 0) {
+        await tx.insert(schema.treeholeCommentNotifications).values(notificationValues);
+      }
+
       return inserted[0] as TreeholeCommentRow;
     });
 
@@ -220,20 +303,31 @@ export class TreeholeUserService {
 
   static async deletePost(postId: number, userId: number) {
     const db = getDb();
-    const now = new Date();
-    const updated = await db.update(schema.treeholePosts)
-      .set({
-        deletedAt: now,
-        updatedAt: now,
-      })
-      .where(and(
-        eq(schema.treeholePosts.id, postId),
-        eq(schema.treeholePosts.userId, userId),
-        isNull(schema.treeholePosts.deletedAt),
-      ))
-      .returning({ id: schema.treeholePosts.id });
+    return db.transaction(async (tx) => {
+      const now = new Date();
+      const updated = await tx.update(schema.treeholePosts)
+        .set({
+          deletedAt: now,
+          updatedAt: now,
+        })
+        .where(and(
+          eq(schema.treeholePosts.id, postId),
+          eq(schema.treeholePosts.userId, userId),
+          isNull(schema.treeholePosts.deletedAt),
+        ))
+        .returning({ id: schema.treeholePosts.id });
 
-    return updated[0] ? { id: updated[0].id } : null;
+      if (!updated[0]) return null;
+
+      await tx.update(schema.treeholeCommentNotifications)
+        .set({ readAt: now })
+        .where(and(
+          eq(schema.treeholeCommentNotifications.postId, postId),
+          isNull(schema.treeholeCommentNotifications.readAt),
+        ));
+
+      return { id: updated[0].id };
+    });
   }
 
   static async deleteComment(commentId: number, userId: number) {
@@ -258,6 +352,13 @@ export class TreeholeUserService {
       if (!updated[0]) return null;
 
       await refreshPostCommentCount(tx, updated[0].postId, now);
+      await tx.update(schema.treeholeCommentNotifications)
+        .set({ readAt: now })
+        .where(and(
+          eq(schema.treeholeCommentNotifications.commentId, updated[0].id),
+          isNull(schema.treeholeCommentNotifications.readAt),
+        ));
+
       return updated[0];
     });
   }

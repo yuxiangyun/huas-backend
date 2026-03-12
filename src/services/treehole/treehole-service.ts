@@ -8,6 +8,14 @@ export class TreeholeService {
     return TreeholeUserService.getMeta();
   }
 
+  static async getUnreadNotificationCount(userId: number) {
+    return TreeholeUserService.getUnreadNotificationCount(userId);
+  }
+
+  static async markAllNotificationsRead(userId: number) {
+    return TreeholeUserService.markAllNotificationsRead(userId);
+  }
+
   static async listPosts(options: { userId: number; page?: number; pageSize?: number }) {
     return TreeholeUserService.listPosts(options);
   }
@@ -36,7 +44,7 @@ export class TreeholeService {
     return TreeholeUserService.listComments(userId, postId, options);
   }
 
-  static async createComment(input: { userId: number; postId: number; content: string }) {
+  static async createComment(input: { userId: number; postId: number; content: string; parentCommentId?: number | null }) {
     return TreeholeUserService.createComment(input);
   }
 

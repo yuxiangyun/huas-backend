@@ -43,6 +43,7 @@ function adminAuthHeader() {
 
 async function resetData() {
   const db = getDb();
+  await db.delete(schema.treeholeCommentNotifications);
   await db.delete(schema.treeholePostLikes);
   await db.delete(schema.treeholeComments);
   await db.delete(schema.treeholePosts);
@@ -72,19 +73,33 @@ async function createTreeholeComment(
   postId: number,
   userId: number,
   studentId: string,
-  content: string
+  content: string,
+  parentCommentId?: number
 ) {
+  const payload: Record<string, unknown> = { content };
+  if (parentCommentId !== undefined) {
+    payload.parentCommentId = parentCommentId;
+  }
+
   const res = await app.request(`http://localhost/api/treehole/posts/${postId}/comments`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       ...(await authHeaderFor(userId, studentId)),
     },
-    body: JSON.stringify({ content }),
+    body: JSON.stringify(payload),
   });
 
   expect(res.status).toBe(201);
   return (await res.json() as any).data.id as number;
+}
+
+async function getTreeholeUnreadCount(app: Hono, userId: number, studentId: string) {
+  const res = await app.request('http://localhost/api/treehole/notifications/unread-count', {
+    headers: await authHeaderFor(userId, studentId),
+  });
+  expect(res.status).toBe(200);
+  return (await res.json() as any).data.unreadCount as number;
 }
 
 beforeAll(() => {
@@ -233,6 +248,104 @@ describe('treehole module', () => {
     expect(detailRes.status).toBe(200);
     const detailBody = await detailRes.json() as any;
     expect(detailBody.data.stats.commentCount).toBe(1);
+  });
+
+  it('评论支持回复同帖评论，并拒绝非法父评论', async () => {
+    const app = createApp();
+    const postId = await createTreeholePost(app, authorId, '2023002001', '今天有点迷茫。');
+    const firstCommentId = await createTreeholeComment(app, postId, otherUserId, '2023002002', '慢慢来。');
+
+    const replyRes = await app.request(`http://localhost/api/treehole/posts/${postId}/comments`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(await authHeaderFor(thirdUserId, '2023002003')),
+      },
+      body: JSON.stringify({
+        content: '谢谢你。',
+        parentCommentId: firstCommentId,
+      }),
+    });
+    expect(replyRes.status).toBe(201);
+    const replyBody = await replyRes.json() as any;
+    expect(replyBody.data.parentCommentId).toBe(firstCommentId);
+
+    const anotherPostId = await createTreeholePost(app, thirdUserId, '2023002003', '另一条树洞。');
+    const anotherCommentId = await createTreeholeComment(app, anotherPostId, authorId, '2023002001', '另一条评论。');
+
+    const crossPostReplyRes = await app.request(`http://localhost/api/treehole/posts/${postId}/comments`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(await authHeaderFor(thirdUserId, '2023002003')),
+      },
+      body: JSON.stringify({
+        content: '跨帖回复',
+        parentCommentId: anotherCommentId,
+      }),
+    });
+    expect(crossPostReplyRes.status).toBe(400);
+
+    const deleteParentRes = await app.request(`http://localhost/api/treehole/comments/${firstCommentId}`, {
+      method: 'DELETE',
+      headers: await authHeaderFor(otherUserId, '2023002002'),
+    });
+    expect(deleteParentRes.status).toBe(200);
+
+    const deletedParentReplyRes = await app.request(`http://localhost/api/treehole/posts/${postId}/comments`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(await authHeaderFor(authorId, '2023002001')),
+      },
+      body: JSON.stringify({
+        content: '回复已删除评论',
+        parentCommentId: firstCommentId,
+      }),
+    });
+    expect(deletedParentReplyRes.status).toBe(400);
+  });
+
+  it('评论与回复会产生提醒并支持全部已读', async () => {
+    const app = createApp();
+    const postId = await createTreeholePost(app, authorId, '2023002001', '今天状态一般。');
+    const firstCommentId = await createTreeholeComment(app, postId, otherUserId, '2023002002', '早点休息。');
+    await createTreeholeComment(app, postId, thirdUserId, '2023002003', '也要记得吃饭。', firstCommentId);
+    await createTreeholeComment(app, postId, authorId, '2023002001', '收到。', firstCommentId);
+
+    expect(await getTreeholeUnreadCount(app, authorId, '2023002001')).toBe(2);
+    expect(await getTreeholeUnreadCount(app, otherUserId, '2023002002')).toBe(2);
+    expect(await getTreeholeUnreadCount(app, thirdUserId, '2023002003')).toBe(0);
+
+    const otherReadAllRes = await app.request('http://localhost/api/treehole/notifications/read-all', {
+      method: 'POST',
+      headers: await authHeaderFor(otherUserId, '2023002002'),
+    });
+    expect(otherReadAllRes.status).toBe(200);
+    const otherReadAllBody = await otherReadAllRes.json() as any;
+    expect(otherReadAllBody.data.readCount).toBe(2);
+    expect(await getTreeholeUnreadCount(app, otherUserId, '2023002002')).toBe(0);
+
+    const otherReadAllAgainRes = await app.request('http://localhost/api/treehole/notifications/read-all', {
+      method: 'POST',
+      headers: await authHeaderFor(otherUserId, '2023002002'),
+    });
+    expect(otherReadAllAgainRes.status).toBe(200);
+    const otherReadAllAgainBody = await otherReadAllAgainRes.json() as any;
+    expect(otherReadAllAgainBody.data.readCount).toBe(0);
+
+    const ownerCommentId = await createTreeholeComment(app, postId, authorId, '2023002001', '我先补充一点。');
+    await createTreeholeComment(app, postId, otherUserId, '2023002002', '回复楼主评论', ownerCommentId);
+    expect(await getTreeholeUnreadCount(app, authorId, '2023002001')).toBe(3);
+
+    const ownerReadAllRes = await app.request('http://localhost/api/treehole/notifications/read-all', {
+      method: 'POST',
+      headers: await authHeaderFor(authorId, '2023002001'),
+    });
+    expect(ownerReadAllRes.status).toBe(200);
+    const ownerReadAllBody = await ownerReadAllRes.json() as any;
+    expect(ownerReadAllBody.data.readCount).toBe(3);
+    expect(await getTreeholeUnreadCount(app, authorId, '2023002001')).toBe(0);
   });
 
   it('作者删除帖子后，帖子与评论接口都不可再访问', async () => {

@@ -11,6 +11,7 @@ import { appRoutes } from '@/app/router/paths';
 import { useToastStore } from '@/app/state/toast-store';
 import { useUiStore } from '@/app/state/ui-store';
 import { useAuthStore } from '@/entities/auth/model/auth-store';
+import { useTreeholeUnreadNotificationCountQuery } from '@/entities/treehole/api/treehole-queries';
 import { useUserInfoQuery } from '@/entities/user/api/user-queries';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
@@ -24,7 +25,9 @@ export function MePage() {
   const setActiveTab = useUiStore((state) => state.setActiveTab);
   const logout = useAuthStore((state) => state.logout);
   const profileQuery = useUserInfoQuery();
+  const treeholeUnreadQuery = useTreeholeUnreadNotificationCountQuery();
   const profile = profileQuery.data ?? null;
+  const treeholeUnreadCount = treeholeUnreadQuery.data?.unreadCount ?? 0;
 
   useEffect(() => {
     setActiveTab('me');
@@ -40,6 +43,7 @@ export function MePage() {
       icon: <BowlChopsticks20Filled aria-hidden="true" className="size-5" />,
       accent: <ArrowTrendingSparkle20Filled aria-hidden="true" className="size-4" />,
       onClick: () => navigate(appRoutes.meDiscover),
+      unreadCount: 0,
       title: '拍好饭',
       tone: 'amber' as const,
       variant: 'secondary' as const,
@@ -53,6 +57,7 @@ export function MePage() {
       icon: <Chat20Filled aria-hidden="true" className="size-5" />,
       accent: <ContactCard20Filled aria-hidden="true" className="size-4" />,
       onClick: () => navigate(appRoutes.meTreehole),
+      unreadCount: treeholeUnreadCount,
       title: '树洞',
       tone: 'blue' as const,
       variant: 'secondary' as const,
@@ -74,6 +79,7 @@ export function MePage() {
         });
         navigate(appRoutes.login, { replace: true });
       },
+      unreadCount: 0,
       title: '账号',
       tone: 'slate' as const,
       variant: 'subtle' as const,
@@ -134,6 +140,11 @@ export function MePage() {
                   <span className="rounded-pill bg-white/78 px-2.5 py-1 text-[0.72rem] font-medium text-muted ring-1 ring-line">
                     {action.chip}
                   </span>
+                  {action.unreadCount > 0 ? (
+                    <span className="rounded-pill bg-error px-2.5 py-1 text-[0.72rem] font-medium text-white">
+                      {action.unreadCount > 99 ? '99+' : action.unreadCount}
+                    </span>
+                  ) : null}
                 </div>
                 <p className="text-sm leading-6 text-muted">
                   {action.description}

@@ -134,19 +134,30 @@ export class TreeholeAdminService {
 
   static async deletePost(postId: number) {
     const db = getDb();
-    const now = new Date();
-    const updated = await db.update(schema.treeholePosts)
-      .set({
-        deletedAt: now,
-        updatedAt: now,
-      })
-      .where(and(
-        eq(schema.treeholePosts.id, postId),
-        isNull(schema.treeholePosts.deletedAt),
-      ))
-      .returning({ id: schema.treeholePosts.id });
+    return db.transaction(async (tx) => {
+      const now = new Date();
+      const updated = await tx.update(schema.treeholePosts)
+        .set({
+          deletedAt: now,
+          updatedAt: now,
+        })
+        .where(and(
+          eq(schema.treeholePosts.id, postId),
+          isNull(schema.treeholePosts.deletedAt),
+        ))
+        .returning({ id: schema.treeholePosts.id });
 
-    return updated[0] ? { id: updated[0].id } : null;
+      if (!updated[0]) return null;
+
+      await tx.update(schema.treeholeCommentNotifications)
+        .set({ readAt: now })
+        .where(and(
+          eq(schema.treeholeCommentNotifications.postId, postId),
+          isNull(schema.treeholeCommentNotifications.readAt),
+        ));
+
+      return { id: updated[0].id };
+    });
   }
 
   static async deleteComment(commentId: number) {
@@ -170,6 +181,13 @@ export class TreeholeAdminService {
       if (!updated[0]) return null;
 
       await refreshPostCommentCount(tx, updated[0].postId, now);
+      await tx.update(schema.treeholeCommentNotifications)
+        .set({ readAt: now })
+        .where(and(
+          eq(schema.treeholeCommentNotifications.commentId, updated[0].id),
+          isNull(schema.treeholeCommentNotifications.readAt),
+        ));
+
       return updated[0];
     });
   }

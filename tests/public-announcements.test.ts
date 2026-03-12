@@ -45,6 +45,7 @@ describe('public announcements route', () => {
 describe('admin dashboard 年级解析', () => {
   async function clearUserTables() {
     const db = getDb();
+    await db.delete(schema.treeholeCommentNotifications);
     await db.delete(schema.treeholePostLikes);
     await db.delete(schema.treeholeComments);
     await db.delete(schema.treeholePosts);

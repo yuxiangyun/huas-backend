@@ -91,8 +91,20 @@ export const treeholeComments = sqliteTable('treehole_comments', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   postId: integer('post_id').notNull().references(() => treeholePosts.id),
   userId: integer('user_id').notNull().references(() => users.id),
+  parentCommentId: integer('parent_comment_id').references(() => treeholeComments.id),
   content: text('content').notNull(),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
   deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
+});
+
+export const treeholeCommentNotifications = sqliteTable('treehole_comment_notifications', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  recipientUserId: integer('recipient_user_id').notNull().references(() => users.id),
+  actorUserId: integer('actor_user_id').notNull().references(() => users.id),
+  postId: integer('post_id').notNull().references(() => treeholePosts.id),
+  commentId: integer('comment_id').notNull().references(() => treeholeComments.id),
+  type: text('type').notNull(), // 'post_comment' | 'comment_reply'
+  readAt: integer('read_at', { mode: 'timestamp_ms' }),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
 });

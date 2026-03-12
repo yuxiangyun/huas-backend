@@ -5,6 +5,8 @@ import type {
   TreeholeListResponse,
   TreeholeMeta,
   TreeholePost,
+  TreeholeReadAllNotificationsResult,
+  TreeholeUnreadNotificationCount,
 } from '@/entities/treehole/model/treehole-types';
 
 function buildQueryString(params: Record<string, string | number | undefined>) {
@@ -31,6 +33,16 @@ export interface TreeholeCommentListParams {
 
 export async function getTreeholeMeta() {
   return apiRequest<TreeholeMeta>('/api/treehole/meta');
+}
+
+export async function getTreeholeUnreadNotificationCount() {
+  return apiRequest<TreeholeUnreadNotificationCount>('/api/treehole/notifications/unread-count');
+}
+
+export async function readAllTreeholeNotifications() {
+  return apiRequest<TreeholeReadAllNotificationsResult>('/api/treehole/notifications/read-all', {
+    method: 'POST',
+  });
 }
 
 export async function getTreeholePosts(params: TreeholeListParams) {
@@ -89,10 +101,13 @@ export async function getTreeholeComments(postId: number, params: TreeholeCommen
   );
 }
 
-export async function createTreeholeComment(postId: number, payload: { content: string }) {
+export async function createTreeholeComment(postId: number, payload: { content: string; parentCommentId?: number | null }) {
   return apiRequest<TreeholeComment>(`/api/treehole/posts/${postId}/comments`, {
     method: 'POST',
-    body: JSON.stringify({ content: payload.content.trim() }),
+    body: JSON.stringify({
+      content: payload.content.trim(),
+      parentCommentId: payload.parentCommentId ?? null,
+    }),
   });
 }
 

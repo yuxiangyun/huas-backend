@@ -17,10 +17,19 @@ export interface TreeholePost {
 export interface TreeholeComment {
   id: number;
   postId: number;
+  parentCommentId: number | null;
   content: string;
   isMine: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface TreeholeUnreadNotificationCount {
+  unreadCount: number;
+}
+
+export interface TreeholeReadAllNotificationsResult {
+  readCount: number;
 }
 
 export interface TreeholeListResponse {

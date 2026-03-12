@@ -20,6 +20,11 @@ interface TreeholeDetailSheetProps {
   onClose: () => void;
 }
 
+interface ReplyTarget {
+  id: number;
+  preview: string;
+}
+
 function formatPublishedAt(value: string) {
   return new Date(value).toLocaleString('zh-CN', {
     month: 'numeric',
@@ -42,8 +47,10 @@ export function TreeholeDetailSheet({ postId, onClose }: TreeholeDetailSheetProp
   const [commentDraft, setCommentDraft] = useState('');
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [replyTarget, setReplyTarget] = useState<ReplyTarget | null>(null);
   const post = postQuery.data;
   const comments = commentsQuery.data?.pages.flatMap((page) => page.items) ?? [];
+  const commentPreviewById = new Map(comments.map((item) => [item.id, item.content]));
   const maxCommentLength = metaQuery.data?.limits.maxCommentLength ?? 200;
   const likeBusy = likeMutation.isPending || unlikeMutation.isPending;
 
@@ -51,6 +58,7 @@ export function TreeholeDetailSheet({ postId, onClose }: TreeholeDetailSheetProp
     setCommentDraft('');
     setActionMessage(null);
     setDeleteConfirmOpen(false);
+    setReplyTarget(null);
   }, [postId]);
 
   const submitComment = async () => {
@@ -68,8 +76,13 @@ export function TreeholeDetailSheet({ postId, onClose }: TreeholeDetailSheetProp
 
     try {
       setActionMessage(null);
-      await createCommentMutation.mutateAsync({ postId, content });
+      await createCommentMutation.mutateAsync({
+        postId,
+        content,
+        parentCommentId: replyTarget?.id ?? null,
+      });
       setCommentDraft('');
+      setReplyTarget(null);
       pushToast({
         title: '评论已发送',
         variant: 'success',
@@ -198,11 +211,22 @@ export function TreeholeDetailSheet({ postId, onClose }: TreeholeDetailSheetProp
               </p>
             </div>
 
+            {replyTarget ? (
+              <div className="flex items-center justify-between gap-3 rounded-[1rem] bg-tint-soft px-3 py-2 text-xs text-ink">
+                <span className="text-clamp-1">
+                  正在回复 #{replyTarget.id}：{replyTarget.preview}
+                </span>
+                <Button size="xs" type="button" variant="ghost" onClick={() => setReplyTarget(null)}>
+                  取消
+                </Button>
+              </div>
+            ) : null}
+
             <label className="block space-y-2">
               <textarea
                 className="min-h-24 w-full rounded-[1.05rem] border border-line bg-white/80 px-3.5 py-3 text-ink outline-none focus:border-transparent focus:ring-2 focus:ring-tint/20"
                 maxLength={maxCommentLength}
-                placeholder="写评论"
+                placeholder={replyTarget ? `回复 #${replyTarget.id}` : '写评论'}
                 value={commentDraft}
                 onChange={(event) => setCommentDraft(event.target.value)}
               />
@@ -272,15 +296,29 @@ export function TreeholeDetailSheet({ postId, onClose }: TreeholeDetailSheetProp
                       </span>
                       <span>{formatPublishedAt(comment.createdAt)}</span>
                     </div>
-                    {comment.isMine ? (
+                    <div className="flex items-center gap-1.5">
                       <Button
-                        disabled={
-                          deleteCommentMutation.isPending
-                          && deleteCommentMutation.variables?.commentId === comment.id
-                        }
                         size="xs"
                         type="button"
                         variant="ghost"
+                        onClick={() => {
+                          setReplyTarget({
+                            id: comment.id,
+                            preview: comment.content.length > 20 ? `${comment.content.slice(0, 20)}...` : comment.content,
+                          });
+                        }}
+                      >
+                        回复
+                      </Button>
+                      {comment.isMine ? (
+                        <Button
+                          disabled={
+                            deleteCommentMutation.isPending
+                            && deleteCommentMutation.variables?.commentId === comment.id
+                          }
+                          size="xs"
+                          type="button"
+                          variant="ghost"
                         onClick={() => {
                           setActionMessage(null);
                           deleteCommentMutation.mutate(
@@ -297,8 +335,17 @@ export function TreeholeDetailSheet({ postId, onClose }: TreeholeDetailSheetProp
                       >
                         删除
                       </Button>
-                    ) : null}
+                      ) : null}
+                    </div>
                   </div>
+                  {comment.parentCommentId ? (
+                    <div className="rounded-[0.9rem] bg-white/80 px-3 py-2 text-xs leading-5 text-muted ring-1 ring-line">
+                      回复 #{comment.parentCommentId}
+                      {commentPreviewById.get(comment.parentCommentId)
+                        ? `：${commentPreviewById.get(comment.parentCommentId)}`
+                        : ''}
+                    </div>
+                  ) : null}
                   <p className="text-sm leading-7 whitespace-pre-wrap text-ink">{comment.content}</p>
                 </Card>
               ))}

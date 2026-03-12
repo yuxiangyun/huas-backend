@@ -1,9 +1,12 @@
-import { startTransition, useEffect } from 'react';
+import { startTransition, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft20Filled } from '@fluentui/react-icons/svg/arrow-left';
 import { appRoutes } from '@/app/router/paths';
 import { useUiStore } from '@/app/state/ui-store';
-import { useMyTreeholeInfinitePostsQuery } from '@/entities/treehole/api/treehole-queries';
+import {
+  useMyTreeholeInfinitePostsQuery,
+  useReadAllTreeholeNotificationsMutation,
+} from '@/entities/treehole/api/treehole-queries';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
 import { PageHeader } from '@/shared/ui/page-header';
@@ -16,6 +19,8 @@ export function MeTreeholePage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const setActiveTab = useUiStore((state) => state.setActiveTab);
   const openComposeSheet = useUiStore((state) => state.openTreeholeComposeSheet);
+  const readAllNotificationsMutation = useReadAllTreeholeNotificationsMutation();
+  const notificationsReadTriggeredRef = useRef(false);
   const myPostsQuery = useMyTreeholeInfinitePostsQuery({ pageSize: 12 });
   const myPosts = myPostsQuery.data?.pages.flatMap((page) => page.items) ?? [];
   const totalPosts = myPostsQuery.data?.pages[0]?.total ?? myPosts.length;
@@ -32,6 +37,12 @@ export function MeTreeholePage() {
   useEffect(() => {
     setActiveTab('me');
   }, [setActiveTab]);
+
+  useEffect(() => {
+    if (notificationsReadTriggeredRef.current) return;
+    notificationsReadTriggeredRef.current = true;
+    readAllNotificationsMutation.mutate();
+  }, [readAllNotificationsMutation]);
 
   function patchSearchParams(
     patcher: (params: URLSearchParams) => void

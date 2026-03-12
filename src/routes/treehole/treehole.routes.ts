@@ -29,6 +29,22 @@ treehole.get('/meta', (c) => {
   return success(c, data);
 });
 
+treehole.get('/notifications/unread-count', async (c) => {
+  const data = await TreeholeService.getUnreadNotificationCount(c.get('userId'));
+  appendHttpLogDetail(c, formatHttpLogDetail({
+    unreadCount: data.unreadCount,
+  }));
+  return success(c, data);
+});
+
+treehole.post('/notifications/read-all', async (c) => {
+  const data = await TreeholeService.markAllNotificationsRead(c.get('userId'));
+  appendHttpLogDetail(c, formatHttpLogDetail({
+    readCount: data.readCount,
+  }));
+  return success(c, data);
+});
+
 treehole.get('/posts', async (c) => {
   const page = parsePositiveInt(c.req.query('page'), 1);
   const pageSize = parsePositiveInt(c.req.query('pageSize'), config.treehole.defaultPageSize);
@@ -227,16 +243,26 @@ treehole.post('/posts/:id/comments', async (c) => {
     contentLength: typeof body?.content === 'string' ? body.content.trim().length : 0,
   }));
 
+  let parentCommentId: number | null = null;
+  if (body?.parentCommentId !== undefined && body?.parentCommentId !== null && body?.parentCommentId !== '') {
+    const parsedParentCommentId = Number(body.parentCommentId);
+    if (!Number.isInteger(parsedParentCommentId) || parsedParentCommentId <= 0) {
+      return error(c, ErrorCode.PARAM_ERROR, '父评论 ID 不合法', 400);
+    }
+    parentCommentId = parsedParentCommentId;
+  }
+
   const data = await TreeholeService.createComment({
     userId: c.get('userId'),
     postId,
     content: typeof body?.content === 'string' ? body.content : '',
+    parentCommentId,
   });
   if (!data) {
     return error(c, ErrorCode.PARAM_ERROR, '帖子不存在', 404);
   }
 
-  appendHttpLogDetail(c, formatHttpLogDetail({ commentId: data.id }));
+  appendHttpLogDetail(c, formatHttpLogDetail({ commentId: data.id, parentCommentId: data.parentCommentId ?? undefined }));
 
   Logger.operation(
     'Treehole',

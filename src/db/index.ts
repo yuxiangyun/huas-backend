@@ -20,6 +20,7 @@ function getTableColumns(
     | 'treehole_posts'
     | 'treehole_post_likes'
     | 'treehole_comments'
+    | 'treehole_comment_notifications'
 ): Set<string> {
   const rows = sqliteDb.query(`PRAGMA table_info(${table})`).all() as Array<{ name?: string }>;
   return new Set(rows.map((row) => String(row.name || '')));
@@ -34,7 +35,8 @@ function ensureColumn(
     | 'discover_post_ratings'
     | 'treehole_posts'
     | 'treehole_post_likes'
-    | 'treehole_comments',
+    | 'treehole_comments'
+    | 'treehole_comment_notifications',
   column: string,
   definition: string
 ): void {
@@ -94,9 +96,18 @@ function ensureLegacyColumns(): void {
   ensureColumn('treehole_post_likes', 'created_at', 'created_at INTEGER');
 
   ensureColumn('treehole_comments', 'content', 'content TEXT NOT NULL DEFAULT \'\'');
+  ensureColumn('treehole_comments', 'parent_comment_id', 'parent_comment_id INTEGER');
   ensureColumn('treehole_comments', 'created_at', 'created_at INTEGER');
   ensureColumn('treehole_comments', 'updated_at', 'updated_at INTEGER');
   ensureColumn('treehole_comments', 'deleted_at', 'deleted_at INTEGER');
+
+  ensureColumn('treehole_comment_notifications', 'recipient_user_id', 'recipient_user_id INTEGER');
+  ensureColumn('treehole_comment_notifications', 'actor_user_id', 'actor_user_id INTEGER');
+  ensureColumn('treehole_comment_notifications', 'post_id', 'post_id INTEGER');
+  ensureColumn('treehole_comment_notifications', 'comment_id', 'comment_id INTEGER');
+  ensureColumn('treehole_comment_notifications', 'type', 'type TEXT');
+  ensureColumn('treehole_comment_notifications', 'read_at', 'read_at INTEGER');
+  ensureColumn('treehole_comment_notifications', 'created_at', 'created_at INTEGER');
 }
 
 function backfillCriticalTimestamps(): void {
@@ -119,6 +130,7 @@ function backfillCriticalTimestamps(): void {
   sqliteDb.exec(`UPDATE treehole_post_likes SET created_at = ${now} WHERE created_at IS NULL OR created_at <= 0`);
   sqliteDb.exec(`UPDATE treehole_comments SET created_at = ${now} WHERE created_at IS NULL OR created_at <= 0`);
   sqliteDb.exec(`UPDATE treehole_comments SET updated_at = ${now} WHERE updated_at IS NULL OR updated_at <= 0`);
+  sqliteDb.exec(`UPDATE treehole_comment_notifications SET created_at = ${now} WHERE created_at IS NULL OR created_at <= 0`);
 }
 
 export function getDb() {
@@ -224,10 +236,22 @@ export function initDatabase() {
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     post_id INTEGER NOT NULL REFERENCES treehole_posts(id),
     user_id INTEGER NOT NULL REFERENCES users(id),
+    parent_comment_id INTEGER REFERENCES treehole_comments(id),
     content TEXT NOT NULL,
     created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
     updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
     deleted_at INTEGER
+  )`);
+
+  database.run(sql`CREATE TABLE IF NOT EXISTS treehole_comment_notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    recipient_user_id INTEGER NOT NULL REFERENCES users(id),
+    actor_user_id INTEGER NOT NULL REFERENCES users(id),
+    post_id INTEGER NOT NULL REFERENCES treehole_posts(id),
+    comment_id INTEGER NOT NULL REFERENCES treehole_comments(id),
+    type TEXT NOT NULL,
+    read_at INTEGER,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
   )`);
 
   // Backward-compatible migration for older SQLite files.
@@ -260,7 +284,14 @@ export function initDatabase() {
   database.run(sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_treehole_post_likes_post_user ON treehole_post_likes(post_id, user_id)`);
   database.run(sql`CREATE INDEX IF NOT EXISTS idx_treehole_post_likes_user_id ON treehole_post_likes(user_id)`);
   database.run(sql`CREATE INDEX IF NOT EXISTS idx_treehole_comments_post_deleted_created ON treehole_comments(post_id, deleted_at, created_at ASC, id ASC)`);
+  database.run(sql`CREATE INDEX IF NOT EXISTS idx_treehole_comments_parent_comment_id ON treehole_comments(parent_comment_id)`);
   database.run(sql`CREATE INDEX IF NOT EXISTS idx_treehole_comments_user_id ON treehole_comments(user_id)`);
+  database.run(sql`CREATE INDEX IF NOT EXISTS idx_treehole_comment_notifications_recipient_read_created
+    ON treehole_comment_notifications(recipient_user_id, read_at, created_at DESC, id DESC)`);
+  database.run(sql`CREATE INDEX IF NOT EXISTS idx_treehole_comment_notifications_post_id
+    ON treehole_comment_notifications(post_id)`);
+  database.run(sql`CREATE INDEX IF NOT EXISTS idx_treehole_comment_notifications_comment_id
+    ON treehole_comment_notifications(comment_id)`);
   database.run(sql`UPDATE treehole_posts
     SET like_count = (
       SELECT count(*) FROM treehole_post_likes WHERE treehole_post_likes.post_id = treehole_posts.id

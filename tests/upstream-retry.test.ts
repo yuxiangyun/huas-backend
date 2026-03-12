@@ -45,6 +45,7 @@ beforeAll(() => {
 
 beforeEach(async () => {
   const db = getDb();
+  await db.delete(schema.treeholeCommentNotifications);
   await db.delete(schema.treeholePostLikes);
   await db.delete(schema.treeholeComments);
   await db.delete(schema.treeholePosts);

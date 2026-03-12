@@ -19,6 +19,7 @@ export interface CreateTreeholeCommentInput {
   userId: number;
   postId: number;
   content: string;
+  parentCommentId?: number | null;
 }
 
 export interface TreeholePostRow {
@@ -37,11 +38,14 @@ export interface TreeholeCommentRow {
   id: number;
   postId: number;
   userId: number;
+  parentCommentId: number | null;
   content: string;
   createdAt: Date;
   updatedAt: Date;
   deletedAt: Date | null;
 }
+
+export type TreeholeNotificationType = 'post_comment' | 'comment_reply';
 
 export interface AdminTreeholePostRow extends TreeholePostRow {
   authorStudentId: string;
@@ -74,10 +78,19 @@ export interface TreeholePostResponse {
 export interface TreeholeCommentResponse {
   id: number;
   postId: number;
+  parentCommentId: number | null;
   content: string;
   isMine: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface TreeholeUnreadNotificationCountResponse {
+  unreadCount: number;
+}
+
+export interface TreeholeReadAllNotificationsResponse {
+  readCount: number;
 }
 
 export interface AdminAuthorSummary {
@@ -200,6 +213,7 @@ export function commentSelect() {
     id: schema.treeholeComments.id,
     postId: schema.treeholeComments.postId,
     userId: schema.treeholeComments.userId,
+    parentCommentId: schema.treeholeComments.parentCommentId,
     content: schema.treeholeComments.content,
     createdAt: schema.treeholeComments.createdAt,
     updatedAt: schema.treeholeComments.updatedAt,
@@ -315,6 +329,7 @@ export function toCommentResponse(row: TreeholeCommentRow, userId: number): Tree
   return {
     id: row.id,
     postId: row.postId,
+    parentCommentId: row.parentCommentId,
     content: row.content,
     isMine: row.userId === userId,
     createdAt: beijingIsoString(row.createdAt),

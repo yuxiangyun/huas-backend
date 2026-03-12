@@ -10,7 +10,9 @@ import {
   getTreeholeMeta,
   getTreeholePostDetail,
   getTreeholePosts,
+  getTreeholeUnreadNotificationCount,
   likeTreeholePost,
+  readAllTreeholeNotifications,
   unlikeTreeholePost,
   type TreeholeCommentListParams,
   type TreeholeListParams,
@@ -22,6 +24,13 @@ export function useTreeholeMetaQuery() {
   return useQuery({
     queryKey: treeholeQueryKeys.meta(),
     queryFn: getTreeholeMeta,
+  });
+}
+
+export function useTreeholeUnreadNotificationCountQuery() {
+  return useQuery({
+    queryKey: treeholeQueryKeys.unreadCount(),
+    queryFn: getTreeholeUnreadNotificationCount,
   });
 }
 
@@ -142,13 +151,25 @@ export function useCreateTreeholeCommentMutation() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ postId, content }: { postId: number; content: string }) =>
-      createTreeholeComment(postId, { content }),
+    mutationFn: ({ postId, content, parentCommentId }: { postId: number; content: string; parentCommentId?: number | null }) =>
+      createTreeholeComment(postId, { content, parentCommentId }),
     onSuccess: (comment) => {
       queryClient.invalidateQueries({ queryKey: treeholeQueryKeys.detail(comment.postId) });
       queryClient.invalidateQueries({ queryKey: treeholeQueryKeys.comments(comment.postId) });
       queryClient.invalidateQueries({ queryKey: treeholeQueryKeys.lists() });
       queryClient.invalidateQueries({ queryKey: treeholeQueryKeys.mines() });
+    },
+  });
+}
+
+export function useReadAllTreeholeNotificationsMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: readAllTreeholeNotifications,
+    onSuccess: () => {
+      queryClient.setQueryData(treeholeQueryKeys.unreadCount(), { unreadCount: 0 });
+      queryClient.invalidateQueries({ queryKey: treeholeQueryKeys.unreadCount() });
     },
   });
 }
