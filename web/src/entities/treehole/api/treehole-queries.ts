@@ -23,14 +23,14 @@ import type { TreeholePost } from '@/entities/treehole/model/treehole-types';
 export function useTreeholeMetaQuery() {
   return useQuery({
     queryKey: treeholeQueryKeys.meta(),
-    queryFn: getTreeholeMeta,
+    queryFn: ({ signal }) => getTreeholeMeta({ signal }),
   });
 }
 
 export function useTreeholeUnreadNotificationCountQuery() {
   return useQuery({
     queryKey: treeholeQueryKeys.unreadCount(),
-    queryFn: getTreeholeUnreadNotificationCount,
+    queryFn: ({ signal }) => getTreeholeUnreadNotificationCount({ signal }),
   });
 }
 
@@ -38,11 +38,11 @@ export function useTreeholeInfinitePostsQuery(params: Omit<TreeholeListParams, '
   return useInfiniteQuery({
     initialPageParam: 1,
     queryKey: treeholeQueryKeys.list(params),
-    queryFn: ({ pageParam }) =>
+    queryFn: ({ pageParam, signal }) =>
       getTreeholePosts({
         ...params,
         page: pageParam,
-      }),
+      }, { signal }),
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
   });
 }
@@ -51,11 +51,11 @@ export function useMyTreeholeInfinitePostsQuery(params: Omit<TreeholeListParams,
   return useInfiniteQuery({
     initialPageParam: 1,
     queryKey: treeholeQueryKeys.mine(params),
-    queryFn: ({ pageParam }) =>
+    queryFn: ({ pageParam, signal }) =>
       getMyTreeholePosts({
         ...params,
         page: pageParam,
-      }),
+      }, { signal }),
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
   });
 }
@@ -63,7 +63,7 @@ export function useMyTreeholeInfinitePostsQuery(params: Omit<TreeholeListParams,
 export function useTreeholePostDetailQuery(postId: number | null) {
   return useQuery({
     queryKey: treeholeQueryKeys.detail(postId ?? 0),
-    queryFn: () => getTreeholePostDetail(postId!),
+    queryFn: ({ signal }) => getTreeholePostDetail(postId!, { signal }),
     enabled: postId !== null,
   });
 }
@@ -75,11 +75,11 @@ export function useTreeholeInfiniteCommentsQuery(
   return useInfiniteQuery({
     initialPageParam: 1,
     queryKey: treeholeQueryKeys.commentList(postId ?? 0, params),
-    queryFn: ({ pageParam }) =>
+    queryFn: ({ pageParam, signal }) =>
       getTreeholeComments(postId!, {
         ...params,
         page: pageParam,
-      }),
+      }, { signal }),
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
     enabled: postId !== null,
   });

@@ -9,6 +9,10 @@ import type {
   TreeholeUnreadNotificationCount,
 } from '@/entities/treehole/model/treehole-types';
 
+interface RequestOptions {
+  signal?: AbortSignal;
+}
+
 function buildQueryString(params: Record<string, string | number | undefined>) {
   const searchParams = new URLSearchParams();
 
@@ -31,12 +35,16 @@ export interface TreeholeCommentListParams {
   pageSize?: number;
 }
 
-export async function getTreeholeMeta() {
-  return apiRequest<TreeholeMeta>('/api/treehole/meta');
+export async function getTreeholeMeta(options?: RequestOptions) {
+  return apiRequest<TreeholeMeta>('/api/treehole/meta', {}, { signal: options?.signal });
 }
 
-export async function getTreeholeUnreadNotificationCount() {
-  return apiRequest<TreeholeUnreadNotificationCount>('/api/treehole/notifications/unread-count');
+export async function getTreeholeUnreadNotificationCount(options?: RequestOptions) {
+  return apiRequest<TreeholeUnreadNotificationCount>(
+    '/api/treehole/notifications/unread-count',
+    {},
+    { signal: options?.signal }
+  );
 }
 
 export async function readAllTreeholeNotifications() {
@@ -45,26 +53,34 @@ export async function readAllTreeholeNotifications() {
   });
 }
 
-export async function getTreeholePosts(params: TreeholeListParams) {
+export async function getTreeholePosts(params: TreeholeListParams, options?: RequestOptions) {
   return apiRequest<TreeholeListResponse>(
     `/api/treehole/posts${buildQueryString({
       page: params.page,
       pageSize: params.pageSize,
-    })}`
+    })}`,
+    {},
+    { signal: options?.signal }
   );
 }
 
-export async function getMyTreeholePosts(params: TreeholeListParams) {
+export async function getMyTreeholePosts(params: TreeholeListParams, options?: RequestOptions) {
   return apiRequest<TreeholeListResponse>(
     `/api/treehole/posts/me${buildQueryString({
       page: params.page,
       pageSize: params.pageSize,
-    })}`
+    })}`,
+    {},
+    { signal: options?.signal }
   );
 }
 
-export async function getTreeholePostDetail(postId: number) {
-  return apiRequest<TreeholePost>(`/api/treehole/posts/${postId}`);
+export async function getTreeholePostDetail(postId: number, options?: RequestOptions) {
+  return apiRequest<TreeholePost>(
+    `/api/treehole/posts/${postId}`,
+    {},
+    { signal: options?.signal }
+  );
 }
 
 export async function createTreeholePost(payload: { content: string }) {
@@ -92,12 +108,18 @@ export async function deleteTreeholePost(postId: number) {
   });
 }
 
-export async function getTreeholeComments(postId: number, params: TreeholeCommentListParams) {
+export async function getTreeholeComments(
+  postId: number,
+  params: TreeholeCommentListParams,
+  options?: RequestOptions
+) {
   return apiRequest<TreeholeCommentListResponse>(
     `/api/treehole/posts/${postId}/comments${buildQueryString({
       page: params.page,
       pageSize: params.pageSize,
-    })}`
+    })}`,
+    {},
+    { signal: options?.signal }
   );
 }
 
