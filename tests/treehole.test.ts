@@ -2,9 +2,14 @@ import { beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { generateToken } from '../src/auth/jwt';
+import { config } from '../src/config';
 import { getDb, initDatabase, schema } from '../src/db';
 import { onAppError } from '../src/middleware/error.middleware';
 import { registerRoutes } from '../src/routes';
+import {
+  TreeholeAvatarMediaService,
+  TREEHOLE_AVATAR_CACHE_CONTROL,
+} from '../src/services/treehole/treehole-avatar-media-service';
 
 let authorId = 0;
 let otherUserId = 0;
@@ -13,8 +18,29 @@ let thirdUserId = 0;
 function createApp() {
   const app = new Hono();
   app.onError(onAppError);
+  app.get(`${config.treehole.avatarMediaBasePath}/*`, async (c) => {
+    const file = await TreeholeAvatarMediaService.getPublicFile(c.req.path);
+    if (!file) return c.notFound();
+
+    return new Response(file, {
+      headers: {
+        'Cache-Control': TREEHOLE_AVATAR_CACHE_CONTROL,
+        'Content-Type': file.type || 'application/octet-stream',
+      },
+    });
+  });
   registerRoutes(app);
   return app;
+}
+
+const ONE_BY_ONE_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Zr9kAAAAASUVORK5CYII=';
+
+function createAvatarFile(name = 'avatar.png') {
+  return new File(
+    [Buffer.from(ONE_BY_ONE_PNG_BASE64, 'base64')],
+    name,
+    { type: 'image/png' }
+  );
 }
 
 async function createUser(studentId: string, className: string) {
@@ -133,6 +159,7 @@ describe('treehole module', () => {
     expect(detailBody.data.stats.commentCount).toBe(0);
     expect(detailBody.data.viewer.isMine).toBe(true);
     expect(detailBody.data.viewer.liked).toBe(false);
+    expect(detailBody.data.avatarUrl).toBeNull();
     expect(detailBody.data.author).toBeUndefined();
     expect(detailBody.data.userId).toBeUndefined();
 
@@ -144,6 +171,98 @@ describe('treehole module', () => {
     expect(listBody.data.items).toHaveLength(1);
     expect(listBody.data.items[0].id).toBe(postId);
     expect(listBody.data.items[0].viewer.isMine).toBe(false);
+    expect(listBody.data.items[0].avatarUrl).toBeNull();
+  });
+
+  it('头像支持上传删除，并在帖子和评论返回中同步', async () => {
+    const app = createApp();
+
+    const uploadForm = new FormData();
+    uploadForm.set('avatar', createAvatarFile('mine.png'));
+    const uploadRes = await app.request('http://localhost/api/treehole/avatar', {
+      method: 'POST',
+      headers: await authHeaderFor(authorId, '2023002001'),
+      body: uploadForm,
+    });
+    expect(uploadRes.status).toBe(200);
+    const uploadBody = await uploadRes.json() as any;
+    expect(typeof uploadBody.data.avatarUrl).toBe('string');
+    expect(uploadBody.data.avatarUrl).toContain('/media/treehole-avatar/');
+    const avatarUrl = uploadBody.data.avatarUrl as string;
+    const avatarPath = avatarUrl.split('?')[0];
+
+    const avatarInfoRes = await app.request('http://localhost/api/treehole/avatar', {
+      headers: await authHeaderFor(authorId, '2023002001'),
+    });
+    expect(avatarInfoRes.status).toBe(200);
+    const avatarInfoBody = await avatarInfoRes.json() as any;
+    expect(avatarInfoBody.data.avatarUrl).toBe(avatarUrl);
+
+    const avatarFileRes = await app.request(`http://localhost${avatarPath}`);
+    expect(avatarFileRes.status).toBe(200);
+
+    const postId = await createTreeholePost(app, authorId, '2023002001', '头像上线测试');
+    await createTreeholeComment(app, postId, authorId, '2023002001', '这是我的评论');
+
+    const listRes = await app.request('http://localhost/api/treehole/posts', {
+      headers: await authHeaderFor(otherUserId, '2023002002'),
+    });
+    expect(listRes.status).toBe(200);
+    const listBody = await listRes.json() as any;
+    expect(listBody.data.items[0].avatarUrl).toBe(avatarUrl);
+
+    const commentsRes = await app.request(`http://localhost/api/treehole/posts/${postId}/comments`, {
+      headers: await authHeaderFor(otherUserId, '2023002002'),
+    });
+    expect(commentsRes.status).toBe(200);
+    const commentsBody = await commentsRes.json() as any;
+    expect(commentsBody.data.items[0].avatarUrl).toBe(avatarUrl);
+
+    const deleteAvatarRes = await app.request('http://localhost/api/treehole/avatar', {
+      method: 'DELETE',
+      headers: await authHeaderFor(authorId, '2023002001'),
+    });
+    expect(deleteAvatarRes.status).toBe(200);
+    const deleteAvatarBody = await deleteAvatarRes.json() as any;
+    expect(deleteAvatarBody.data.avatarUrl).toBeNull();
+
+    const avatarMissingRes = await app.request(`http://localhost${avatarPath}`);
+    expect(avatarMissingRes.status).toBe(404);
+
+    const avatarInfoAfterDeleteRes = await app.request('http://localhost/api/treehole/avatar', {
+      headers: await authHeaderFor(authorId, '2023002001'),
+    });
+    expect(avatarInfoAfterDeleteRes.status).toBe(200);
+    const avatarInfoAfterDeleteBody = await avatarInfoAfterDeleteRes.json() as any;
+    expect(avatarInfoAfterDeleteBody.data.avatarUrl).toBeNull();
+
+    const listAfterDeleteRes = await app.request('http://localhost/api/treehole/posts', {
+      headers: await authHeaderFor(otherUserId, '2023002002'),
+    });
+    expect(listAfterDeleteRes.status).toBe(200);
+    const listAfterDeleteBody = await listAfterDeleteRes.json() as any;
+    expect(listAfterDeleteBody.data.items[0].avatarUrl).toBeNull();
+  });
+
+  it('头像上传会拒绝缺失文件和非图片文件', async () => {
+    const app = createApp();
+
+    const emptyForm = new FormData();
+    const missingRes = await app.request('http://localhost/api/treehole/avatar', {
+      method: 'POST',
+      headers: await authHeaderFor(authorId, '2023002001'),
+      body: emptyForm,
+    });
+    expect(missingRes.status).toBe(400);
+
+    const invalidForm = new FormData();
+    invalidForm.set('avatar', new File(['not-image'], 'plain.txt', { type: 'text/plain' }));
+    const invalidRes = await app.request('http://localhost/api/treehole/avatar', {
+      method: 'POST',
+      headers: await authHeaderFor(authorId, '2023002001'),
+      body: invalidForm,
+    });
+    expect(invalidRes.status).toBe(400);
   });
 
   it('点赞与取消点赞保持幂等，不会产生重复记录', async () => {

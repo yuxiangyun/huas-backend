@@ -15,6 +15,10 @@ import {
   DiscoverMediaService,
   DISCOVER_MEDIA_CACHE_CONTROL,
 } from './services/discover/media-service';
+import {
+  TreeholeAvatarMediaService,
+  TREEHOLE_AVATAR_CACHE_CONTROL,
+} from './services/treehole/treehole-avatar-media-service';
 
 const app = new Hono();
 const isDev = process.env.NODE_ENV !== 'production';
@@ -65,6 +69,18 @@ app.get(`${config.discover.mediaBasePath}/*`, async (c) => {
   return new Response(file, {
     headers: {
       'Cache-Control': DISCOVER_MEDIA_CACHE_CONTROL,
+      'Content-Type': file.type || 'application/octet-stream',
+    },
+  });
+});
+
+app.get(`${config.treehole.avatarMediaBasePath}/*`, async (c) => {
+  const file = await TreeholeAvatarMediaService.getPublicFile(c.req.path);
+  if (!file) return c.notFound();
+
+  return new Response(file, {
+    headers: {
+      'Cache-Control': TREEHOLE_AVATAR_CACHE_CONTROL,
       'Content-Type': file.type || 'application/octet-stream',
     },
   });

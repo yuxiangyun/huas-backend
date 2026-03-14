@@ -155,7 +155,7 @@ export function DiscoverFeed({
               type="button"
               onClick={() => onOpenPost(post.id)}
             >
-              <Card className="overflow-hidden p-0 transition motion-reduce:transition-none sm:hover:-translate-y-0.5 sm:hover:bg-card-strong">
+              <Card className="overflow-hidden p-0 shadow-none transition motion-reduce:transition-none sm:hover:-translate-y-0.5 sm:hover:bg-card-strong">
                 <div className="grid gap-0 sm:grid-cols-[15rem_minmax(0,1fr)]">
                   <div className="relative overflow-hidden sm:min-h-full">
                     {post.coverUrl ? (

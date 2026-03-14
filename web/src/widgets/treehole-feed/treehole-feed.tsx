@@ -7,6 +7,7 @@ import { useTreeholeInfinitePostsQuery } from '@/entities/treehole/api/treehole-
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
 import { IconBubble } from '@/shared/ui/page-ornament';
+import { TreeholeAvatar } from '@/shared/ui/treehole-avatar';
 
 interface TreeholeFeedProps {
   onComposeClick: () => void;
@@ -33,9 +34,14 @@ export function TreeholeFeed({ onComposeClick, onOpenPost }: TreeholeFeedProps) 
         <div className="space-y-3">
           {Array.from({ length: 4 }, (_, index) => (
             <Card key={index} className="space-y-3">
-              <div className="h-5 w-24 animate-pulse rounded bg-shell-strong" />
-              <div className="h-20 animate-pulse rounded-[1.15rem] bg-shell-strong" />
-              <div className="h-4 w-32 animate-pulse rounded bg-shell-strong" />
+              <div className="flex items-start gap-3">
+                <div className="size-10 animate-pulse rounded-[0.8rem] bg-shell-strong" />
+                <div className="min-w-0 flex-1 space-y-3">
+                  <div className="h-5 w-24 animate-pulse rounded bg-shell-strong" />
+                  <div className="h-20 animate-pulse rounded-[1.15rem] bg-shell-strong" />
+                  <div className="h-4 w-32 animate-pulse rounded bg-shell-strong" />
+                </div>
+              </div>
             </Card>
           ))}
         </div>
@@ -111,34 +117,39 @@ export function TreeholeFeed({ onComposeClick, onOpenPost }: TreeholeFeedProps) 
               type="button"
               onClick={() => onOpenPost(post.id)}
             >
-              <Card className="space-y-4 transition motion-reduce:transition-none sm:hover:-translate-y-0.5 sm:hover:bg-card-strong">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex flex-wrap gap-2">
-                    <span className="rounded-pill bg-tint-soft px-3 py-1 text-xs font-medium text-ink">
-                      匿名树洞
-                    </span>
-                    {post.viewer.isMine ? (
-                      <span className="rounded-pill bg-white px-3 py-1 text-xs text-muted ring-1 ring-line">
-                        我的
+              <Card className="space-y-4 shadow-none transition motion-reduce:transition-none sm:hover:-translate-y-0.5 sm:hover:bg-card-strong">
+                <div className="flex items-start gap-3">
+                  <TreeholeAvatar src={post.avatarUrl} />
+                  <div className="min-w-0 flex-1 space-y-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex flex-wrap gap-2">
+                        <span className="rounded-pill bg-tint-soft px-3 py-1 text-xs font-medium text-ink">
+                          匿名树洞
+                        </span>
+                        {post.viewer.isMine ? (
+                          <span className="rounded-pill bg-white px-3 py-1 text-xs text-muted ring-1 ring-line">
+                            我的
+                          </span>
+                        ) : null}
+                      </div>
+                      <span className="shrink-0 text-xs text-muted">{formatPublishedAt(post.publishedAt)}</span>
+                    </div>
+
+                    <p className="text-clamp-4 text-sm leading-7 whitespace-pre-wrap text-ink">
+                      {post.content}
+                    </p>
+
+                    <div className="flex flex-wrap items-center gap-4 text-sm text-muted">
+                      <span className="inline-flex items-center gap-1.5">
+                        <Heart20Filled aria-hidden="true" className="size-4" />
+                        {post.stats.likeCount} 个赞
                       </span>
-                    ) : null}
+                      <span className="inline-flex items-center gap-1.5">
+                        <Comment20Filled aria-hidden="true" className="size-4" />
+                        {post.stats.commentCount} 条评论
+                      </span>
+                    </div>
                   </div>
-                  <span className="text-xs text-muted">{formatPublishedAt(post.publishedAt)}</span>
-                </div>
-
-                <p className="text-clamp-4 text-sm leading-7 whitespace-pre-wrap text-ink">
-                  {post.content}
-                </p>
-
-                <div className="flex flex-wrap items-center gap-4 text-sm text-muted">
-                  <span className="inline-flex items-center gap-1.5">
-                    <Heart20Filled aria-hidden="true" className="size-4" />
-                    {post.stats.likeCount} 个赞
-                  </span>
-                  <span className="inline-flex items-center gap-1.5">
-                    <Comment20Filled aria-hidden="true" className="size-4" />
-                    {post.stats.commentCount} 条评论
-                  </span>
                 </div>
               </Card>
             </button>

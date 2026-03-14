@@ -10,6 +10,7 @@ import {
   type CreateTreeholePostInput,
   findPublicPost,
   getLikedMap,
+  getTreeholeAvatarMap,
   getTreeholeMeta,
   normalizeCommentContent,
   normalizePostContent,
@@ -21,6 +22,7 @@ import {
   toPostResponse,
   type TreeholeCommentListResponse,
   type TreeholeCommentRow,
+  type TreeholeAvatarResponse,
   type TreeholeNotificationType,
   type TreeholeListResponse,
   type TreeholePostResponse,
@@ -28,10 +30,43 @@ import {
   type TreeholeReadAllNotificationsResponse,
   type TreeholeUnreadNotificationCountResponse,
 } from './treehole-shared';
+import { TreeholeAvatarMediaService } from './treehole-avatar-media-service';
 
 export class TreeholeUserService {
   static getMeta() {
     return getTreeholeMeta();
+  }
+
+  static async getAvatar(userId: number): Promise<TreeholeAvatarResponse> {
+    const db = getDb();
+    const rows = await db.select({
+      avatarUrl: schema.users.treeholeAvatarUrl,
+    })
+      .from(schema.users)
+      .where(eq(schema.users.id, userId))
+      .limit(1);
+
+    return {
+      avatarUrl: rows[0]?.avatarUrl || null,
+    };
+  }
+
+  static async updateAvatar(userId: number, file: File): Promise<TreeholeAvatarResponse> {
+    const avatarUrl = await TreeholeAvatarMediaService.uploadAvatar(userId, file);
+    const db = getDb();
+    await db.update(schema.users)
+      .set({ treeholeAvatarUrl: avatarUrl })
+      .where(eq(schema.users.id, userId));
+    return { avatarUrl };
+  }
+
+  static async clearAvatar(userId: number): Promise<TreeholeAvatarResponse> {
+    await TreeholeAvatarMediaService.removeAvatar(userId);
+    const db = getDb();
+    await db.update(schema.users)
+      .set({ treeholeAvatarUrl: null })
+      .where(eq(schema.users.id, userId));
+    return { avatarUrl: null };
   }
 
   static async getUnreadNotificationCount(userId: number): Promise<TreeholeUnreadNotificationCountResponse> {
@@ -132,7 +167,8 @@ export class TreeholeUserService {
     if (!row) return null;
 
     const likedMap = await getLikedMap(userId, [postId]);
-    return toPostResponse(row, userId, likedMap.has(postId));
+    const avatarMap = await getTreeholeAvatarMap([row.userId]);
+    return toPostResponse(row, userId, likedMap.has(postId), avatarMap.get(row.userId) || null);
   }
 
   static async likePost(userId: number, postId: number): Promise<TreeholePostResponse | null> {
@@ -215,9 +251,11 @@ export class TreeholeUserService {
       .orderBy(asc(schema.treeholeComments.createdAt), asc(schema.treeholeComments.id))
       .limit(pageSize)
       .offset((page - 1) * pageSize);
+    const typedRows = rows as TreeholeCommentRow[];
+    const avatarMap = await getTreeholeAvatarMap(typedRows.map((row) => row.userId));
 
     return {
-      items: (rows as TreeholeCommentRow[]).map((row) => toCommentResponse(row, userId)),
+      items: typedRows.map((row) => toCommentResponse(row, userId, avatarMap.get(row.userId) || null)),
       page,
       pageSize,
       total,
@@ -306,7 +344,9 @@ export class TreeholeUserService {
       return inserted[0] as TreeholeCommentRow;
     });
 
-    return created ? toCommentResponse(created, input.userId) : null;
+    if (!created) return null;
+    const avatarMap = await getTreeholeAvatarMap([created.userId]);
+    return toCommentResponse(created, input.userId, avatarMap.get(created.userId) || null);
   }
 
   static async deletePost(postId: number, userId: number) {

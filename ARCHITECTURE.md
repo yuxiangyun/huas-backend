@@ -1,6 +1,6 @@
 # HUAS Server 架构与维护文档
 
-> 基线日期：2026-03-09
+> 基线日期：2026-03-14
 > 代码基线：当前工作区
 > 目标读者：前端接入方、后端维护者、后续功能扩展开发者
 
@@ -45,7 +45,7 @@ flowchart LR
   Client["Client / Web / Mini Program"] -->|Bearer JWT| API["/api/* 业务接口"]
   Client -->|No Auth| Public["/auth/login /health /api/public/*"]
   Client -->|Basic Auth| Admin["/status /api/admin/*"]
-  Browser -->|No Auth| Media["/media/discover/*"]
+  Browser -->|No Auth| Media["/media/discover/* /media/treehole-avatar/*"]
 
   Web --> Assets["web/dist SPA 资源"]
   API --> Routes
@@ -67,7 +67,7 @@ flowchart LR
 - 公共路由：`/auth`、`/health`
 - API 下的免 Bearer 路由：`/api/public/*`、`/api/admin/*`
 - Bearer 业务路由：`/api/schedule`、`/api/v1/schedule`、`/api/grades`、`/api/ecard`、`/api/user`、`/api/discover/*`、`/api/treehole/*`
-- 静态媒体路由：`/media/discover/*`
+- 静态媒体路由：`/media/discover/*`、`/media/treehole-avatar/*`
 - 其余 `/api/*` 全部走 `authMiddleware`
 
 维护时的关键点：
@@ -77,7 +77,7 @@ flowchart LR
 - 新增公开接口时，要显式决定是否放在 `/api/public/*` 或 `/auth/*`
 - 新增管理接口时，放在 `/api/admin/*` 可以直接复用 Basic Auth
 - 新增业务接口时，默认会被 Bearer 鉴权保护
-- `discover` 图片访问不是 API 子路由，而是单独挂在 `/media/discover/*`
+- `discover` 与 `treehole avatar` 的媒体访问都不是 API 子路由，而是单独挂在 `/media/*`
 
 ## 4. 分层职责
 
@@ -539,6 +539,9 @@ src/
 | `DISCOVER_IMAGE_MAX_BYTES` | `8388608` | 单图最大字节数，默认 8 MB |
 | `DISCOVER_IMAGE_MAX_DIMENSION` | `1280` | 压缩后最长边 |
 | `DISCOVER_IMAGE_QUALITY` | `78` | WebP 压缩质量 |
+| `TREEHOLE_AVATAR_STORAGE_ROOT` | `data/treehole-avatars` | 树洞头像文件根目录 |
+| `TREEHOLE_AVATAR_MEDIA_BASE_PATH` | `/media/treehole-avatar` | 树洞头像公开访问前缀 |
+| `TREEHOLE_AVATAR_MAX_BYTES` | `2097152` | 树洞头像最大字节数，默认 2 MB |
 
 ### 11.2 当前硬编码项
 
@@ -706,31 +709,36 @@ src/
 
 ### 13.3 Treehole 边界
 
-当前 treehole 暴露两组路由：
+当前 treehole 暴露三组路由：
 
-- `GET/POST/PUT/DELETE /api/treehole/*`
+- `GET/POST/PUT/DELETE /api/treehole/*`（含 `avatar`、`notifications`、`posts`、`comments`）
 - `DELETE /api/admin/treehole/*`
+- `GET /media/treehole-avatar/*`
 
 权限规则：
 
 - `/api/treehole/*` 全部要求 Bearer JWT
 - `/api/admin/treehole/*` 复用管理员 Basic Auth
-- treehole 没有公开媒体路由，所有内容都通过 API JSON 返回
+- `/media/treehole-avatar/*` 无需鉴权，但会校验头像路径是否仍绑定在对应用户上
 
-当前 treehole 的数据模型由三张表组成：
+当前 treehole 的数据模型由四张业务表 + `users` 扩展字段组成：
 
 1. `treehole_posts`
 2. `treehole_post_likes`
 3. `treehole_comments`
+4. `treehole_comment_notifications`
+5. `users.treehole_avatar_url`
 
 关键约束：
 
 - 作者来自 `treehole_posts.user_id -> users.id`
 - 点赞来自 `treehole_post_likes.user_id -> users.id`
 - 评论作者来自 `treehole_comments.user_id -> users.id`
+- 提醒接收人来自 `treehole_comment_notifications.recipient_user_id -> users.id`
 - `treehole_post_likes(post_id, user_id)` 唯一，保证同一用户不会重复点赞
 - `treehole_posts.deleted_at IS NULL` 代表帖子仍可见
 - `treehole_comments.deleted_at IS NULL` 代表评论仍可见
+- `treehole_*` 返回结构会附带 `avatarUrl`，通过用户 ID 批量映射而非逐条查询
 
 ### 13.4 Discover 数据模型与落盘策略
 
@@ -848,7 +856,12 @@ discover 当前有三种列表模式：
 - URL 前缀默认是 `/media/discover`
 - Nginx 只做代理，请求仍由应用判断能否访问
 - 应用确认帖子未删除后才会读盘返回
-- 响应使用 `Cache-Control: no-store`，避免删帖后旧图长期留在浏览器或 CDN 缓存里
+- 响应使用 `Cache-Control: public, max-age=31536000, immutable`
+
+缓存策略说明：
+
+- discover 图片 URL 由 `storageKey + 文件名` 组成，写入后不覆盖，适合 immutable 缓存
+- 删帖后服务端会返回 `404`，但已被客户端缓存的旧 URL 仍可能短期可见（浏览器缓存行为）
 
 生产上的边界条件：
 
@@ -876,6 +889,28 @@ discover 当前有三种列表模式：
 
 所以当前方案是“先本地跑通，再平滑切 OSS”，不是一次性把 OSS 复杂度带进来。
 
+### 13.8 Treehole 头像媒体链路
+
+Treehole 头像走了与 Discover 独立的媒体服务：
+
+- 上传入口：`POST /api/treehole/avatar`（Bearer）
+- 删除入口：`DELETE /api/treehole/avatar`（Bearer）
+- 公开访问：`GET /media/treehole-avatar/:userId.webp`（No Auth）
+
+当前实现行为：
+
+1. 接收 `multipart/form-data` 字段 `avatar`
+2. 校验格式与大小（默认上限 2 MB）
+3. 使用 `sharp` 自动旋转并裁切为 `256x256` WebP（质量 80）
+4. 落盘到 `TREEHOLE_AVATAR_STORAGE_ROOT`
+5. 回写 `users.treehole_avatar_url`（带 `?v=timestamp`）
+6. 读取媒体时会校验数据库里当前头像路径仍然匹配，防止越权猜路径读文件
+
+生产上的边界条件：
+
+- 头像文件默认本地磁盘存储，单机最简单
+- 多实例部署时需要把头像存储迁到共享存储（OSS/S3/COS/NFS）并改造读取逻辑
+
 ## 14. 测试与回归点
 
 当前关键测试文件：
@@ -886,6 +921,7 @@ discover 当前有三种列表模式：
 | `tests/public-announcements.test.ts` | 公告公开路由、管理面板年级解析 |
 | `tests/upstream-retry.test.ts` | 上游重试 |
 | `tests/discover.test.ts` | 发帖、压缩、评分、推荐、管理员删除、媒体 404 回归 |
+| `tests/treehole.test.ts` | 头像上传/删除、帖子评论头像返回、提醒读写、点赞/删除与管理员删除 |
 | `tests/e2e.live.test.ts` | 真实账号在线链路 |
 
 修改这些能力时必须优先回归：
@@ -908,6 +944,7 @@ discover 当前有三种列表模式：
 6. `refresh=true` 只保证绕过本地缓存，不保证学校侧一定更“新”。
 7. Discover 图片当前是本地磁盘存储，适合单机或共享盘，不适合多实例直接横向扩容。
 8. Discover 推荐当前只基于评分、标签和分类，没有显式行为日志与特征画像。
+9. Treehole 头像当前也是本地磁盘存储，和 Discover 一样存在多实例共享存储问题。
 
 ### 15.2 优先级较高的演进建议
 
@@ -916,4 +953,4 @@ discover 当前有三种列表模式：
 3. 把管理员凭证迁移到环境变量或独立配置。
 4. 为课表命中补 `touch`，让限额真正变成严格 LRU。
 5. 给管理面板增加显式版本号、配置快照与最近失败统计。
-6. 当 discover 需要多实例部署时，把媒体存储从本地磁盘迁到 OSS / S3 / COS。
+6. 当 discover / treehole 需要多实例部署时，把本地媒体存储迁到 OSS / S3 / COS。

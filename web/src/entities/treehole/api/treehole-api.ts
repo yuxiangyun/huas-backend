@@ -1,5 +1,6 @@
 import { apiRequest } from '@/shared/api/http-client';
 import type {
+  TreeholeAvatar,
   TreeholeComment,
   TreeholeCommentListResponse,
   TreeholeListResponse,
@@ -37,6 +38,25 @@ export interface TreeholeCommentListParams {
 
 export async function getTreeholeMeta(options?: RequestOptions) {
   return apiRequest<TreeholeMeta>('/api/treehole/meta', {}, { signal: options?.signal });
+}
+
+export async function getTreeholeAvatar(options?: RequestOptions) {
+  return apiRequest<TreeholeAvatar>('/api/treehole/avatar', {}, { signal: options?.signal });
+}
+
+export async function uploadTreeholeAvatar(file: File) {
+  const form = new FormData();
+  form.set('avatar', file);
+  return apiRequest<TreeholeAvatar>('/api/treehole/avatar', {
+    method: 'POST',
+    body: form,
+  });
+}
+
+export async function deleteTreeholeAvatar() {
+  return apiRequest<TreeholeAvatar>('/api/treehole/avatar', {
+    method: 'DELETE',
+  });
 }
 
 export async function getTreeholeUnreadNotificationCount(options?: RequestOptions) {

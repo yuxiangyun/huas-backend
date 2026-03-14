@@ -12,6 +12,7 @@ import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
 import { PageHeader } from '@/shared/ui/page-header';
 import { MyTreeholePostsPanel } from '@/widgets/my-treehole-posts-panel/my-treehole-posts-panel';
+import { TreeholeAvatarSheet } from '@/widgets/treehole-avatar-sheet/treehole-avatar-sheet';
 import { TreeholeComposeSheet } from '@/widgets/treehole-compose-sheet/treehole-compose-sheet';
 import { TreeholeDetailSheet } from '@/widgets/treehole-detail-sheet/treehole-detail-sheet';
 
@@ -20,6 +21,7 @@ export function MeTreeholePage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const setActiveTab = useUiStore((state) => state.setActiveTab);
   const openComposeSheet = useUiStore((state) => state.openTreeholeComposeSheet);
+  const openAvatarSheet = useUiStore((state) => state.openTreeholeAvatarSheet);
   const pushToast = useToastStore((state) => state.pushToast);
   const readAllNotificationsMutation = useReadAllTreeholeNotificationsMutation();
   const notificationsReadTriggeredRef = useRef(false);
@@ -76,6 +78,9 @@ export function MeTreeholePage() {
             <Button className="px-2.5" size="sm" type="button" variant="ghost" onClick={() => navigate(appRoutes.me)}>
               <ArrowLeft20Filled aria-hidden="true" className="size-4" />
               返回
+            </Button>
+            <Button className="min-w-[4.25rem]" size="sm" type="button" variant="subtle" onClick={openAvatarSheet}>
+              头像
             </Button>
             <Button className="min-w-[4.25rem]" size="sm" type="button" variant="secondary" onClick={openComposeSheet}>
               发一条
@@ -140,6 +145,7 @@ export function MeTreeholePage() {
       />
 
       <TreeholeComposeSheet />
+      <TreeholeAvatarSheet />
       <TreeholeDetailSheet
         postId={postId}
         onClose={() =>

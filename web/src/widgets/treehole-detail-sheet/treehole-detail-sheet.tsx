@@ -14,6 +14,7 @@ import { BottomSheet } from '@/shared/ui/bottom-sheet';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
 import { ConfirmSheet } from '@/shared/ui/confirm-sheet';
+import { TreeholeAvatar } from '@/shared/ui/treehole-avatar';
 
 interface TreeholeDetailSheetProps {
   postId: number | null;
@@ -172,34 +173,39 @@ export function TreeholeDetailSheet({ postId, onClose }: TreeholeDetailSheetProp
           </div>
 
           <Card className="space-y-4 rounded-[1.3rem] bg-white/78 shadow-none">
-            <p className="text-sm leading-7 whitespace-pre-wrap text-ink">{post.content}</p>
-            <div className="flex flex-wrap items-center gap-3 text-sm text-muted">
-              <span>{post.stats.likeCount} 个赞</span>
-              <span>{post.stats.commentCount} 条评论</span>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                className="min-w-[6rem]"
-                disabled={likeBusy}
-                size="sm"
-                type="button"
-                variant={post.viewer.liked ? 'subtle' : 'secondary'}
-                onClick={() => void handleToggleLike()}
-              >
-                {likeBusy ? '处理中...' : post.viewer.liked ? '取消点赞' : '点赞'}
-              </Button>
-              {post.viewer.isMine ? (
-                <Button
-                  className="min-w-[6rem]"
-                  disabled={deletePostMutation.isPending}
-                  size="sm"
-                  type="button"
-                  variant="danger"
-                  onClick={() => setDeleteConfirmOpen(true)}
-                >
-                  {deletePostMutation.isPending ? '删除中...' : '删除'}
-                </Button>
-              ) : null}
+            <div className="flex items-start gap-3">
+              <TreeholeAvatar src={post.avatarUrl} />
+              <div className="min-w-0 flex-1 space-y-4">
+                <p className="text-sm leading-7 whitespace-pre-wrap text-ink">{post.content}</p>
+                <div className="flex flex-wrap items-center gap-3 text-sm text-muted">
+                  <span>{post.stats.likeCount} 个赞</span>
+                  <span>{post.stats.commentCount} 条评论</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    className="min-w-[6rem]"
+                    disabled={likeBusy}
+                    size="sm"
+                    type="button"
+                    variant={post.viewer.liked ? 'subtle' : 'secondary'}
+                    onClick={() => void handleToggleLike()}
+                  >
+                    {likeBusy ? '处理中...' : post.viewer.liked ? '取消点赞' : '点赞'}
+                  </Button>
+                  {post.viewer.isMine ? (
+                    <Button
+                      className="min-w-[6rem]"
+                      disabled={deletePostMutation.isPending}
+                      size="sm"
+                      type="button"
+                      variant="danger"
+                      onClick={() => setDeleteConfirmOpen(true)}
+                    >
+                      {deletePostMutation.isPending ? '删除中...' : '删除'}
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
             </div>
           </Card>
 
@@ -260,8 +266,13 @@ export function TreeholeDetailSheet({ postId, onClose }: TreeholeDetailSheetProp
             <div className="space-y-3">
               {Array.from({ length: 2 }, (_, index) => (
                 <Card key={index} className="space-y-2 rounded-[1.2rem] bg-white/72 shadow-none">
-                  <div className="h-4 w-24 animate-pulse rounded bg-shell-strong" />
-                  <div className="h-16 animate-pulse rounded-[1rem] bg-shell-strong" />
+                  <div className="flex items-start gap-3">
+                    <div className="size-10 animate-pulse rounded-[0.8rem] bg-shell-strong" />
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <div className="h-4 w-24 animate-pulse rounded bg-shell-strong" />
+                      <div className="h-16 animate-pulse rounded-[1rem] bg-shell-strong" />
+                    </div>
+                  </div>
                 </Card>
               ))}
             </div>
@@ -289,64 +300,69 @@ export function TreeholeDetailSheet({ postId, onClose }: TreeholeDetailSheetProp
             <div className="space-y-3">
               {comments.map((comment) => (
                 <Card key={comment.id} className="space-y-3 rounded-[1.2rem] bg-white/72 shadow-none">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
-                      <span className="rounded-pill bg-white px-3 py-1 ring-1 ring-line">
-                        {comment.isMine ? '我的评论' : '匿名评论'}
-                      </span>
-                      <span>{formatPublishedAt(comment.createdAt)}</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <Button
-                        size="xs"
-                        type="button"
-                        variant="ghost"
-                        onClick={() => {
-                          setReplyTarget({
-                            id: comment.id,
-                            preview: comment.content.length > 20 ? `${comment.content.slice(0, 20)}...` : comment.content,
-                          });
-                        }}
-                      >
-                        回复
-                      </Button>
-                      {comment.isMine ? (
-                        <Button
-                          disabled={
-                            deleteCommentMutation.isPending
-                            && deleteCommentMutation.variables?.commentId === comment.id
-                          }
-                          size="xs"
-                          type="button"
-                          variant="ghost"
-                        onClick={() => {
-                          setActionMessage(null);
-                          deleteCommentMutation.mutate(
-                            { commentId: comment.id },
-                            {
-                              onError: (error) => {
-                                setActionMessage(
-                                  error instanceof Error ? error.message : '删除评论失败，请稍后重试'
+                  <div className="flex items-start gap-3">
+                    <TreeholeAvatar src={comment.avatarUrl} />
+                    <div className="min-w-0 flex-1 space-y-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+                          <span className="rounded-pill bg-white px-3 py-1 ring-1 ring-line">
+                            {comment.isMine ? '我的评论' : '匿名评论'}
+                          </span>
+                          <span>{formatPublishedAt(comment.createdAt)}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <Button
+                            size="xs"
+                            type="button"
+                            variant="ghost"
+                            onClick={() => {
+                              setReplyTarget({
+                                id: comment.id,
+                                preview: comment.content.length > 20 ? `${comment.content.slice(0, 20)}...` : comment.content,
+                              });
+                            }}
+                          >
+                            回复
+                          </Button>
+                          {comment.isMine ? (
+                            <Button
+                              disabled={
+                                deleteCommentMutation.isPending
+                                && deleteCommentMutation.variables?.commentId === comment.id
+                              }
+                              size="xs"
+                              type="button"
+                              variant="ghost"
+                              onClick={() => {
+                                setActionMessage(null);
+                                deleteCommentMutation.mutate(
+                                  { commentId: comment.id },
+                                  {
+                                    onError: (error) => {
+                                      setActionMessage(
+                                        error instanceof Error ? error.message : '删除评论失败，请稍后重试'
+                                      );
+                                    },
+                                  }
                                 );
-                              },
-                            }
-                          );
-                        }}
-                      >
-                        删除
-                      </Button>
+                              }}
+                            >
+                              删除
+                            </Button>
+                          ) : null}
+                        </div>
+                      </div>
+                      {comment.parentCommentId ? (
+                        <div className="rounded-[0.9rem] bg-white/80 px-3 py-2 text-xs leading-5 text-muted ring-1 ring-line">
+                          回复 #{comment.parentCommentId}
+                          {commentPreviewById.get(comment.parentCommentId)
+                            ? `：${commentPreviewById.get(comment.parentCommentId)}`
+                            : ''}
+                        </div>
                       ) : null}
+                      <p className="text-sm leading-7 whitespace-pre-wrap text-ink">{comment.content}</p>
                     </div>
                   </div>
-                  {comment.parentCommentId ? (
-                    <div className="rounded-[0.9rem] bg-white/80 px-3 py-2 text-xs leading-5 text-muted ring-1 ring-line">
-                      回复 #{comment.parentCommentId}
-                      {commentPreviewById.get(comment.parentCommentId)
-                        ? `：${commentPreviewById.get(comment.parentCommentId)}`
-                        : ''}
-                    </div>
-                  ) : null}
-                  <p className="text-sm leading-7 whitespace-pre-wrap text-ink">{comment.content}</p>
                 </Card>
               ))}
 

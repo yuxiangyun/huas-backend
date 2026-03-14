@@ -11,11 +11,7 @@ import {
   type DiscoverSort,
 } from '@/entities/discover/model/discover-types';
 import { PageHeader } from '@/shared/ui/page-header';
-import { PageOrnament } from '@/shared/ui/page-ornament';
 import { DiscoverFeed } from '@/widgets/discover-feed/discover-feed';
-import { Apps20Filled } from '@fluentui/react-icons/svg/apps';
-import { ArrowTrendingSparkle20Filled } from '@fluentui/react-icons/svg/arrow-trending-sparkle';
-import { BowlChopsticks24Filled } from '@fluentui/react-icons/svg/bowl-chopsticks';
 
 const loadDiscoverComposeSheet = () => import('@/widgets/discover-compose-sheet/discover-compose-sheet');
 const loadDiscoverDetailSheet = () => import('@/widgets/discover-detail-sheet/discover-detail-sheet');
@@ -144,25 +140,7 @@ export function DiscoverPage() {
       <PageHeader
         compact
         description="看推荐，也能发"
-        eyebrow="拍好饭"
         title="拍好饭"
-        visual={(
-          <PageOrnament
-            badges={[
-              {
-                icon: <ArrowTrendingSparkle20Filled aria-hidden="true" className="size-3.5" />,
-                label: '推荐',
-                tone: 'rose',
-              },
-            ]}
-            className="w-full sm:w-[13rem]"
-            compact
-            icon={<BowlChopsticks24Filled aria-hidden="true" className="size-6" />}
-            label="校园推荐"
-            title="推荐、分类、发布"
-            tone="amber"
-          />
-        )}
       />
 
       <DiscoverFeed

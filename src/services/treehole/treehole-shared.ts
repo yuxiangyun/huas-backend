@@ -62,6 +62,7 @@ export interface AdminTreeholeCommentRow extends TreeholeCommentRow {
 export interface TreeholePostResponse {
   id: number;
   content: string;
+  avatarUrl: string | null;
   stats: {
     likeCount: number;
     commentCount: number;
@@ -80,9 +81,14 @@ export interface TreeholeCommentResponse {
   postId: number;
   parentCommentId: number | null;
   content: string;
+  avatarUrl: string | null;
   isMine: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface TreeholeAvatarResponse {
+  avatarUrl: string | null;
 }
 
 export interface TreeholeUnreadNotificationCountResponse {
@@ -292,10 +298,16 @@ function toAdminAuthorSummary(row: { userId: number; authorStudentId: string; au
   };
 }
 
-export function toPostResponse(row: TreeholePostRow, userId: number, liked: boolean): TreeholePostResponse {
+export function toPostResponse(
+  row: TreeholePostRow,
+  userId: number,
+  liked: boolean,
+  avatarUrl: string | null
+): TreeholePostResponse {
   return {
     id: row.id,
     content: row.content,
+    avatarUrl,
     stats: {
       likeCount: row.likeCount,
       commentCount: row.commentCount,
@@ -325,12 +337,17 @@ export function toAdminPostResponse(row: AdminTreeholePostRow): AdminTreeholePos
   };
 }
 
-export function toCommentResponse(row: TreeholeCommentRow, userId: number): TreeholeCommentResponse {
+export function toCommentResponse(
+  row: TreeholeCommentRow,
+  userId: number,
+  avatarUrl: string | null
+): TreeholeCommentResponse {
   return {
     id: row.id,
     postId: row.postId,
     parentCommentId: row.parentCommentId,
     content: row.content,
+    avatarUrl,
     isMine: row.userId === userId,
     createdAt: beijingIsoString(row.createdAt),
     updatedAt: beijingIsoString(row.updatedAt),
@@ -375,6 +392,25 @@ export async function getLikedMap(userId: number, postIds: number[]) {
   return new Map(rows.map((row) => [row.postId, true] as const));
 }
 
+export async function getTreeholeAvatarMap(userIds: number[]) {
+  if (userIds.length === 0) return new Map<number, string | null>();
+
+  const uniqueUserIds = Array.from(new Set(
+    userIds.filter((userId) => Number.isInteger(userId) && userId > 0)
+  ));
+  if (uniqueUserIds.length === 0) return new Map<number, string | null>();
+
+  const db = getDb();
+  const rows = await db.select({
+    id: schema.users.id,
+    avatarUrl: schema.users.treeholeAvatarUrl,
+  })
+    .from(schema.users)
+    .where(inArray(schema.users.id, uniqueUserIds));
+
+  return new Map(rows.map((row) => [row.id, row.avatarUrl || null] as const));
+}
+
 export async function toPostListResponse(
   rows: TreeholePostRow[],
   userId: number,
@@ -383,9 +419,12 @@ export async function toPostListResponse(
   total: number
 ): Promise<TreeholeListResponse> {
   const likedMap = await getLikedMap(userId, rows.map((row) => row.id));
+  const avatarMap = await getTreeholeAvatarMap(rows.map((row) => row.userId));
 
   return {
-    items: rows.map((row) => toPostResponse(row, userId, likedMap.has(row.id))),
+    items: rows.map((row) =>
+      toPostResponse(row, userId, likedMap.has(row.id), avatarMap.get(row.userId) || null)
+    ),
     page,
     pageSize,
     total,

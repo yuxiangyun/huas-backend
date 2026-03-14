@@ -1,6 +1,6 @@
 # HUAS Web 前端架构文档
 
-> 基线日期：2026-03-10
+> 基线日期：2026-03-14
 > 当前代码位置：`/Users/xiangyun/Desktop/huas-server/web`
 > 当前线上入口：`/m`
 
@@ -195,6 +195,7 @@
 - 打开树洞详情
 - 刷新列表
 - 打开发帖弹层
+- 打开树洞头像弹层（上传/删除）
 
 ### 6.6 Treehole 弹层
 
@@ -202,6 +203,7 @@
 
 - `web/src/widgets/treehole-compose-sheet/treehole-compose-sheet.tsx`
 - `web/src/widgets/treehole-detail-sheet/treehole-detail-sheet.tsx`
+- `web/src/widgets/treehole-avatar-sheet/treehole-avatar-sheet.tsx`
 
 当前能力：
 
@@ -210,6 +212,7 @@
 - 点赞 / 取消点赞
 - 单层评论与删除自己的评论
 - 删除自己的树洞
+- 上传、裁切、删除树洞头像
 
 ### 6.7 我的页
 
@@ -228,6 +231,10 @@
 - 进入“拍好饭”子页面
 - 进入“树洞”子页面
 - 退出登录
+
+补充：
+
+- “我的”页当前会读取 `GET /api/treehole/avatar`，将树洞头像同步展示在账号入口卡片中
 
 ### 6.8 我的 Discover 页
 
@@ -344,8 +351,8 @@ web/src/
 
 | 类型 | 当前方案 | 示例 |
 |---|---|---|
-| 客户端状态 | `Zustand` | `token`、`userBrief`、`discoverComposeSheetOpen`、`treeholeComposeSheetOpen`、Toast 队列 |
-| 服务端状态 | `TanStack Query` | Discover / Treehole 的 meta、列表、详情、评论、我的内容 |
+| 客户端状态 | `Zustand` | `token`、`userBrief`、`discoverComposeSheetOpen`、`treeholeComposeSheetOpen`、`treeholeAvatarSheetOpen`、Toast 队列 |
+| 服务端状态 | `TanStack Query` | Discover / Treehole 的 meta、列表、详情、评论、我的内容、头像、未读提醒 |
 | 可分享页面状态 | `URL Search Params` | `sort`、`category`、`postId` |
 
 ### 8.1 Auth Store
@@ -368,11 +375,14 @@ web/src/
 - `activeTab`
 - `discoverComposeSheetOpen`
 - `treeholeComposeSheetOpen`
+- `treeholeAvatarSheetOpen`
 - `setActiveTab()`
 - `openDiscoverComposeSheet()`
 - `closeDiscoverComposeSheet()`
 - `openTreeholeComposeSheet()`
 - `closeTreeholeComposeSheet()`
+- `openTreeholeAvatarSheet()`
+- `closeTreeholeAvatarSheet()`
 
 ### 8.3 Toast Store
 
@@ -416,6 +426,11 @@ web/src/
 | 功能 | 接口 | 当前页面/组件 |
 |---|---|---|
 | 元信息 | `GET /api/treehole/meta` | 树洞发帖弹层、评论输入约束 |
+| 我的头像 | `GET /api/treehole/avatar` | 树洞头像弹层、我的页头像展示 |
+| 上传头像 | `POST /api/treehole/avatar` | 树洞头像弹层 |
+| 删除头像 | `DELETE /api/treehole/avatar` | 树洞头像弹层 |
+| 未读提醒数 | `GET /api/treehole/notifications/unread-count` | `/m/me`、`/m/treehole`、`/m/me/treehole` |
+| 全部已读 | `POST /api/treehole/notifications/read-all` | `/m/treehole`、`/m/me/treehole` 进入时触发 |
 | 列表 | `GET /api/treehole/posts` | `/m/treehole` |
 | 我的树洞 | `GET /api/treehole/posts/me` | `/m/me/treehole` |
 | 详情 | `GET /api/treehole/posts/:id` | 树洞详情弹层 |
@@ -426,6 +441,7 @@ web/src/
 | 评论 | `POST /api/treehole/posts/:id/comments` | 树洞详情弹层 |
 | 删除帖子 | `DELETE /api/treehole/posts/:id` | 树洞详情弹层 |
 | 删除评论 | `DELETE /api/treehole/comments/:id` | 树洞详情弹层 |
+| 头像媒体 | `GET /media/treehole-avatar/*` | `TreeholeAvatar` 组件 `<img>` 直接访问 |
 
 ### 10.3 User
 

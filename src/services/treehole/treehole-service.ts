@@ -8,6 +8,18 @@ export class TreeholeService {
     return TreeholeUserService.getMeta();
   }
 
+  static async getAvatar(userId: number) {
+    return TreeholeUserService.getAvatar(userId);
+  }
+
+  static async updateAvatar(userId: number, file: File) {
+    return TreeholeUserService.updateAvatar(userId, file);
+  }
+
+  static async clearAvatar(userId: number) {
+    return TreeholeUserService.clearAvatar(userId);
+  }
+
   static async getUnreadNotificationCount(userId: number) {
     return TreeholeUserService.getUnreadNotificationCount(userId);
   }

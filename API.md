@@ -1,6 +1,6 @@
 # HUAS Server API 文档
 
-> 基线日期：2026-03-10
+> 基线日期：2026-03-14
 > Base URL：`http://localhost:3000`
 > 时区约定：服务端固定使用 `Asia/Shanghai`，文档中的时间示例均为 `+08:00`
 
@@ -21,6 +21,7 @@
 | `GET/POST/DELETE /api/discover/*` | Bearer JWT | 发现美食接口 |
 | `GET/POST/PUT/DELETE /api/treehole/*` | Bearer JWT | 树洞接口 |
 | `GET /media/discover/*` | 无 | 发现美食图片访问，仅未删除帖子可访问 |
+| `GET /media/treehole-avatar/*` | 无 | 树洞头像访问，仅当前仍绑定该头像的用户可访问 |
 | `DELETE /api/admin/treehole/*` | Basic Auth | 树洞管理接口 |
 
 Bearer Token 使用：
@@ -522,6 +523,7 @@ async function apiRequest<T>(path: string, token?: string): Promise<ApiResponse<
 {
   "id": 18,
   "content": "今天有点累。",
+  "avatarUrl": "/media/treehole-avatar/3.webp?v=1741871670488",
   "stats": {
     "likeCount": 3,
     "commentCount": 2
@@ -542,6 +544,7 @@ async function apiRequest<T>(path: string, token?: string): Promise<ApiResponse<
 |---|---|---|
 | `id` | number | 树洞 ID |
 | `content` | string | 树洞正文 |
+| `avatarUrl` | string \| null | 树洞头像路径，`null` 表示使用默认匿名头像 |
 | `stats.likeCount` | number | 点赞数 |
 | `stats.commentCount` | number | 评论数 |
 | `viewer.liked` | boolean | 当前登录用户是否已点赞 |
@@ -583,7 +586,9 @@ async function apiRequest<T>(path: string, token?: string): Promise<ApiResponse<
 {
   "id": 6,
   "postId": 18,
+  "parentCommentId": null,
   "content": "抱抱你。",
+  "avatarUrl": "/media/treehole-avatar/5.webp?v=1741871670488",
   "isMine": false,
   "createdAt": "2026-03-10T21:40:00.000+08:00",
   "updatedAt": "2026-03-10T21:40:00.000+08:00"
@@ -596,7 +601,9 @@ async function apiRequest<T>(path: string, token?: string): Promise<ApiResponse<
 |---|---|---|
 | `id` | number | 评论 ID |
 | `postId` | number | 所属树洞 ID |
+| `parentCommentId` | number \| null | 父评论 ID，普通评论为 `null` |
 | `content` | string | 评论正文 |
+| `avatarUrl` | string \| null | 评论作者头像路径，`null` 表示默认匿名头像 |
 | `isMine` | boolean | 是否是当前登录用户自己的评论 |
 | `createdAt` | string | 创建时间，北京时间 ISO 字符串 |
 | `updatedAt` | string | 更新时间，北京时间 ISO 字符串 |
@@ -622,6 +629,36 @@ async function apiRequest<T>(path: string, token?: string): Promise<ApiResponse<
 | `pageSize` | number | 每页数量，最大为 `100` |
 | `total` | number | 命中总数 |
 | `hasMore` | boolean | 是否还有下一页 |
+
+### 5.15 `TreeholeAvatar`
+
+```json
+{
+  "avatarUrl": "/media/treehole-avatar/3.webp?v=1741871670488"
+}
+```
+
+字段说明：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `avatarUrl` | string \| null | 当前登录用户的树洞头像路径，`null` 表示未设置 |
+
+### 5.16 `TreeholeUnreadNotificationCount`
+
+```json
+{
+  "unreadCount": 2
+}
+```
+
+### 5.17 `TreeholeReadAllNotificationsResult`
+
+```json
+{
+  "readCount": 2
+}
+```
 
 ## 6. 接口明细
 
@@ -1462,7 +1499,7 @@ GET /media/discover/2a3c6c91-7f8b-4bc7-a9d7-5c93b3e7e7f1/01.webp
 - 响应头会带：
 
 ```http
-Cache-Control: no-store
+Cache-Control: public, max-age=31536000, immutable
 ```
 
 注意：
@@ -1470,7 +1507,7 @@ Cache-Control: no-store
 - 这是静态媒体访问地址，不是 API JSON 接口
 - 前端应直接把 `DiscoverImage.url` 用作 `img`/`Image` 组件地址
 - 删除帖子后，旧图片 URL 不再可用
-- 图片不应被长期缓存，否则会和删帖语义冲突
+- Discover 图片 URL 基于 `storageKey + fileName`，生成后不覆盖，适合长期缓存
 
 ### 6.23 `GET /api/treehole/meta`
 
@@ -1709,7 +1746,8 @@ Authorization: Bearer <token>
 
 ```json
 {
-  "content": "抱抱你。"
+  "content": "抱抱你。",
+  "parentCommentId": 5
 }
 ```
 
@@ -1718,6 +1756,7 @@ Authorization: Bearer <token>
 - 请求体必须是合法 JSON
 - `content.trim()` 不能为空
 - 内容长度不能超过 `200` 字
+- `parentCommentId` 可选；传入时必须是正整数
 
 请求示例：
 
@@ -1738,6 +1777,7 @@ Content-Type: application/json
 | 帖子 ID 非法 | 4002 | 400 |
 | 请求体不是合法 JSON | 4002 | 400 |
 | 评论内容为空或超长 | 4002 | 400 |
+| 父评论 ID 非法或父评论不属于该帖子 | 4002 | 400 |
 | 树洞不存在或已删除 | 4002 | 404 |
 
 ### 6.32 `DELETE /api/treehole/posts/:id`
@@ -1867,6 +1907,125 @@ Authorization: Basic <base64(username:password)>
 | 评论不存在 | 4002 | 404 |
 | 删除过程中出现未处理异常 | 5000 | 500 |
 
+### 6.36 `GET /api/treehole/avatar`
+
+获取当前登录用户的树洞头像，需 Bearer JWT。
+
+请求示例：
+
+```http
+GET /api/treehole/avatar
+Authorization: Bearer <token>
+```
+
+成功响应：
+
+返回 [5.15 `TreeholeAvatar`](#515-treeholeavatar)。
+
+### 6.37 `POST /api/treehole/avatar`
+
+上传并更新树洞头像，需 Bearer JWT。  
+请求必须是 `multipart/form-data`，字段名固定为 `avatar`。
+
+请求示例：
+
+```http
+POST /api/treehole/avatar
+Authorization: Bearer <token>
+Content-Type: multipart/form-data
+```
+
+成功响应：
+
+返回 [5.15 `TreeholeAvatar`](#515-treeholeavatar)。
+
+当前实现规则：
+
+- 支持图片格式：JPG、PNG、WebP、GIF、HEIC/HEIF、AVIF、TIFF
+- 单文件大小上限由 `TREEHOLE_AVATAR_MAX_BYTES` 控制，默认 `2097152`（2 MB）
+- 服务端会自动处理方向并裁切为 `256x256` WebP（质量 `80`）
+- 返回 URL 默认带版本参数（`?v=timestamp`）用于缓存刷新
+
+错误：
+
+| 场景 | `error_code` | HTTP |
+|---|---:|---:|
+| 请求体不是 multipart/form-data | 4002 | 400 |
+| 缺失 `avatar` 字段或文件为空 | 4002 | 400 |
+| 文件过大或格式不支持 | 4002 | 400 |
+| 图片处理失败 | 4002 | 400 |
+
+### 6.38 `DELETE /api/treehole/avatar`
+
+删除当前登录用户的树洞头像，需 Bearer JWT。
+
+请求示例：
+
+```http
+DELETE /api/treehole/avatar
+Authorization: Bearer <token>
+```
+
+成功响应：
+
+返回 [5.15 `TreeholeAvatar`](#515-treeholeavatar)，其中 `avatarUrl` 为 `null`。
+
+### 6.39 `GET /api/treehole/notifications/unread-count`
+
+获取树洞未读评论提醒数，需 Bearer JWT。
+
+请求示例：
+
+```http
+GET /api/treehole/notifications/unread-count
+Authorization: Bearer <token>
+```
+
+成功响应：
+
+返回 [5.16 `TreeholeUnreadNotificationCount`](#516-treeholeunreadnotificationcount)。
+
+### 6.40 `POST /api/treehole/notifications/read-all`
+
+将当前用户树洞提醒全部标记为已读，需 Bearer JWT。
+
+请求示例：
+
+```http
+POST /api/treehole/notifications/read-all
+Authorization: Bearer <token>
+```
+
+成功响应：
+
+返回 [5.17 `TreeholeReadAllNotificationsResult`](#517-treeholereadallnotificationsresult)。
+
+### 6.41 `GET /media/treehole-avatar/:userId.webp`
+
+访问树洞头像静态资源，无需鉴权。
+
+请求示例：
+
+```http
+GET /media/treehole-avatar/3.webp
+```
+
+当前实现规则：
+
+- 只有当 `users.treehole_avatar_url` 当前仍指向该路径时才可访问
+- 文件不存在、用户不存在、或头像已被删除/替换时均返回 `404`
+- 响应头：
+
+```http
+Cache-Control: public, max-age=31536000, immutable
+```
+
+注意：
+
+- 这是静态媒体地址，不是 JSON API
+- 前端应直接把 `avatarUrl` 作为 `<img src>` 使用
+- 前端看到 URL 变化（如 `?v=...`）时应视为头像版本更新
+
 ## 7. 前端易踩坑清单
 
 1. `schedule` 和 `v1/schedule` 当前都返回 `{ week, courses }`，不是数组，也不是“按日期分组对象”。
@@ -1883,3 +2042,7 @@ Authorization: Basic <base64(username:password)>
 12. 发现美食里的“帖子不存在”很多场景会返回 `HTTP 404 + error_code=4002`，前端不要只盯 `error_code` 判断是否是参数错误。
 13. 树洞对外匿名，但接口仍会根据当前登录用户返回 `viewer.isMine` / `isMine`，前端不要把匿名和“无法管理自己内容”混为一谈。
 14. `GET /api/treehole/posts/me` 与公共列表使用同一分页结构，但只返回当前用户自己的未删除树洞。
+15. `TreeholePost` 与 `TreeholeComment` 里的 `avatarUrl` 都可能为 `null`，前端必须有默认匿名头像兜底。
+16. `TreeholeComment.parentCommentId` 可能为 `null`，回复 UI 不能假设它始终存在。
+17. 树洞头像是独立媒体路由（`/media/treehole-avatar/*`），不是 `/api/*` JSON 接口。
+18. 树洞提醒计数需要额外走 `GET/POST /api/treehole/notifications/*`，不要只依赖评论列表推断未读数。

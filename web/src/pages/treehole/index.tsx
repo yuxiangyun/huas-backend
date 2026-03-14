@@ -1,19 +1,16 @@
 import { lazy, startTransition, Suspense, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Add20Filled } from '@fluentui/react-icons/svg/add';
-import { Chat24Filled } from '@fluentui/react-icons/svg/chat';
-import { Comment20Filled } from '@fluentui/react-icons/svg/comment';
-import { TextQuote20Filled } from '@fluentui/react-icons/svg/text-quote';
 import { useUiStore } from '@/app/state/ui-store';
 import { useToastStore } from '@/app/state/toast-store';
 import { useReadAllTreeholeNotificationsMutation } from '@/entities/treehole/api/treehole-queries';
 import { PageHeader } from '@/shared/ui/page-header';
 import { Button } from '@/shared/ui/button';
-import { PageOrnament } from '@/shared/ui/page-ornament';
 import { TreeholeFeed } from '@/widgets/treehole-feed/treehole-feed';
 
 const loadTreeholeComposeSheet = () => import('@/widgets/treehole-compose-sheet/treehole-compose-sheet');
 const loadTreeholeDetailSheet = () => import('@/widgets/treehole-detail-sheet/treehole-detail-sheet');
+const loadTreeholeAvatarSheet = () => import('@/widgets/treehole-avatar-sheet/treehole-avatar-sheet');
 
 const LazyTreeholeComposeSheet = lazy(async () => {
   const module = await loadTreeholeComposeSheet();
@@ -25,11 +22,18 @@ const LazyTreeholeDetailSheet = lazy(async () => {
   return { default: module.TreeholeDetailSheet };
 });
 
+const LazyTreeholeAvatarSheet = lazy(async () => {
+  const module = await loadTreeholeAvatarSheet();
+  return { default: module.TreeholeAvatarSheet };
+});
+
 export function TreeholePage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const setActiveTab = useUiStore((state) => state.setActiveTab);
   const composeSheetOpen = useUiStore((state) => state.treeholeComposeSheetOpen);
+  const avatarSheetOpen = useUiStore((state) => state.treeholeAvatarSheetOpen);
   const openComposeSheet = useUiStore((state) => state.openTreeholeComposeSheet);
+  const openAvatarSheet = useUiStore((state) => state.openTreeholeAvatarSheet);
   const pushToast = useToastStore((state) => state.pushToast);
   const readAllNotificationsMutation = useReadAllTreeholeNotificationsMutation();
   const notificationsReadTriggeredRef = useRef(false);
@@ -37,6 +41,7 @@ export function TreeholePage() {
   const postId = Number.isInteger(rawPostId) && rawPostId > 0 ? rawPostId : null;
   const [composeSheetRequested, setComposeSheetRequested] = useState(false);
   const [detailSheetRequested, setDetailSheetRequested] = useState(false);
+  const [avatarSheetRequested, setAvatarSheetRequested] = useState(false);
 
   useEffect(() => {
     setActiveTab('treehole');
@@ -67,6 +72,12 @@ export function TreeholePage() {
     void loadTreeholeDetailSheet();
   }, [postId]);
 
+  useEffect(() => {
+    if (!avatarSheetOpen) return;
+    setAvatarSheetRequested(true);
+    void loadTreeholeAvatarSheet();
+  }, [avatarSheetOpen]);
+
   function patchSearchParams(
     patcher: (params: URLSearchParams) => void
   ) {
@@ -88,6 +99,12 @@ export function TreeholePage() {
     openComposeSheet();
   };
 
+  const handleOpenAvatarSheet = () => {
+    setAvatarSheetRequested(true);
+    void loadTreeholeAvatarSheet();
+    openAvatarSheet();
+  };
+
   const handleOpenPost = (nextPostId: number) => {
     setDetailSheetRequested(true);
     void loadTreeholeDetailSheet();
@@ -100,32 +117,19 @@ export function TreeholePage() {
     <div className="page-stack-mobile">
       <PageHeader
         action={(
-          <Button className="min-w-[4.5rem]" size="sm" type="button" variant="subtle" onClick={handleOpenComposeSheet}>
-            <Add20Filled aria-hidden="true" className="size-4" />
-            发一条
-          </Button>
+          <div className="flex items-center gap-1.5">
+            <Button className="min-w-[4.25rem]" size="sm" type="button" variant="subtle" onClick={handleOpenAvatarSheet}>
+              头像
+            </Button>
+            <Button className="min-w-[4.5rem]" size="sm" type="button" variant="subtle" onClick={handleOpenComposeSheet}>
+              <Add20Filled aria-hidden="true" className="size-4" />
+              发一条
+            </Button>
+          </div>
         )}
         compact
         description="匿名发言"
-        eyebrow="树洞"
         title="树洞"
-        visual={(
-          <PageOrnament
-            badges={[
-              {
-                icon: <TextQuote20Filled aria-hidden="true" className="size-3.5" />,
-                label: '匿名',
-                tone: 'rose',
-              },
-            ]}
-            className="w-full sm:w-[13rem]"
-            compact
-            icon={<Chat24Filled aria-hidden="true" className="size-6" />}
-            label="匿名树洞"
-            title="发声，也留一点回响"
-            tone="blue"
-          />
-        )}
       />
 
       <TreeholeFeed
@@ -149,6 +153,12 @@ export function TreeholePage() {
               })
             }
           />
+        </Suspense>
+      ) : null}
+
+      {avatarSheetRequested ? (
+        <Suspense fallback={null}>
+          <LazyTreeholeAvatarSheet />
         </Suspense>
       ) : null}
     </div>

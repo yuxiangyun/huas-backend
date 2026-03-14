@@ -1,6 +1,7 @@
 export interface TreeholePost {
   id: number;
   content: string;
+  avatarUrl: string | null;
   stats: {
     likeCount: number;
     commentCount: number;
@@ -19,9 +20,14 @@ export interface TreeholeComment {
   postId: number;
   parentCommentId: number | null;
   content: string;
+  avatarUrl: string | null;
   isMine: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface TreeholeAvatar {
+  avatarUrl: string | null;
 }
 
 export interface TreeholeUnreadNotificationCount {

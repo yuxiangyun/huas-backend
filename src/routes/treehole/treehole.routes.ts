@@ -29,6 +29,46 @@ treehole.get('/meta', (c) => {
   return success(c, data);
 });
 
+treehole.get('/avatar', async (c) => {
+  const data = await TreeholeService.getAvatar(c.get('userId'));
+  appendHttpLogDetail(c, formatHttpLogDetail({
+    hasAvatar: Boolean(data.avatarUrl),
+  }));
+  return success(c, data);
+});
+
+treehole.post('/avatar', async (c) => {
+  let form: FormData;
+  try {
+    form = await c.req.formData();
+  } catch {
+    return error(c, ErrorCode.PARAM_ERROR, '请求必须是 multipart/form-data', 400);
+  }
+
+  const avatar = form.get('avatar');
+  if (!(avatar instanceof File) || avatar.size <= 0) {
+    return error(c, ErrorCode.PARAM_ERROR, '头像文件不能为空', 400);
+  }
+
+  appendHttpLogDetail(c, formatHttpLogDetail({
+    avatarBytes: avatar.size,
+  }));
+
+  const data = await TreeholeService.updateAvatar(c.get('userId'), avatar);
+  appendHttpLogDetail(c, formatHttpLogDetail({
+    hasAvatar: Boolean(data.avatarUrl),
+  }));
+  return success(c, data);
+});
+
+treehole.delete('/avatar', async (c) => {
+  const data = await TreeholeService.clearAvatar(c.get('userId'));
+  appendHttpLogDetail(c, formatHttpLogDetail({
+    hasAvatar: Boolean(data.avatarUrl),
+  }));
+  return success(c, data);
+});
+
 treehole.get('/notifications/unread-count', async (c) => {
   const data = await TreeholeService.getUnreadNotificationCount(c.get('userId'));
   appendHttpLogDetail(c, formatHttpLogDetail({

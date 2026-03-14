@@ -3,8 +3,10 @@ import type { InfiniteData } from '@tanstack/react-query';
 import {
   createTreeholeComment,
   createTreeholePost,
+  deleteTreeholeAvatar,
   deleteTreeholeComment,
   deleteTreeholePost,
+  getTreeholeAvatar,
   getMyTreeholePosts,
   getTreeholeComments,
   getTreeholeMeta,
@@ -14,6 +16,7 @@ import {
   likeTreeholePost,
   readAllTreeholeNotifications,
   unlikeTreeholePost,
+  uploadTreeholeAvatar,
   type TreeholeCommentListParams,
   type TreeholeListParams,
 } from '@/entities/treehole/api/treehole-api';
@@ -27,11 +30,26 @@ export function useTreeholeMetaQuery() {
   });
 }
 
+export function useTreeholeAvatarQuery(options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: treeholeQueryKeys.avatar(),
+    queryFn: ({ signal }) => getTreeholeAvatar({ signal }),
+    enabled: options?.enabled ?? true,
+  });
+}
+
 export function useTreeholeUnreadNotificationCountQuery() {
   return useQuery({
     queryKey: treeholeQueryKeys.unreadCount(),
     queryFn: ({ signal }) => getTreeholeUnreadNotificationCount({ signal }),
   });
+}
+
+function invalidateTreeholeContentQueries(queryClient: ReturnType<typeof useQueryClient>) {
+  queryClient.invalidateQueries({ queryKey: treeholeQueryKeys.lists() });
+  queryClient.invalidateQueries({ queryKey: treeholeQueryKeys.mines() });
+  queryClient.invalidateQueries({ queryKey: [...treeholeQueryKeys.all, 'detail'] });
+  queryClient.invalidateQueries({ queryKey: [...treeholeQueryKeys.all, 'comments'] });
 }
 
 export function useTreeholeInfinitePostsQuery(params: Omit<TreeholeListParams, 'page'>) {
@@ -109,6 +127,30 @@ export function useCreateTreeholePostMutation() {
       queryClient.setQueryData(treeholeQueryKeys.detail(post.id), post);
       queryClient.invalidateQueries({ queryKey: treeholeQueryKeys.lists() });
       queryClient.invalidateQueries({ queryKey: treeholeQueryKeys.mines() });
+    },
+  });
+}
+
+export function useUploadTreeholeAvatarMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ file }: { file: File }) => uploadTreeholeAvatar(file),
+    onSuccess: (avatar) => {
+      queryClient.setQueryData(treeholeQueryKeys.avatar(), avatar);
+      invalidateTreeholeContentQueries(queryClient);
+    },
+  });
+}
+
+export function useDeleteTreeholeAvatarMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: deleteTreeholeAvatar,
+    onSuccess: (avatar) => {
+      queryClient.setQueryData(treeholeQueryKeys.avatar(), avatar);
+      invalidateTreeholeContentQueries(queryClient);
     },
   });
 }

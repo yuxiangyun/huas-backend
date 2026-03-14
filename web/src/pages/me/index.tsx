@@ -6,17 +6,20 @@ import { BowlChopsticks20Filled } from '@fluentui/react-icons/svg/bowl-chopstick
 import { Chat20Filled } from '@fluentui/react-icons/svg/chat';
 import { ContactCard20Filled } from '@fluentui/react-icons/svg/contact-card';
 import { DoorArrowRight20Filled } from '@fluentui/react-icons/svg/door-arrow-right';
-import { PersonCircle24Filled } from '@fluentui/react-icons/svg/person-circle';
 import { appRoutes } from '@/app/router/paths';
 import { useToastStore } from '@/app/state/toast-store';
 import { useUiStore } from '@/app/state/ui-store';
 import { useAuthStore } from '@/entities/auth/model/auth-store';
-import { useTreeholeUnreadNotificationCountQuery } from '@/entities/treehole/api/treehole-queries';
+import {
+  useTreeholeAvatarQuery,
+  useTreeholeUnreadNotificationCountQuery,
+} from '@/entities/treehole/api/treehole-queries';
 import { useUserInfoQuery } from '@/entities/user/api/user-queries';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
 import { PageHeader } from '@/shared/ui/page-header';
-import { IconBubble, PageOrnament } from '@/shared/ui/page-ornament';
+import { IconBubble } from '@/shared/ui/page-ornament';
+import { TreeholeAvatar } from '@/shared/ui/treehole-avatar';
 
 export function MePage() {
   const navigate = useNavigate();
@@ -25,8 +28,10 @@ export function MePage() {
   const setActiveTab = useUiStore((state) => state.setActiveTab);
   const logout = useAuthStore((state) => state.logout);
   const profileQuery = useUserInfoQuery();
+  const treeholeAvatarQuery = useTreeholeAvatarQuery();
   const treeholeUnreadQuery = useTreeholeUnreadNotificationCountQuery();
   const profile = profileQuery.data ?? null;
+  const treeholeAvatarUrl = treeholeAvatarQuery.data?.avatarUrl ?? null;
   const treeholeUnreadCount = treeholeUnreadQuery.data?.unreadCount ?? 0;
 
   useEffect(() => {
@@ -68,7 +73,13 @@ export function MePage() {
       chip: '账号',
       description: '管理当前登录状态',
       glowClass: 'bg-[#d9e1e9]/72',
-      icon: <PersonCircle24Filled aria-hidden="true" className="size-5" />,
+      icon: (
+        <TreeholeAvatar
+          alt="我的头像"
+          className="size-full rounded-[0.9rem] ring-0"
+          src={treeholeAvatarUrl}
+        />
+      ),
       accent: <DoorArrowRight20Filled aria-hidden="true" className="size-4" />,
       onClick: () => {
         queryClient.clear();
@@ -91,25 +102,7 @@ export function MePage() {
       <PageHeader
         compact
         description="常用入口"
-        eyebrow="我的"
         title="我的"
-        visual={(
-          <PageOrnament
-            badges={[
-              {
-                icon: <ContactCard20Filled aria-hidden="true" className="size-3.5" />,
-                label: profile?.studentId || (profileQuery.isLoading ? '资料同步中' : '学号待同步'),
-                tone: 'slate',
-              },
-            ]}
-            className="w-full sm:w-[13rem]"
-            compact
-            icon={<PersonCircle24Filled aria-hidden="true" className="size-6" />}
-            label="快捷入口"
-            title={profile?.name || '内容与账号入口'}
-            tone="slate"
-          />
-        )}
       />
 
       {profileQuery.isError ? (

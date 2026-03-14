@@ -94,7 +94,7 @@ export function MyPostsPanel({
           type="button"
           onClick={() => onOpenPost?.(post.id)}
         >
-          <Card className="overflow-hidden p-0 transition hover:-translate-y-0.5 hover:bg-card-strong">
+          <Card className="overflow-hidden p-0 shadow-none transition hover:-translate-y-0.5 hover:bg-card-strong">
             <div className="grid gap-0 sm:grid-cols-[12rem_minmax(0,1fr)]">
               {post.coverUrl ? (
                 <img

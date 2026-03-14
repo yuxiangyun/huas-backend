@@ -85,6 +85,10 @@ export const config = {
     maxPageSize: parsePositiveInt(process.env.TREEHOLE_MAX_PAGE_SIZE, 50),
     defaultCommentPageSize: parsePositiveInt(process.env.TREEHOLE_DEFAULT_COMMENT_PAGE_SIZE, 50),
     maxCommentPageSize: parsePositiveInt(process.env.TREEHOLE_MAX_COMMENT_PAGE_SIZE, 100),
+    avatarStorageRoot: process.env.TREEHOLE_AVATAR_STORAGE_ROOT
+      || join(dirname(process.env.DB_PATH || DEFAULT_DB_PATH), 'treehole-avatars'),
+    avatarMediaBasePath: process.env.TREEHOLE_AVATAR_MEDIA_BASE_PATH || '/media/treehole-avatar',
+    avatarMaxBytes: parsePositiveInt(process.env.TREEHOLE_AVATAR_MAX_BYTES, 2 * 1024 * 1024),
   },
 };
 

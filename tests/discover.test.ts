@@ -16,6 +16,7 @@ import {
 let authorId = 0;
 let otherAuthorId = 0;
 let raterId = 0;
+const REAL_HEIC_FIXTURE = join(process.cwd(), 'tests/fixtures/iphone.heic');
 
 function createApp() {
   const app = new Hono();
@@ -54,6 +55,11 @@ async function createHeifFamilyBuffer(color: string) {
       background: color,
     },
   }).avif({ quality: 62 }).toBuffer();
+}
+
+async function createRealHeicBuffer() {
+  const file = Bun.file(REAL_HEIC_FIXTURE);
+  return Buffer.from(await file.arrayBuffer());
 }
 
 async function createAnimatedWebpBuffer() {
@@ -186,6 +192,38 @@ describe('discover module', () => {
     form.set('content', '这是一张来自手机相册的高效格式图片，应该能正常上传和转码。');
     form.append('tags', '清晰');
     form.append('images', new File([await createHeifFamilyBuffer('#33aaff')], 'mobile.heic'));
+
+    const res = await app.request('http://localhost/api/discover/posts', {
+      method: 'POST',
+      headers: await authHeaderFor(authorId, '2023001001'),
+      body: form,
+    });
+
+    expect(res.status).toBe(201);
+    const body = await res.json() as any;
+    expect(body.success).toBe(true);
+    expect(body.data.images).toHaveLength(1);
+    expect(body.data.images[0].mimeType).toBe('image/webp');
+    expect(body.data.images[0].url.endsWith('.webp')).toBe(true);
+
+    const relativePath = body.data.images[0].url.replace(`${config.discover.mediaBasePath}/`, '');
+    const output = Buffer.from(await Bun.file(join(config.discover.storageRoot, relativePath)).arrayBuffer());
+    const metadata = await sharp(output).metadata();
+    expect(metadata.format).toBe('webp');
+    expect(metadata.width).toBeGreaterThan(0);
+    expect(metadata.height).toBeGreaterThan(0);
+  });
+
+  it('支持真实 HEIC 文件并统一转为 webp', async () => {
+    const app = createApp();
+    const form = new FormData();
+    form.set('category', '其他');
+    form.set('title', '真实 HEIC 样例');
+    form.set('storeName', '手机相册');
+    form.set('priceText', '16元');
+    form.set('content', '使用测试夹具中的真实 HEIC 文件，验证服务端能正常转码并返回 webp。');
+    form.append('tags', 'HEIC');
+    form.append('images', new File([await createRealHeicBuffer()], 'iphone.heic', { type: 'application/octet-stream' }));
 
     const res = await app.request('http://localhost/api/discover/posts', {
       method: 'POST',

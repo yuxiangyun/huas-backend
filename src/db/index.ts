@@ -48,6 +48,7 @@ function ensureColumn(
 }
 
 function ensureLegacyColumns(): void {
+  ensureColumn('users', 'treehole_avatar_url', 'treehole_avatar_url TEXT');
   ensureColumn('users', 'encrypted_password', 'encrypted_password TEXT');
   ensureColumn('users', 'created_at', 'created_at INTEGER');
   ensureColumn('users', 'last_login_at', 'last_login_at INTEGER');
@@ -156,6 +157,7 @@ export function initDatabase() {
     student_id TEXT NOT NULL UNIQUE,
     name TEXT,
     class_name TEXT,
+    treehole_avatar_url TEXT,
     encrypted_password TEXT,
     created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
     last_login_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
