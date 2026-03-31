@@ -177,6 +177,9 @@
 - 拉取帖子详情
 - 展示图片与站内预览
 - 评分
+- 评论列表分页加载
+- 发送评论与回复
+- 删除自己的评论
 - 删除自己的帖子
 - 操作结果提示
 
@@ -419,6 +422,9 @@ web/src/
 | 详情 | `GET /api/discover/posts/:id` | 详情弹层 |
 | 发帖 | `POST /api/discover/posts` | 发帖弹层 |
 | 评分 | `POST /api/discover/posts/:id/rating` | 详情弹层 |
+| 评论列表 | `GET /api/discover/posts/:id/comments` | 详情弹层 |
+| 评论 | `POST /api/discover/posts/:id/comments` | 详情弹层 |
+| 删除评论 | `DELETE /api/discover/comments/:id` | 详情弹层 |
 | 删除 | `DELETE /api/discover/posts/:id` | 详情弹层 |
 
 ### 10.2 Treehole

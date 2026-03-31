@@ -445,6 +445,7 @@ async function apiRequest<T>(path: string, token?: string): Promise<ApiResponse<
 | `images` | `DiscoverImage[]` | 图片数组 |
 | `coverUrl` | string | 封面图地址，当前取第一张图 |
 | `imageCount` | number | 图片数量 |
+| `commentCount` | number | 评论数量（仅统计未删除评论） |
 | `rating.average` | number | 平均分，保留两位小数 |
 | `rating.count` | number | 评分人数 |
 | `rating.total` | number | 评分总分 |
@@ -493,10 +494,71 @@ async function apiRequest<T>(path: string, token?: string): Promise<ApiResponse<
     "maxTagLength": 12,
     "maxStoreNameLength": 32,
     "maxPriceTextLength": 20,
-    "maxContentLength": 400
+    "maxContentLength": 400,
+    "maxCommentLength": 200
+  },
+  "pagination": {
+    "defaultCommentPageSize": 50,
+    "maxCommentPageSize": 100
   }
 }
 ```
+
+### 5.9.1 `DiscoverComment`
+
+```json
+{
+  "id": 35,
+  "postId": 12,
+  "parentCommentId": 21,
+  "content": "这家我也吃过，推荐加辣",
+  "avatarUrl": "/media/treehole-avatar/5.webp?v=1741871670488",
+  "author": {
+    "id": 8,
+    "label": "软件工程"
+  },
+  "isMine": false,
+  "createdAt": "2026-03-14T12:32:00.000+08:00",
+  "updatedAt": "2026-03-14T12:32:00.000+08:00"
+}
+```
+
+字段说明：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | number | 评论 ID |
+| `postId` | number | 所属 discover 帖子 ID |
+| `parentCommentId` | number \| null | 父评论 ID；普通评论为 `null` |
+| `content` | string | 评论正文 |
+| `avatarUrl` | string \| null | 评论作者树洞头像路径，`null` 时前端使用默认头像占位 |
+| `author.id` | number | 评论作者用户 ID |
+| `author.label` | string | 评论作者展示标签（非匿名） |
+| `isMine` | boolean | 是否是当前登录用户自己的评论 |
+| `createdAt` | string | 创建时间，北京时间 ISO 字符串 |
+| `updatedAt` | string | 更新时间，北京时间 ISO 字符串 |
+
+### 5.9.2 `DiscoverCommentListResponse`
+
+```json
+{
+  "items": [],
+  "page": 1,
+  "pageSize": 50,
+  "total": 12,
+  "hasMore": false
+}
+```
+
+字段说明：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `items` | `DiscoverComment[]` | 当前页评论 |
+| `page` | number | 当前页码，最小为 `1` |
+| `pageSize` | number | 每页数量，上限由 `discover/meta.pagination.maxCommentPageSize` 决定 |
+| `total` | number | 命中总数（仅统计未删除评论） |
+| `hasMore` | boolean | 是否还有下一页 |
 
 ### 5.10 `TreeholeMeta`
 
@@ -1138,7 +1200,7 @@ Portal 课表接口。虽然路径名带 `v1`，但当前语义是“统一门�
 
 - 获取前端分类枚举
 - 获取推荐常用标签
-- 获取发帖限制
+- 获取发帖与评论限制、评论分页配置
 
 请求示例：
 
@@ -1159,7 +1221,15 @@ Authorization: Bearer <token>
       "maxImagesPerPost": 9,
       "maxTagsPerPost": 6,
       "maxTitleLength": 80,
-      "maxTagLength": 12
+      "maxTagLength": 12,
+      "maxStoreNameLength": 32,
+      "maxPriceTextLength": 20,
+      "maxContentLength": 400,
+      "maxCommentLength": 200
+    },
+    "pagination": {
+      "defaultCommentPageSize": 50,
+      "maxCommentPageSize": 100
     }
   }
 }
@@ -1449,6 +1519,126 @@ Authorization: Bearer <token>
 |---|---:|---:|
 | 帖子 ID 非法 | 4002 | 400 |
 | 帖子不存在、已删除或无权删除 | 4002 | 404 |
+
+### 6.20.1 `GET /api/discover/posts/:id/comments`
+
+获取帖子评论列表，需 Bearer JWT。
+
+查询参数：
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|---|---|---|---|---|
+| `page` | number | 否 | `1` | 页码，最小为 `1` |
+| `pageSize` | number | 否 | `discover.meta.pagination.defaultCommentPageSize` | 每页数量，上限为 `discover.meta.pagination.maxCommentPageSize` |
+
+规则：
+
+- 仅返回当前帖子下 `deleted_at IS NULL` 的评论
+- 返回顺序为 `createdAt ASC, id ASC`
+- 帖子不存在或已删除时返回 `404`
+
+请求示例：
+
+```http
+GET /api/discover/posts/12/comments?page=1&pageSize=50
+Authorization: Bearer <token>
+```
+
+成功响应：
+
+返回 [5.9.2 `DiscoverCommentListResponse`](#592-discovercommentlistresponse)。
+
+错误：
+
+| 场景 | `error_code` | HTTP |
+|---|---:|---:|
+| 帖子 ID 非法 | 4002 | 400 |
+| 帖子不存在或已删除 | 4002 | 404 |
+
+### 6.20.2 `POST /api/discover/posts/:id/comments`
+
+创建帖子评论或回复，需 Bearer JWT。
+
+请求体：
+
+```json
+{
+  "content": "推荐加辣",
+  "parentCommentId": 21
+}
+```
+
+字段说明：
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `content` | string | 是 | 评论正文，不能为空，最大长度由 `discover/meta.limits.maxCommentLength` 决定 |
+| `parentCommentId` | number \| null | 否 | 回复目标；必须是“同帖且未删除”的评论 |
+
+规则：
+
+- 帖子不存在或已删除时返回 `404`
+- `parentCommentId` 非法、跨帖或目标已删除时返回 `400`
+- 创建成功后会刷新帖子 `commentCount`
+
+请求示例：
+
+```http
+POST /api/discover/posts/12/comments
+Authorization: Bearer <token>
+Content-Type: application/json
+```
+
+成功响应：
+
+返回 [5.9.1 `DiscoverComment`](#591-discovercomment)。
+
+错误：
+
+| 场景 | `error_code` | HTTP |
+|---|---:|---:|
+| 帖子 ID 非法 | 4002 | 400 |
+| 请求体不是合法 JSON | 4002 | 400 |
+| 评论内容为空或超长 | 4002 | 400 |
+| 父评论 ID 非法 | 4002 | 400 |
+| 回复的评论不存在（含跨帖/已删除） | 4002 | 400 |
+| 帖子不存在或已删除 | 4002 | 404 |
+
+### 6.20.3 `DELETE /api/discover/comments/:id`
+
+删除自己的评论，需 Bearer JWT。
+
+规则：
+
+- 仅允许评论作者本人删除
+- 帖子不存在或已删除时，删除评论也返回 `404`
+- 删除成功后会刷新帖子 `commentCount`
+
+请求示例：
+
+```http
+DELETE /api/discover/comments/35
+Authorization: Bearer <token>
+```
+
+成功响应：
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": 35,
+    "postId": 12
+  }
+}
+```
+
+错误：
+
+| 场景 | `error_code` | HTTP |
+|---|---:|---:|
+| 评论 ID 非法 | 4002 | 400 |
+| 评论不存在、已删除、无权删除，或所属帖子已删除 | 4002 | 404 |
 
 ### 6.21 `DELETE /api/admin/discover/posts/:id`
 

@@ -5,6 +5,10 @@ export const discoverQueryKeys = {
   list: (params: unknown) =>
     [...discoverQueryKeys.lists(), params] as const,
   detail: (postId: number) => [...discoverQueryKeys.all, 'detail', postId] as const,
+  mines: () => [...discoverQueryKeys.all, 'mine'] as const,
   mine: (params: unknown) =>
-    [...discoverQueryKeys.all, 'mine', params] as const,
+    [...discoverQueryKeys.mines(), params] as const,
+  comments: (postId: number) => [...discoverQueryKeys.all, 'comments', postId] as const,
+  commentList: (postId: number, params: unknown) =>
+    [...discoverQueryKeys.comments(postId), params] as const,
 };

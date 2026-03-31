@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { config } from '../../config';
 import { getDb, schema } from '../../db';
 import { AppError, ErrorCode } from '../../utils/errors';
@@ -35,6 +35,7 @@ interface DiscoverRow {
   tagsJson: string;
   coverUrl: string;
   imageCount: number;
+  commentCount: number;
   ratingCount: number;
   ratingSum: number;
   ratingAvg: number;
@@ -44,6 +45,19 @@ interface DiscoverRow {
   deletedAt: Date | null;
   storageKey: string;
   authorClassName: string | null;
+}
+
+interface DiscoverCommentRow {
+  id: number;
+  postId: number;
+  userId: number;
+  parentCommentId: number | null;
+  content: string;
+  avatarUrl: string | null;
+  authorClassName: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  deletedAt: Date | null;
 }
 
 export interface CreatePostInput {
@@ -57,6 +71,13 @@ export interface CreatePostInput {
   images: File[];
 }
 
+export interface CreateDiscoverCommentInput {
+  userId: number;
+  postId: number;
+  content: string;
+  parentCommentId?: number | null;
+}
+
 export interface DiscoverPostResponse {
   id: number;
   title: string;
@@ -68,6 +89,7 @@ export interface DiscoverPostResponse {
   images: DiscoverStoredImage[];
   coverUrl: string;
   imageCount: number;
+  commentCount: number;
   rating: {
     average: number;
     count: number;
@@ -84,8 +106,31 @@ export interface DiscoverPostResponse {
   updatedAt: string;
 }
 
+export interface DiscoverCommentResponse {
+  id: number;
+  postId: number;
+  parentCommentId: number | null;
+  content: string;
+  avatarUrl: string | null;
+  author: {
+    id: number;
+    label: string;
+  };
+  isMine: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface DiscoverListResponse {
   items: DiscoverPostResponse[];
+  page: number;
+  pageSize: number;
+  total: number;
+  hasMore: boolean;
+}
+
+export interface DiscoverCommentListResponse {
+  items: DiscoverCommentResponse[];
   page: number;
   pageSize: number;
   total: number;
@@ -112,6 +157,7 @@ function postSelect() {
     tagsJson: schema.discoverPosts.tagsJson,
     coverUrl: schema.discoverPosts.coverUrl,
     imageCount: schema.discoverPosts.imageCount,
+    commentCount: schema.discoverPosts.commentCount,
     ratingCount: schema.discoverPosts.ratingCount,
     ratingSum: schema.discoverPosts.ratingSum,
     ratingAvg: schema.discoverPosts.ratingAvg,
@@ -123,6 +169,21 @@ function postSelect() {
   };
 }
 
+function commentSelect() {
+  return {
+    id: schema.discoverComments.id,
+    postId: schema.discoverComments.postId,
+    userId: schema.discoverComments.userId,
+    parentCommentId: schema.discoverComments.parentCommentId,
+    content: schema.discoverComments.content,
+    avatarUrl: schema.users.treeholeAvatarUrl,
+    authorClassName: schema.users.className,
+    createdAt: schema.discoverComments.createdAt,
+    updatedAt: schema.discoverComments.updatedAt,
+    deletedAt: schema.discoverComments.deletedAt,
+  };
+}
+
 function clampPageSize(pageSize: number | undefined) {
   if (!pageSize || !Number.isFinite(pageSize) || pageSize <= 0) return DEFAULT_PAGE_SIZE;
   return Math.min(Math.floor(pageSize), MAX_PAGE_SIZE);
@@ -131,6 +192,13 @@ function clampPageSize(pageSize: number | undefined) {
 function clampPage(page: number | undefined) {
   if (!page || !Number.isFinite(page) || page <= 0) return 1;
   return Math.floor(page);
+}
+
+function clampCommentPageSize(pageSize: number | undefined) {
+  if (!pageSize || !Number.isFinite(pageSize) || pageSize <= 0) {
+    return config.discover.defaultCommentPageSize;
+  }
+  return Math.min(Math.floor(pageSize), config.discover.maxCommentPageSize);
 }
 
 function clampRecommendedCandidateLimit(page: number, pageSize: number) {
@@ -181,6 +249,17 @@ function normalizeContent(value: string | undefined) {
   }
   if (content.length > config.discover.maxContentLength) {
     throw new AppError(ErrorCode.PARAM_ERROR, `推荐说明不能超过 ${config.discover.maxContentLength} 个字`);
+  }
+  return content;
+}
+
+function normalizeCommentContent(value: string) {
+  const content = value.trim();
+  if (!content) {
+    throw new AppError(ErrorCode.PARAM_ERROR, '评论内容不能为空');
+  }
+  if (content.length > config.discover.maxCommentLength) {
+    throw new AppError(ErrorCode.PARAM_ERROR, `评论内容不能超过 ${config.discover.maxCommentLength} 个字`);
   }
   return content;
 }
@@ -238,6 +317,11 @@ export class DiscoverUserService {
         maxStoreNameLength: config.discover.maxStoreNameLength,
         maxPriceTextLength: config.discover.maxPriceTextLength,
         maxContentLength: config.discover.maxContentLength,
+        maxCommentLength: config.discover.maxCommentLength,
+      },
+      pagination: {
+        defaultCommentPageSize: config.discover.defaultCommentPageSize,
+        maxCommentPageSize: config.discover.maxCommentPageSize,
       },
     };
   }
@@ -274,6 +358,7 @@ export class DiscoverUserService {
         tagsJson: JSON.stringify(tags),
         coverUrl: media.coverUrl,
         imageCount: media.images.length,
+        commentCount: 0,
         ratingCount: 0,
         ratingSum: 0,
         ratingAvg: 0,
@@ -415,6 +500,139 @@ export class DiscoverUserService {
     });
 
     return this.getPostDetail(userId, postId);
+  }
+
+  static async listComments(
+    userId: number,
+    postId: number,
+    options: { page?: number; pageSize?: number }
+  ): Promise<DiscoverCommentListResponse | null> {
+    const post = await this.findPublicPost(postId);
+    if (!post) return null;
+
+    const db = getDb();
+    const page = clampPage(options.page);
+    const pageSize = clampCommentPageSize(options.pageSize);
+    const whereExpr = and(
+      eq(schema.discoverComments.postId, postId),
+      isNull(schema.discoverComments.deletedAt),
+    );
+    const totalRows = await db.select({ count: sql<number>`count(*)` })
+      .from(schema.discoverComments)
+      .where(whereExpr);
+    const total = Number(totalRows[0]?.count || 0);
+    const rows = await db.select(commentSelect())
+      .from(schema.discoverComments)
+      .innerJoin(schema.users, eq(schema.discoverComments.userId, schema.users.id))
+      .where(whereExpr)
+      .orderBy(asc(schema.discoverComments.createdAt), asc(schema.discoverComments.id))
+      .limit(pageSize)
+      .offset((page - 1) * pageSize);
+
+    return {
+      items: (rows as DiscoverCommentRow[]).map((row) => this.toCommentResponse(row, userId)),
+      page,
+      pageSize,
+      total,
+      hasMore: page * pageSize < total,
+    };
+  }
+
+  static async createComment(input: CreateDiscoverCommentInput): Promise<DiscoverCommentResponse | null> {
+    const content = normalizeCommentContent(input.content);
+    const parentCommentId = input.parentCommentId ?? null;
+    if (parentCommentId !== null && (!Number.isInteger(parentCommentId) || parentCommentId <= 0)) {
+      throw new AppError(ErrorCode.PARAM_ERROR, '父评论 ID 不合法');
+    }
+
+    const db = getDb();
+    const createdCommentId = await db.transaction(async (tx) => {
+      const postRows = await tx.select({ id: schema.discoverPosts.id })
+        .from(schema.discoverPosts)
+        .where(and(
+          eq(schema.discoverPosts.id, input.postId),
+          isNull(schema.discoverPosts.deletedAt),
+        ))
+        .limit(1);
+      if (!postRows[0]) return null;
+
+      if (parentCommentId !== null) {
+        const parentRows = await tx.select({ id: schema.discoverComments.id })
+          .from(schema.discoverComments)
+          .where(and(
+            eq(schema.discoverComments.id, parentCommentId),
+            eq(schema.discoverComments.postId, input.postId),
+            isNull(schema.discoverComments.deletedAt),
+          ))
+          .limit(1);
+        if (!parentRows[0]) {
+          throw new AppError(ErrorCode.PARAM_ERROR, '回复的评论不存在');
+        }
+      }
+
+      const now = new Date();
+      const inserted = await tx.insert(schema.discoverComments).values({
+        postId: input.postId,
+        userId: input.userId,
+        parentCommentId,
+        content,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      }).returning({ id: schema.discoverComments.id });
+
+      await this.refreshPostCommentCount(tx, input.postId, now);
+      return inserted[0]?.id ?? null;
+    });
+
+    if (!createdCommentId) return null;
+
+    const row = await this.findCommentById(createdCommentId);
+    if (!row) return null;
+    return this.toCommentResponse(row, input.userId);
+  }
+
+  static async deleteComment(commentId: number, userId: number) {
+    const db = getDb();
+    return db.transaction(async (tx) => {
+      const commentRows = await tx.select({
+        id: schema.discoverComments.id,
+        postId: schema.discoverComments.postId,
+      })
+        .from(schema.discoverComments)
+        .innerJoin(schema.discoverPosts, eq(schema.discoverComments.postId, schema.discoverPosts.id))
+        .where(and(
+          eq(schema.discoverComments.id, commentId),
+          eq(schema.discoverComments.userId, userId),
+          isNull(schema.discoverComments.deletedAt),
+          isNull(schema.discoverPosts.deletedAt),
+        ))
+        .limit(1);
+      const activeComment = commentRows[0];
+      if (!activeComment) return null;
+
+      const now = new Date();
+      const updated = await tx.update(schema.discoverComments)
+        .set({
+          deletedAt: now,
+          updatedAt: now,
+        })
+        .where(and(
+          eq(schema.discoverComments.id, activeComment.id),
+          eq(schema.discoverComments.userId, userId),
+          eq(schema.discoverComments.postId, activeComment.postId),
+          isNull(schema.discoverComments.deletedAt),
+        ))
+        .returning({
+          id: schema.discoverComments.id,
+          postId: schema.discoverComments.postId,
+        });
+
+      if (!updated[0]) return null;
+
+      await this.refreshPostCommentCount(tx, updated[0].postId, now);
+      return updated[0];
+    });
   }
 
   static async deletePost(postId: number, userId: number) {
@@ -611,6 +829,20 @@ export class DiscoverUserService {
     return rows[0] as DiscoverRow | undefined;
   }
 
+  private static async findCommentById(commentId: number) {
+    const db = getDb();
+    const rows = await db.select(commentSelect())
+      .from(schema.discoverComments)
+      .innerJoin(schema.users, eq(schema.discoverComments.userId, schema.users.id))
+      .where(and(
+        eq(schema.discoverComments.id, commentId),
+        isNull(schema.discoverComments.deletedAt),
+      ))
+      .limit(1);
+
+    return rows[0] as DiscoverCommentRow | undefined;
+  }
+
   private static async getUserScoreMap(userId: number, postIds: number[]) {
     if (postIds.length === 0) return new Map<number, number>();
 
@@ -640,6 +872,22 @@ export class DiscoverUserService {
     };
   }
 
+  private static async refreshPostCommentCount(tx: any, postId: number, now: Date) {
+    const countRows = await tx.select({ count: sql<number>`count(*)` })
+      .from(schema.discoverComments)
+      .where(and(
+        eq(schema.discoverComments.postId, postId),
+        isNull(schema.discoverComments.deletedAt),
+      ));
+
+    await tx.update(schema.discoverPosts)
+      .set({
+        commentCount: Number(countRows[0]?.count || 0),
+        updatedAt: now,
+      })
+      .where(eq(schema.discoverPosts.id, postId));
+  }
+
   private static toPostResponse(row: DiscoverRow, userId: number, userScore: number | null): DiscoverPostResponse {
     const images = safeParseJsonArray<DiscoverStoredImage>(row.imagesJson, []);
     const tags = safeParseJsonArray<string>(row.tagsJson, []);
@@ -655,6 +903,7 @@ export class DiscoverUserService {
       images,
       coverUrl: row.coverUrl,
       imageCount: row.imageCount,
+      commentCount: row.commentCount,
       rating: {
         average: roundRating(Number(row.ratingAvg || 0)),
         count: row.ratingCount,
@@ -667,6 +916,23 @@ export class DiscoverUserService {
       },
       isMine: row.userId === userId,
       publishedAt: beijingIsoString(row.publishedAt),
+      createdAt: beijingIsoString(row.createdAt),
+      updatedAt: beijingIsoString(row.updatedAt),
+    };
+  }
+
+  private static toCommentResponse(row: DiscoverCommentRow, userId: number): DiscoverCommentResponse {
+    return {
+      id: row.id,
+      postId: row.postId,
+      parentCommentId: row.parentCommentId,
+      content: row.content,
+      avatarUrl: row.avatarUrl,
+      author: {
+        id: row.userId,
+        label: buildDiscoverAuthorLabel(row.authorClassName),
+      },
+      isMine: row.userId === userId,
       createdAt: beijingIsoString(row.createdAt),
       updatedAt: beijingIsoString(row.updatedAt),
     };

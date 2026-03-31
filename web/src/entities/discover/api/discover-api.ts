@@ -1,5 +1,7 @@
 import { apiRequest } from '@/shared/api/http-client';
 import type {
+  DiscoverComment,
+  DiscoverCommentListResponse,
   DiscoverListResponse,
   DiscoverMeta,
   DiscoverPost,
@@ -31,6 +33,11 @@ export interface DiscoverListParams {
 
 export interface DiscoverMyListParams {
   category?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface DiscoverCommentListParams {
   page?: number;
   pageSize?: number;
 }
@@ -121,6 +128,37 @@ export async function rateDiscoverPost(postId: number, score: number) {
 
 export async function deleteDiscoverPost(postId: number) {
   return apiRequest<{ id: number }>(`/api/discover/posts/${postId}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function getDiscoverComments(
+  postId: number,
+  params: DiscoverCommentListParams,
+  options?: RequestOptions
+) {
+  return apiRequest<DiscoverCommentListResponse>(
+    `/api/discover/posts/${postId}/comments${buildQueryString({
+      page: params.page,
+      pageSize: params.pageSize,
+    })}`,
+    {},
+    { signal: options?.signal }
+  );
+}
+
+export async function createDiscoverComment(postId: number, payload: { content: string; parentCommentId?: number | null }) {
+  return apiRequest<DiscoverComment>(`/api/discover/posts/${postId}/comments`, {
+    method: 'POST',
+    body: JSON.stringify({
+      content: payload.content.trim(),
+      parentCommentId: payload.parentCommentId ?? null,
+    }),
+  });
+}
+
+export async function deleteDiscoverComment(commentId: number) {
+  return apiRequest<{ id: number; postId: number }>(`/api/discover/comments/${commentId}`, {
     method: 'DELETE',
   });
 }

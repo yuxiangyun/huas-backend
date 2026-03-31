@@ -23,6 +23,7 @@ export interface DiscoverPost {
   images: DiscoverImage[];
   coverUrl: string;
   imageCount: number;
+  commentCount: number;
   rating: {
     average: number;
     count: number;
@@ -39,8 +40,31 @@ export interface DiscoverPost {
   updatedAt: string;
 }
 
+export interface DiscoverComment {
+  id: number;
+  postId: number;
+  parentCommentId: number | null;
+  content: string;
+  avatarUrl: string | null;
+  author: {
+    id: number;
+    label: string;
+  };
+  isMine: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface DiscoverListResponse {
   items: DiscoverPost[];
+  page: number;
+  pageSize: number;
+  total: number;
+  hasMore: boolean;
+}
+
+export interface DiscoverCommentListResponse {
+  items: DiscoverComment[];
   page: number;
   pageSize: number;
   total: number;
@@ -58,5 +82,10 @@ export interface DiscoverMeta {
     maxStoreNameLength: number;
     maxPriceTextLength: number;
     maxContentLength: number;
+    maxCommentLength: number;
+  };
+  pagination: {
+    defaultCommentPageSize: number;
+    maxCommentPageSize: number;
   };
 }

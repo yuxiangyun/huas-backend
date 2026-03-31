@@ -136,6 +136,9 @@ export class CredentialManager {
       Logger.auth(String(userId), '静默刷新 JW 失败', 0, Date.now() - start, undefined, [
         { label: 'TGC → JW Session', ok: false },
       ]);
+      if (result.upstreamUnavailable) {
+        throw new Error('REQUEST_TIMEOUT');
+      }
       return null;
     }
 

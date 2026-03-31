@@ -2,6 +2,7 @@ import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
 import type { DiscoverPost } from '@/entities/discover/model/discover-types';
 import { buildMediaUrl } from '@/shared/api/media';
+import { Comment20Filled } from '@fluentui/react-icons/svg/comment';
 
 interface MyPostsPanelProps {
   hasMore?: boolean;
@@ -135,8 +136,9 @@ export function MyPostsPanel({
 
                 <div className="flex flex-wrap items-center justify-between gap-2.5 text-[0.82rem] text-muted sm:text-sm">
                   <span>{formatPublishedAt(post.publishedAt)}</span>
-                  <span>
-                    {post.rating.average.toFixed(1)} 分 · {post.rating.count} 人 · {post.imageCount} 张图
+                  <span className="inline-flex items-center gap-1.5">
+                    <Comment20Filled aria-hidden="true" className="size-4" />
+                    {post.rating.average.toFixed(1)} 分 · {post.rating.count} 人 · {post.commentCount} 条评论 · {post.imageCount} 张图
                   </span>
                 </div>
               </div>

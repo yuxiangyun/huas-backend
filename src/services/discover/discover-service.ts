@@ -40,6 +40,18 @@ export class DiscoverService {
     return DiscoverUserService.ratePost(userId, postId, score);
   }
 
+  static async listComments(userId: number, postId: number, options: { page?: number; pageSize?: number }) {
+    return DiscoverUserService.listComments(userId, postId, options);
+  }
+
+  static async createComment(input: { userId: number; postId: number; content: string; parentCommentId?: number | null }) {
+    return DiscoverUserService.createComment(input);
+  }
+
+  static async deleteComment(commentId: number, userId: number) {
+    return DiscoverUserService.deleteComment(commentId, userId);
+  }
+
   static async deletePost(postId: number, userId: number) {
     return DiscoverUserService.deletePost(postId, userId);
   }

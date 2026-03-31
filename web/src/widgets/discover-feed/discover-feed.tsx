@@ -3,6 +3,7 @@ import { Apps20Filled } from '@fluentui/react-icons/svg/apps';
 import { ArrowTrendingSparkle20Filled } from '@fluentui/react-icons/svg/arrow-trending-sparkle';
 import { BowlChopsticks20Filled } from '@fluentui/react-icons/svg/bowl-chopsticks';
 import { BowlSalad24Filled } from '@fluentui/react-icons/svg/bowl-salad';
+import { Comment20Filled } from '@fluentui/react-icons/svg/comment';
 import { Star20Filled } from '@fluentui/react-icons/svg/star';
 import type {
   DiscoverCategory,
@@ -236,7 +237,11 @@ export function DiscoverFeed({
                       <span>{buildClassmateLabel(post.author.label)} · {formatPublishedAt(post.publishedAt)}</span>
                       <span className="inline-flex items-center gap-1.5">
                         <Star20Filled aria-hidden="true" className="size-4" />
-                        {post.rating.average.toFixed(1)} 分 · {post.rating.count} 人 · {post.imageCount} 张图
+                        {post.rating.average.toFixed(1)} 分 · {post.rating.count} 人
+                      </span>
+                      <span className="inline-flex items-center gap-1.5">
+                        <Comment20Filled aria-hidden="true" className="size-4" />
+                        {post.commentCount} 条评论 · {post.imageCount} 张图
                       </span>
                     </div>
                   </div>

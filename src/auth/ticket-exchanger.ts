@@ -5,6 +5,12 @@ import { config } from '../config';
 import { Logger, type LoginStep } from '../utils/logger';
 
 export class TicketExchanger {
+  private static isTransientUpstreamError(message: string): boolean {
+    if (!message) return false;
+    if (message === 'REQUEST_TIMEOUT') return true;
+    return /ECONNRESET|EAI_AGAIN|ETIMEDOUT|ENOTFOUND|fetch failed|network/i.test(message);
+  }
+
   /**
    * TGC -> Portal JWT
    * Follow CAS redirect to portal, extract idToken from ticket
@@ -38,9 +44,14 @@ export class TicketExchanger {
    * TGC -> JW JSESSIONID
    * Follow CAS -> SSO -> JW redirect chain with retry
    */
-  static async exchangeJwSession(client: HttpClient): Promise<{ success: boolean; steps: LoginStep[] }> {
+  static async exchangeJwSession(client: HttpClient): Promise<{
+    success: boolean;
+    steps: LoginStep[];
+    upstreamUnavailable?: boolean;
+  }> {
     const steps: LoginStep[] = [];
     let activated = false;
+    let upstreamUnavailable = false;
 
     for (let attempt = 0; attempt < config.retry.jwActivationMax && !activated; attempt++) {
       if (attempt > 0) {
@@ -70,16 +81,23 @@ export class TicketExchanger {
             activated = true;
             steps.push({ label: `jw${attempt > 0 ? '#' + (attempt + 1) : ''}`, ok: true });
           } else {
+            if (result.finalStatus === 0) {
+              upstreamUnavailable = true;
+            }
             steps.push({ label: `jw#${attempt + 1}`, ok: false, detail: `status:${result.finalStatus}` });
           }
         } else {
           steps.push({ label: `jw#${attempt + 1}`, ok: false, detail: 'SSO未重定向' });
         }
       } catch (e: any) {
-        steps.push({ label: `jw#${attempt + 1}`, ok: false, detail: e.message });
+        const detail = String(e?.message || '');
+        if (this.isTransientUpstreamError(detail)) {
+          upstreamUnavailable = true;
+        }
+        steps.push({ label: `jw#${attempt + 1}`, ok: false, detail });
       }
     }
 
-    return { success: activated, steps };
+    return { success: activated, steps, upstreamUnavailable: !activated && upstreamUnavailable };
   }
 }

@@ -34,7 +34,11 @@ const authBehavior = {
 };
 
 const ticketBehavior = {
-  exchangeJwSession: async () => ({ success: true, steps: [] as Array<{ label: string; ok: boolean }> }),
+  exchangeJwSession: async () => ({
+    success: true,
+    steps: [] as Array<{ label: string; ok: boolean; detail?: string }>,
+    upstreamUnavailable: false,
+  }),
   exchangePortalToken: async () => ({ token: 'portal-token-refreshed', steps: [] as Array<{ label: string; ok: boolean }> }),
 };
 
@@ -136,6 +140,7 @@ async function resetDb() {
   await db.delete(schema.treeholePostLikes);
   await db.delete(schema.treeholeComments);
   await db.delete(schema.treeholePosts);
+  await db.delete(schema.discoverComments);
   await db.delete(schema.discoverPostRatings);
   await db.delete(schema.discoverPosts);
   await db.delete(schema.credentials);
@@ -472,6 +477,27 @@ describe('静默凭证链路', () => {
     const cred = await CredentialManager.getOrRefreshCredential(userId, 'jw_session');
     expect(cred).not.toBeNull();
     expect(cred?.cookieJar).toBeTruthy();
+    expect(silentLoginCalled).toBe(false);
+  });
+
+  it('JW 上游不可达时应透传超时，不触发静默重认证', async () => {
+    const userId = await createUser('2023001999', 'pass-jw-timeout');
+    await CredentialManager.storeCredential(userId, 'cas_tgc', null, '{"cookies":[]}', 60_000);
+    await CredentialManager.storeCredential(userId, 'jw_session', null, '{"cookies":[]}', -1_000);
+
+    let silentLoginCalled = false;
+    authBehavior.login = async () => {
+      silentLoginCalled = true;
+      return { success: false, steps: [] };
+    };
+
+    ticketBehavior.exchangeJwSession = async () => ({
+      success: false,
+      steps: [{ label: 'jw#1', ok: false, detail: 'status:0' }],
+      upstreamUnavailable: true,
+    });
+
+    await expect(CredentialManager.getOrRefreshCredential(userId, 'jw_session')).rejects.toThrow('REQUEST_TIMEOUT');
     expect(silentLoginCalled).toBe(false);
   });
 

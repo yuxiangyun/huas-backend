@@ -685,10 +685,11 @@ src/
 
 ### 13.2 路由与权限模型
 
-当前 discover 暴露三组路由：
+当前 discover 暴露五组路由：
 
 - `GET /api/discover/meta`
-- `GET/POST/DELETE /api/discover/posts*`
+- `GET/POST/DELETE /api/discover/posts*`（含评分、评论列表、发表评论）
+- `DELETE /api/discover/comments/:id`
 - `DELETE /api/admin/discover/posts/:id`
 - `GET /media/discover/*`
 
@@ -742,16 +743,18 @@ src/
 
 ### 13.4 Discover 数据模型与落盘策略
 
-当前 discover 只新增两张业务表：
+当前 discover 由三张业务表组成：
 
 1. `discover_posts`
 2. `discover_post_ratings`
+3. `discover_comments`
 
 这是有意做的耦合式设计，目标是降低复杂度：
 
 - 图片信息直接放在 `discover_posts.images_json`
 - 标签直接放在 `discover_posts.tags_json`
-- 平均分和评分人数直接聚合到 `discover_posts`
+- 平均分、评分人数、评论数直接聚合到 `discover_posts`
+- 评论内容落在 `discover_comments`，用 `parent_comment_id` 支持同帖回复链
 - 不再单拆图片表、标签表、统计表
 
 当前字段上的关键约束：
@@ -759,8 +762,12 @@ src/
 - 帖子作者来自 `discover_posts.user_id -> users.id`
 - 评分用户来自 `discover_post_ratings.user_id -> users.id`
 - 评分目标来自 `discover_post_ratings.post_id -> discover_posts.id`
+- 评论作者来自 `discover_comments.user_id -> users.id`
+- 评论目标来自 `discover_comments.post_id -> discover_posts.id`
+- 回复关系来自 `discover_comments.parent_comment_id -> discover_comments.id`
 - `discover_post_ratings(post_id, user_id)` 唯一，保证一人一帖一分
 - `discover_posts.deleted_at IS NULL` 代表帖子可见
+- `discover_comments.deleted_at IS NULL` 代表评论可见
 
 设计权衡：
 

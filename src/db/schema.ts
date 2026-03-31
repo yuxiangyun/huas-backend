@@ -47,6 +47,7 @@ export const discoverPosts = sqliteTable('discover_posts', {
   tagsJson: text('tags_json').notNull(),
   coverUrl: text('cover_url').notNull(),
   imageCount: integer('image_count').notNull().default(0),
+  commentCount: integer('comment_count').notNull().default(0),
   ratingCount: integer('rating_count').notNull().default(0),
   ratingSum: integer('rating_sum').notNull().default(0),
   ratingAvg: real('rating_avg').notNull().default(0),
@@ -66,6 +67,17 @@ export const discoverPostRatings = sqliteTable('discover_post_ratings', {
 }, (table) => ({
   postUserUnique: unique('uq_discover_post_ratings_post_user').on(table.postId, table.userId),
 }));
+
+export const discoverComments = sqliteTable('discover_comments', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  postId: integer('post_id').notNull().references(() => discoverPosts.id),
+  userId: integer('user_id').notNull().references(() => users.id),
+  parentCommentId: integer('parent_comment_id').references(() => discoverComments.id),
+  content: text('content').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
+  deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
+});
 
 export const treeholePosts = sqliteTable('treehole_posts', {
   id: integer('id').primaryKey({ autoIncrement: true }),

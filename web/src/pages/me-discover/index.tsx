@@ -15,6 +15,7 @@ export function MeDiscoverPage() {
   const myPostsQuery = useMyDiscoverInfinitePostsQuery({ pageSize: 10 });
   const myPosts = myPostsQuery.data?.pages.flatMap((page) => page.items) ?? [];
   const totalPosts = myPostsQuery.data?.pages[0]?.total ?? myPosts.length;
+  const totalComments = myPosts.reduce((sum, post) => sum + post.commentCount, 0);
   const averageRating = myPosts.length
     ? myPosts.reduce((sum, post) => sum + post.rating.average, 0) / myPosts.length
     : 0;
@@ -51,11 +52,16 @@ export function MeDiscoverPage() {
           </p>
         </div>
 
-        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
           <div className="rounded-[1.1rem] bg-white/78 px-3.5 py-3 ring-1 ring-line">
             <p className="text-xs uppercase tracking-[0.18em] text-muted">发布数</p>
             <p className="mt-2 text-[1.45rem] font-semibold tracking-[-0.04em] text-ink">{totalPosts}</p>
             <p className="mt-1.5 text-[0.82rem] leading-5 text-muted">累计</p>
+          </div>
+          <div className="rounded-[1.1rem] bg-white/78 px-3.5 py-3 ring-1 ring-line">
+            <p className="text-xs uppercase tracking-[0.18em] text-muted">评论数</p>
+            <p className="mt-2 text-[1.45rem] font-semibold tracking-[-0.04em] text-ink">{totalComments}</p>
+            <p className="mt-1.5 text-[0.82rem] leading-5 text-muted">已加载</p>
           </div>
           <div className="rounded-[1.1rem] bg-white/78 px-3.5 py-3 ring-1 ring-line">
             <p className="text-xs uppercase tracking-[0.18em] text-muted">平均评分</p>

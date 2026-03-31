@@ -18,11 +18,11 @@ export const config = {
   dbPath: process.env.DB_PATH || DEFAULT_DB_PATH,
   timeZone: BEIJING_TIME_ZONE,
 
-  // Credential TTLs (school-side, short-lived)
+  // Credential TTLs (school-side)
   ttl: {
-    tgc: 24 * 60 * 60 * 1000,            // TGC: ~24 hours (school CAS actual)
-    portalJwt: 10 * 60 * 1000,           // Portal JWT: ~10 minutes
-    jwSession: 10 * 60 * 1000,           // JW Session: ~10 minutes
+    tgc: 7 * 24 * 60 * 60 * 1000,        // TGC: 7 days (local TTL)
+    portalJwt: 7 * 24 * 60 * 60 * 1000,  // Portal JWT: 7 days (local TTL)
+    jwSession: 7 * 24 * 60 * 60 * 1000,  // JW Session: 7 days (local TTL)
     selfJwt: 90 * 24 * 60 * 60 * 1000,   // Self JWT: 90 days
   },
 
@@ -73,6 +73,9 @@ export const config = {
     maxStoreNameLength: parsePositiveInt(process.env.DISCOVER_MAX_STORE_NAME_LENGTH, 32),
     maxPriceTextLength: parsePositiveInt(process.env.DISCOVER_MAX_PRICE_TEXT_LENGTH, 20),
     maxContentLength: parsePositiveInt(process.env.DISCOVER_MAX_CONTENT_LENGTH, 400),
+    maxCommentLength: parsePositiveInt(process.env.DISCOVER_MAX_COMMENT_LENGTH, 200),
+    defaultCommentPageSize: parsePositiveInt(process.env.DISCOVER_DEFAULT_COMMENT_PAGE_SIZE, 50),
+    maxCommentPageSize: parsePositiveInt(process.env.DISCOVER_MAX_COMMENT_PAGE_SIZE, 100),
     imageMaxBytes: parsePositiveInt(process.env.DISCOVER_IMAGE_MAX_BYTES, 8 * 1024 * 1024),
     imageMaxDimension: parsePositiveInt(process.env.DISCOVER_IMAGE_MAX_DIMENSION, 1280),
     imageQuality: Math.min(95, Math.max(40, parsePositiveInt(process.env.DISCOVER_IMAGE_QUALITY, 78))),

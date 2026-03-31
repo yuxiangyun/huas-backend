@@ -17,6 +17,7 @@ function getTableColumns(
     | 'cache'
     | 'discover_posts'
     | 'discover_post_ratings'
+    | 'discover_comments'
     | 'treehole_posts'
     | 'treehole_post_likes'
     | 'treehole_comments'
@@ -33,6 +34,7 @@ function ensureColumn(
     | 'cache'
     | 'discover_posts'
     | 'discover_post_ratings'
+    | 'discover_comments'
     | 'treehole_posts'
     | 'treehole_post_likes'
     | 'treehole_comments'
@@ -74,6 +76,7 @@ function ensureLegacyColumns(): void {
   ensureColumn('discover_posts', 'tags_json', 'tags_json TEXT NOT NULL DEFAULT \'[]\'');
   ensureColumn('discover_posts', 'cover_url', 'cover_url TEXT NOT NULL DEFAULT \'\'');
   ensureColumn('discover_posts', 'image_count', 'image_count INTEGER NOT NULL DEFAULT 0');
+  ensureColumn('discover_posts', 'comment_count', 'comment_count INTEGER NOT NULL DEFAULT 0');
   ensureColumn('discover_posts', 'rating_count', 'rating_count INTEGER NOT NULL DEFAULT 0');
   ensureColumn('discover_posts', 'rating_sum', 'rating_sum INTEGER NOT NULL DEFAULT 0');
   ensureColumn('discover_posts', 'rating_avg', 'rating_avg REAL NOT NULL DEFAULT 0');
@@ -85,6 +88,12 @@ function ensureLegacyColumns(): void {
   ensureColumn('discover_post_ratings', 'score', 'score INTEGER NOT NULL DEFAULT 0');
   ensureColumn('discover_post_ratings', 'created_at', 'created_at INTEGER');
   ensureColumn('discover_post_ratings', 'updated_at', 'updated_at INTEGER');
+
+  ensureColumn('discover_comments', 'content', 'content TEXT NOT NULL DEFAULT \'\'');
+  ensureColumn('discover_comments', 'parent_comment_id', 'parent_comment_id INTEGER');
+  ensureColumn('discover_comments', 'created_at', 'created_at INTEGER');
+  ensureColumn('discover_comments', 'updated_at', 'updated_at INTEGER');
+  ensureColumn('discover_comments', 'deleted_at', 'deleted_at INTEGER');
 
   ensureColumn('treehole_posts', 'content', 'content TEXT NOT NULL DEFAULT \'\'');
   ensureColumn('treehole_posts', 'like_count', 'like_count INTEGER NOT NULL DEFAULT 0');
@@ -125,6 +134,8 @@ function backfillCriticalTimestamps(): void {
   sqliteDb.exec(`UPDATE discover_posts SET published_at = ${now} WHERE published_at IS NULL OR published_at <= 0`);
   sqliteDb.exec(`UPDATE discover_post_ratings SET created_at = ${now} WHERE created_at IS NULL OR created_at <= 0`);
   sqliteDb.exec(`UPDATE discover_post_ratings SET updated_at = ${now} WHERE updated_at IS NULL OR updated_at <= 0`);
+  sqliteDb.exec(`UPDATE discover_comments SET created_at = ${now} WHERE created_at IS NULL OR created_at <= 0`);
+  sqliteDb.exec(`UPDATE discover_comments SET updated_at = ${now} WHERE updated_at IS NULL OR updated_at <= 0`);
   sqliteDb.exec(`UPDATE treehole_posts SET created_at = ${now} WHERE created_at IS NULL OR created_at <= 0`);
   sqliteDb.exec(`UPDATE treehole_posts SET updated_at = ${now} WHERE updated_at IS NULL OR updated_at <= 0`);
   sqliteDb.exec(`UPDATE treehole_posts SET published_at = ${now} WHERE published_at IS NULL OR published_at <= 0`);
@@ -197,6 +208,7 @@ export function initDatabase() {
     tags_json TEXT NOT NULL,
     cover_url TEXT NOT NULL,
     image_count INTEGER NOT NULL DEFAULT 0,
+    comment_count INTEGER NOT NULL DEFAULT 0,
     rating_count INTEGER NOT NULL DEFAULT 0,
     rating_sum INTEGER NOT NULL DEFAULT 0,
     rating_avg REAL NOT NULL DEFAULT 0,
@@ -213,6 +225,17 @@ export function initDatabase() {
     score INTEGER NOT NULL,
     created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
     updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+  )`);
+
+  database.run(sql`CREATE TABLE IF NOT EXISTS discover_comments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    post_id INTEGER NOT NULL REFERENCES discover_posts(id),
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    parent_comment_id INTEGER REFERENCES discover_comments(id),
+    content TEXT NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+    updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+    deleted_at INTEGER
   )`);
 
   database.run(sql`CREATE TABLE IF NOT EXISTS treehole_posts (
@@ -278,6 +301,9 @@ export function initDatabase() {
   )`);
   database.run(sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_discover_post_ratings_post_user ON discover_post_ratings(post_id, user_id)`);
   database.run(sql`CREATE INDEX IF NOT EXISTS idx_discover_post_ratings_user_id ON discover_post_ratings(user_id)`);
+  database.run(sql`CREATE INDEX IF NOT EXISTS idx_discover_comments_post_deleted_created ON discover_comments(post_id, deleted_at, created_at ASC, id ASC)`);
+  database.run(sql`CREATE INDEX IF NOT EXISTS idx_discover_comments_parent_comment_id ON discover_comments(parent_comment_id)`);
+  database.run(sql`CREATE INDEX IF NOT EXISTS idx_discover_comments_user_id ON discover_comments(user_id)`);
   database.run(sql`CREATE INDEX IF NOT EXISTS idx_treehole_posts_user_id ON treehole_posts(user_id)`);
   database.run(sql`CREATE INDEX IF NOT EXISTS idx_treehole_posts_deleted_published ON treehole_posts(deleted_at, published_at DESC, id DESC)`);
   database.run(sql`DELETE FROM treehole_post_likes WHERE id NOT IN (
@@ -294,6 +320,13 @@ export function initDatabase() {
     ON treehole_comment_notifications(post_id)`);
   database.run(sql`CREATE INDEX IF NOT EXISTS idx_treehole_comment_notifications_comment_id
     ON treehole_comment_notifications(comment_id)`);
+  database.run(sql`UPDATE discover_posts
+    SET comment_count = (
+      SELECT count(*) FROM discover_comments
+      WHERE discover_comments.post_id = discover_posts.id
+        AND discover_comments.deleted_at IS NULL
+    )
+  `);
   database.run(sql`UPDATE treehole_posts
     SET like_count = (
       SELECT count(*) FROM treehole_post_likes WHERE treehole_post_likes.post_id = treehole_posts.id
