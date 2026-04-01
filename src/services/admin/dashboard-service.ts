@@ -70,8 +70,8 @@ export class AdminDashboardService {
     const studentGradeExpr = buildStudentGradeSql();
 
     const nowMs = Date.now();
-    const todayStart = startOfBeijingDay(now);
-    const sevenDaysAgo = new Date(nowMs - 7 * 24 * 60 * 60 * 1000);
+    const todayStartMs = startOfBeijingDay(now).getTime();
+    const sevenDaysAgoMs = nowMs - 7 * 24 * 60 * 60 * 1000;
 
     let serviceStatus: 'ok' | 'error' = 'ok';
     try {
@@ -96,9 +96,9 @@ export class AdminDashboardService {
       logs,
     ] = await Promise.all([
       db.select({ count: sql<number>`count(*)` }).from(schema.users),
-      db.select({ count: sql<number>`count(*)` }).from(schema.users).where(sql`${schema.users.lastLoginAt} >= ${todayStart}`),
-      db.select({ count: sql<number>`count(*)` }).from(schema.users).where(sql`${schema.users.lastLoginAt} >= ${sevenDaysAgo}`),
-      db.select({ count: sql<number>`count(*)` }).from(schema.users).where(sql`${schema.users.createdAt} >= ${sevenDaysAgo}`),
+      db.select({ count: sql<number>`count(*)` }).from(schema.users).where(sql`${schema.users.lastActiveAt} >= ${todayStartMs}`),
+      db.select({ count: sql<number>`count(*)` }).from(schema.users).where(sql`${schema.users.lastActiveAt} >= ${sevenDaysAgoMs}`),
+      db.select({ count: sql<number>`count(*)` }).from(schema.users).where(sql`${schema.users.createdAt} >= ${sevenDaysAgoMs}`),
       db.select({ count: sql<number>`count(*)` }).from(schema.cache),
       db.select({ count: sql<number>`count(*)` }).from(schema.credentials),
       db.select({ count: sql<number>`count(*)` }).from(schema.discoverPosts).where(isNull(schema.discoverPosts.deletedAt)),

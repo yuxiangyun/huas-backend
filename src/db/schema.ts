@@ -9,6 +9,7 @@ export const users = sqliteTable('users', {
   encryptedPassword: text('encrypted_password'), // AES-GCM encrypted, for silent re-auth
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
   lastLoginAt: integer('last_login_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
+  lastActiveAt: integer('last_active_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
 });
 
 export const credentials = sqliteTable('credentials', {

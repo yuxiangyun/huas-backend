@@ -1,5 +1,4 @@
 import {
-  afterAll,
   beforeAll,
   beforeEach,
   describe,
@@ -10,7 +9,6 @@ import {
 import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { createHash } from 'node:crypto';
-import { rmSync } from 'node:fs';
 
 // NOTE: this file is a mocked business-flow suite.
 // It validates orchestration logic and regression paths without real school credentials/network.
@@ -194,13 +192,6 @@ beforeEach(async () => {
   ticketBehavior.exchangePortalToken = async () => ({ token: 'portal-token-refreshed', steps: [] });
 
   await resetDb();
-});
-
-afterAll(async () => {
-  const testRoot = (globalThis as any).__HUAS_TEST_ROOT__;
-  if (testRoot) {
-    rmSync(testRoot, { recursive: true, force: true });
-  }
 });
 
 describe('登录流程', () => {

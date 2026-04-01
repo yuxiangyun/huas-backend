@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -20,3 +20,7 @@ process.env.TREEHOLE_AVATAR_MEDIA_BASE_PATH = '/media/treehole-avatar';
 process.env.TREEHOLE_AVATAR_MAX_BYTES = '2097152';
 
 (globalThis as any).__HUAS_TEST_ROOT__ = testRoot;
+
+process.once('exit', () => {
+  rmSync(testRoot, { recursive: true, force: true });
+});

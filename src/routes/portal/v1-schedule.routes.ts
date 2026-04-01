@@ -1,9 +1,12 @@
 import { Hono } from 'hono';
+import { academicRefreshRateLimitMiddleware } from '../../middleware/academic-refresh-rate-limit.middleware';
 import { PortalScheduleService } from '../../services/portal/portal-schedule-service';
 import { success, error } from '../../utils/response';
 import { ErrorCode } from '../../utils/errors';
 
 const v1Schedule = new Hono();
+
+v1Schedule.use('*', academicRefreshRateLimitMiddleware);
 
 // Portal schedule (v1)
 v1Schedule.get('/', async (c) => {

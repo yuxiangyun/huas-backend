@@ -8,6 +8,7 @@ export enum ErrorCode {
   // 4xxx - Business errors
   JWT_INVALID = 4001,
   PARAM_ERROR = 4002,
+  TOO_MANY_REQUESTS = 4003,
 
   // 5xxx - System errors
   INTERNAL_ERROR = 5000,
@@ -20,6 +21,7 @@ const errorHttpStatus: Record<number, number> = {
   [ErrorCode.UPSTREAM_TIMEOUT]: 504,
   [ErrorCode.JWT_INVALID]: 401,
   [ErrorCode.PARAM_ERROR]: 400,
+  [ErrorCode.TOO_MANY_REQUESTS]: 429,
   [ErrorCode.INTERNAL_ERROR]: 500,
 };
 

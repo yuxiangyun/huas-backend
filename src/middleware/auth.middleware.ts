@@ -4,6 +4,10 @@ import { verifyToken } from '../auth/jwt';
 import { getDb, schema } from '../db';
 import { error } from '../utils/response';
 import { ErrorCode } from '../utils/errors';
+import { Logger } from '../utils/logger';
+import { beijingDate } from '../utils/time';
+
+const ACTIVITY_TOUCH_INTERVAL_MS = 15 * 60 * 1000;
 
 // Extend Hono context variables
 declare module 'hono' {
@@ -33,6 +37,7 @@ export async function authMiddleware(c: Context, next: Next) {
       id: schema.users.id,
       studentId: schema.users.studentId,
       name: schema.users.name,
+      lastActiveAt: schema.users.lastActiveAt,
     })
     .from(schema.users)
     .where(and(
@@ -49,6 +54,7 @@ export async function authMiddleware(c: Context, next: Next) {
         id: schema.users.id,
         studentId: schema.users.studentId,
         name: schema.users.name,
+        lastActiveAt: schema.users.lastActiveAt,
       })
       .from(schema.users)
       .where(eq(schema.users.studentId, payload.studentId))
@@ -64,6 +70,29 @@ export async function authMiddleware(c: Context, next: Next) {
   c.set('studentId', resolvedUser.studentId);
   const name = payload.name?.trim() || resolvedUser.name?.trim() || undefined;
   c.set('name', name);
+
+  const now = new Date();
+  const crossedBeijingDay = resolvedUser.lastActiveAt
+    ? beijingDate(resolvedUser.lastActiveAt) !== beijingDate(now)
+    : false;
+  const shouldTouchActivity = !resolvedUser.lastActiveAt
+    || crossedBeijingDay
+    || now.getTime() - resolvedUser.lastActiveAt.getTime() >= ACTIVITY_TOUCH_INTERVAL_MS;
+
+  if (shouldTouchActivity) {
+    try {
+      await db.update(schema.users)
+        .set({ lastActiveAt: now })
+        .where(eq(schema.users.id, resolvedUser.id));
+    } catch (touchError: any) {
+      Logger.warn(
+        'AuthMiddleware',
+        '更新用户活跃时间失败',
+        touchError?.message || String(touchError),
+        resolvedUser.studentId
+      );
+    }
+  }
 
   await next();
 }

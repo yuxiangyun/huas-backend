@@ -54,6 +54,7 @@ function ensureLegacyColumns(): void {
   ensureColumn('users', 'encrypted_password', 'encrypted_password TEXT');
   ensureColumn('users', 'created_at', 'created_at INTEGER');
   ensureColumn('users', 'last_login_at', 'last_login_at INTEGER');
+  ensureColumn('users', 'last_active_at', 'last_active_at INTEGER');
 
   ensureColumn('credentials', 'value', 'value TEXT');
   ensureColumn('credentials', 'cookie_jar', 'cookie_jar TEXT');
@@ -125,6 +126,14 @@ function backfillCriticalTimestamps(): void {
 
   sqliteDb.exec(`UPDATE users SET created_at = ${now} WHERE created_at IS NULL OR created_at <= 0`);
   sqliteDb.exec(`UPDATE users SET last_login_at = ${now} WHERE last_login_at IS NULL OR last_login_at <= 0`);
+  sqliteDb.exec(`UPDATE users
+    SET last_active_at = COALESCE(
+      NULLIF(last_login_at, 0),
+      NULLIF(created_at, 0),
+      ${now}
+    )
+    WHERE last_active_at IS NULL OR last_active_at <= 0
+  `);
   sqliteDb.exec(`UPDATE credentials SET created_at = ${now} WHERE created_at IS NULL OR created_at <= 0`);
   sqliteDb.exec(`UPDATE credentials SET updated_at = ${now} WHERE updated_at IS NULL OR updated_at <= 0`);
   sqliteDb.exec(`UPDATE cache SET created_at = ${now} WHERE created_at IS NULL OR created_at <= 0`);
@@ -171,7 +180,8 @@ export function initDatabase() {
     treehole_avatar_url TEXT,
     encrypted_password TEXT,
     created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
-    last_login_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    last_login_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+    last_active_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
   )`);
 
   database.run(sql`CREATE TABLE IF NOT EXISTS credentials (
@@ -292,6 +302,7 @@ export function initDatabase() {
   database.run(sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_credentials_user_system ON credentials(user_id, system)`);
   database.run(sql`CREATE INDEX IF NOT EXISTS idx_cache_key ON cache(key)`);
   database.run(sql`CREATE INDEX IF NOT EXISTS idx_cache_expires ON cache(expires_at)`);
+  database.run(sql`CREATE INDEX IF NOT EXISTS idx_users_last_active_at ON users(last_active_at)`);
   database.run(sql`CREATE INDEX IF NOT EXISTS idx_discover_posts_user_id ON discover_posts(user_id)`);
   database.run(sql`CREATE INDEX IF NOT EXISTS idx_discover_posts_category ON discover_posts(category)`);
   database.run(sql`CREATE INDEX IF NOT EXISTS idx_discover_posts_deleted_published ON discover_posts(deleted_at, published_at DESC)`);

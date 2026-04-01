@@ -1,8 +1,11 @@
 import { Hono } from 'hono';
+import { academicRefreshRateLimitMiddleware } from '../../middleware/academic-refresh-rate-limit.middleware';
 import { ScheduleService } from '../../services/academic/schedule-service';
 import { success } from '../../utils/response';
 
 const schedule = new Hono();
+
+schedule.use('*', academicRefreshRateLimitMiddleware);
 
 // JW schedule (legacy)
 schedule.get('/', async (c) => {

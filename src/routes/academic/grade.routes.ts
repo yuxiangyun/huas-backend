@@ -1,8 +1,11 @@
 import { Hono } from 'hono';
+import { academicRefreshRateLimitMiddleware } from '../../middleware/academic-refresh-rate-limit.middleware';
 import { GradeService } from '../../services/academic/grade-service';
 import { success } from '../../utils/response';
 
 const grades = new Hono();
+
+grades.use('*', academicRefreshRateLimitMiddleware);
 
 grades.get('/', async (c) => {
   const userId = c.get('userId');

@@ -77,7 +77,10 @@ auth.post('/login', async (c) => {
       if (storedPassword && safeEqual(storedPassword, password)) {
         const now = new Date();
         await db.update(schema.users)
-          .set({ lastLoginAt: now })
+          .set({
+            lastLoginAt: now,
+            lastActiveAt: now,
+          })
           .where(eq(schema.users.id, existingUser.id));
 
         const resolvedName = existingUser.name?.trim() || undefined;
@@ -213,11 +216,13 @@ auth.post('/login', async (c) => {
       encryptedPassword,
       createdAt: now,
       lastLoginAt: now,
+      lastActiveAt: now,
     }).onConflictDoUpdate({
       target: schema.users.studentId,
       set: {
         encryptedPassword,
         lastLoginAt: now,
+        lastActiveAt: now,
       },
     });
 
