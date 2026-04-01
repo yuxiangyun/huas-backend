@@ -1,6 +1,6 @@
 # HUAS Server 架构与维护文档
 
-> 基线日期：2026-03-14
+> 基线日期：2026-04-01
 > 代码基线：当前工作区
 > 目标读者：前端接入方、后端维护者、后续功能扩展开发者
 
@@ -52,7 +52,7 @@ flowchart LR
   Routes --> Services
   Services --> Auth["Auth / CredentialManager"]
   Services --> Cache["CacheService"]
-  Services --> Discover["DiscoverService / DiscoverMediaService"]
+  Services --> Discover["DiscoverUserService / DiscoverAdminService / DiscoverMediaService"]
   Services --> Parsers
   Auth --> DB[(SQLite)]
   Cache --> DB
@@ -84,7 +84,7 @@ flowchart LR
 | 目录 | 职责 |
 |---|---|
 | `src/routes/{auth,system,content,academic,portal,discover,treehole,admin}/*` | 路由定义、参数读取、返回 `success/error`，按业务域和访问边界分类 |
-| `src/middleware/*` | Bearer 鉴权、Basic Auth、日志、全局错误处理 |
+| `src/middleware/*` | Bearer 鉴权、Basic Auth、学业强制刷新限流、日志、全局错误处理 |
 | `src/services/{academic,portal,discover,treehole,content,admin,infra}/*` | 业务编排、缓存、上游调用、媒体处理与管理面板聚合 |
 | `src/auth/*` | CAS 登录、票据交换、凭证刷新、静默重认证、JWT 签发 |
 | `src/parsers/{academic,portal}/*` | 将学校 HTML/JSON 解析成稳定的数据结构，按上游来源分类 |
@@ -129,7 +129,7 @@ src/
 `discover` 模块是这条默认工作流之外的一条独立支线：
 
 1. `src/routes/discover/discover.routes.ts` 读取表单 / JSON / query
-2. `DiscoverService` 做分类、标签、评分与推荐逻辑
+2. `DiscoverUserService` / `DiscoverAdminService` 负责 discover 业务读写与管理能力，`DiscoverService` 只保留兼容 facade
 3. `DiscoverMediaService` 做图片压缩、存储和读取控制
 4. 数据直接写 `discover_posts` / `discover_post_ratings`
 5. 不经过学校上游，也不依赖 `CacheService`
@@ -141,9 +141,9 @@ src/
 | 凭证 | 生命周期 | 存储位置 | 作用 |
 |---|---:|---|---|
 | Self JWT | 90 天 | 客户端 | 访问本服务 API |
-| CAS TGC | 约 24 小时 | `credentials.cookie_jar` | 刷新 Portal/JW 子凭证 |
-| Portal JWT | 10 分钟 | `credentials.value` | 调 Portal API |
-| JW Session | 10 分钟 | `credentials.cookie_jar` | 调 JW API |
+| CAS TGC | 本地 TTL 7 天 | `credentials.cookie_jar` | 刷新 Portal/JW 子凭证 |
+| Portal JWT | 本地 TTL 7 天 | `credentials.value` | 调 Portal API |
+| JW Session | 本地 TTL 7 天 | `credentials.cookie_jar` | 调 JW API |
 | AES 加密密码 | 长期 | `users.encrypted_password` | 静默重认证 |
 
 ### 5.2 登录主流程
@@ -259,6 +259,12 @@ src/
   - `_meta.stale = true`
   - `_meta.refresh_failed = true`
   - `_meta.last_error = 3003 | 3004 | 5000`
+
+另外，`/api/schedule`、`/api/v1/schedule`、`/api/grades` 在 `refresh=true` 时会经过 `academicRefreshRateLimitMiddleware`：
+
+- 只按 `userId` 计数
+- `5` 秒窗口内最多 `5` 次强制刷新
+- 超限返回 `4003/429`，并带 `Retry-After`
 
 ### 7.3 当前真实 TTL
 
@@ -388,13 +394,13 @@ src/
 
 ### 9.1 SQLite 表
 
-`src/db/schema.ts` 当前有五张核心表：
+`src/db/schema.ts` 当前定义了 10 张表，可按职责分为：
 
 #### `users`
 
 - `student_id` 唯一
-- 保存姓名、班级、AES 加密密码
-- 记录 `created_at` 与 `last_login_at`
+- 保存姓名、班级、树洞头像路径、AES 加密密码
+- 记录 `created_at`、`last_login_at`、`last_active_at`
 
 #### `credentials`
 
@@ -425,6 +431,35 @@ src/
 - `score` 当前只允许 `1-5` 整数
 - 推荐流直接基于这张表和帖子标签/分类做召回
 
+#### `discover_comments`
+
+- 评论正文落盘在这张表
+- `parent_comment_id` 支持同帖回复链
+- `deleted_at` 为空表示仍可见
+
+#### `treehole_posts`
+
+- 树洞主表
+- 聚合保存 `like_count` 与 `comment_count`
+- `deleted_at` 为空表示仍可见
+
+#### `treehole_post_likes`
+
+- `(post_id, user_id)` 唯一
+- 保证同一用户不会重复点赞同一树洞
+
+#### `treehole_comments`
+
+- 树洞评论表
+- `parent_comment_id` 支持回复链
+- `deleted_at` 为空表示仍可见
+
+#### `treehole_comment_notifications`
+
+- 保存树洞评论 / 回复提醒
+- `read_at` 为空表示未读
+- `type` 当前为 `post_comment | comment_reply`
+
 ### 9.2 启动时数据库初始化
 
 `initDatabase()` 会做：
@@ -432,7 +467,7 @@ src/
 - `PRAGMA journal_mode = WAL`
 - `PRAGMA foreign_keys = ON`
 - `PRAGMA busy_timeout = 5000`
-- 创建五张表
+- 创建 10 张表
 - 为旧库补齐缺失列
 - 回填关键时间戳
 - 清理重复 `credentials`
@@ -449,6 +484,7 @@ src/
 |---|---|
 | `data/announcements.json` | 公告数据源 |
 | `data/discover/` | 发现美食图片目录，默认跟随 `DB_PATH` 同级 |
+| `data/treehole-avatars/` | 树洞头像目录，默认跟随 `DB_PATH` 同级 |
 | `logs/huas-YYYY-MM-DD.log` | 业务日志 |
 | `logs/error-YYYY-MM-DD.log` | 错误日志 |
 | `logs/pm2-out.log` | 管理仪表盘读取的 stdout 聚合日志 |
@@ -539,6 +575,12 @@ src/
 | `DISCOVER_IMAGE_MAX_BYTES` | `8388608` | 单图最大字节数，默认 8 MB |
 | `DISCOVER_IMAGE_MAX_DIMENSION` | `1280` | 压缩后最长边 |
 | `DISCOVER_IMAGE_QUALITY` | `78` | WebP 压缩质量 |
+| `TREEHOLE_MAX_POST_LENGTH` | `500` | 树洞正文最大长度 |
+| `TREEHOLE_MAX_COMMENT_LENGTH` | `200` | 树洞评论最大长度 |
+| `TREEHOLE_DEFAULT_PAGE_SIZE` | `20` | 树洞默认分页大小 |
+| `TREEHOLE_MAX_PAGE_SIZE` | `50` | 树洞最大分页大小 |
+| `TREEHOLE_DEFAULT_COMMENT_PAGE_SIZE` | `50` | 树洞评论默认分页大小 |
+| `TREEHOLE_MAX_COMMENT_PAGE_SIZE` | `100` | 树洞评论最大分页大小 |
 | `TREEHOLE_AVATAR_STORAGE_ROOT` | `data/treehole-avatars` | 树洞头像文件根目录 |
 | `TREEHOLE_AVATAR_MEDIA_BASE_PATH` | `/media/treehole-avatar` | 树洞头像公开访问前缀 |
 | `TREEHOLE_AVATAR_MAX_BYTES` | `2097152` | 树洞头像最大字节数，默认 2 MB |
@@ -551,8 +593,8 @@ src/
 |---|---|---|
 | 时区 | `src/config.ts` | 固定 `Asia/Shanghai` |
 | Self JWT TTL | `src/config.ts` | 90 天 |
-| TGC TTL | `src/config.ts` | 24 小时 |
-| Portal/JW 子凭证 TTL | `src/config.ts` | 10 分钟 |
+| TGC TTL | `src/config.ts` | 7 天 |
+| Portal/JW 子凭证 TTL | `src/config.ts` | 7 天 |
 | 缓存 TTL | `src/config.ts` | 全部为 `0` |
 | 验证码会话上限 | `src/routes/auth/auth.routes.ts` | 1000 |
 | 验证码会话 TTL | `src/config.ts` | 10 分钟 |
@@ -645,6 +687,8 @@ src/
 - `src/routes/discover/discover.routes.ts`
 - `src/routes/admin/admin.routes.ts` 中 `/api/admin/discover/*`
 - `src/services/discover/discover-service.ts`
+- `src/services/discover/discover-user-service.ts`
+- `src/services/discover/discover-admin-service.ts`
 - `src/services/discover/media-service.ts`
 - `src/utils/discover.ts`
 - `src/index.ts` 中 `/media/discover/*`
@@ -783,7 +827,7 @@ src/
 1. 路由层接收 `multipart/form-data`
 2. 校验分类、标签、图片数量
 3. `DiscoverMediaService.compressAndStoreImages()` 同步压缩并落盘
-4. `DiscoverService.createPost()` 写入 `discover_posts`
+4. `DiscoverUserService.createPost()` 写入 `discover_posts`
 5. 返回帖子详情结构
 
 评分链路：

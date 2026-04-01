@@ -1,6 +1,6 @@
 # HUAS Server API 文档
 
-> 基线日期：2026-03-14
+> 基线日期：2026-04-01
 > Base URL：`http://localhost:3000`
 > 时区约定：服务端固定使用 `Asia/Shanghai`，文档中的时间示例均为 `+08:00`
 
@@ -12,7 +12,11 @@
 | `GET /health` | 无 | 健康检查 |
 | `GET /api/public/announcements` | 无 | 公告弹窗列表 |
 | `GET /status` | Basic Auth | 管理状态页 HTML |
-| `GET /api/admin/*` | Basic Auth | 管理接口 |
+| `GET /api/admin/dashboard` | Basic Auth | 管理仪表盘 |
+| `GET/POST/PUT/DELETE /api/admin/announcements*` | Basic Auth | 公告管理 |
+| `GET /api/admin/logs` | Basic Auth | 终端日志读取 |
+| `DELETE /api/admin/discover/posts/:id` | Basic Auth | Discover 管理删帖 |
+| `GET/DELETE /api/admin/treehole/*` | Basic Auth | Treehole 管理接口 |
 | `GET /api/schedule` | Bearer JWT | JW 课表 |
 | `GET /api/v1/schedule` | Bearer JWT | Portal 课表 |
 | `GET /api/grades` | Bearer JWT | 成绩 |
@@ -22,7 +26,6 @@
 | `GET/POST/PUT/DELETE /api/treehole/*` | Bearer JWT | 树洞接口 |
 | `GET /media/discover/*` | 无 | 发现美食图片访问，仅未删除帖子可访问 |
 | `GET /media/treehole-avatar/*` | 无 | 树洞头像访问，仅当前仍绑定该头像的用户可访问 |
-| `DELETE /api/admin/treehole/*` | Basic Auth | 树洞管理接口 |
 
 Bearer Token 使用：
 
@@ -36,10 +39,10 @@ Authorization: Bearer <token>
 Authorization: Basic <base64(username:password)>
 ```
 
-当前代码中管理员账号密码写死在 `src/middleware/admin-basic-auth.middleware.ts`：
+补充说明：
 
-- 用户名：`202412040130`
-- 密码：`A18569081662`
+- 当前 `/status` 与 `/api/admin/*` 的鉴权失败由 `adminBasicAuthMiddleware` 直接返回 `401 Unauthorized` 纯文本响应，并附带 `WWW-Authenticate`
+- 当前实现仍在 `src/middleware/admin-basic-auth.middleware.ts` 中硬编码管理员凭证；出于安全原因，本文档不再复述具体口令值
 
 ## 2. 响应包结构
 
@@ -99,6 +102,7 @@ Authorization: Basic <base64(username:password)>
 | `3004` | 学校上游超时 | 504 |
 | `4001` | JWT 无效或过期 | 401 |
 | `4002` | 参数错误 | 400 |
+| `4003` | 教务类强制刷新过于频繁 | 429 |
 | `5000` | 服务器内部错误 | 500 或个别路由自定义状态码 |
 
 注意：
@@ -129,7 +133,17 @@ Authorization: Basic <base64(username:password)>
 
 这意味着文档里如果看到“默认不缓存”或“课表 24 小时 TTL”的说法，都不是当前实现。
 
-### 3.3 限额与淘汰
+### 3.3 学业 `refresh` 限流
+
+只有 `GET /api/schedule`、`GET /api/v1/schedule`、`GET /api/grades` 在 `refresh=true` 时会命中限流中间件。
+
+- 维度：按 `userId`
+- 窗口：`5` 秒
+- 阈值：每窗口最多 `5` 次强制刷新请求
+- 超限响应：`HTTP 429 + error_code=4003`
+- 响应头：`Retry-After: <seconds>`
+
+### 3.4 限额与淘汰
 
 | 前缀 | 默认上限 | 说明 |
 |---|---:|---|
@@ -1105,9 +1119,11 @@ Portal 课表接口。虽然路径名带 `v1`，但当前语义是“统一门�
       },
       "logs": {
         "limit": 50,
+        "keyword": "",
         "items": []
       },
-    "announcements": []
+      "announcements": []
+    }
   }
 }
 ```
@@ -1120,6 +1136,147 @@ Portal 课表接口。虽然路径名带 `v1`，但当前语义是“统一门�
 - `discover` 段用于管理员页面展示最近的发现美食帖子，并提供删除入口
 - `discover.items[].coverUrl` 和 `discover.items[].images` 用于管理员页面点击后查看图片
 - 当前管理页上的公告增删改、管理员删帖、用户发帖/评分/删帖都会写入终端日志，因此刷新 dashboard 时能在日志表里看到最近操作
+
+### 6.9.1 `GET /api/admin/logs`
+
+读取最新终端日志，需 HTTP Basic Auth。
+
+查询参数：
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|---|---|---|---|---|
+| `limit` | string | 否 | `50` | 返回条数，上限 `200` |
+| `keyword` | string | 否 | 空字符串 | 按关键字过滤日志行 |
+
+响应结构：
+
+```json
+{
+  "success": true,
+  "data": {
+    "limit": 50,
+    "keyword": "discover",
+    "items": [
+      {
+        "source": "out",
+        "line": "2026-03-14 10:20:00 [OPS] Discover 发布帖子 #12"
+      },
+      {
+        "source": "error",
+        "line": "2026-03-14 10:21:00 [ERR] Cleanup 定时清理失败"
+      }
+    ]
+  }
+}
+```
+
+补充说明：
+
+- `items[].source` 只会是 `out | error`
+- 读取来源固定为 `logs/pm2-out.log` 与 `logs/pm2-error.log`
+- Basic Auth 失败时返回 `401 Unauthorized` 纯文本，不走 JSON 错误包
+
+### 6.9.2 `GET /api/admin/treehole/posts`
+
+管理员查看树洞列表，需 HTTP Basic Auth。
+
+查询参数：
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|---|---|---|---|---|
+| `page` | string | 否 | `1` | 页码 |
+| `pageSize` | string | 否 | `20` | 每页数量，上限 `50` |
+| `keyword` | string | 否 | 空字符串 | 按内容、学号、姓名、班级模糊搜索 |
+
+响应结构：
+
+```json
+{
+  "success": true,
+  "data": {
+    "summary": {
+      "totalPosts": 18,
+      "totalComments": 42,
+      "totalLikes": 97
+    },
+    "items": [
+      {
+        "id": 18,
+        "content": "今天食堂排队离谱",
+        "stats": {
+          "likeCount": 5,
+          "commentCount": 2
+        },
+        "author": {
+          "id": 3,
+          "studentId": "2023001001",
+          "name": "张三",
+          "className": "计科2301"
+        },
+        "publishedAt": "2026-03-14T10:20:00.000+08:00",
+        "createdAt": "2026-03-14T10:20:00.000+08:00",
+        "updatedAt": "2026-03-14T10:20:00.000+08:00"
+      }
+    ],
+    "page": 1,
+    "pageSize": 20,
+    "total": 18,
+    "hasMore": false
+  }
+}
+```
+
+补充说明：
+
+- `summary` 统计的是当前全量未删除树洞、评论、点赞总数，不受 `keyword` 过滤影响
+- `author` 是管理员可见的实名作者信息，不是匿名展示字段
+- Basic Auth 失败时返回 `401 Unauthorized` 纯文本，不走 JSON 错误包
+
+### 6.9.3 `GET /api/admin/treehole/posts/:id/comments`
+
+管理员查看某条树洞的评论列表，需 HTTP Basic Auth。
+
+查询参数：
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|---|---|---|---|---|
+| `page` | string | 否 | `1` | 页码 |
+| `pageSize` | string | 否 | `50` | 每页数量，上限 `100` |
+
+响应结构：
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "id": 6,
+        "postId": 18,
+        "content": "我也遇到了",
+        "author": {
+          "id": 5,
+          "studentId": "2023001005",
+          "name": "李四",
+          "className": "软件工程2301"
+        },
+        "createdAt": "2026-03-14T10:30:00.000+08:00",
+        "updatedAt": "2026-03-14T10:30:00.000+08:00"
+      }
+    ],
+    "page": 1,
+    "pageSize": 50,
+    "total": 1,
+    "hasMore": false
+  }
+}
+```
+
+补充说明：
+
+- 只返回未删除评论
+- 目标帖子不存在或已删除时，返回 `404 + error_code=4002`
+- Basic Auth 失败时返回 `401 Unauthorized` 纯文本，不走 JSON 错误包
 
 ### 6.10 `GET /api/admin/announcements`
 
@@ -1666,10 +1823,13 @@ Authorization: Basic <base64(username:password)>
 
 | 场景 | `error_code` | HTTP |
 |---|---:|---:|
-| Basic Auth 缺失或错误 | 4001 | 401 |
 | 帖子 ID 非法 | 4002 | 400 |
 | 帖子不存在 | 4002 | 404 |
 | 删除过程中出现未处理异常 | 5000 | 500 |
+
+鉴权失败补充：
+
+- Basic Auth 缺失或错误时，直接返回 `401 Unauthorized` 纯文本，并附 `WWW-Authenticate`
 
 ### 6.22 `GET /media/discover/:storageKey/:fileName`
 
@@ -2060,10 +2220,13 @@ Authorization: Basic <base64(username:password)>
 
 | 场景 | `error_code` | HTTP |
 |---|---:|---:|
-| Basic Auth 缺失或错误 | 4001 | 401 |
 | 帖子 ID 非法 | 4002 | 400 |
 | 树洞不存在 | 4002 | 404 |
 | 删除过程中出现未处理异常 | 5000 | 500 |
+
+鉴权失败补充：
+
+- Basic Auth 缺失或错误时，直接返回 `401 Unauthorized` 纯文本，并附 `WWW-Authenticate`
 
 ### 6.35 `DELETE /api/admin/treehole/comments/:id`
 
@@ -2092,10 +2255,13 @@ Authorization: Basic <base64(username:password)>
 
 | 场景 | `error_code` | HTTP |
 |---|---:|---:|
-| Basic Auth 缺失或错误 | 4001 | 401 |
 | 评论 ID 非法 | 4002 | 400 |
 | 评论不存在 | 4002 | 404 |
 | 删除过程中出现未处理异常 | 5000 | 500 |
+
+鉴权失败补充：
+
+- Basic Auth 缺失或错误时，直接返回 `401 Unauthorized` 纯文本，并附 `WWW-Authenticate`
 
 ### 6.36 `GET /api/treehole/avatar`
 
@@ -2236,3 +2402,4 @@ Cache-Control: public, max-age=31536000, immutable
 16. `TreeholeComment.parentCommentId` 可能为 `null`，回复 UI 不能假设它始终存在。
 17. 树洞头像是独立媒体路由（`/media/treehole-avatar/*`），不是 `/api/*` JSON 接口。
 18. 树洞提醒计数需要额外走 `GET/POST /api/treehole/notifications/*`，不要只依赖评论列表推断未读数。
+19. 连续对 `schedule` / `v1/schedule` / `grades` 发 `refresh=true` 会触发 `4003/429`，并带 `Retry-After`，前端不能无脑并发强刷。

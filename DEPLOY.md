@@ -219,11 +219,15 @@ bun install --frozen-lockfile --production
 
 ### 5.3 前端构建
 
+当前 `web/` 下存在 `package-lock.json`，手动构建时建议与发布脚本保持一致，优先使用 `npm`：
+
 ```bash
 cd /www/wwwroot/huas-server/web
-bun install --frozen-lockfile
-bun run build
+npm ci --include=dev
+npm run build
 ```
+
+如果后续移除了 `package-lock.json`，再改为与 `scripts/deploy-huas.sh` 自动识别出的包管理器保持一致。
 
 ## 6. 目录说明
 
@@ -236,6 +240,8 @@ bun run build
 │   └── dist/
 ├── public/
 ├── data/
+│   ├── discover/
+│   └── treehole-avatars/
 ├── logs/
 ├── ecosystem.config.cjs
 └── .env
@@ -245,7 +251,7 @@ bun run build
 
 - `web/dist` 是 `/m` 前端入口的静态资源来源
 - `public/status.html` 是 `/status` 页面来源
-- `data/` 存数据库和 Discover 图片
+- `data/` 存数据库、Discover 图片和 Treehole 头像
 - `logs/pm2-out.log` 与 `logs/pm2-error.log` 会被管理仪表盘读取
 
 ## 7. Nginx 反向代理
@@ -258,7 +264,7 @@ bun run build
 
 最少需要保证：
 
-- `/m`、`/api`、`/auth`、`/health` 都转发到 Bun 服务
+- `/m`、`/api`、`/auth`、`/health`、`/status`、`/media/*` 都转发到 Bun 服务
 - 请求体大小足够覆盖 Discover 多图上传
 - HTTPS 终止在 Nginx 层
 
@@ -275,6 +281,7 @@ bun run build
 
 - `data/huas.db`
 - `data/discover/`
+- `data/treehole-avatars/`
 - `data/announcements.json`
 
 备份时至少保留：
@@ -304,8 +311,8 @@ cd /www/wwwroot/huas-server
 git pull
 bun install --frozen-lockfile --production
 cd web
-bun install --frozen-lockfile
-bun run build
+npm ci --include=dev
+npm run build
 cd ..
 pm2 restart huas-server
 pm2 save
