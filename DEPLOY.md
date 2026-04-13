@@ -24,10 +24,11 @@
 
 ## 2. 当前维护策略
 
-当前只维护两种操作：
+当前只维护三种操作：
 
 1. 服务器上使用 PM2 直接运行服务
 2. 本地通过 `scripts/deploy-huas.sh` 构建前端、同步代码并远程重启 PM2
+3. 本地通过 `git push huas-deploy master` 推送到服务器裸仓库，由 `post-receive` hook 同步代码、构建并重载 PM2
 
 不再维护以下链路：
 
@@ -199,6 +200,65 @@ REMOTE_HOST=your-server scripts/deploy-huas.sh --dry-run
 - 后续发布无需额外的根目录部署脚本
 - `SYNC_DELETE=1` 也不会再清掉 `.env`、`data`、`logs`
 
+### 4.5 Git Push 发布
+
+如果你希望通过 `git push` 同步代码，而不是直接 `rsync` 本地工作区，推荐单独启用这一条链路：
+
+```bash
+scripts/setup-huas-git-deploy.sh
+```
+
+默认行为：
+
+- 本地新增 git remote：`huas-deploy`
+- 远程创建裸仓库：`/www/git/huas-server.git`
+- 远程为裸仓库安装 `post-receive` hook
+- 每次推送 `master` 到 `huas-deploy` 时，自动把 commit 导出并同步到 `/www/wwwroot/huas-server`
+
+这条链路和 `scripts/deploy-huas.sh` 是并存的，互不替代；如果你以后只想走 git 发布，可以完全不再用 `rsync` 脚本。
+
+`post-receive` hook 会显式保护这些线上内容，不会被推送覆盖或删除：
+
+- `.env`
+- `.env.*`
+- `data/`
+- `logs/`
+- `reports/`
+- `node_modules/`
+- `web/node_modules/`
+
+也就是说：
+
+- 线上现有环境变量不会被 git 推送覆盖
+- 线上数据库、图片、运行日志不会被 git 推送覆盖
+- 代码会按推送的 commit 更新，但运行期数据保留在服务器
+
+初始化完成后，标准发布命令：
+
+```bash
+git push huas-deploy master
+```
+
+hook 会自动执行：
+
+1. 将推送的 `master` commit 导出到临时目录
+2. 用 `rsync --delete` 同步代码到 `/www/wwwroot/huas-server`
+3. 排除并保留 `.env`、`data`、`logs` 等运行期内容
+4. 在远程执行 `bun install --frozen-lockfile --production`
+5. 在远程执行 `web/` 的依赖安装和构建
+6. 用 PM2 `startOrReload` 重载应用并执行本机健康检查
+
+如果需要自定义远程参数，可以在初始化时传环境变量：
+
+```bash
+REMOTE_HOST=huas \
+BARE_REPO_DIR=/www/git/huas-server.git \
+APP_DIR=/www/wwwroot/huas-server \
+APP_NAME=huas-server \
+DEPLOY_BRANCH=master \
+scripts/setup-huas-git-deploy.sh
+```
+
 ## 5. 手动运维命令
 
 ### 5.1 PM2
@@ -293,7 +353,7 @@ npm run build
 
 ## 9. 更新流程
 
-### 9.1 推荐流程
+### 9.1 推荐流程（rsync）
 
 在本地执行：
 
@@ -304,13 +364,39 @@ APP_NAME=huas-server \
 scripts/deploy-huas.sh
 ```
 
-### 9.2 服务器手动更新
+### 9.2 推荐流程（git push）
 
-如果不走脚本，也可以手动：
+先初始化一次：
+
+```bash
+scripts/setup-huas-git-deploy.sh
+```
+
+之后每次发布：
+
+```bash
+git push huas-deploy master
+```
+
+如果你本地分支不是 `master`，但要发布当前 HEAD：
+
+```bash
+git push huas-deploy HEAD:master
+```
+
+### 9.3 服务器手动更新
+
+只有在服务器目录本身就是 git clone 时，才适用这一组命令。
+
+如果当前服务器目录是通过 `rsync` 或 `git push -> post-receive hook` 维护的工作目录，那么它通常不是 git 仓库，不能直接在 `/www/wwwroot/huas-server` 里执行 `git pull`。
+
+满足“服务器目录本身就是 git clone”这个前提时，可以手动：
 
 ```bash
 cd /www/wwwroot/huas-server
-git pull
+git fetch origin
+git checkout master
+git pull --ff-only origin master
 bun install --frozen-lockfile --production
 cd web
 npm ci --include=dev
@@ -358,6 +444,16 @@ bun run build
 - 远程是否安装了 `bun`、`pm2`、`curl`
 - 远程 `REMOTE_DIR` 是否存在并可写
 - 远程 `.env` 是否已准备好，且包含合法的 `PORT`
+
+### 10.4 `git push huas-deploy` 失败
+
+优先检查：
+
+- 本地是否已经执行过 `scripts/setup-huas-git-deploy.sh`
+- 本地 `git remote get-url huas-deploy` 是否指向正确的 SSH 地址
+- 远程 `/www/git/huas-server.git/hooks/post-receive` 是否存在且可执行
+- 远程是否安装了 `git`、`rsync`、`bun`、`npm`、`pm2`、`curl`
+- 远程 `/www/wwwroot/huas-server/.env` 是否存在，且包含合法的 `PORT`
 
 先做 dry-run：
 

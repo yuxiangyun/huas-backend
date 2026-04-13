@@ -18,8 +18,16 @@ const c = {
   bgYellow: '\x1b[43m\x1b[30m',
 };
 
+type OutputStream = 'stdout' | 'stderr';
+type LogLevel = 'info' | 'warn' | 'error';
+
+const DETAIL_INDENT = ' '.repeat(18);
+const HTTP_PATH_WIDTH = 36;
+const SUMMARY_WIDTH = 40;
+const SHOW_PARSER_SUCCESS = process.env.LOG_PARSER_SUCCESS === '1';
+
 function time(): string {
-  const short = beijingDateTime().slice(5);
+  const short = beijingDateTime().slice(11);
   return `${c.gray}${short}${c.reset}`;
 }
 
@@ -29,19 +37,107 @@ function statusColor(status: number): string {
   return `${c.green}${status}${c.reset}`;
 }
 
-function durationStr(ms: number): string {
-  const str = `${Math.round(ms)}ms`.padStart(6);
-  if (ms >= 1500) return `${c.bgYellow}⚡${str}${c.reset}`;
-  return `${c.gray}${str}${c.reset}`;
+function fit(value: string, width: number, align: 'start' | 'end' = 'start'): string {
+  if (value.length > width) {
+    return align === 'end'
+      ? `...${value.slice(-(width - 3))}`
+      : `${value.slice(0, width - 3)}...`;
+  }
+  return align === 'end' ? value.padStart(width) : value.padEnd(width);
 }
 
-function userStr(studentId?: string, name?: string): string {
-  if (!studentId) return '';
-  return `  ${c.cyan}${studentId}${c.reset}${name ? ` ${c.bold}${name}${c.reset}` : ''}`;
+function colorize(value: string, color: string): string {
+  return `${color}${value}${c.reset}`;
 }
 
-function subLine(symbol: string, text: string): void {
-  console.log(`${' '.repeat(18)}${c.gray}${symbol} ${text}${c.reset}`);
+function writeLine(stream: OutputStream, line: string): void {
+  if (stream === 'stderr') {
+    console.error(line);
+    return;
+  }
+  console.log(line);
+}
+
+function levelStyle(level: LogLevel) {
+  if (level === 'error') {
+    return { label: 'ERROR', color: c.red };
+  }
+  if (level === 'warn') {
+    return { label: 'WARN', color: c.yellow };
+  }
+  return { label: 'INFO', color: c.green };
+}
+
+function scopeColor(scope: string): string {
+  if (scope === 'HTTP') return c.cyan;
+  if (scope === 'AUTH') return c.blue;
+  if (scope === 'OPS') return c.magenta;
+  if (scope === 'SRV') return c.green;
+  return c.gray;
+}
+
+function formatHeader(level: LogLevel, scope: string): string {
+  const levelInfo = levelStyle(level);
+  const levelLabel = colorize(fit(levelInfo.label, 5), levelInfo.color);
+  const scopeLabel = colorize(fit(scope, 5), scopeColor(scope));
+  return `${time()}  ${levelLabel}  ${scopeLabel}`;
+}
+
+function formatDuration(ms: number): string {
+  const text = fit(`${Math.round(ms)}ms`, 8, 'end');
+  return ms >= 1500 ? colorize(text, c.yellow) : colorize(text, c.gray);
+}
+
+function formatIdentity(studentId?: string, name?: string): string[] {
+  const parts: string[] = [];
+  if (studentId) parts.push(colorize(`sid=${studentId}`, c.cyan));
+  if (name) parts.push(colorize(name, c.bold));
+  return parts;
+}
+
+function normalizeDetailLine(text: string): string {
+  return text.replace(/;\s*/g, '  ').trim();
+}
+
+function detailLines(lines: Array<string | undefined>): string[] {
+  return lines
+    .filter((line): line is string => Boolean(line && line.trim()))
+    .map((line) => normalizeDetailLine(line));
+}
+
+function printDetailLines(
+  stream: OutputStream,
+  lines: Array<string | undefined>,
+  color: string = c.gray
+): void {
+  detailLines(lines).forEach((line) => {
+    writeLine(stream, `${DETAIL_INDENT}${color}${line}${c.reset}`);
+  });
+}
+
+function printMainLine(
+  stream: OutputStream,
+  level: LogLevel,
+  scope: string,
+  parts: Array<string | undefined>
+) {
+  const summary = parts.filter(Boolean).join('  ');
+  writeLine(stream, `${formatHeader(level, scope)}  ${summary}`);
+}
+
+function formatStepSummary(steps?: LoginStep[]): string[] {
+  if (!steps || steps.length === 0) return [];
+
+  const rendered = steps.map((step) => {
+    const status = step.ok ? 'ok' : 'fail';
+    return step.detail ? `${step.label}=${status}  detail=${step.detail}` : `${step.label}=${status}`;
+  });
+
+  if (steps.some((step) => !step.ok)) {
+    return rendered;
+  }
+
+  return [rendered.join('  ')];
 }
 
 export interface LoginStep {
@@ -85,27 +181,34 @@ export const Logger = {
     meta?: { cached?: boolean; source?: string },
     detail?: string[]
   ) {
-    const tag = method === 'POST'
-      ? `${c.magenta}${method.padEnd(4)}${c.reset}`
-      : `${c.cyan}${method.padEnd(4)}${c.reset}`;
+    const methodColor = method === 'POST' ? c.magenta : c.cyan;
+    const normalizedDetail = detailLines(detail ?? []);
+    const mainParts = [
+      colorize(fit(method, 6), methodColor),
+      fit(path, HTTP_PATH_WIDTH),
+      statusColor(status),
+      formatDuration(ms),
+      ...formatIdentity(studentId, name),
+    ];
 
-    let cacheTag = '';
-    if (meta) {
-      if (meta.cached) {
-        cacheTag = `  ${c.yellow}▪ cache${c.reset}`;
-      } else if (meta.source) {
-        cacheTag = `  ${c.green}▪ ${meta.source}${c.reset}`;
+    printMainLine('stdout', 'info', 'HTTP', mainParts);
+
+    const metaLine = meta?.cached
+      ? 'source=cache'
+      : meta?.source
+        ? `source=${meta.source}`
+        : undefined;
+
+    const consoleDetail = [...normalizedDetail];
+    if (metaLine) {
+      if (consoleDetail.length > 0) {
+        consoleDetail[0] = `${metaLine}  ${consoleDetail[0]}`;
+      } else {
+        consoleDetail.push(metaLine);
       }
     }
 
-    console.log(
-      `${time()} ${tag} ${path} ${statusColor(status)} ${durationStr(ms)}${userStr(studentId, name)}${cacheTag}`
-    );
-
-    const detailLines = detail?.filter(Boolean) ?? [];
-    detailLines.forEach((line, index) => {
-      subLine(index === detailLines.length - 1 ? '└' : '├', line);
-    });
+    printDetailLines('stdout', consoleDetail);
 
     fileLogger.info('http', {
       method,
@@ -116,7 +219,7 @@ export const Logger = {
       name,
       cached: meta?.cached,
       source: meta?.source,
-      detail: detailLines.length > 0 ? detailLines : undefined,
+      detail: normalizedDetail.length > 0 ? normalizedDetail : undefined,
     });
   },
 
@@ -128,84 +231,82 @@ export const Logger = {
     name?: string,
     steps?: LoginStep[]
   ) {
-    const isSilent = result.includes('静默');
-    const isError = result.includes('失败') || result.includes('异常') || result.includes('激活失败');
-    const tag = isError
-      ? `${c.red}ERR ${c.reset}`
-      : isSilent
-        ? `${c.magenta}CAS↻${c.reset}`
-        : `${c.blue}AUTH${c.reset}`;
-    const resultColor = isError ? c.red : result.includes('成功') ? c.green : c.yellow;
+    const isWarn = result.includes('需要验证码')
+      || result.includes('失败')
+      || result.includes('异常')
+      || result.includes('激活失败');
+    const level: LogLevel = isWarn ? 'warn' : 'info';
 
-    console.log(
-      `${time()} ${tag} ${c.cyan}${studentId}${c.reset} → ${resultColor}${result}${c.reset}` +
-      ` ${durationStr(ms)}${name ? ` ${c.bold}${name}${c.reset}` : ''}`
-    );
+    printMainLine('stdout', level, 'AUTH', [
+      fit(result, SUMMARY_WIDTH),
+      formatDuration(ms),
+      ...formatIdentity(studentId, name),
+    ]);
 
-    if (steps && steps.length > 0) {
-      const hasFailure = steps.some(s => !s.ok);
-      if (hasFailure) {
-        steps.forEach((step, i) => {
-          const isLast = i === steps.length - 1;
-          const symbol = isLast ? '└' : '├';
-          const mark = step.ok ? `${c.green}✓${c.reset}` : `${c.red}✗${c.reset}`;
-          const detail = step.detail ? ` ${c.gray}${step.detail}${c.reset}` : '';
-          subLine(symbol, `${step.label} ${mark}${detail}`);
-        });
-      } else {
-        const summary = steps.map(s => `${s.label} ${c.green}✓${c.reset}`).join(`${c.gray}  ${c.reset}`);
-        subLine('├', summary);
-      }
-    }
+    printDetailLines('stdout', formatStepSummary(steps));
 
     fileLogger.info('auth', { studentId, result, status, ms, name, steps });
   },
 
   server(msg: string) {
-    console.log(`${time()} ${c.green}SRV${c.reset} ${msg}`);
+    printMainLine('stdout', 'info', 'SRV', [msg]);
     fileLogger.info('server', { msg });
   },
 
   serverBanner(port: number, env: string) {
-    const line = '━'.repeat(20);
-    console.log(`${time()} ${c.green}SRV${c.reset} ${c.gray}${line}${c.reset}`);
-    console.log(`${time()} ${c.green}SRV${c.reset} 启动 :${c.cyan}${port}${c.reset} ${c.gray}${env}${c.reset}`);
+    printMainLine('stdout', 'info', 'SRV', [
+      fit('server starting', SUMMARY_WIDTH),
+      colorize(`port=${port}`, c.cyan),
+      colorize(`env=${env}`, c.gray),
+    ]);
   },
 
   serverReady(port: number) {
-    console.log(`${time()} ${c.green}SRV${c.reset} ${c.green}✓${c.reset} 已就绪`);
-    const line = '━'.repeat(20);
-    console.log(`${time()} ${c.green}SRV${c.reset} ${c.gray}${line}${c.reset}`);
+    printMainLine('stdout', 'info', 'SRV', [
+      fit('server ready', SUMMARY_WIDTH),
+      colorize(`port=${port}`, c.cyan),
+    ]);
   },
 
   warn(tag: string, msg: string, detail?: string, studentId?: string, name?: string) {
-    console.log(
-      `${time()} ${c.yellow}WARN${c.reset} [${tag}] ${msg}${userStr(studentId, name)}`
-    );
-    if (detail) subLine('└', detail);
+    printMainLine('stdout', 'warn', 'APP', [
+      fit(`${tag} ${msg}`, SUMMARY_WIDTH),
+      ...formatIdentity(studentId, name),
+    ]);
+    printDetailLines('stdout', [detail]);
     fileLogger.warn(msg, { tag, detail, studentId, name });
   },
 
   error(tag: string, msg: string, err?: any, studentId?: string, name?: string) {
     const errInfo = err instanceof Error ? err.message : (err || '');
-    console.error(
-      `${time()} ${c.red}ERR ${c.reset} [${tag}] ${msg}${userStr(studentId, name)}`
-    );
-    if (errInfo) subLine('└', `${c.red}${errInfo}${c.reset}`);
+    printMainLine('stderr', 'error', 'APP', [
+      fit(`${tag} ${msg}`, SUMMARY_WIDTH),
+      ...formatIdentity(studentId, name),
+    ]);
+    printDetailLines('stderr', [errInfo ? String(errInfo) : undefined], c.red);
     fileLogger.error(msg, { tag, error: errInfo, studentId, name });
   },
 
   parser(name: string, action: string, studentId?: string, userName?: string) {
-    console.log(`${time()} ${c.gray}· ${action}${c.reset}${userStr(studentId, userName)}`);
+    if (SHOW_PARSER_SUCCESS) {
+      printMainLine('stdout', 'info', 'PARSE', [
+        fit(`${name} ${action}`, SUMMARY_WIDTH),
+        ...formatIdentity(studentId, userName),
+      ]);
+    }
+    fileLogger.info('parser', { name, action, studentId, userName });
   },
 
   operation(scope: string, action: string, actorId?: string, actorName?: string, detail?: string) {
-    console.log(`${time()} ${c.blue}OPS ${c.reset} [${scope}] ${action}${userStr(actorId, actorName)}`);
-    if (detail) subLine('└', detail);
+    printMainLine('stdout', 'info', 'OPS', [
+      fit(`${scope} ${action}`, SUMMARY_WIDTH),
+      ...formatIdentity(actorId, actorName),
+    ]);
+    printDetailLines('stdout', [detail]);
     fileLogger.info('operation', { scope, action, actorId, actorName, detail });
   },
 
   detail(text: string) {
-    subLine('└', text);
+    printDetailLines('stdout', [text]);
   },
 };

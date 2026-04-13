@@ -17,15 +17,15 @@ schedule.get('/', async (c) => {
   const forceRefresh = c.req.query('refresh') === 'true';
 
   const result = await ScheduleService.getSchedule(userId, studentId, date, forceRefresh, name);
+  const requestMeta = result._request;
   appendHttpLogDetail(c, formatHttpLogDetail({
-    date: result._request?.queryDate,
-    weekStart: result._request?.weekStartDate,
-    cacheKey: result._request?.cacheKey,
-    refresh: forceRefresh,
-    cache: result._request?.cache,
-    lookup: result._request?.lookup,
-    fallback: result._request?.fallback,
-    promotedFrom: result._request?.promotedFrom,
+    week: result.data?.week,
+    courses: Array.isArray(result.data?.courses) ? result.data.courses.length : undefined,
+    cache: requestMeta?.cache,
+    refresh: forceRefresh ? true : undefined,
+    fallback: requestMeta?.fallback,
+    lookup: requestMeta?.lookup && requestMeta.lookup !== 'weekly' ? requestMeta.lookup : undefined,
+    promoted: requestMeta?.promotedFrom ? 'legacy' : undefined,
   }));
   return success(c, result.data, result._meta);
 });
