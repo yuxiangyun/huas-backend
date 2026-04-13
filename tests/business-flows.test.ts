@@ -610,6 +610,56 @@ describe('日历订阅', () => {
     expect(secondLinkBody.data.url).toBe(linkBody.data.url);
   });
 
+  it('默认课表本周缓存已存在时，日历直接复用同一缓存', async () => {
+    const userId = await createUser('2023001999', 'pass-calendar-shared-cache');
+    const app = new Hono();
+    registerRoutes(app);
+    const { getCurrentWeekRange } = await import('../src/services/calendar/calendar-subscription-service.ts');
+    const currentWeek = getCurrentWeekRange();
+
+    upstreamCallCount = 0;
+    upstreamResolver = async () => ({
+      week: '第7周',
+      courses: [
+        {
+          name: '线性代数',
+          teacher: '陈老师',
+          location: '教C301',
+          day: 3,
+          section: '3-4',
+          weekStr: '星期三(3,4小节)',
+        },
+      ],
+      message: '',
+    });
+
+    const defaultSchedule = await ScheduleService.getSchedule(
+      userId,
+      '2023001999',
+      currentWeek.startDate,
+      true,
+      'name-2023001999'
+    );
+    expect(defaultSchedule._meta.cached).toBe(false);
+    expect(upstreamCallCount).toBe(1);
+
+    const { generateToken } = await import('../src/auth/jwt.ts');
+    const authToken = await generateToken({ userId, studentId: '2023001999', name: 'name-2023001999' });
+    const linkRes = await app.request('http://localhost/api/calendar/link', {
+      headers: { Authorization: `Bearer ${authToken}` },
+    });
+    const linkBody = await linkRes.json() as any;
+    const subscriptionUrl = new URL(linkBody.data.url);
+
+    const icsRes = await app.request(subscriptionUrl.toString());
+    expect(icsRes.status).toBe(200);
+    expect(upstreamCallCount).toBe(1);
+
+    const ics = await icsRes.text();
+    expect(ics).toContain('SUMMARY:线性代数');
+    expect(ics).toContain(`DTSTART;TZID=Asia/Shanghai:${addDaysInTest(currentWeek.startDate, 2).replace(/-/g, '')}T100500`);
+  });
+
   it('订阅链接使用 studentId + HMAC 签名，且与业务 JWT 无关', async () => {
     const { generateCalendarSignature } = await import('../src/auth/calendar-signature.ts');
     expect(generateCalendarSignature('2023001001')).toBe(generateCalendarSignature('2023001001'));
@@ -687,6 +737,31 @@ describe('日历订阅', () => {
 
     expect(uids.length).toBe(2);
     expect(new Set(uids).size).toBe(2);
+  });
+
+  it('课程缺少明确日期时，会根据本周起始日和 day 推导事件日期', async () => {
+    const { buildWeeklyScheduleIcs, getCurrentWeekRange } = await import('../src/services/calendar/calendar-subscription-service.ts');
+    const currentWeek = getCurrentWeekRange(new Date('2026-04-13T08:00:00+08:00'));
+    const expectedDate = addDaysInTest(currentWeek.startDate, 4);
+
+    const ics = buildWeeklyScheduleIcs({
+      studentId: '2023001333',
+      weekStart: currentWeek.startDate,
+      courses: [
+        {
+          name: '大学物理',
+          teacher: '周老师',
+          location: '教A201',
+          day: 5,
+          section: '5-6',
+          weekStr: '星期五(5,6小节)',
+        },
+      ],
+    });
+
+    expect(ics).toContain(`DTSTART;TZID=Asia/Shanghai:${expectedDate.replace(/-/g, '')}T143000`);
+    expect(ics).toContain(`DTEND;TZID=Asia/Shanghai:${expectedDate.replace(/-/g, '')}T161000`);
+    expect(ics).toContain(`DESCRIPTION:教师: 周老师\\n地点: 教A201\\n节次: 5-6\\n日期: ${expectedDate}`);
   });
 });
 

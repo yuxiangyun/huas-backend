@@ -169,12 +169,12 @@ GET /calendar/schedule.ics?studentId=2023001001&sig=<hmac_sha256(studentId, CALE
 ### 3.5 日历订阅缓存语义
 
 - `GET /calendar/schedule.ics` 固定读取“本周自然周（Asia/Shanghai，周一到周日）”
-- 它内部复用 Portal 课表服务：
+- 它内部复用默认课表 `/api/schedule` 背后的同一套服务：
   - 本周缓存存在：直接返回缓存对应的 ICS
-  - 本周缓存不存在：触发一次 Portal 课表获取，并写回缓存
+  - 本周缓存不存在：触发一次默认课表获取，并写回缓存
 - 它不会因为缓存“旧了”而自动刷新
 - 如果希望日历内容更新，需要客户端或小程序先对本周调用：
-  - `GET /api/v1/schedule?startDate=<本周一>&endDate=<本周日>&refresh=true`
+  - `GET /api/schedule?date=<本周任意一天>&refresh=true`
 - 日历客户端会在下一次重新抓取订阅链接时看到新内容
 
 ## 4. 前端接入建议
@@ -1012,8 +1012,8 @@ END:VCALENDAR
 - 若签名错误，返回 `4001/401`
 - 若用户不存在，返回 `4001/401`
 - 若课表暂未公布，返回空日历而不是 JSON 错误
-- 若本周缓存不存在，会触发一次 Portal 课表获取并写回缓存
-- 若本周缓存已存在，则不会自动回源刷新；刷新应由 `/api/v1/schedule?...&refresh=true` 驱动
+- 若本周缓存不存在，会触发一次默认课表获取并写回缓存
+- 若本周缓存已存在，则不会自动回源刷新；刷新应由 `/api/schedule?...&refresh=true` 驱动
 
 ### 6.6 `GET /api/grades`
 
