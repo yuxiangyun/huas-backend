@@ -138,7 +138,7 @@ scripts/deploy-huas.sh
 1. 在本地构建 `web/`
 2. 用 `rsync` 同步项目到远程目录
 3. 在远程执行 `bun install --frozen-lockfile --production`
-4. 用 PM2 启动或重启应用
+4. 用 PM2 `startOrReload` 重载应用并执行本机健康检查
 
 ### 4.1 本地依赖
 
@@ -178,7 +178,7 @@ REMOTE_HOST=your-server scripts/deploy-huas.sh --dry-run
 | `REMOTE_HOST` | `huas` | SSH 目标主机 |
 | `REMOTE_DIR` | `/www/wwwroot/huas-server` | 远程项目目录 |
 | `APP_NAME` | `huas-server` | PM2 应用名 |
-| `SYNC_DELETE` | `0` | 为 `1` 时启用 `rsync --delete` |
+| `SYNC_DELETE` | `0` | 为 `1` 时启用 `rsync --delete`，仅清理代码残留，不删除 `.env`、`data`、`logs` |
 | `BUILD_WEB` | `1` | 为 `0` 时跳过本地前端构建 |
 | `INSTALL_WEB_DEPS` | `1` | 为 `0` 时跳过本地 `web` 依赖安装 |
 | `INSTALL_SERVER_DEPS` | `1` | 为 `0` 时跳过远程 `bun install --production` |
@@ -188,14 +188,16 @@ REMOTE_HOST=your-server scripts/deploy-huas.sh --dry-run
 
 脚本的远程逻辑已经统一：
 
-- 如果应用已存在：`pm2 restart <APP_NAME>`
-- 如果应用不存在：`pm2 start ecosystem.config.cjs --only <APP_NAME>`
+- 要求远程 `.env` 存在，并从中读取 `PORT`
+- 使用 `pm2 startOrReload ecosystem.config.cjs --only <APP_NAME> --update-env`
 - 成功后执行 `pm2 save`
+- 最后检查 `http://127.0.0.1:$PORT/health`
 
 这意味着：
 
 - 首次部署也可以直接使用同一个脚本
 - 后续发布无需额外的根目录部署脚本
+- `SYNC_DELETE=1` 也不会再清掉 `.env`、`data`、`logs`
 
 ## 5. 手动运维命令
 
@@ -353,9 +355,9 @@ bun run build
 优先检查：
 
 - 本地是否安装了 `bun`、`rsync`、`ssh`
-- 远程是否安装了 `bun`、`pm2`
+- 远程是否安装了 `bun`、`pm2`、`curl`
 - 远程 `REMOTE_DIR` 是否存在并可写
-- 远程 `.env` 是否已准备好
+- 远程 `.env` 是否已准备好，且包含合法的 `PORT`
 
 先做 dry-run：
 

@@ -31,6 +31,8 @@ done
 
 RSYNC_ARGS=(
   -az
+  --no-owner
+  --no-group
   --stats
   --exclude=.git
   --exclude=.claude
@@ -47,7 +49,7 @@ RSYNC_ARGS=(
 )
 
 if [[ "$SYNC_DELETE" == "1" ]]; then
-  RSYNC_ARGS+=(--delete --delete-excluded)
+  RSYNC_ARGS+=(--delete)
 fi
 
 if [[ "$DRY_RUN" == "1" ]]; then
@@ -157,8 +159,36 @@ run_remote_deploy() {
   remote_script=$(cat <<EOF
 set -eu
 cd '$REMOTE_DIR'
+
+if [ ! -f './.env' ]; then
+  echo 'Missing required remote file: .env' >&2
+  exit 1
+fi
+
+set -a
+. ./.env
+set +a
+
+REMOTE_PORT="\${PORT:-}"
+
+if [ -z "\$REMOTE_PORT" ]; then
+  echo 'Missing PORT in remote .env' >&2
+  exit 1
+fi
+
+if ! printf '%s' "\$REMOTE_PORT" | grep -Eq '^[0-9]+$'; then
+  echo "Invalid PORT in remote .env: \$REMOTE_PORT" >&2
+  exit 1
+fi
+
 mkdir -p data logs
 test -f './web/dist/index.html'
+test -f './ecosystem.config.cjs'
+
+if ! command -v bun >/dev/null 2>&1; then
+  echo 'bun is not installed on remote host' >&2
+  exit 1
+fi
 
 if [ '$INSTALL_SERVER_DEPS' = '1' ]; then
   bun install --frozen-lockfile --production
@@ -169,14 +199,31 @@ if ! command -v pm2 >/dev/null 2>&1; then
   exit 1
 fi
 
-if pm2 describe '$APP_NAME' >/dev/null 2>&1; then
-  pm2 restart '$APP_NAME'
-else
-  pm2 start ecosystem.config.cjs --only '$APP_NAME'
+if ! command -v curl >/dev/null 2>&1; then
+  echo 'curl is not installed on remote host' >&2
+  exit 1
 fi
 
+pm2 startOrReload ecosystem.config.cjs --only '$APP_NAME' --update-env
 pm2 save
 pm2 status '$APP_NAME' --no-color
+
+HEALTH_URL="http://127.0.0.1:\$REMOTE_PORT/health"
+HEALTH_OK=0
+
+for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+  if curl --fail --silent --max-time 10 "\$HEALTH_URL" >/dev/null 2>&1; then
+    HEALTH_OK=1
+    break
+  fi
+  sleep 1
+done
+
+if [ "\$HEALTH_OK" != "1" ]; then
+  echo "Health check failed: \$HEALTH_URL" >&2
+  exit 1
+fi
+echo "Health check passed on \$HEALTH_URL"
 EOF
 )
 

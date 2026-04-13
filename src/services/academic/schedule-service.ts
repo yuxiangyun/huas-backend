@@ -5,6 +5,7 @@ import { URLS } from '../../core/url-config';
 import { config, JW_SJMS_VALUE } from '../../config';
 import { AppError, ErrorCode } from '../../utils/errors';
 import { fallbackOnRefreshFailure } from '../infra/refresh-fallback';
+import type { CacheMeta } from '../../types';
 import { beijingDate } from '../../utils/time';
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -23,14 +24,117 @@ function normalizeDate(rawDate?: string): string {
   return resolved;
 }
 
+function getWeekStartDate(date: string): string {
+  const parsed = new Date(`${date}T00:00:00Z`);
+  const weekday = parsed.getUTCDay();
+  const diffToMonday = (weekday + 6) % 7;
+  parsed.setUTCDate(parsed.getUTCDate() - diffToMonday);
+  return parsed.toISOString().slice(0, 10);
+}
+
+function getDatesInWeek(weekStartDate: string): string[] {
+  const start = new Date(`${weekStartDate}T00:00:00Z`);
+  return Array.from({ length: 7 }, (_, offset) => {
+    const current = new Date(start);
+    current.setUTCDate(start.getUTCDate() + offset);
+    return current.toISOString().slice(0, 10);
+  });
+}
+
+function buildScheduleCacheContext(studentId: string, rawDate?: string) {
+  const queryDate = normalizeDate(rawDate);
+  const weekStartDate = getWeekStartDate(queryDate);
+  const cacheKey = `schedule:${studentId}:${weekStartDate}`;
+  const legacyCacheKeys = [
+    queryDate,
+    ...getDatesInWeek(weekStartDate).filter((date) => date !== queryDate),
+  ]
+    .map((date) => `schedule:${studentId}:${date}`)
+    .filter((key) => key !== cacheKey);
+
+  return {
+    queryDate,
+    weekStartDate,
+    cacheKey,
+    legacyCacheKeys,
+  };
+}
+
+async function findScheduleRefreshFallback<T>(options: {
+  forceRefresh: boolean;
+  cacheKey: string;
+  legacyCacheKeys: string[];
+  error: unknown;
+  source: string;
+  studentId: string;
+}): Promise<{ data: T; _meta: CacheMeta; lookup: 'weekly' | 'legacy'; promotedFrom?: string } | null> {
+  for (const currentCacheKey of [options.cacheKey, ...options.legacyCacheKeys]) {
+    const fallback = await fallbackOnRefreshFailure<T>({
+      forceRefresh: options.forceRefresh,
+      cacheKey: currentCacheKey,
+      error: options.error,
+      source: options.source,
+      studentId: options.studentId,
+    });
+    if (!fallback) continue;
+
+    if (currentCacheKey === options.cacheKey) {
+      return {
+        data: fallback.data,
+        _meta: fallback._meta,
+        lookup: 'weekly',
+      };
+    }
+
+    return {
+      data: fallback.data,
+      _meta: fallback._meta,
+      lookup: 'legacy',
+      promotedFrom: currentCacheKey,
+    };
+  }
+
+  return null;
+}
+
 export class ScheduleService {
   static async getSchedule(userId: number, studentId: string, date?: string, forceRefresh = false, name?: string) {
-    const queryDate = normalizeDate(date);
-    const cacheKey = `schedule:${studentId}:${queryDate}`;
+    const { queryDate, weekStartDate, cacheKey, legacyCacheKeys } = buildScheduleCacheContext(studentId, date);
 
     if (!forceRefresh) {
       const cached = await CacheService.get(cacheKey);
-      if (cached) return { data: cached.data, _meta: cached.meta };
+      if (cached) {
+        return {
+          data: cached.data,
+          _meta: cached.meta,
+          _request: {
+            queryDate,
+            weekStartDate,
+            cacheKey,
+            cache: 'hit',
+            lookup: 'weekly',
+          },
+        };
+      }
+
+      for (const legacyCacheKey of legacyCacheKeys) {
+        const legacyCached = await CacheService.get(legacyCacheKey);
+        if (!legacyCached) continue;
+
+        await CacheService.set(cacheKey, legacyCached.data, config.cacheTtl.schedule, legacyCached.meta.source);
+        return {
+          data: legacyCached.data,
+          _meta: legacyCached.meta,
+          _request: {
+            queryDate,
+            weekStartDate,
+            cacheKey,
+            cache: 'hit',
+            lookup: 'legacy',
+            promotedFrom: legacyCacheKey,
+          },
+        };
+      }
     }
 
     let data: any;
@@ -49,20 +153,45 @@ export class ScheduleService {
         return ScheduleParser.parse(await res.text(), { studentId, name });
       });
     } catch (error) {
-      const fallback = await fallbackOnRefreshFailure({
+      const fallback = await findScheduleRefreshFallback({
         forceRefresh,
         cacheKey,
+        legacyCacheKeys,
         error,
         source: 'jw',
         studentId,
       });
-      if (fallback) return fallback;
+      if (fallback) {
+        return {
+          data: fallback.data,
+          _meta: fallback._meta,
+          _request: {
+            queryDate,
+            weekStartDate,
+            cacheKey,
+            cache: forceRefresh ? 'bypass' : 'miss',
+            fallback: 'stale',
+            lookup: fallback.lookup,
+            promotedFrom: fallback.promotedFrom,
+          },
+        };
+      }
       throw error;
     }
 
     await CacheService.set(cacheKey, data, config.cacheTtl.schedule, 'jw');
     await CacheService.enforcePrefixLimit(`schedule:${studentId}:`, config.cacheLimit.schedulePerUser);
 
-    return { data, _meta: { cached: false, source: 'jw' } };
+    return {
+      data,
+      _meta: { cached: false, source: 'jw' },
+      _request: {
+        queryDate,
+        weekStartDate,
+        cacheKey,
+        cache: forceRefresh ? 'bypass' : 'miss',
+        lookup: 'weekly',
+      },
+    };
   }
 }

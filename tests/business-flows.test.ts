@@ -77,6 +77,23 @@ function makeGradePayload(tag: string) {
   };
 }
 
+function makeSchedulePayload(tag: string) {
+  return {
+    week: `week-${tag}`,
+    courses: [
+      {
+        name: `course-${tag}`,
+        teacher: 'teacher',
+        location: 'room',
+        day: 1,
+        section: '1-2',
+        weekStr: `week-${tag}`,
+      },
+    ],
+    message: '',
+  };
+}
+
 function makeUserPayload(name: string, studentId: string, className: string) {
   return {
     name,
@@ -594,6 +611,7 @@ describe('缓存与强制刷新流程', () => {
 
   it('refresh=true 且上游返回课表未公布时，若有旧缓存仍回退 stale', async () => {
     const studentId = '2023001011';
+    upstreamResolver = async () => makeSchedulePayload('initial');
     const first = await ScheduleService.getSchedule(1, studentId, '2025-03-01', false);
     expect(first._meta.cached).toBe(false);
 
@@ -606,11 +624,30 @@ describe('缓存与强制刷新流程', () => {
     expect(fallback._meta.last_error).toBe(5000);
   });
 
+  it('refresh=true 且仅存在旧日粒度缓存时，回源失败仍回退 stale', async () => {
+    const studentId = '2023001013';
+    const legacyCacheKey = `schedule:${studentId}:2025-03-05`;
+    await CacheService.set(legacyCacheKey, makeSchedulePayload('legacy-refresh'), 0, 'jw');
+
+    upstreamInjectedError = new Error('REQUEST_TIMEOUT');
+    const fallback = await ScheduleService.getSchedule(1, studentId, '2025-03-07', true);
+
+    expect(upstreamCallCount).toBe(1);
+    expect(fallback._meta.cached).toBe(true);
+    expect(fallback._meta.stale).toBe(true);
+    expect(fallback._meta.refresh_failed).toBe(true);
+    expect(fallback._meta.last_error).toBe(3004);
+    expect(fallback.data.week).toBe('week-legacy-refresh');
+    expect(fallback._request.lookup).toBe('legacy');
+    expect(fallback._request.promotedFrom).toBe(legacyCacheKey);
+  });
+
   it('refresh=false 且缓存已过期时，回源失败仍回退 stale 缓存', async () => {
     const studentId = '2023001012';
-    const queryDate = '2025-03-02';
-    const cacheKey = `schedule:${studentId}:${queryDate}`;
+    const queryDate = '2025-03-05';
+    const cacheKey = `schedule:${studentId}:2025-03-03`;
 
+    upstreamResolver = async () => makeSchedulePayload('expired-cache');
     const first = await ScheduleService.getSchedule(1, studentId, queryDate, false);
     expect(first._meta.cached).toBe(false);
     expect(upstreamCallCount).toBe(1);
@@ -780,7 +817,7 @@ describe('课表缓存与强制刷新防护', () => {
 
     for (let i = 0; i < keep + 8; i++) {
       const d = new Date(base);
-      d.setUTCDate(base.getUTCDate() + i);
+      d.setUTCDate(base.getUTCDate() + (i * 7));
       const date = d.toISOString().slice(0, 10);
       await ScheduleService.getSchedule(1, studentId, date, false);
     }
@@ -819,7 +856,68 @@ describe('课表缓存与强制刷新防护', () => {
     const db = getDb();
     const rows = await db.select().from(schema.cache);
     const keys = rows.map((r: any) => r.key);
-    expect(keys).toContain(`schedule:${studentId}:2026-03-07`);
+    expect(keys).toContain(`schedule:${studentId}:2026-03-02`);
+  });
+
+  it('同一周不同日期请求复用同一缓存 key，首次 miss 后同周请求直接命中缓存', async () => {
+    const studentId = '2023010006';
+    upstreamResolver = async () => makeSchedulePayload('same-week');
+
+    const first = await ScheduleService.getSchedule(1, studentId, '2025-03-05', false);
+    expect(first._meta.cached).toBe(false);
+    expect(upstreamCallCount).toBe(1);
+
+    const second = await ScheduleService.getSchedule(1, studentId, '2025-03-07', false);
+    expect(second._meta.cached).toBe(true);
+    expect(upstreamCallCount).toBe(1);
+
+    const db = getDb();
+    const rows = await db.select().from(schema.cache);
+    const scheduleRows = rows.filter((r: any) => r.key.startsWith(`schedule:${studentId}:`));
+    expect(scheduleRows.length).toBe(1);
+    expect(scheduleRows[0].key).toBe(`schedule:${studentId}:2025-03-03`);
+  });
+
+  it('同一周已缓存时 refresh=true 仍绕过缓存并更新周粒度 key', async () => {
+    const studentId = '2023010007';
+    upstreamResolver = async () => {
+      upstreamVersion += 1;
+      return makeSchedulePayload(`refresh-${upstreamVersion}`);
+    };
+
+    const first = await ScheduleService.getSchedule(1, studentId, '2025-03-05', false);
+    expect(first._meta.cached).toBe(false);
+    expect(first.data.week).toBe('week-refresh-1');
+    expect(upstreamCallCount).toBe(1);
+
+    const refreshed = await ScheduleService.getSchedule(1, studentId, '2025-03-06', true);
+    expect(refreshed._meta.cached).toBe(false);
+    expect(refreshed.data.week).toBe('week-refresh-2');
+    expect(upstreamCallCount).toBe(2);
+
+    const db = getDb();
+    const rows = await db.select()
+      .from(schema.cache)
+      .where(eq(schema.cache.key, `schedule:${studentId}:2025-03-03`));
+    expect(rows.length).toBe(1);
+  });
+
+  it('部署后可复用同周旧日期缓存并回填周粒度 key，避免首波重复回源', async () => {
+    const studentId = '2023010008';
+    const legacyCacheKey = `schedule:${studentId}:2025-03-05`;
+    const weeklyCacheKey = `schedule:${studentId}:2025-03-03`;
+    await CacheService.set(legacyCacheKey, makeSchedulePayload('legacy-week'), 0, 'jw');
+
+    const result = await ScheduleService.getSchedule(1, studentId, '2025-03-07', false);
+    expect(result._meta.cached).toBe(true);
+    expect(result.data.week).toBe('week-legacy-week');
+    expect(upstreamCallCount).toBe(0);
+
+    const db = getDb();
+    const rows = await db.select()
+      .from(schema.cache)
+      .where(eq(schema.cache.key, weeklyCacheKey));
+    expect(rows.length).toBe(1);
   });
 
   it('portal schedule 缓存按用户前缀执行 LRU 限额', async () => {
