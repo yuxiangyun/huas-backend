@@ -30,8 +30,8 @@ const ICS_TIMEZONE = 'Asia/Shanghai';
 const SECTION_TIME_MAP: Record<number, SectionSlot> = {
   1: { start: '08:00', end: '08:45' },
   2: { start: '08:55', end: '09:40' },
-  3: { start: '10:05', end: '10:50' },
-  4: { start: '11:00', end: '11:45' },
+  3: { start: '10:00', end: '10:45' },
+  4: { start: '10:55', end: '11:40' },
   5: { start: '14:30', end: '15:15' },
   6: { start: '15:25', end: '16:10' },
   7: { start: '16:30', end: '17:15' },

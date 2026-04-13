@@ -657,7 +657,7 @@ describe('日历订阅', () => {
 
     const ics = await icsRes.text();
     expect(ics).toContain('SUMMARY:线性代数');
-    expect(ics).toContain(`DTSTART;TZID=Asia/Shanghai:${addDaysInTest(currentWeek.startDate, 2).replace(/-/g, '')}T100500`);
+    expect(ics).toContain(`DTSTART;TZID=Asia/Shanghai:${addDaysInTest(currentWeek.startDate, 2).replace(/-/g, '')}T100000`);
   });
 
   it('订阅链接使用 studentId + HMAC 签名，且与业务 JWT 无关', async () => {
