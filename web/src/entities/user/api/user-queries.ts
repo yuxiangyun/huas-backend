@@ -1,6 +1,9 @@
 import type { QueryClient } from '@tanstack/react-query';
-import { useQuery } from '@tanstack/react-query';
-import { getUserInfo } from '@/entities/user/api/user-api';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import {
+  getCalendarSubscriptionLink,
+  getUserInfo,
+} from '@/entities/user/api/user-api';
 
 export const userQueryKeys = {
   all: ['user'] as const,
@@ -11,6 +14,12 @@ export function useUserInfoQuery(refresh = false) {
   return useQuery({
     queryKey: userQueryKeys.detail(refresh),
     queryFn: () => getUserInfo(refresh),
+  });
+}
+
+export function useCalendarSubscriptionLinkMutation() {
+  return useMutation({
+    mutationFn: getCalendarSubscriptionLink,
   });
 }
 

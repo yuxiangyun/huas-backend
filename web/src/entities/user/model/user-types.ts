@@ -5,3 +5,9 @@ export interface UserProfile {
   identity: string;
   organizationCode: string;
 }
+
+export interface CalendarSubscriptionLink {
+  url: string;
+  studentId: string;
+  sig: string;
+}

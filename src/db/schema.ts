@@ -1,4 +1,5 @@
 import { sqliteTable, text, integer, real, unique } from 'drizzle-orm/sqlite-core';
+import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 
 export const users = sqliteTable('users', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -73,7 +74,7 @@ export const discoverComments = sqliteTable('discover_comments', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   postId: integer('post_id').notNull().references(() => discoverPosts.id),
   userId: integer('user_id').notNull().references(() => users.id),
-  parentCommentId: integer('parent_comment_id').references(() => discoverComments.id),
+  parentCommentId: integer('parent_comment_id').references((): AnySQLiteColumn => discoverComments.id),
   content: text('content').notNull(),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
@@ -105,7 +106,7 @@ export const treeholeComments = sqliteTable('treehole_comments', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   postId: integer('post_id').notNull().references(() => treeholePosts.id),
   userId: integer('user_id').notNull().references(() => users.id),
-  parentCommentId: integer('parent_comment_id').references(() => treeholeComments.id),
+  parentCommentId: integer('parent_comment_id').references((): AnySQLiteColumn => treeholeComments.id),
   content: text('content').notNull(),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),

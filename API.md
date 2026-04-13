@@ -19,11 +19,13 @@
 | `GET/DELETE /api/admin/treehole/*` | Basic Auth | Treehole 管理接口 |
 | `GET /api/schedule` | Bearer JWT | JW 课表 |
 | `GET /api/v1/schedule` | Bearer JWT | Portal 课表 |
+| `GET /api/calendar/link` | Bearer JWT | 获取当前用户日历订阅链接 |
 | `GET /api/grades` | Bearer JWT | 成绩 |
 | `GET /api/ecard` | Bearer JWT | 一卡通余额 |
 | `GET /api/user` | Bearer JWT | 用户资料 |
 | `GET/POST/DELETE /api/discover/*` | Bearer JWT | 发现美食接口 |
 | `GET/POST/PUT/DELETE /api/treehole/*` | Bearer JWT | 树洞接口 |
+| `GET /calendar/schedule.ics` | `studentId + sig` 查询参数 | 本周课表 ICS 订阅 |
 | `GET /media/discover/*` | 无 | 发现美食图片访问，仅未删除帖子可访问 |
 | `GET /media/treehole-avatar/*` | 无 | 树洞头像访问，仅当前仍绑定该头像的用户可访问 |
 
@@ -39,10 +41,17 @@ Authorization: Bearer <token>
 Authorization: Basic <base64(username:password)>
 ```
 
+日历订阅签名使用：
+
+```http
+GET /calendar/schedule.ics?studentId=2023001001&sig=<hmac_sha256(studentId, CALENDAR_SECRET)>
+```
+
 补充说明：
 
 - 当前 `/status` 与 `/api/admin/*` 的鉴权失败由 `adminBasicAuthMiddleware` 直接返回 `401 Unauthorized` 纯文本响应，并附带 `WWW-Authenticate`
 - 当前实现仍在 `src/middleware/admin-basic-auth.middleware.ts` 中硬编码管理员凭证；出于安全原因，本文档不再复述具体口令值
+- 日历订阅不是 JWT，也不落库；它是固定链接，签名规则是 `HMAC_SHA256(studentId, CALENDAR_SECRET)`
 
 ## 2. 响应包结构
 
@@ -156,6 +165,17 @@ Authorization: Basic <base64(username:password)>
 - 成绩命中缓存时会 `touch`，因此更接近真实 LRU
 - 两个课表接口普通命中不会 `touch`，淘汰更接近“按最后写入/刷新时间保留”
 - `ecard` / `user` 当前没有前缀限额
+
+### 3.5 日历订阅缓存语义
+
+- `GET /calendar/schedule.ics` 固定读取“本周自然周（Asia/Shanghai，周一到周日）”
+- 它内部复用 Portal 课表服务：
+  - 本周缓存存在：直接返回缓存对应的 ICS
+  - 本周缓存不存在：触发一次 Portal 课表获取，并写回缓存
+- 它不会因为缓存“旧了”而自动刷新
+- 如果希望日历内容更新，需要客户端或小程序先对本周调用：
+  - `GET /api/v1/schedule?startDate=<本周一>&endDate=<本周日>&refresh=true`
+- 日历客户端会在下一次重新抓取订阅链接时看到新内容
 
 ## 4. 前端接入建议
 
@@ -923,6 +943,77 @@ Portal 课表接口。虽然路径名带 `v1`，但当前语义是“统一门�
 ```
 
 “课表暂未公布”时同样返回 `200 + success=true` 的空课表对象。
+
+### 6.5.1 `GET /api/calendar/link`
+
+为当前登录用户生成固定的日历订阅链接。
+
+认证方式：
+
+- `Authorization: Bearer <token>`
+
+成功响应：
+
+```json
+{
+  "success": true,
+  "data": {
+    "url": "https://example.com/calendar/schedule.ics?studentId=2023001001&sig=abcdef...",
+    "studentId": "2023001001",
+    "sig": "abcdef..."
+  }
+}
+```
+
+说明：
+
+- 返回的是固定链接，同一 `studentId` 在 `CALENDAR_SECRET` 不变的前提下会得到相同签名
+- 当前实现只认 `CALENDAR_BASE_URL`，不会根据请求 `Host` 动态拼域名
+- 如果 `CALENDAR_BASE_URL` 或 `CALENDAR_SECRET` 未配置，会返回 `5000`
+
+### 6.5.2 `GET /calendar/schedule.ics`
+
+返回当前用户“本周自然周”的课程订阅 ICS。
+
+查询参数：
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `studentId` | string | 是 | 学号 |
+| `sig` | string | 是 | `HMAC_SHA256(studentId, CALENDAR_SECRET)` 的十六进制小写签名 |
+
+返回头：
+
+```http
+Content-Type: text/calendar; charset=utf-8
+Content-Disposition: inline; filename="schedule.ics"
+Cache-Control: no-store
+```
+
+成功响应体为 ICS 文本，例如：
+
+```ics
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//HUAS Server//Schedule Calendar//CN
+BEGIN:VEVENT
+SUMMARY:大学英语
+DTSTART;TZID=Asia/Shanghai:20260414T080000
+DTEND;TZID=Asia/Shanghai:20260414T094000
+LOCATION:教B201
+END:VEVENT
+END:VCALENDAR
+```
+
+补充说明：
+
+- 只读取本周自然周，不包含下周或历史周
+- 节次时间由服务端本地静态映射转换为具体时分
+- 若签名错误，返回 `4001/401`
+- 若用户不存在，返回 `4001/401`
+- 若课表暂未公布，返回空日历而不是 JSON 错误
+- 若本周缓存不存在，会触发一次 Portal 课表获取并写回缓存
+- 若本周缓存已存在，则不会自动回源刷新；刷新应由 `/api/v1/schedule?...&refresh=true` 驱动
 
 ### 6.6 `GET /api/grades`
 

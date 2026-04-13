@@ -66,7 +66,8 @@ flowchart LR
 - 前端入口：`/m`、`/m/`、`/m/*`
 - 公共路由：`/auth`、`/health`
 - API 下的免 Bearer 路由：`/api/public/*`、`/api/admin/*`
-- Bearer 业务路由：`/api/schedule`、`/api/v1/schedule`、`/api/grades`、`/api/ecard`、`/api/user`、`/api/discover/*`、`/api/treehole/*`
+- Bearer 业务路由：`/api/schedule`、`/api/v1/schedule`、`/api/calendar/link`、`/api/grades`、`/api/ecard`、`/api/user`、`/api/discover/*`、`/api/treehole/*`
+- 日历公开订阅路由：`/calendar/schedule.ics?studentId=...&sig=...`
 - 静态媒体路由：`/media/discover/*`、`/media/treehole-avatar/*`
 - 其余 `/api/*` 全部走 `authMiddleware`
 
@@ -562,6 +563,8 @@ src/
 | `GRADES_CACHE_LIMIT` | `20` | 每用户成绩缓存上限 |
 | `SCHEDULE_CACHE_LIMIT` | `120` | 每用户 JW 课表缓存上限 |
 | `PORTAL_SCHEDULE_CACHE_LIMIT` | `120` | 每用户 Portal 课表缓存上限 |
+| `CALENDAR_BASE_URL` | 空字符串 | 日历订阅链接返回的固定外部域名 |
+| `CALENDAR_SECRET` | 空字符串 | 日历签名密钥，必须显式配置 |
 | `BUSINESS_RETRY_MAX_ATTEMPTS` | `2` | 业务请求最大尝试次数 |
 | `BUSINESS_RETRY_BASE_DELAY_MS` | `200` | 基础退避 |
 | `BUSINESS_RETRY_MAX_DELAY_MS` | `800` | 最大退避 |

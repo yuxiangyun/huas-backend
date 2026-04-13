@@ -12,11 +12,14 @@ import publicRoutes from './content/public.routes';
 import adminRoutes from './admin/admin.routes';
 import discoverRoutes from './discover/discover.routes';
 import treeholeRoutes from './treehole/treehole.routes';
+import calendarApiRoutes from './calendar/calendar-api.routes';
+import calendarPublicRoutes from './calendar/calendar-public.routes';
 
 export function registerRoutes(app: Hono) {
   // Public routes
   app.route('/auth', authRoutes);
   app.route('/health', healthRoutes);
+  app.route('/calendar', calendarPublicRoutes);
 
   // API routes
   const api = new Hono();
@@ -46,6 +49,7 @@ export function registerRoutes(app: Hono) {
   api.route('/user', userRoutes);
   api.route('/discover', discoverRoutes);
   api.route('/treehole', treeholeRoutes);
+  api.route('/calendar', calendarApiRoutes);
 
   app.route('/api', api);
 }

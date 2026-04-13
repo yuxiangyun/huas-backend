@@ -45,6 +45,12 @@ let upstreamVersion = 0;
 let upstreamInjectedError: Error | null = null;
 let upstreamResolver: (...args: any[]) => Promise<any>;
 
+function addDaysInTest(date: string, days: number): string {
+  const parsed = new Date(`${date}T00:00:00+08:00`);
+  parsed.setDate(parsed.getDate() + days);
+  return parsed.toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' });
+}
+
 function makeGradePayload(tag: string) {
   return {
     summary: {
@@ -141,6 +147,7 @@ let getDb: any;
 let schema: any;
 let config: any;
 let authRoutes: any;
+let registerRoutes: any;
 let GradeService: any;
 let ScheduleService: any;
 let PortalScheduleService: any;
@@ -182,6 +189,7 @@ beforeAll(async () => {
   ({ initDatabase, getDb, schema } = await import('../src/db/index.ts'));
   ({ config } = await import('../src/config.ts'));
   ({ default: authRoutes } = await import('../src/routes/auth/auth.routes.ts'));
+  ({ registerRoutes } = await import('../src/routes/index.ts'));
   ({ GradeService } = await import('../src/services/academic/grade-service.ts'));
   ({ ScheduleService } = await import('../src/services/academic/schedule-service.ts'));
   ({ PortalScheduleService } = await import('../src/services/portal/portal-schedule-service.ts'));
@@ -545,6 +553,140 @@ describe('静默凭证链路', () => {
     expect(systems.includes('cas_tgc')).toBe(true);
     expect(systems.includes('jw_session')).toBe(true);
     expect(systems.includes('portal_jwt')).toBe(true);
+  });
+});
+
+describe('日历订阅', () => {
+  it('固定 token 链接可生成并输出本周 ICS', async () => {
+    const userId = await createUser('2023001777', 'pass-calendar');
+    const app = new Hono();
+    registerRoutes(app);
+    const { getCurrentWeekRange } = await import('../src/services/calendar/calendar-subscription-service.ts');
+    const currentWeek = getCurrentWeekRange();
+    const courseDate = new Date(`${currentWeek.startDate}T00:00:00+08:00`);
+    courseDate.setDate(courseDate.getDate() + 1);
+    const tuesday = courseDate.toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' });
+
+    upstreamResolver = async () => ({
+      week: currentWeek.startDate,
+      courses: [
+        {
+          name: '大学英语',
+          teacher: '王老师',
+          location: '教B201',
+          day: 2,
+          section: '1-2',
+          weekStr: tuesday,
+        },
+      ],
+    });
+
+    const { generateToken } = await import('../src/auth/jwt.ts');
+    const token = await generateToken({ userId, studentId: '2023001777', name: 'name-2023001777' });
+
+    const linkRes = await app.request('http://localhost/api/calendar/link', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(linkRes.status).toBe(200);
+    const linkBody = await linkRes.json() as any;
+    expect(linkBody.success).toBe(true);
+    expect(linkBody.data.url).toContain(`https://calendar.example.test/calendar/schedule.ics?studentId=2023001777&sig=${linkBody.data.sig}`);
+
+    const subscriptionUrl = new URL(linkBody.data.url);
+    const icsRes = await app.request(subscriptionUrl.toString());
+    expect(icsRes.status).toBe(200);
+    expect(icsRes.headers.get('content-type')).toContain('text/calendar');
+
+    const ics = await icsRes.text();
+    expect(ics).toContain('BEGIN:VCALENDAR');
+    expect(ics).toContain('SUMMARY:大学英语');
+    expect(ics).toContain(`DTSTART;TZID=Asia/Shanghai:${tuesday.replace(/-/g, '')}T080000`);
+    expect(ics).toContain(`DTEND;TZID=Asia/Shanghai:${tuesday.replace(/-/g, '')}T094000`);
+
+    const secondLinkRes = await app.request('http://localhost/api/calendar/link', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const secondLinkBody = await secondLinkRes.json() as any;
+    expect(secondLinkBody.data.url).toBe(linkBody.data.url);
+  });
+
+  it('订阅链接使用 studentId + HMAC 签名，且与业务 JWT 无关', async () => {
+    const { generateCalendarSignature } = await import('../src/auth/calendar-signature.ts');
+    expect(generateCalendarSignature('2023001001')).toBe(generateCalendarSignature('2023001001'));
+    expect(generateCalendarSignature('2023001001')).not.toBe(generateCalendarSignature('2023001002'));
+  });
+
+  it('本周缓存未命中时仅回源一次，后续订阅请求命中缓存', async () => {
+    const userId = await createUser('2023001888', 'pass-calendar-cache');
+    const app = new Hono();
+    registerRoutes(app);
+    const { getCurrentWeekRange } = await import('../src/services/calendar/calendar-subscription-service.ts');
+    const currentWeek = getCurrentWeekRange();
+
+    const { generateToken } = await import('../src/auth/jwt.ts');
+    const authToken = await generateToken({ userId, studentId: '2023001888', name: 'name-2023001888' });
+
+    upstreamCallCount = 0;
+    upstreamResolver = async () => ({
+      week: currentWeek.startDate,
+      courses: [
+        {
+          name: '高等数学',
+          teacher: '李老师',
+          location: '教A101',
+          day: 1,
+          section: '3-4',
+          weekStr: currentWeek.startDate,
+        },
+      ],
+    });
+
+    const linkRes = await app.request('http://localhost/api/calendar/link', {
+      headers: { Authorization: `Bearer ${authToken}` },
+    });
+    const linkBody = await linkRes.json() as any;
+    const subscriptionUrl = new URL(linkBody.data.url);
+
+    const first = await app.request(subscriptionUrl.toString());
+    expect(first.status).toBe(200);
+    expect(upstreamCallCount).toBe(1);
+
+    const second = await app.request(subscriptionUrl.toString());
+    expect(second.status).toBe(200);
+    expect(upstreamCallCount).toBe(1);
+  });
+
+  it('同名同节次但不同地点的课程会生成不同 UID', async () => {
+    const { buildWeeklyScheduleIcs, getCurrentWeekRange } = await import('../src/services/calendar/calendar-subscription-service.ts');
+    const currentWeek = getCurrentWeekRange();
+    const ics = buildWeeklyScheduleIcs({
+      studentId: '2023001222',
+      weekStart: currentWeek.startDate,
+      courses: [
+        {
+          name: '大学英语',
+          teacher: '王老师',
+          location: '教B201',
+          day: 2,
+          section: '1-2',
+          weekStr: addDaysInTest(currentWeek.startDate, 1),
+        },
+        {
+          name: '大学英语',
+          teacher: '王老师',
+          location: '教B202',
+          day: 2,
+          section: '1-2',
+          weekStr: addDaysInTest(currentWeek.startDate, 1),
+        },
+      ],
+    });
+
+    const uids = ics.split('\r\n')
+      .filter((line) => line.startsWith('UID:'));
+
+    expect(uids.length).toBe(2);
+    expect(new Set(uids).size).toBe(2);
   });
 });
 

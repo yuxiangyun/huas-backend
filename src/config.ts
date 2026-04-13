@@ -2,6 +2,8 @@ import { dirname, join } from 'node:path';
 
 const BEIJING_TIME_ZONE = 'Asia/Shanghai';
 const DEFAULT_DB_PATH = './data/huas.db';
+const CALENDAR_SECRET = process.env.CALENDAR_SECRET?.trim() || '';
+const CALENDAR_TOKEN_SECRET_FILE = process.env.CALENDAR_TOKEN_SECRET_FILE?.trim() || '';
 
 // Force runtime timezone to Beijing to avoid host-level timezone drift.
 process.env.TZ = BEIJING_TIME_ZONE;
@@ -62,6 +64,13 @@ export const config = {
 
   // Cleanup interval
   cleanupInterval: 60 * 60 * 1000,    // 1 hour
+
+  calendar: {
+    baseUrl: process.env.CALENDAR_BASE_URL?.trim() || '',
+    secret: CALENDAR_SECRET,
+    tokenSecret: CALENDAR_SECRET,
+    tokenSecretFile: CALENDAR_TOKEN_SECRET_FILE,
+  },
 
   discover: {
     storageRoot: process.env.DISCOVER_STORAGE_ROOT || join(dirname(process.env.DB_PATH || DEFAULT_DB_PATH), 'discover'),

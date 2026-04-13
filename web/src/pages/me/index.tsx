@@ -14,12 +14,40 @@ import {
   useTreeholeAvatarQuery,
   useTreeholeUnreadNotificationCountQuery,
 } from '@/entities/treehole/api/treehole-queries';
-import { useUserInfoQuery } from '@/entities/user/api/user-queries';
+import { useCalendarSubscriptionLinkMutation, useUserInfoQuery } from '@/entities/user/api/user-queries';
+import { ApiError } from '@/shared/api/http-client';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
 import { PageHeader } from '@/shared/ui/page-header';
 import { IconBubble } from '@/shared/ui/page-ornament';
 import { TreeholeAvatar } from '@/shared/ui/treehole-avatar';
+
+async function copyText(text: string) {
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  if (typeof document === 'undefined') {
+    throw new Error('当前环境不支持复制链接');
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', 'true');
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  textarea.style.pointerEvents = 'none';
+  document.body.appendChild(textarea);
+  textarea.select();
+
+  const copied = document.execCommand('copy');
+  document.body.removeChild(textarea);
+
+  if (!copied) {
+    throw new Error('复制失败，请手动复制');
+  }
+}
 
 export function MePage() {
   const navigate = useNavigate();
@@ -28,6 +56,7 @@ export function MePage() {
   const setActiveTab = useUiStore((state) => state.setActiveTab);
   const logout = useAuthStore((state) => state.logout);
   const profileQuery = useUserInfoQuery();
+  const calendarLinkMutation = useCalendarSubscriptionLinkMutation();
   const treeholeAvatarQuery = useTreeholeAvatarQuery();
   const treeholeUnreadQuery = useTreeholeUnreadNotificationCountQuery();
   const profile = profileQuery.data ?? null;
@@ -37,6 +66,35 @@ export function MePage() {
   useEffect(() => {
     setActiveTab('me');
   }, [setActiveTab]);
+
+  const handleCopyCalendarLink = async () => {
+    try {
+      const result = await calendarLinkMutation.mutateAsync();
+
+      try {
+        await copyText(result.url);
+      } catch (error) {
+        if (typeof window !== 'undefined') {
+          window.prompt('复制下面的日历订阅链接', result.url);
+        }
+
+        throw error;
+      }
+
+      pushToast({
+        title: '订阅链接已复制',
+        message: '打开系统日历后可直接粘贴订阅',
+        variant: 'success',
+      });
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : '获取订阅链接失败，请稍后重试';
+      pushToast({
+        title: '无法复制日历订阅链接',
+        message,
+        variant: 'error',
+      });
+    }
+  };
 
   const quickActions = [
     {
@@ -65,6 +123,22 @@ export function MePage() {
       unreadCount: treeholeUnreadCount,
       title: '树洞',
       tone: 'blue' as const,
+      variant: 'secondary' as const,
+    },
+    {
+      id: 'calendar',
+      buttonLabel: calendarLinkMutation.isPending ? '获取中' : '复制链接',
+      chip: '课表',
+      description: '获取本周课程的日历订阅地址',
+      glowClass: 'bg-[#b9e6d4]/70',
+      icon: <span className="text-[0.82rem] font-semibold tracking-[0.08em]">ICS</span>,
+      accent: <span className="text-[0.72rem] font-semibold tracking-[0.08em]">URL</span>,
+      onClick: () => {
+        void handleCopyCalendarLink();
+      },
+      unreadCount: 0,
+      title: '日历订阅',
+      tone: 'mint' as const,
       variant: 'secondary' as const,
     },
     {
@@ -154,6 +228,7 @@ export function MePage() {
               />
               <Button
                 className="w-full sm:min-w-[6.75rem]"
+                disabled={calendarLinkMutation.isPending && action.id === 'calendar'}
                 size="sm"
                 type="button"
                 variant={action.variant}
