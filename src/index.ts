@@ -11,6 +11,7 @@ import { CacheService } from './services/infra/cache-service';
 import { config } from './config';
 import { Logger } from './utils/logger';
 import { adminBasicAuthMiddleware } from './middleware/admin-basic-auth.middleware';
+import { serverState } from './runtime/server-state';
 import {
   DiscoverMediaService,
   DISCOVER_MEDIA_CACHE_CONTROL,
@@ -22,7 +23,9 @@ import {
 
 const app = new Hono();
 const isDev = process.env.NODE_ENV !== 'production';
-const webDistRoot = resolve('./web/dist');
+const appRoot = resolve(import.meta.dir, '..');
+const webDistRoot = resolve(appRoot, 'web', 'dist');
+const publicRoot = resolve(appRoot, 'public');
 
 function toFileResponse(file: ReturnType<typeof Bun.file>, cacheControl: string) {
   return new Response(file, {
@@ -107,7 +110,7 @@ registerRoutes(app);
 
 // Admin status page (protected by Basic Auth)
 app.get('/status', adminBasicAuthMiddleware, async (c) => {
-  const html = await Bun.file('./public/status.html').text();
+  const html = await Bun.file(resolve(publicRoot, 'status.html')).text();
   return c.html(html);
 });
 
@@ -119,7 +122,7 @@ if (isDev) {
 }
 
 // Periodic cleanup
-setInterval(async () => {
+const cleanupTimer = setInterval(async () => {
   try {
     await CredentialManager.cleanupExpired();
     await CacheService.cleanupExpired();
@@ -133,10 +136,40 @@ setInterval(async () => {
 const port = config.port;
 Logger.serverBanner(port, isDev ? 'development' : 'production');
 
-Bun.serve({
+const server = Bun.serve({
   port,
   hostname: '0.0.0.0',
   fetch: app.fetch,
 });
 
+serverState.markReady();
 Logger.serverReady(port);
+
+let shutdownPromise: Promise<void> | null = null;
+
+async function gracefulShutdown(signal: string) {
+  if (shutdownPromise) return shutdownPromise;
+
+  shutdownPromise = (async () => {
+    serverState.beginShutdown(signal);
+    clearInterval(cleanupTimer);
+    Logger.server(`graceful shutdown requested signal=${signal}`);
+
+    try {
+      await server.stop();
+      Logger.server(`server stopped signal=${signal}`);
+      process.exit(0);
+    } catch (error) {
+      Logger.error('Shutdown', `graceful shutdown failed signal=${signal}`, error);
+      process.exit(1);
+    }
+  })();
+
+  return shutdownPromise;
+}
+
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(signal, () => {
+    void gracefulShutdown(signal);
+  });
+}

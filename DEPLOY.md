@@ -1,9 +1,11 @@
 # HUAS Server 部署与运维手册
 
-本文档只保留当前维护中的部署链路：
+本文档当前维护中的部署链路：
 
 - 运行方式：`Bun + PM2`
-- 发布脚本：`scripts/deploy-huas.sh`
+- 快速发布：`scripts/deploy-huas.sh`
+- 无痛蓝绿发布：`scripts/deploy-huas-zero-downtime.sh`
+- Git Push 蓝绿发布：`git push huas-deploy master`
 
 仓库中的 Docker 相关部署文件已经移除，不再作为维护入口。
 
@@ -24,11 +26,12 @@
 
 ## 2. 当前维护策略
 
-当前只维护三种操作：
+当前只维护四种操作：
 
 1. 服务器上使用 PM2 直接运行服务
 2. 本地通过 `scripts/deploy-huas.sh` 构建前端、同步代码并远程重启 PM2
-3. 本地通过 `git push huas-deploy master` 推送到服务器裸仓库，由 `post-receive` hook 同步代码、构建并重载 PM2
+3. 本地通过 `scripts/deploy-huas-zero-downtime.sh` 执行蓝绿发布，在健康检查通过后再切 nginx 流量
+4. 本地通过 `git push huas-deploy master` 推送到服务器裸仓库，由 `post-receive` hook 执行蓝绿发布
 
 不再维护以下链路：
 
@@ -126,9 +129,11 @@ curl -I http://127.0.0.1:3000/m
 
 如果前端已经构建完成，`/m` 应返回 `200` 或 `304`。
 
-## 4. 标准发布方式
+## 4. 发布方式
 
-当前标准发布入口：
+### 4.1 快速发布（可能有短暂切换）
+
+当前快速发布入口：
 
 ```bash
 scripts/deploy-huas.sh
@@ -141,7 +146,7 @@ scripts/deploy-huas.sh
 3. 在远程执行 `bun install --frozen-lockfile --production`
 4. 用 PM2 `startOrReload` 重载应用并执行本机健康检查
 
-### 4.1 本地依赖
+### 4.2 本地依赖
 
 运行脚本前，本地机器需要有：
 
@@ -149,7 +154,7 @@ scripts/deploy-huas.sh
 - `rsync`
 - `ssh`
 
-### 4.2 基本用法
+### 4.3 基本用法
 
 默认参数：
 
@@ -172,7 +177,7 @@ scripts/deploy-huas.sh
 REMOTE_HOST=your-server scripts/deploy-huas.sh --dry-run
 ```
 
-### 4.3 可用环境变量
+### 4.4 可用环境变量
 
 | 变量 | 默认值 | 作用 |
 |---|---|---|
@@ -185,7 +190,7 @@ REMOTE_HOST=your-server scripts/deploy-huas.sh --dry-run
 | `INSTALL_SERVER_DEPS` | `1` | 为 `0` 时跳过远程 `bun install --production` |
 | `WEB_PACKAGE_MANAGER` | `auto` | 本地前端构建包管理器，默认按锁文件自动判断 |
 
-### 4.4 远程 PM2 行为
+### 4.5 远程 PM2 行为
 
 脚本的远程逻辑已经统一：
 
@@ -200,7 +205,40 @@ REMOTE_HOST=your-server scripts/deploy-huas.sh --dry-run
 - 后续发布无需额外的根目录部署脚本
 - `SYNC_DELETE=1` 也不会再清掉 `.env`、`data`、`logs`
 
-### 4.5 Git Push 发布
+### 4.6 无痛蓝绿发布
+
+如果你要尽量避免影响用户体验，优先使用：
+
+```bash
+scripts/deploy-huas-zero-downtime.sh
+```
+
+这条链路会执行：
+
+1. 将当前代码上传到远端非活动槽
+2. 在非活动槽安装依赖并构建 `web/`
+3. 用 PM2 在备用端口启动新实例
+4. 对备用端口执行 `/health` 检查
+5. 仅在健康检查通过后更新 nginx upstream 并 reload nginx
+
+当前服务器默认槽位：
+
+- `blue` -> `127.0.0.1:3000`
+- `green` -> `127.0.0.1:3001`
+
+首次从单实例迁移到蓝绿时：
+
+- 旧的 `huas-server` 仍保留在 `3000`
+- 新版本会先启动到 `3001`
+- nginx 切到 `3001` 后，旧实例不再接收新流量
+
+这意味着：
+
+- 切流前用户仍然访问旧实例
+- 只有新实例健康检查通过，才会切到新版本
+- `.env`、`data/`、`logs/`、`reports/` 都继续保留在共享目录
+
+### 4.7 Git Push 发布
 
 如果你希望通过 `git push` 同步代码，而不是直接 `rsync` 本地工作区，推荐单独启用这一条链路：
 
@@ -213,7 +251,9 @@ scripts/setup-huas-git-deploy.sh
 - 本地新增 git remote：`huas-deploy`
 - 远程创建裸仓库：`/www/git/huas-server.git`
 - 远程为裸仓库安装 `post-receive` hook
-- 每次推送 `master` 到 `huas-deploy` 时，自动把 commit 导出并同步到 `/www/wwwroot/huas-server`
+- 每次推送 `master` 到 `huas-deploy` 时，自动把 commit 导出到非活动槽
+- 在非活动槽完成依赖安装、前端构建、健康检查
+- 通过后再切 nginx 流量到新槽位
 
 这条链路和 `scripts/deploy-huas.sh` 是并存的，互不替代；如果你以后只想走 git 发布，可以完全不再用 `rsync` 脚本。
 
@@ -239,14 +279,13 @@ scripts/setup-huas-git-deploy.sh
 git push huas-deploy master
 ```
 
-hook 会自动执行：
+hook 会自动执行蓝绿发布：
 
-1. 将推送的 `master` commit 导出到临时目录
-2. 用 `rsync --delete` 同步代码到 `/www/wwwroot/huas-server`
-3. 排除并保留 `.env`、`data`、`logs` 等运行期内容
-4. 在远程执行 `bun install --frozen-lockfile --production`
-5. 在远程执行 `web/` 的依赖安装和构建
-6. 用 PM2 `startOrReload` 重载应用并执行本机健康检查
+1. 将推送的 `master` commit 导出到非活动槽
+2. 排除并保留 `.env`、`data`、`logs` 等共享内容
+3. 在非活动槽执行依赖安装和 `web` 构建
+4. 启动备用端口实例并执行 `/health`
+5. 健康检查通过后切 nginx 到新槽位
 
 如果需要自定义远程参数，可以在初始化时传环境变量：
 
@@ -263,33 +302,51 @@ scripts/setup-huas-git-deploy.sh
 
 ### 5.1 PM2
 
+蓝绿发布上线后，常见 PM2 进程名会变成：
+
+- `huas-server-blue`
+- `huas-server-green`
+- 首次迁移后的过渡阶段，可能还会暂时看到旧的 `huas-server`，但它不再承接流量
+
+先确认当前活动槽：
+
 ```bash
-pm2 status
-pm2 logs huas-server
-pm2 restart huas-server
-pm2 stop huas-server
-pm2 delete huas-server
+cat /www/wwwroot/huas-server/.deploy/active-slot
+```
+
+```bash
+pm2 status --no-color
+pm2 logs huas-server-green --lines 100
+pm2 logs huas-server-blue --lines 100
 pm2 monit
 ```
 
 ### 5.2 安装依赖
 
+日常发布不要在服务器上手动安装依赖，直接走第 9 节的发布流程。
+
+如果只是为了排障，先定位当前活动槽，再进入对应 release 目录：
+
 ```bash
-cd /www/wwwroot/huas-server
+ACTIVE_SLOT="$(cat /www/wwwroot/huas-server/.deploy/active-slot)"
+cd "/www/wwwroot/huas-server/.deploy/current/$ACTIVE_SLOT"
 bun install --frozen-lockfile --production
 ```
 
 ### 5.3 前端构建
 
-当前 `web/` 下存在 `package-lock.json`，手动构建时建议与发布脚本保持一致，优先使用 `npm`：
+日常发布不要在服务器上手动构建前端，直接走第 9 节的发布流程。
+
+如果只是为了排障，先进入当前活动槽目录再构建。当前 `web/` 下存在 `package-lock.json`，建议与发布脚本保持一致，优先使用 `npm`：
 
 ```bash
-cd /www/wwwroot/huas-server/web
-npm ci --include=dev
+ACTIVE_SLOT="$(cat /www/wwwroot/huas-server/.deploy/active-slot)"
+cd "/www/wwwroot/huas-server/.deploy/current/$ACTIVE_SLOT/web"
+npm ci --include=dev --registry=https://registry.npmjs.org
 npm run build
 ```
 
-如果后续移除了 `package-lock.json`，再改为与 `scripts/deploy-huas.sh` 自动识别出的包管理器保持一致。
+如果后续移除了 `package-lock.json`，再改为与发布脚本自动识别出的包管理器保持一致。
 
 ## 6. 目录说明
 
@@ -297,6 +354,15 @@ npm run build
 
 ```txt
 /www/wwwroot/huas-server
+├── .deploy/
+│   ├── active-slot
+│   ├── current/
+│   │   ├── blue -> ../releases/<release>-blue
+│   │   └── green -> ../releases/<release>-green
+│   ├── releases/
+│   ├── logs/
+│   ├── env/
+│   └── ecosystem/
 ├── src/
 ├── web/
 │   └── dist/
@@ -311,6 +377,10 @@ npm run build
 
 关键说明：
 
+- `.deploy/active-slot` 记录当前线上流量所在槽位
+- `.deploy/current/<slot>` 是当前槽位的 release 软链接
+- `.deploy/releases/` 保存每次蓝绿发布生成的 release
+- `.deploy/logs/<slot>/` 保存槽位级别的 PM2 日志
 - `web/dist` 是 `/m` 前端入口的静态资源来源
 - `public/status.html` 是 `/status` 页面来源
 - `data/` 存数据库、Discover 图片和 Treehole 头像
@@ -320,9 +390,14 @@ npm run build
 
 如果你使用 Nginx 做反向代理，可以继续保留根目录的 `nginx.conf` 作为参考模板。
 
-典型反代目标：
+当前 `huas` 线上是宝塔 Nginx，蓝绿发布实际切换的是：
 
-- `127.0.0.1:3000`
+- `/www/server/panel/vhost/nginx/huas-server-active-proxy.inc`
+
+槽位与端口对应关系：
+
+- `blue` -> `127.0.0.1:3000`
+- `green` -> `127.0.0.1:3001`
 
 最少需要保证：
 
@@ -353,7 +428,84 @@ npm run build
 
 ## 9. 更新流程
 
-### 9.1 推荐流程（rsync）
+### 9.1 以后默认就按这个流程发版（推荐）
+
+当前 `huas` 服务器已经完成 `huas-deploy` remote 和 `post-receive` hook 初始化。
+
+以后日常无痛发布，直接在本地执行：
+
+```bash
+git status
+git add <你要发布的文件>
+git commit -m "发布说明"
+git push huas-deploy master
+```
+
+如果你当前不在 `master`，但要把当前分支头发布到线上：
+
+```bash
+git push huas-deploy HEAD:master
+```
+
+标准发布结果应该是：
+
+1. 代码被推送到服务器裸仓库
+2. `post-receive` hook 将 commit 导出到非活动槽
+3. 在非活动槽安装依赖、构建前端、启动新实例
+4. `/health` 检查通过后，nginx 才切到新槽位
+5. 老槽位继续保留，作为下一次切换前的回退缓冲
+
+发布完成后，建议立刻验证：
+
+```bash
+ssh huas 'cat /www/wwwroot/huas-server/.deploy/active-slot && pm2 status --no-color'
+curl https://api.huas-api.top/health
+```
+
+这条链路的几个固定规则：
+
+- 只有已经 `commit` 的内容会上线
+- `.env`、`data/`、`logs/`、`reports/` 不会被发布覆盖
+- 发布失败时，流量会继续停留在旧槽位
+- 不要在服务器的 `/www/wwwroot/huas-server` 里执行 `git pull`
+- 不要手动删除 `.deploy/active-slot`、`.deploy/current/blue`、`.deploy/current/green`
+
+### 9.2 首次初始化或重建服务器时
+
+只有在以下情况，才需要重新执行初始化：
+
+- 重装了 `huas` 服务器
+- 删除了远端裸仓库 `/www/git/huas-server.git`
+- 想重新生成 `huas-deploy` remote 或 `post-receive` hook
+
+初始化命令：
+
+```bash
+scripts/setup-huas-git-deploy.sh
+```
+
+如果需要自定义远程参数：
+
+```bash
+REMOTE_HOST=huas \
+BARE_REPO_DIR=/www/git/huas-server.git \
+APP_DIR=/www/wwwroot/huas-server \
+APP_NAME=huas-server \
+DEPLOY_BRANCH=master \
+scripts/setup-huas-git-deploy.sh
+```
+
+### 9.3 备用流程：本地无痛蓝绿发布脚本
+
+如果你暂时不想走 `git push`，也可以在本地直接执行：
+
+```bash
+scripts/deploy-huas-zero-downtime.sh
+```
+
+这条链路同样会部署到非活动槽，并在健康检查通过后再切流量。
+
+### 9.4 快速流程：允许短暂切换
 
 在本地执行：
 
@@ -364,27 +516,25 @@ APP_NAME=huas-server \
 scripts/deploy-huas.sh
 ```
 
-### 9.2 推荐流程（git push）
+这条链路仍然可用，但它不是无痛发布。只有在你接受短暂切换窗口时再使用。
 
-先初始化一次：
+### 9.5 回滚到上一个稳定版本
 
-```bash
-scripts/setup-huas-git-deploy.sh
-```
-
-之后每次发布：
+如果新版本已经切流，但你确认需要快速回退，可以把上一个稳定 commit 重新推到 `master`：
 
 ```bash
-git push huas-deploy master
+git log --oneline
+git push --force huas-deploy <stable_commit_sha>:master
 ```
 
-如果你本地分支不是 `master`，但要发布当前 HEAD：
+回滚后同样要做一次验证：
 
 ```bash
-git push huas-deploy HEAD:master
+ssh huas 'cat /www/wwwroot/huas-server/.deploy/active-slot && pm2 status --no-color'
+curl https://api.huas-api.top/health
 ```
 
-### 9.3 服务器手动更新
+### 9.6 服务器手动更新（仅限 git clone 场景）
 
 只有在服务器目录本身就是 git clone 时，才适用这一组命令。
 
@@ -411,7 +561,10 @@ pm2 save
 ### 10.1 PM2 启动失败
 
 ```bash
-pm2 logs huas-server --lines 100
+cat /www/wwwroot/huas-server/.deploy/active-slot
+pm2 status --no-color
+pm2 logs huas-server-green --lines 100
+pm2 logs huas-server-blue --lines 100
 ```
 
 重点检查：
@@ -425,15 +578,17 @@ pm2 logs huas-server --lines 100
 先看构建产物：
 
 ```bash
-ls -la /www/wwwroot/huas-server/web/dist
+ACTIVE_SLOT="$(cat /www/wwwroot/huas-server/.deploy/active-slot)"
+ls -la "/www/wwwroot/huas-server/.deploy/current/$ACTIVE_SLOT/web/dist"
 ```
 
 如果 `index.html` 不存在，重新构建：
 
 ```bash
-cd /www/wwwroot/huas-server/web
-bun install --frozen-lockfile
-bun run build
+ACTIVE_SLOT="$(cat /www/wwwroot/huas-server/.deploy/active-slot)"
+cd "/www/wwwroot/huas-server/.deploy/current/$ACTIVE_SLOT/web"
+npm ci --include=dev --registry=https://registry.npmjs.org
+npm run build
 ```
 
 ### 10.3 `scripts/deploy-huas.sh` 失败
@@ -455,10 +610,10 @@ bun run build
 - 远程是否安装了 `git`、`rsync`、`bun`、`npm`、`pm2`、`curl`
 - 远程 `/www/wwwroot/huas-server/.env` 是否存在，且包含合法的 `PORT`
 
-先做 dry-run：
+先做 push dry-run：
 
 ```bash
-REMOTE_HOST=your-server scripts/deploy-huas.sh --dry-run
+git push --dry-run huas-deploy master
 ```
 
 ## 11. 当前约束
@@ -466,5 +621,7 @@ REMOTE_HOST=your-server scripts/deploy-huas.sh --dry-run
 当前维护结论：
 
 - 只保留 PM2 运行方式
-- 只保留 `scripts/deploy-huas.sh` 作为仓库内维护中的部署脚本
+- 默认发布方式是 `git push huas-deploy master`
+- 无痛本地发布脚本是 `scripts/deploy-huas-zero-downtime.sh`
+- `scripts/deploy-huas.sh` 仅作为快速发布入口保留
 - 不再维护 Docker 和根目录 `deploy.sh`
