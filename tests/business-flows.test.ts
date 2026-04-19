@@ -285,6 +285,7 @@ describe('登录流程', () => {
     const body = await res.json() as any;
     expect(body.success).toBe(true);
     expect(typeof body.data?.token).toBe('string');
+    expect(body.data.capabilities).toEqual({ portal: false, jw: false });
 
     const users = await db.select()
       .from(schema.users)
@@ -298,6 +299,25 @@ describe('登录流程', () => {
     expect(creds.length).toBe(0);
     expect(executionCallCount).toBe(0);
     expect(loginCallCount).toBe(0);
+  });
+
+  it('本地登录会基于已存凭证返回 capabilities', async () => {
+    const app = new Hono();
+    app.route('/auth', authRoutes);
+
+    const userId = await createUser('2023001445', 'pass-local-portal-only');
+    await CredentialManager.storeCredential(userId, 'portal_jwt', 'portal-token-local', null, 60_000);
+
+    const res = await app.request('http://localhost/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: '2023001445', password: 'pass-local-portal-only' }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.success).toBe(true);
+    expect(body.data.capabilities).toEqual({ portal: true, jw: false });
   });
 
   it('本地密码不匹配时回退 CAS 并刷新已存密码', async () => {

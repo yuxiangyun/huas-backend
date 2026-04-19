@@ -825,7 +825,7 @@ CAS 统一认证登录。
 
 - 登录成功条件不是“JW 必须激活成功”，而是 `portal_jwt` 或 `jw_session` 至少有一个可用。
 - 成功响应会返回 `data.capabilities = { portal: boolean, jw: boolean }`，前端应据此判断当前会话能访问哪些学校系统能力。
-- 若命中本地免 CAS 登录快捷路径，服务不会额外探测学校侧能力，响应可能不包含 `data.capabilities`。
+- 若命中本地免 CAS 登录快捷路径，服务会基于当前已存的有效凭证计算 `data.capabilities`，但不会额外向学校侧发起探测请求。
 - 当 Portal 可用但 JW 激活失败时，接口仍返回 `200`，属于“仅门户登录成功”。
 - portal-only 登录后，Portal 课表、用户资料、一卡通等 Portal 依赖接口可继续使用；成绩等 JW 依赖接口仍取决于后续 JW 是否恢复成功。
 - 当前 `3001 + 教务系统激活失败` 仍可能出现，这是历史错误文案；它实际对应的是“登录后既没有可用 Portal Token，也没有可用 JW Session”。
