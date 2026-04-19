@@ -9,6 +9,7 @@ import {
 import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { createHash } from 'node:crypto';
+import { ErrorCode } from '../src/utils/errors';
 
 // NOTE: this file is a mocked business-flow suite.
 // It validates orchestration logic and regression paths without real school credentials/network.
@@ -234,6 +235,7 @@ describe('登录流程', () => {
     const body = await res.json() as any;
     expect(body.success).toBe(true);
     expect(typeof body.data?.token).toBe('string');
+    expect(body.data.capabilities).toEqual({ portal: true, jw: true });
 
     const db = getDb();
     const users = await db.select()
@@ -247,7 +249,7 @@ describe('登录流程', () => {
       .from(schema.credentials)
       .where(eq(schema.credentials.userId, users[0].id));
     const systems = creds.map((c: any) => c.system).sort();
-    expect(systems).toEqual(['cas_tgc', 'jw_session']);
+    expect(systems).toEqual(['cas_tgc', 'jw_session', 'portal_jwt']);
   });
 
   it('数据库已有用户时可本地登录，不触发 CAS 且无需现有凭证', async () => {
@@ -463,6 +465,7 @@ describe('登录流程', () => {
     expect(body.success).toBe(true);
     expect(body.data.user.name).toBe('张三');
     expect(body.data.user.className).toBe('机自25101班');
+    expect(body.data.capabilities).toEqual({ portal: true, jw: true });
     expect(upstreamCallCount).toBe(1);
 
     const db = getDb();
@@ -471,6 +474,94 @@ describe('登录流程', () => {
       .where(eq(schema.users.studentId, '2023001666'));
     expect(users[0].name).toBe('张三');
     expect(users[0].className).toBe('机自25101班');
+  });
+
+  it('门户成功时即使 JW 激活失败也允许登录并保存门户凭证', async () => {
+    const app = new Hono();
+    app.route('/auth', authRoutes);
+
+    authBehavior.login = async () => ({
+      success: true,
+      portalToken: 'portal-token-partial-login',
+      steps: [{ label: 'portal', ok: true }],
+    });
+    ticketBehavior.exchangeJwSession = async () => ({
+      success: false,
+      steps: [{ label: 'jw#1', ok: false, detail: 'status:500' }],
+      upstreamUnavailable: false,
+    });
+    upstreamResolver = async () => makeUserPayload('李四', '2023001667', '机自25102班');
+
+    const res = await app.request('http://localhost/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: '2023001667', password: 'pass-portal-only' }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.success).toBe(true);
+    expect(body.data.user.name).toBe('李四');
+    expect(body.data.user.className).toBe('机自25102班');
+    expect(body.data.capabilities).toEqual({ portal: true, jw: false });
+
+    const db = getDb();
+    const users = await db.select()
+      .from(schema.users)
+      .where(eq(schema.users.studentId, '2023001667'));
+    expect(users.length).toBe(1);
+
+    const creds = await db.select()
+      .from(schema.credentials)
+      .where(eq(schema.credentials.userId, users[0].id));
+    const systems = creds.map((c: any) => c.system).sort();
+    expect(systems).toEqual(['cas_tgc', 'portal_jwt']);
+  });
+
+  it('登录阶段未直接拿到 portal token 时，会再走 TGC 换取门户凭证后放行 portal-only 登录', async () => {
+    const app = new Hono();
+    app.route('/auth', authRoutes);
+
+    authBehavior.login = async () => ({
+      success: true,
+      portalToken: null,
+      steps: [{ label: 'portal', ok: true, detail: 'ticket-without-id-token' }],
+    });
+    ticketBehavior.exchangePortalToken = async () => ({
+      token: 'portal-token-recovered',
+      steps: [{ label: 'portal', ok: true }],
+    });
+    ticketBehavior.exchangeJwSession = async () => ({
+      success: false,
+      steps: [{ label: 'jw#1', ok: false, detail: 'status:500' }],
+      upstreamUnavailable: false,
+    });
+    upstreamResolver = async () => makeUserPayload('王五', '2023001668', '机自25103班');
+
+    const res = await app.request('http://localhost/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: '2023001668', password: 'pass-portal-recover' }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.success).toBe(true);
+    expect(body.data.user.name).toBe('王五');
+    expect(body.data.capabilities).toEqual({ portal: true, jw: false });
+
+    const db = getDb();
+    const users = await db.select()
+      .from(schema.users)
+      .where(eq(schema.users.studentId, '2023001668'));
+    expect(users.length).toBe(1);
+
+    const creds = await db.select()
+      .from(schema.credentials)
+      .where(eq(schema.credentials.userId, users[0].id));
+    const portalCred = creds.find((cred: any) => cred.system === 'portal_jwt');
+    expect(portalCred?.value).toBe('portal-token-recovered');
+    expect(creds.some((cred: any) => cred.system === 'jw_session')).toBe(false);
   });
 });
 
@@ -553,6 +644,194 @@ describe('静默凭证链路', () => {
     expect(systems.includes('cas_tgc')).toBe(true);
     expect(systems.includes('jw_session')).toBe(true);
     expect(systems.includes('portal_jwt')).toBe(true);
+  });
+
+  it('静默重认证拿到 portal token 时不受 JW 激活失败影响', async () => {
+    const userId = await createUser('2023001004', 'pass-partial');
+    await CredentialManager.storeCredential(userId, 'portal_jwt', 'expired-token', null, -1_000);
+
+    authBehavior.login = async (_username, password) => ({
+      success: true,
+      portalToken: password === 'pass-partial' ? 'portal-token-partial' : null,
+      steps: [],
+    });
+    ticketBehavior.exchangeJwSession = async () => ({
+      success: false,
+      steps: [{ label: 'jw#1', ok: false, detail: 'status:500' }],
+      upstreamUnavailable: false,
+    });
+
+    const cred = await CredentialManager.getOrRefreshCredential(userId, 'portal_jwt');
+    expect(cred?.value).toBe('portal-token-partial');
+
+    const db = getDb();
+    const creds = await db.select()
+      .from(schema.credentials)
+      .where(eq(schema.credentials.userId, userId));
+    const systems = creds.map((c: any) => c.system);
+    expect(systems.includes('cas_tgc')).toBe(true);
+    expect(systems.includes('portal_jwt')).toBe(true);
+    expect(systems.includes('jw_session')).toBe(false);
+  });
+
+  it('静默重认证未直接拿到 portal token 时，会再走 TGC 换取门户凭证', async () => {
+    const userId = await createUser('2023001005', 'pass-portal-recover');
+    await CredentialManager.storeCredential(userId, 'portal_jwt', 'expired-token', null, -1_000);
+
+    authBehavior.login = async () => ({
+      success: true,
+      portalToken: null,
+      steps: [],
+    });
+    ticketBehavior.exchangePortalToken = async () => ({
+      token: 'portal-token-recovered-silent',
+      steps: [{ label: 'portal', ok: true }],
+    });
+    ticketBehavior.exchangeJwSession = async () => ({
+      success: false,
+      steps: [{ label: 'jw#1', ok: false, detail: 'status:500' }],
+      upstreamUnavailable: false,
+    });
+
+    const cred = await CredentialManager.getOrRefreshCredential(userId, 'portal_jwt');
+    expect(cred?.value).toBe('portal-token-recovered-silent');
+
+    const db = getDb();
+    const creds = await db.select()
+      .from(schema.credentials)
+      .where(eq(schema.credentials.userId, userId));
+    const systems = creds.map((c: any) => c.system);
+    expect(systems.includes('cas_tgc')).toBe(true);
+    expect(systems.includes('portal_jwt')).toBe(true);
+    expect(systems.includes('jw_session')).toBe(false);
+  });
+});
+
+describe('默认课表路由兜底', () => {
+  it('JW 课表失败时，/api/schedule 会回退到 portal 课表并标记 source=portal', async () => {
+    const userId = await createUser('2023001778', 'pass-schedule-fallback');
+    const app = new Hono();
+    registerRoutes(app);
+
+    const { generateToken } = await import('../src/auth/jwt.ts');
+    const token = await generateToken({ userId, studentId: '2023001778', name: 'name-2023001778' });
+
+    upstreamResolver = async (_userId: number, mode: 'jw' | 'portal') => {
+      if (mode === 'jw') {
+        throw new Error('GET_SCHEDULE_FAILED');
+      }
+      return makeSchedulePayload('portal-route-fallback');
+    };
+
+    const res = await app.request('http://localhost/api/schedule?date=2025-03-05', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.success).toBe(true);
+    expect(body._meta?.source).toBe('portal');
+    expect(body.data.courses[0].name).toBe('course-portal-route-fallback');
+  });
+
+  it('JW 课表失败且 Portal 兜底超时时，/api/schedule 返回更具体的兜底错误', async () => {
+    const userId = await createUser('2023001781', 'pass-schedule-timeout');
+    const app = new Hono();
+    registerRoutes(app);
+
+    const { generateToken } = await import('../src/auth/jwt.ts');
+    const token = await generateToken({ userId, studentId: '2023001781', name: 'name-2023001781' });
+
+    upstreamResolver = async (_userId: number, mode: 'jw' | 'portal') => {
+      if (mode === 'jw') {
+        throw new Error('GET_SCHEDULE_FAILED');
+      }
+      throw new Error('REQUEST_TIMEOUT');
+    };
+
+    const res = await app.request('http://localhost/api/schedule?date=2025-03-05', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status).toBe(504);
+    const body = await res.json() as any;
+    expect(body.success).toBe(false);
+    expect(body.error_code).toBe(ErrorCode.UPSTREAM_TIMEOUT);
+  });
+
+  it('Portal 周课表失败时，/api/v1/schedule 会回退到 JW 课表并标记 source=jw', async () => {
+    const userId = await createUser('2023001779', 'pass-portal-weekly-fallback');
+    const app = new Hono();
+    registerRoutes(app);
+
+    const { generateToken } = await import('../src/auth/jwt.ts');
+    const token = await generateToken({ userId, studentId: '2023001779', name: 'name-2023001779' });
+
+    upstreamResolver = async (_userId: number, mode: 'jw' | 'portal') => {
+      if (mode === 'portal') {
+        throw new Error('GET_SCHEDULE_FAILED');
+      }
+      return makeSchedulePayload('jw-route-fallback');
+    };
+
+    const res = await app.request('http://localhost/api/v1/schedule?startDate=2025-03-03&endDate=2025-03-09', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.success).toBe(true);
+    expect(body._meta?.source).toBe('jw');
+    expect(body.data.courses[0].name).toBe('course-jw-route-fallback');
+  });
+
+  it('Portal 周课表失败且 JW 兜底超时时，/api/v1/schedule 返回更具体的兜底错误', async () => {
+    const userId = await createUser('2023001782', 'pass-portal-timeout');
+    const app = new Hono();
+    registerRoutes(app);
+
+    const { generateToken } = await import('../src/auth/jwt.ts');
+    const token = await generateToken({ userId, studentId: '2023001782', name: 'name-2023001782' });
+
+    upstreamResolver = async (_userId: number, mode: 'jw' | 'portal') => {
+      if (mode === 'portal') {
+        throw new Error('GET_SCHEDULE_FAILED');
+      }
+      throw new Error('REQUEST_TIMEOUT');
+    };
+
+    const res = await app.request('http://localhost/api/v1/schedule?startDate=2025-03-03&endDate=2025-03-09', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status).toBe(504);
+    const body = await res.json() as any;
+    expect(body.success).toBe(false);
+    expect(body.error_code).toBe(ErrorCode.UPSTREAM_TIMEOUT);
+  });
+
+  it('Portal 非周视图请求失败时，不会错误回退到 JW 周课表', async () => {
+    const userId = await createUser('2023001780', 'pass-portal-monthly');
+    const app = new Hono();
+    registerRoutes(app);
+
+    const { generateToken } = await import('../src/auth/jwt.ts');
+    const token = await generateToken({ userId, studentId: '2023001780', name: 'name-2023001780' });
+
+    let jwCalled = false;
+    upstreamResolver = async (_userId: number, mode: 'jw' | 'portal') => {
+      if (mode === 'jw') {
+        jwCalled = true;
+      }
+      throw new Error('GET_SCHEDULE_FAILED');
+    };
+
+    const res = await app.request('http://localhost/api/v1/schedule?startDate=2025-03-01&endDate=2025-03-31', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status).toBe(500);
+    expect(jwCalled).toBe(false);
   });
 });
 

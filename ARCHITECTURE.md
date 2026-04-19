@@ -68,7 +68,7 @@ flowchart LR
 - API 下的免 Bearer 路由：`/api/public/*`、`/api/admin/*`
 - Bearer 业务路由：`/api/schedule`、`/api/v1/schedule`、`/api/calendar/link`、`/api/grades`、`/api/ecard`、`/api/user`、`/api/discover/*`、`/api/treehole/*`
 - 日历公开订阅路由：`/calendar/schedule.ics?studentId=...&sig=...`
-- 日历订阅当前与默认课表 `/api/schedule` 同源，共用 JW 周粒度缓存
+- 日历订阅与默认课表共用 `ScheduleService` 与 JW 周粒度缓存，但不经过 `/api/schedule` 路由层的 Portal fallback
 - 静态媒体路由：`/media/discover/*`、`/media/treehole-avatar/*`
 - 其余 `/api/*` 全部走 `authMiddleware`
 
@@ -160,11 +160,13 @@ src/
    - 重新获取 `execution`
    - 写入内存 `captchaSessions`
    - 返回 `needCaptcha=true`
-5. 登录成功后激活 JW 会话
-6. Upsert `users`
-7. 落库 `cas_tgc`、`portal_jwt`、`jw_session`
-8. 若 Portal Token 可用且本地资料缺失，尝试拉取一次用户资料回填姓名/班级
-9. 签发本服务 JWT
+5. 若 CAS 响应里没有直接拿到 `portalToken`，再尝试用 TGC 补换一次 Portal Token
+6. 登录成功后激活 JW 会话
+7. 只要 `portal_jwt` 或 `jw_session` 至少有一个可用，就继续登录；两者都不可用才返回 `3001`
+8. Upsert `users`
+9. 落库 `cas_tgc`、`portal_jwt`、`jw_session`
+10. 若 Portal Token 可用且本地资料缺失，尝试拉取一次用户资料回填姓名/班级
+11. 签发本服务 JWT
 
 ### 5.3 验证码会话
 
@@ -205,7 +207,7 @@ src/
 
 - 从 `users.encrypted_password` 解密出原始密码
 - 重跑 CAS 登录流程
-- 重建全部短效凭证
+- 重建全部可恢复的短效凭证；若 Portal 可用但 JW 激活失败，也会保留 portal-only 状态
 - 失败保护：
   - 连续失败上限 3 次
   - 冷却时间 1 分钟
@@ -373,6 +375,11 @@ src/
 ```
 
 这是当前协议的一部分，前端必须按成功态处理。
+
+另外要注意：
+
+- 接口路径不保证最终来源，必须以 `_meta.source` 作为真实来源判断。
+- `/api/schedule` 返回 `source=portal`、`/api/v1/schedule` 返回 `source=jw` 都是合法结果。
 
 ### 8.2 Portal 课表与 JW 课表的字段差异
 

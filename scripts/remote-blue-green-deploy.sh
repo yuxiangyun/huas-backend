@@ -180,6 +180,14 @@ ensure_runtime_env() {
   printf '%s\n' "$runtime_env"
 }
 
+attach_runtime_env_to_release() {
+  local runtime_env="$1"
+  local release_dir="$2"
+
+  # Bun will auto-load .env from cwd; keep a stable link inside each release.
+  ln -sfn "$runtime_env" "$release_dir/.env"
+}
+
 ensure_pm2_app() {
   local slot="$1"
   local release_link="$2"
@@ -336,6 +344,7 @@ fi
 
 ln -sfn "$target_release_dir" "$target_current_link"
 runtime_env="$(ensure_runtime_env "$target_slot" "$target_port")"
+attach_runtime_env_to_release "$runtime_env" "$target_release_dir"
 ensure_pm2_app "$target_slot" "$target_current_link" "$runtime_env" "$target_port"
 wait_for_health "$target_port"
 

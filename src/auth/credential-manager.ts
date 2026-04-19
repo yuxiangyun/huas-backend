@@ -75,8 +75,7 @@ export class CredentialManager {
 
     if (system === 'cas_tgc') {
       // TGC expired — only way to get a new one is full CAS login
-      const reauthed = await this.silentReAuth(userId);
-      if (!reauthed) return null;
+      await this.silentReAuth(userId);
       return this.getCredential(userId, 'cas_tgc');
     }
 
@@ -89,10 +88,7 @@ export class CredentialManager {
 
     // TGC missing or refresh failed — silent re-auth
     Logger.warn('CredentialManager', `${system} 刷新失败, 尝试静默重认证`, undefined, String(userId));
-    const reauthed = await this.silentReAuth(userId);
-    if (!reauthed) return null;
-
-    // After re-auth, the credential should be fresh
+    await this.silentReAuth(userId);
     return this.getCredential(userId, system);
   }
 
@@ -218,11 +214,25 @@ export class CredentialManager {
       steps.push({ label: 'CAS Login', ok: true });
 
       // 4. Portal token
-      if (result.portalToken) {
+      let portalToken = result.portalToken || null;
+      if (!portalToken) {
+        const portalResult = await TicketExchanger.exchangePortalToken(client);
+        steps.push(...portalResult.steps);
+        if (portalResult.token) {
+          portalToken = portalResult.token;
+        }
+      } else {
         steps.push({ label: 'Portal', ok: true });
       }
 
-      // 5. Activate JW session
+      // 5. Persist credentials that are already valid after CAS login.
+      const portalJarJson = client.serializeJar();
+      await this.storeCredential(userId, 'cas_tgc', null, portalJarJson, config.ttl.tgc);
+      if (portalToken) {
+        await this.storeCredential(userId, 'portal_jwt', portalToken, null, config.ttl.portalJwt);
+      }
+
+      // 6. Activate JW session
       const jwResult = await TicketExchanger.exchangeJwSession(client);
       if (!jwResult.success) {
         steps.push({ label: 'JW 激活', ok: false });
@@ -232,13 +242,9 @@ export class CredentialManager {
       }
       steps.push({ label: 'JW 激活', ok: true });
 
-      // 6. Store all fresh credentials
-      const jarJson = client.serializeJar();
-      await this.storeCredential(userId, 'cas_tgc', null, jarJson, config.ttl.tgc);
-      if (result.portalToken) {
-        await this.storeCredential(userId, 'portal_jwt', result.portalToken, null, config.ttl.portalJwt);
-      }
-      await this.storeCredential(userId, 'jw_session', null, jarJson, config.ttl.jwSession);
+      // 7. Persist JW session after activation mutates the cookie jar.
+      const jwJarJson = client.serializeJar();
+      await this.storeCredential(userId, 'jw_session', null, jwJarJson, config.ttl.jwSession);
 
       reAuthState.delete(userId);
       Logger.auth(user.studentId, '静默重认证成功', 200, Date.now() - start, user.name || undefined, steps);

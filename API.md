@@ -17,8 +17,8 @@
 | `GET /api/admin/logs` | Basic Auth | 终端日志读取 |
 | `DELETE /api/admin/discover/posts/:id` | Basic Auth | Discover 管理删帖 |
 | `GET/DELETE /api/admin/treehole/*` | Basic Auth | Treehole 管理接口 |
-| `GET /api/schedule` | Bearer JWT | JW 课表 |
-| `GET /api/v1/schedule` | Bearer JWT | Portal 课表 |
+| `GET /api/schedule` | Bearer JWT | JW 优先课表，JW 失败时可回退 Portal |
+| `GET /api/v1/schedule` | Bearer JWT | Portal 优先课表；周视图请求失败时可回退 JW |
 | `GET /api/calendar/link` | Bearer JWT | 获取当前用户日历订阅链接 |
 | `GET /api/grades` | Bearer JWT | 成绩 |
 | `GET /api/ecard` | Bearer JWT | 一卡通余额 |
@@ -105,7 +105,7 @@ GET /calendar/schedule.ics?studentId=2023001001&sig=<hmac_sha256(studentId, CALE
 
 | 错误码 | 含义 | HTTP 状态码 |
 |---|---|---:|
-| `3001` | CAS 登录失败 / 教务激活失败 | 400 |
+| `3001` | CAS 登录失败 / 登录后无法获得可用 Portal 或 JW 凭证 | 400 |
 | `3002` | 验证码错误或需要验证码 | 400 |
 | `3003` | 凭证过期且恢复失败，需要重新登录 | 401 |
 | `3004` | 学校上游超时 | 504 |
@@ -201,6 +201,10 @@ GET /calendar/schedule.ics?studentId=2023001001&sig=<hmac_sha256(studentId, CALE
       "name": "张三",
       "studentId": "2023001001",
       "className": "计科2301"
+    },
+    "capabilities": {
+      "portal": true,
+      "jw": true
     }
   }
 }
@@ -318,6 +322,8 @@ async function apiRequest<T>(path: string, token?: string): Promise<ApiResponse<
 
 注意：
 
+- 接口路径不保证最终来源，必须结合 `_meta.source` 判断真实数据源。
+- `/api/schedule` 返回 `_meta.source = "portal"`、`/api/v1/schedule` 返回 `_meta.source = "jw"` 都是合法结果。
 - JW 课表中的 `weekStr` 通常是周次文本，例如 `1-16周`
 - Portal 课表中的 `weekStr` 当前实现存的是具体日期字符串，例如 `2026-03-08`
 
@@ -815,6 +821,15 @@ CAS 统一认证登录。
 | 学校超时 | 3004 | 504 |
 | 教务激活失败 | 3001 | 400 |
 
+补充说明：
+
+- 登录成功条件不是“JW 必须激活成功”，而是 `portal_jwt` 或 `jw_session` 至少有一个可用。
+- 成功响应会返回 `data.capabilities = { portal: boolean, jw: boolean }`，前端应据此判断当前会话能访问哪些学校系统能力。
+- 若命中本地免 CAS 登录快捷路径，服务不会额外探测学校侧能力，响应可能不包含 `data.capabilities`。
+- 当 Portal 可用但 JW 激活失败时，接口仍返回 `200`，属于“仅门户登录成功”。
+- portal-only 登录后，Portal 课表、用户资料、一卡通等 Portal 依赖接口可继续使用；成绩等 JW 依赖接口仍取决于后续 JW 是否恢复成功。
+- 当前 `3001 + 教务系统激活失败` 仍可能出现，这是历史错误文案；它实际对应的是“登录后既没有可用 Portal Token，也没有可用 JW Session”。
+
 ### 6.3 `GET /health`
 
 无需鉴权。
@@ -845,7 +860,9 @@ CAS 统一认证登录。
 
 ### 6.4 `GET /api/schedule`
 
-JW 教务课表。
+JW 优先课表接口。
+
+注意：路由名不等于最终数据源。若 JW 回源失败且同周 Portal 课表可用，接口会直接回退到 Portal，并在 `_meta.source` 中返回 `portal`。
 
 查询参数：
 
@@ -897,12 +914,12 @@ JW 教务课表。
 常见错误：
 
 - `4002`：`date` 格式错误或日期非法
-- `3003`：凭证恢复失败
-- `3004`：上游超时且没有旧缓存可回退
+- `3003`：JW 与回退 Portal 都无法恢复凭证
+- `3004`：JW 与回退 Portal 都超时且没有旧缓存可回退
 
 ### 6.5 `GET /api/v1/schedule`
 
-Portal 课表接口。虽然路径名带 `v1`，但当前语义是“统一门户源课表”。
+Portal 优先课表接口。虽然路径名带 `v1`，但当前语义是“统一门户源课表”。
 
 查询参数：
 
@@ -916,6 +933,7 @@ Portal 课表接口。虽然路径名带 `v1`，但当前语义是“统一门�
 
 - `endDate` 不能早于 `startDate`
 - 日期区间不能超过 62 天
+- 只有当请求范围正好是“周一到周日”的 7 天整周时，Portal 失败才会回退 JW；其他区间不会回退
 
 返回结构与 `/api/schedule` 相同，也是 `{ week, courses }`，不是按日期分组的对象：
 
@@ -943,6 +961,8 @@ Portal 课表接口。虽然路径名带 `v1`，但当前语义是“统一门�
 ```
 
 “课表暂未公布”时同样返回 `200 + success=true` 的空课表对象。
+
+若发生周视图回退，返回体结构不变，但 `_meta.source` 会变为 `jw`。
 
 ### 6.5.1 `GET /api/calendar/link`
 
@@ -1014,6 +1034,7 @@ END:VCALENDAR
 - 若课表暂未公布，返回空日历而不是 JSON 错误
 - 若本周缓存不存在，会触发一次默认课表获取并写回缓存
 - 若本周缓存已存在，则不会自动回源刷新；刷新应由 `/api/schedule?...&refresh=true` 驱动
+- 日历订阅复用的是 `ScheduleService` 与 JW 周粒度缓存，不经过 `/api/schedule` 路由层的 Portal fallback；不要把它理解成“和 `/api/schedule` 完全同语义”
 
 ### 6.6 `GET /api/grades`
 

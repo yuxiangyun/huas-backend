@@ -21,6 +21,11 @@ const auth = new Hono();
 const MAX_CAPTCHA_SESSIONS = 1000;
 const captchaSessions = new Map<string, { jarJson: string; execution: string; createdAt: number }>();
 
+type LoginCapabilities = {
+  portal: boolean;
+  jw: boolean;
+};
+
 function safeEqual(a: string, b: string): boolean {
   const aBuf = Buffer.from(a, 'utf8');
   const bBuf = Buffer.from(b, 'utf8');
@@ -194,11 +199,22 @@ auth.post('/login', async (c) => {
       return error(c, ErrorCode.CAS_LOGIN_FAILED, result.message || '登录失败', 400);
     }
 
-    // Login succeeded - activate JW session
-    const jwResult = await TicketExchanger.exchangeJwSession(client);
-    const allSteps = [...(result.steps || []), ...jwResult.steps];
+    let portalToken = result.portalToken || null;
+    let loginSteps = [...(result.steps || [])];
 
-    if (!jwResult.success) {
+    if (!portalToken) {
+      const portalResult = await TicketExchanger.exchangePortalToken(client);
+      loginSteps = [...loginSteps, ...portalResult.steps];
+      if (portalResult.token) {
+        portalToken = portalResult.token;
+      }
+    }
+
+    // Login succeeded - activate JW session if possible.
+    const jwResult = await TicketExchanger.exchangeJwSession(client);
+    const allSteps = [...loginSteps, ...jwResult.steps];
+
+    if (!jwResult.success && !portalToken) {
       appendHttpLogDetail(c, 'result=jw-activation-failed');
       Logger.auth(username, '教务系统激活失败', 200, loginMs, undefined, allSteps);
       return error(c, ErrorCode.CAS_LOGIN_FAILED, '教务系统激活失败', 400);
@@ -243,15 +259,17 @@ auth.post('/login', async (c) => {
     let resolvedName = users[0].name || undefined;
     let resolvedClassName = users[0].className || '';
 
-    // Store all credentials
+    // Store credentials that are already valid after CAS login.
     const jarJson = client.serializeJar();
     await CredentialManager.storeCredential(userId, 'cas_tgc', null, jarJson, config.ttl.tgc);
-    if (result.portalToken) {
-      await CredentialManager.storeCredential(userId, 'portal_jwt', result.portalToken, null, config.ttl.portalJwt);
+    if (portalToken) {
+      await CredentialManager.storeCredential(userId, 'portal_jwt', portalToken, null, config.ttl.portalJwt);
     }
-    await CredentialManager.storeCredential(userId, 'jw_session', null, jarJson, config.ttl.jwSession);
+    if (jwResult.success) {
+      await CredentialManager.storeCredential(userId, 'jw_session', null, jarJson, config.ttl.jwSession);
+    }
 
-    if (result.portalToken && (!resolvedName || !resolvedClassName)) {
+    if (portalToken && (!resolvedName || !resolvedClassName)) {
       try {
         const profile = await UserService.getUserInfo(userId, username, true);
         if (profile.data?.name?.trim()) {
@@ -272,14 +290,29 @@ auth.post('/login', async (c) => {
 
     // Generate our JWT
     const token = await generateToken({ userId, studentId: username, name: resolvedName });
+    const capabilities: LoginCapabilities = {
+      portal: Boolean(portalToken),
+      jw: jwResult.success,
+    };
 
     appendHttpLogDetail(c, formatHttpLogDetail({
-      result: 'success',
+      result: jwResult.success ? 'success' : 'success-portal-only',
       userId,
     }));
-    Logger.auth(username, '成功', 200, loginMs, resolvedName, allSteps);
+    Logger.auth(
+      username,
+      jwResult.success ? '成功' : '成功（仅门户）',
+      200,
+      loginMs,
+      resolvedName,
+      allSteps
+    );
 
-    return success(c, { token, user: { name: resolvedName, studentId: username, className: resolvedClassName } });
+    return success(c, {
+      token,
+      user: { name: resolvedName, studentId: username, className: resolvedClassName },
+      capabilities,
+    });
   } catch (e: any) {
     appendHttpLogDetail(c, formatHttpLogDetail({
       result: e.message === 'REQUEST_TIMEOUT' ? 'upstream-timeout' : 'exception',

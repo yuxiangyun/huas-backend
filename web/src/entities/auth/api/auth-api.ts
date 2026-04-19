@@ -1,9 +1,10 @@
 import { ApiError, requestEnvelope } from '@/shared/api/http-client';
-import type { UserBrief } from '@/entities/auth/model/auth-types';
+import type { AuthCapabilities, UserBrief } from '@/entities/auth/model/auth-types';
 
 interface LoginSuccessData {
   token: string;
   user: UserBrief;
+  capabilities?: AuthCapabilities;
 }
 
 export interface CaptchaRequiredResult {
@@ -17,6 +18,7 @@ export interface LoginSuccessResult {
   type: 'success';
   token: string;
   user: UserBrief;
+  capabilities?: AuthCapabilities;
 }
 
 export type LoginResult = CaptchaRequiredResult | LoginSuccessResult;
@@ -51,6 +53,7 @@ export async function loginWithPassword(payload: LoginPayload): Promise<LoginRes
         studentId: envelope.data.user.studentId,
         className: envelope.data.user.className || '',
       },
+      capabilities: envelope.data.capabilities,
     };
   }
 
