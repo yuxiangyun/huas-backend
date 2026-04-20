@@ -830,6 +830,37 @@ describe('默认课表路由兜底', () => {
     expect(body.error_code).toBe(ErrorCode.UPSTREAM_TIMEOUT);
   });
 
+  it('Portal 周课表无数据时，/api/v1/schedule 直接返回空课表而不回退 JW', async () => {
+    const userId = await createUser('2023001783', 'pass-portal-empty-week');
+    const app = new Hono();
+    registerRoutes(app);
+    const { generateToken } = await import('../src/auth/jwt.ts');
+    const token = await generateToken({ userId, studentId: '2023001783', name: 'name-2023001783' });
+
+    let jwCalled = false;
+    upstreamResolver = async (_userId: number, mode: 'jw' | 'portal') => {
+      if (mode === 'jw') {
+        jwCalled = true;
+        throw new Error('REQUEST_TIMEOUT');
+      }
+      throw new Error('SCHEDULE_NOT_AVAILABLE');
+    };
+
+    const res = await app.request('http://localhost/api/v1/schedule?startDate=2025-02-03&endDate=2025-02-09', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.success).toBe(true);
+    expect(body.data).toEqual({
+      week: '暂无',
+      courses: [],
+      message: '课表暂未公布',
+    });
+    expect(jwCalled).toBe(false);
+  });
+
   it('Portal 非周视图请求失败时，不会错误回退到 JW 周课表', async () => {
     const userId = await createUser('2023001780', 'pass-portal-monthly');
     const app = new Hono();
@@ -866,19 +897,22 @@ describe('日历订阅', () => {
     courseDate.setDate(courseDate.getDate() + 1);
     const tuesday = courseDate.toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' });
 
-    upstreamResolver = async () => ({
-      week: currentWeek.startDate,
-      courses: [
-        {
-          name: '大学英语',
-          teacher: '王老师',
-          location: '教B201',
-          day: 2,
-          section: '1-2',
-          weekStr: tuesday,
-        },
-      ],
-    });
+    upstreamResolver = async (_userId: number, mode: 'jw' | 'portal') => {
+      expect(mode).toBe('portal');
+      return {
+        week: currentWeek.startDate,
+        courses: [
+          {
+            name: '大学英语',
+            teacher: '王老师',
+            location: '教B201',
+            day: 2,
+            section: '1-2',
+            weekStr: tuesday,
+          },
+        ],
+      };
+    };
 
     const { generateToken } = await import('../src/auth/jwt.ts');
     const token = await generateToken({ userId, studentId: '2023001777', name: 'name-2023001777' });
@@ -909,7 +943,7 @@ describe('日历订阅', () => {
     expect(secondLinkBody.data.url).toBe(linkBody.data.url);
   });
 
-  it('默认课表本周缓存已存在时，日历直接复用同一缓存', async () => {
+  it('门户周课表本周缓存已存在时，日历直接复用同一缓存', async () => {
     const userId = await createUser('2023001999', 'pass-calendar-shared-cache');
     const app = new Hono();
     registerRoutes(app);
@@ -932,14 +966,15 @@ describe('日历订阅', () => {
       message: '',
     });
 
-    const defaultSchedule = await ScheduleService.getSchedule(
+    const portalSchedule = await PortalScheduleService.getSchedule(
       userId,
       '2023001999',
       currentWeek.startDate,
+      currentWeek.endDate,
       true,
       'name-2023001999'
     );
-    expect(defaultSchedule._meta.cached).toBe(false);
+    expect(portalSchedule._meta.cached).toBe(false);
     expect(upstreamCallCount).toBe(1);
 
     const { generateToken } = await import('../src/auth/jwt.ts');
@@ -975,20 +1010,24 @@ describe('日历订阅', () => {
     const { generateToken } = await import('../src/auth/jwt.ts');
     const authToken = await generateToken({ userId, studentId: '2023001888', name: 'name-2023001888' });
 
+    const requestedModes: Array<'jw' | 'portal'> = [];
     upstreamCallCount = 0;
-    upstreamResolver = async () => ({
-      week: currentWeek.startDate,
-      courses: [
-        {
-          name: '高等数学',
-          teacher: '李老师',
-          location: '教A101',
-          day: 1,
-          section: '3-4',
-          weekStr: currentWeek.startDate,
-        },
-      ],
-    });
+    upstreamResolver = async (_userId: number, mode: 'jw' | 'portal') => {
+      requestedModes.push(mode);
+      return {
+        week: currentWeek.startDate,
+        courses: [
+          {
+            name: '高等数学',
+            teacher: '李老师',
+            location: '教A101',
+            day: 1,
+            section: '3-4',
+            weekStr: currentWeek.startDate,
+          },
+        ],
+      };
+    };
 
     const linkRes = await app.request('http://localhost/api/calendar/link', {
       headers: { Authorization: `Bearer ${authToken}` },
@@ -1003,6 +1042,7 @@ describe('日历订阅', () => {
     const second = await app.request(subscriptionUrl.toString());
     expect(second.status).toBe(200);
     expect(upstreamCallCount).toBe(1);
+    expect(requestedModes).toEqual(['portal']);
   });
 
   it('同名同节次但不同地点的课程会生成不同 UID', async () => {

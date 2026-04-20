@@ -3,9 +3,17 @@ import { Logger } from '../../utils/logger';
 
 export const PortalScheduleParser = {
   parse(json: any, startDate?: string, user?: { studentId?: string; name?: string }) {
+    const week = startDate ? `${startDate}` : "日期模式";
+
     if (json?.code === 401 || json?.message?.includes('token') || json?.message?.includes('失效') || json?.message?.includes('过期')) {
       Logger.warn('PortalScheduleParser', 'Session 过期', json?.message);
       throw new Error("SESSION_EXPIRED");
+    }
+
+    if (json?.code === 0 && !json?.data?.schedule) {
+      const message = String(json?.message || '').trim() || '没有相关数据';
+      Logger.parser('PortalScheduleParser', '解析完成 共 0 个日程', user?.studentId, user?.name);
+      return { week, courses: [], message };
     }
 
     if (json?.code !== 0 || !json?.data?.schedule) {
@@ -18,7 +26,6 @@ export const PortalScheduleParser = {
 
     const courses: ICourse[] = [];
     const schedule = json.data.schedule;
-    const week = startDate ? `${startDate}` : "日期模式";
 
     for (const dateStr of Object.keys(schedule)) {
       const dateObj = new Date(`${dateStr}T00:00:00Z`);

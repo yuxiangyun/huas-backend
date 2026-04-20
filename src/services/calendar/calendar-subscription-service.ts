@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { getDb, schema } from '../../db';
-import { ScheduleService } from '../academic/schedule-service';
+import { PortalScheduleService } from '../portal/portal-schedule-service';
 import type { ICourse } from '../../types';
 import { beijingDate } from '../../utils/time';
 
@@ -168,7 +168,14 @@ export async function getCurrentWeekSchedule(user: CalendarUser) {
   const { startDate, endDate } = getCurrentWeekRange();
   return {
     range: { startDate, endDate },
-    result: await ScheduleService.getSchedule(user.id, user.studentId, startDate, false, user.name),
+    result: await PortalScheduleService.getSchedule(
+      user.id,
+      user.studentId,
+      startDate,
+      endDate,
+      false,
+      user.name,
+    ),
   };
 }
 

@@ -44,6 +44,10 @@ v1Schedule.get('/', async (c) => {
       throw error;
     }
 
+    if (error instanceof Error && error.message === 'SCHEDULE_NOT_AVAILABLE') {
+      throw error;
+    }
+
     if (!canFallbackToWeeklyJw(startDate, endDate)) {
       throw error;
     }

@@ -68,7 +68,7 @@ flowchart LR
 - API 下的免 Bearer 路由：`/api/public/*`、`/api/admin/*`
 - Bearer 业务路由：`/api/schedule`、`/api/v1/schedule`、`/api/calendar/link`、`/api/grades`、`/api/ecard`、`/api/user`、`/api/discover/*`、`/api/treehole/*`
 - 日历公开订阅路由：`/calendar/schedule.ics?studentId=...&sig=...`
-- 日历订阅与默认课表共用 `ScheduleService` 与 JW 周粒度缓存，但不经过 `/api/schedule` 路由层的 Portal fallback
+- 日历订阅与门户周课表共用 `PortalScheduleService` 与 Portal 周粒度缓存，但不经过 `/api/v1/schedule` 路由层的 JW fallback
 - 静态媒体路由：`/media/discover/*`、`/media/treehole-avatar/*`
 - 其余 `/api/*` 全部走 `authMiddleware`
 
