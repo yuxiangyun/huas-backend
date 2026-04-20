@@ -122,7 +122,6 @@ export function LoginForm() {
     login({
       token: result.token,
       userBrief: result.user,
-      capabilities: result.capabilities,
     });
 
     void queryClient.prefetchQuery({

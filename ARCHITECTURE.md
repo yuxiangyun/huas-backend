@@ -166,7 +166,11 @@ src/
 8. Upsert `users`
 9. 落库 `cas_tgc`、`portal_jwt`、`jw_session`
 10. 若 Portal Token 可用且本地资料缺失，尝试拉取一次用户资料回填姓名/班级
-11. 签发本服务 JWT
+11. 签发本服务 JWT，并返回 `data = { token, user }`
+
+补充：
+
+- 若用户刚经历过“静默重认证需要验证码”，接下来的 1 分钟内会跳过本地快捷登录，直接走真实 CAS 登录。
 
 ### 5.3 验证码会话
 
@@ -208,6 +212,10 @@ src/
 - 从 `users.encrypted_password` 解密出原始密码
 - 重跑 CAS 登录流程
 - 重建全部可恢复的短效凭证；若 Portal 可用但 JW 激活失败，也会保留 portal-only 状态
+- 若 CAS 明确要求验证码：
+  - 立即停止静默重认证
+  - 清空 `cas_tgc`、`portal_jwt`、`jw_session`
+  - 在内存中标记该用户 1 分钟内必须走交互登录
 - 失败保护：
   - 连续失败上限 3 次
   - 冷却时间 1 分钟

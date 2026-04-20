@@ -21,23 +21,6 @@ const auth = new Hono();
 const MAX_CAPTCHA_SESSIONS = 1000;
 const captchaSessions = new Map<string, { jarJson: string; execution: string; createdAt: number }>();
 
-type LoginCapabilities = {
-  portal: boolean;
-  jw: boolean;
-};
-
-async function getStoredCapabilities(userId: number): Promise<LoginCapabilities> {
-  const [portalCredential, jwCredential] = await Promise.all([
-    CredentialManager.getCredential(userId, 'portal_jwt'),
-    CredentialManager.getCredential(userId, 'jw_session'),
-  ]);
-
-  return {
-    portal: Boolean(portalCredential),
-    jw: Boolean(jwCredential),
-  };
-}
-
 function safeEqual(a: string, b: string): boolean {
   const aBuf = Buffer.from(a, 'utf8');
   const bBuf = Buffer.from(b, 'utf8');
@@ -89,7 +72,15 @@ auth.post('/login', async (c) => {
       .limit(1);
 
     const existingUser = users[0];
-    if (existingUser?.encryptedPassword) {
+    const requiresInteractiveLogin = existingUser
+      ? CredentialManager.requiresInteractiveLogin(existingUser.id)
+      : false;
+
+    if (requiresInteractiveLogin) {
+      appendHttpLogDetail(c, 'localShortcut=disabled-need-captcha');
+    }
+
+    if (!requiresInteractiveLogin && existingUser?.encryptedPassword) {
       const storedPassword = CryptoHelper.decryptAES(existingUser.encryptedPassword, config.jwtSecret);
       if (storedPassword && safeEqual(storedPassword, password)) {
         const now = new Date();
@@ -103,7 +94,6 @@ auth.post('/login', async (c) => {
         const resolvedName = existingUser.name?.trim() || undefined;
         const resolvedClassName = existingUser.className?.trim() || '';
         const token = await generateToken({ userId: existingUser.id, studentId: username, name: resolvedName });
-        const capabilities = await getStoredCapabilities(existingUser.id);
 
         Logger.auth(username, '本地登录成功', 200, 0, resolvedName, [
           { label: 'local', ok: true },
@@ -113,7 +103,6 @@ auth.post('/login', async (c) => {
         return success(c, {
           token,
           user: { name: resolvedName, studentId: username, className: resolvedClassName },
-          capabilities,
         });
       }
     }
@@ -283,6 +272,8 @@ auth.post('/login', async (c) => {
       await CredentialManager.storeCredential(userId, 'jw_session', null, jarJson, config.ttl.jwSession);
     }
 
+    CredentialManager.clearLoginRecoveryState(userId);
+
     if (portalToken && (!resolvedName || !resolvedClassName)) {
       try {
         const profile = await UserService.getUserInfo(userId, username, true);
@@ -304,10 +295,6 @@ auth.post('/login', async (c) => {
 
     // Generate our JWT
     const token = await generateToken({ userId, studentId: username, name: resolvedName });
-    const capabilities: LoginCapabilities = {
-      portal: Boolean(portalToken),
-      jw: jwResult.success,
-    };
 
     appendHttpLogDetail(c, formatHttpLogDetail({
       result: jwResult.success ? 'success' : 'success-portal-only',
@@ -325,7 +312,6 @@ auth.post('/login', async (c) => {
     return success(c, {
       token,
       user: { name: resolvedName, studentId: username, className: resolvedClassName },
-      capabilities,
     });
   } catch (e: any) {
     appendHttpLogDetail(c, formatHttpLogDetail({

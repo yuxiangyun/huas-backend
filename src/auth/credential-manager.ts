@@ -13,8 +13,29 @@ export type CredentialSystem = 'cas_tgc' | 'portal_jwt' | 'jw_session';
 const reAuthState = new Map<number, { failCount: number; lastAttempt: number }>();
 const REAUTH_MAX_ATTEMPTS = 3;
 const REAUTH_COOLDOWN_MS = 60 * 1000; // 1 minute cooldown after max failures
+const interactiveLoginRequiredUntil = new Map<number, number>();
+const INTERACTIVE_LOGIN_REQUIRED_MS = 60 * 1000;
 
 export class CredentialManager {
+  static requiresInteractiveLogin(userId: number): boolean {
+    const expiresAt = interactiveLoginRequiredUntil.get(userId);
+    if (!expiresAt) return false;
+    if (expiresAt <= Date.now()) {
+      interactiveLoginRequiredUntil.delete(userId);
+      return false;
+    }
+    return true;
+  }
+
+  static markInteractiveLoginRequired(userId: number): void {
+    interactiveLoginRequiredUntil.set(userId, Date.now() + INTERACTIVE_LOGIN_REQUIRED_MS);
+  }
+
+  static clearLoginRecoveryState(userId: number): void {
+    interactiveLoginRequiredUntil.delete(userId);
+    reAuthState.delete(userId);
+  }
+
   /**
    * Store a credential in the database (atomic upsert)
    */
@@ -72,6 +93,11 @@ export class CredentialManager {
   } | null> {
     const existing = await this.getCredential(userId, system);
     if (existing) return existing;
+
+    if (this.requiresInteractiveLogin(userId)) {
+      Logger.warn('CredentialManager', '等待验证码登录，跳过静默恢复', `system=${system}`, String(userId));
+      return null;
+    }
 
     if (system === 'cas_tgc') {
       // TGC expired — only way to get a new one is full CAS login
@@ -147,6 +173,11 @@ export class CredentialManager {
    * Max 3 attempts with 1-minute cooldown after exhaustion.
    */
   static async silentReAuth(userId: number): Promise<boolean> {
+    if (this.requiresInteractiveLogin(userId)) {
+      Logger.warn('SilentReAuth', '等待验证码登录，跳过静默重认证', undefined, String(userId));
+      return false;
+    }
+
     // Cooldown check
     const state = reAuthState.get(userId);
     if (state) {
@@ -208,6 +239,10 @@ export class CredentialManager {
       if (!result.success) {
         steps.push({ label: 'CAS Login', ok: false, detail: result.needCaptcha ? '需要验证码' : result.message });
         this.recordReAuthFailure(userId);
+        if (result.needCaptcha) {
+          this.markInteractiveLoginRequired(userId);
+          await this.invalidateSchoolCredentials(userId);
+        }
         Logger.auth(user.studentId, '静默重认证失败', 0, Date.now() - start, user.name || undefined, steps);
         return false;
       }
@@ -246,7 +281,7 @@ export class CredentialManager {
       const jwJarJson = client.serializeJar();
       await this.storeCredential(userId, 'jw_session', null, jwJarJson, config.ttl.jwSession);
 
-      reAuthState.delete(userId);
+      this.clearLoginRecoveryState(userId);
       Logger.auth(user.studentId, '静默重认证成功', 200, Date.now() - start, user.name || undefined, steps);
       return true;
     } catch (e: any) {
@@ -302,6 +337,14 @@ export class CredentialManager {
     const db = getDb();
     await db.delete(schema.credentials)
       .where(eq(schema.credentials.userId, userId));
+  }
+
+  private static async invalidateSchoolCredentials(userId: number): Promise<void> {
+    await Promise.all([
+      this.invalidate(userId, 'cas_tgc'),
+      this.invalidate(userId, 'portal_jwt'),
+      this.invalidate(userId, 'jw_session'),
+    ]);
   }
 
   static async cleanupExpired(): Promise<void> {

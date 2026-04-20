@@ -235,7 +235,6 @@ describe('登录流程', () => {
     const body = await res.json() as any;
     expect(body.success).toBe(true);
     expect(typeof body.data?.token).toBe('string');
-    expect(body.data.capabilities).toEqual({ portal: true, jw: true });
 
     const db = getDb();
     const users = await db.select()
@@ -285,7 +284,6 @@ describe('登录流程', () => {
     const body = await res.json() as any;
     expect(body.success).toBe(true);
     expect(typeof body.data?.token).toBe('string');
-    expect(body.data.capabilities).toEqual({ portal: false, jw: false });
 
     const users = await db.select()
       .from(schema.users)
@@ -301,7 +299,7 @@ describe('登录流程', () => {
     expect(loginCallCount).toBe(0);
   });
 
-  it('本地登录会基于已存凭证返回 capabilities', async () => {
+  it('本地登录在已有上游凭证时仍可直接返回 token', async () => {
     const app = new Hono();
     app.route('/auth', authRoutes);
 
@@ -317,7 +315,78 @@ describe('登录流程', () => {
     expect(res.status).toBe(200);
     const body = await res.json() as any;
     expect(body.success).toBe(true);
-    expect(body.data.capabilities).toEqual({ portal: true, jw: false });
+    expect(typeof body.data?.token).toBe('string');
+  });
+
+  it('静默重认证要求验证码后，下次登录会跳过本地快捷并返回验证码挑战', async () => {
+    const app = new Hono();
+    app.route('/auth', authRoutes);
+
+    const userId = await createUser('2023001446', 'pass-local-captcha');
+    await CredentialManager.storeCredential(userId, 'cas_tgc', null, '{"cookies":[]}', 60_000);
+    await CredentialManager.storeCredential(userId, 'portal_jwt', 'portal-token-stale', null, 60_000);
+    await CredentialManager.storeCredential(userId, 'jw_session', null, '{"cookies":[]}', 60_000);
+
+    authBehavior.login = async () => ({
+      success: false,
+      needCaptcha: true,
+      message: '需要验证码',
+      steps: [],
+    });
+
+    const silentOk = await CredentialManager.silentReAuth(userId);
+    expect(silentOk).toBe(false);
+    expect(CredentialManager.requiresInteractiveLogin(userId)).toBe(true);
+
+    const db = getDb();
+    const staleCreds = await db.select()
+      .from(schema.credentials)
+      .where(eq(schema.credentials.userId, userId));
+    expect(staleCreds.length).toBe(0);
+
+    let executionCallCount = 0;
+    authBehavior.getExecution = async () => {
+      executionCallCount += 1;
+      return `exec-${executionCallCount}`;
+    };
+
+    const res = await app.request('http://localhost/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: '2023001446', password: 'pass-local-captcha' }),
+    });
+
+    expect(res.status).toBe(400);
+    const body = await res.json() as any;
+    expect(body.success).toBe(false);
+    expect(body.error_code).toBe(ErrorCode.CAPTCHA_ERROR);
+    expect(body.needCaptcha).toBe(true);
+    expect(typeof body.sessionId).toBe('string');
+    expect(executionCallCount).toBe(2);
+  });
+
+  it('真实 CAS 登录成功后会清除必须交互登录标记', async () => {
+    const app = new Hono();
+    app.route('/auth', authRoutes);
+
+    const userId = await createUser('2023001447', 'pass-force-cas');
+    CredentialManager.markInteractiveLoginRequired(userId);
+
+    let loginCallCount = 0;
+    authBehavior.login = async () => {
+      loginCallCount += 1;
+      return { success: true, portalToken: null, steps: [] };
+    };
+
+    const res = await app.request('http://localhost/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: '2023001447', password: 'pass-force-cas' }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(loginCallCount).toBe(1);
+    expect(CredentialManager.requiresInteractiveLogin(userId)).toBe(false);
   });
 
   it('本地密码不匹配时回退 CAS 并刷新已存密码', async () => {
@@ -485,7 +554,6 @@ describe('登录流程', () => {
     expect(body.success).toBe(true);
     expect(body.data.user.name).toBe('张三');
     expect(body.data.user.className).toBe('机自25101班');
-    expect(body.data.capabilities).toEqual({ portal: true, jw: true });
     expect(upstreamCallCount).toBe(1);
 
     const db = getDb();
@@ -523,7 +591,6 @@ describe('登录流程', () => {
     expect(body.success).toBe(true);
     expect(body.data.user.name).toBe('李四');
     expect(body.data.user.className).toBe('机自25102班');
-    expect(body.data.capabilities).toEqual({ portal: true, jw: false });
 
     const db = getDb();
     const users = await db.select()
@@ -568,7 +635,6 @@ describe('登录流程', () => {
     const body = await res.json() as any;
     expect(body.success).toBe(true);
     expect(body.data.user.name).toBe('王五');
-    expect(body.data.capabilities).toEqual({ portal: true, jw: false });
 
     const db = getDb();
     const users = await db.select()
@@ -640,6 +706,21 @@ describe('静默凭证链路', () => {
 
     const cred = await CredentialManager.getOrRefreshCredential(userId, 'portal_jwt');
     expect(cred?.value).toBe('portal-token-new');
+  });
+
+  it('等待验证码登录期间跳过静默恢复', async () => {
+    const userId = await createUser('2023001006', 'pass-interactive-required');
+    CredentialManager.markInteractiveLoginRequired(userId);
+
+    let loginCallCount = 0;
+    authBehavior.login = async () => {
+      loginCallCount += 1;
+      return { success: true, portalToken: 'should-not-run', steps: [] };
+    };
+
+    const cred = await CredentialManager.getOrRefreshCredential(userId, 'portal_jwt');
+    expect(cred).toBeNull();
+    expect(loginCallCount).toBe(0);
   });
 
   it('TGC 不可用时触发静默重认证并补齐凭证', async () => {

@@ -1,12 +1,11 @@
 import { create } from 'zustand';
-import type { AuthCapabilities, AuthSession, UserBrief } from '@/entities/auth/model/auth-types';
+import type { AuthSession, UserBrief } from '@/entities/auth/model/auth-types';
 
 const STORAGE_KEY = 'huas-web.auth';
 
 interface PersistedAuthState {
   token: string | null;
   userBrief: UserBrief | null;
-  capabilities: AuthCapabilities | null;
 }
 
 interface AuthStore extends PersistedAuthState {
@@ -18,21 +17,20 @@ interface AuthStore extends PersistedAuthState {
 
 function readPersistedState(): PersistedAuthState {
   if (typeof window === 'undefined') {
-    return { token: null, userBrief: null, capabilities: null };
+    return { token: null, userBrief: null };
   }
 
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { token: null, userBrief: null, capabilities: null };
+    if (!raw) return { token: null, userBrief: null };
 
     const parsed = JSON.parse(raw) as PersistedAuthState;
     return {
       token: parsed.token || null,
       userBrief: parsed.userBrief || null,
-      capabilities: parsed.capabilities || null,
     };
   } catch {
-    return { token: null, userBrief: null, capabilities: null };
+    return { token: null, userBrief: null };
   }
 }
 
@@ -56,15 +54,14 @@ export const useAuthStore = create<AuthStore>((set) => ({
     const nextState: PersistedAuthState = {
       token: session.token,
       userBrief: session.userBrief,
-      capabilities: session.capabilities || null,
     };
 
     writePersistedState(nextState);
     set({ ...nextState, isAuthenticated: true });
   },
   logout: () => {
-    writePersistedState({ token: null, userBrief: null, capabilities: null });
-    set({ token: null, userBrief: null, capabilities: null, isAuthenticated: false });
+    writePersistedState({ token: null, userBrief: null });
+    set({ token: null, userBrief: null, isAuthenticated: false });
   },
   restore: () => {
     const nextState = readPersistedState();
