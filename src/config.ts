@@ -19,6 +19,14 @@ export const config = {
   jwtSecret: process.env.JWT_SECRET || 'huas-server-default-secret-change-me',
   dbPath: process.env.DB_PATH || DEFAULT_DB_PATH,
   timeZone: BEIJING_TIME_ZONE,
+  server: {
+    idleTimeoutSeconds: Math.min(parsePositiveInt(process.env.SERVER_IDLE_TIMEOUT_SECONDS, 60), 255),
+  },
+  authLoginRateLimit: {
+    maxFailures: parsePositiveInt(process.env.AUTH_LOGIN_RATE_LIMIT_MAX_FAILURES, 5),
+    windowMs: parsePositiveInt(process.env.AUTH_LOGIN_RATE_LIMIT_WINDOW_MS, 5 * 60 * 1000),
+    blockMs: parsePositiveInt(process.env.AUTH_LOGIN_RATE_LIMIT_BLOCK_MS, 10 * 60 * 1000),
+  },
 
   // Credential TTLs (school-side)
   ttl: {

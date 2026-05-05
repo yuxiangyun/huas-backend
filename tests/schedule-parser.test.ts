@@ -95,6 +95,23 @@ window.location.href='https://cas.huas.edu.cn/cas/login?service=https%3A%2F%2Fxy
 </script>
 `;
 
+const JW_LOGIN_PAGE_HTML = `
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <title>登录</title>
+  </head>
+  <body>
+    <form action="/jsxsd/xk/LoginToXk" method="post">
+      <h3>用户登录</h3>
+      <input name="userAccount">
+      <input name="RANDOMCODE" placeholder="验证码">
+      <div>您的账号在其它地方登录</div>
+    </form>
+  </body>
+</html>
+`;
+
 describe('ScheduleParser', () => {
   it('按真实 JW HTML 结构解析课程并输出前端可用 section', () => {
     const result = ScheduleParser.parse(VALID_SCHEDULE_HTML);
@@ -158,5 +175,9 @@ describe('ScheduleParser', () => {
 
   it('CAS 重定向页仍判定为凭证失效', () => {
     expect(() => ScheduleParser.parse(SESSION_EXPIRED_HTML)).toThrow('SESSION_EXPIRED');
+  });
+
+  it('JW 返回登录页时判定为凭证失效而不是课表结构错误', () => {
+    expect(() => ScheduleParser.parse(JW_LOGIN_PAGE_HTML)).toThrow('SESSION_EXPIRED');
   });
 });

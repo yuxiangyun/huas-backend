@@ -43,6 +43,16 @@ function extractLiShowWeekMessages(html: string): string[] {
   return messages;
 }
 
+function looksLikeJwLoginPage(html: string): boolean {
+  const text = stripTags(html);
+  const hasLoginForm = /<form[^>]+action=["']\/?jsxsd\/xk\/LoginToXk["']/i.test(html);
+  const loginTitle = /<title[^>]*>\s*登录\s*<\/title>/i.test(html);
+  const kickedByOtherLogin = text.includes('您的账号在其它地方登录');
+  const loginFormText = text.includes('用户登录') && text.includes('验证码');
+
+  return kickedByOtherLogin || hasLoginForm || (loginTitle && loginFormText);
+}
+
 function extractWeek(html: string, $: cheerio.CheerioAPI): string {
   const messages = extractLiShowWeekMessages(html);
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -108,6 +118,8 @@ export const ScheduleParser = {
     const liShowWeekMessages = extractLiShowWeekMessages(rawHtml);
     const latestLiShowWeek = liShowWeekMessages[liShowWeekMessages.length - 1] || '';
     const redirectToCas = /window\.location\.href\s*=\s*['"][^'"]*cas\/login/i.test(rawHtml);
+    const hasScheduleTable = rawHtml.includes('kb_table');
+    const jwLoginPage = !hasScheduleTable && looksLikeJwLoginPage(rawHtml);
     const matchedIndicator = SESSION_EXPIRED_INDICATORS.find((indicator) => htmlStart.includes(indicator));
 
     if (!rawHtml.trim()) {
@@ -115,8 +127,8 @@ export const ScheduleParser = {
       throw new Error("SESSION_EXPIRED");
     }
 
-    if (redirectToCas || (!rawHtml.includes('kb_table') && matchedIndicator)) {
-      Logger.warn('ScheduleParser', 'Session 过期', `检测到: "${matchedIndicator || 'CAS redirect'}"`);
+    if (redirectToCas || jwLoginPage || (!hasScheduleTable && matchedIndicator)) {
+      Logger.warn('ScheduleParser', 'Session 过期', `检测到: "${matchedIndicator || (jwLoginPage ? 'JW login page' : 'CAS redirect')}"`);
       throw new Error("SESSION_EXPIRED");
     }
 
@@ -133,7 +145,7 @@ export const ScheduleParser = {
       return { week: '暂无', courses: [], message: '课表暂未公布' };
     }
 
-    if (!rawHtml.includes('kb_table')) {
+    if (!hasScheduleTable) {
       Logger.warn('ScheduleParser', '课表解析失败', `无效的课表HTML，长度: ${rawHtml.length}`);
       throw new Error("GET_SCHEDULE_FAILED");
     }

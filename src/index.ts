@@ -139,6 +139,7 @@ Logger.serverBanner(port, isDev ? 'development' : 'production');
 const server = Bun.serve({
   port,
   hostname: '0.0.0.0',
+  idleTimeout: config.server.idleTimeoutSeconds,
   fetch: app.fetch,
 });
 
