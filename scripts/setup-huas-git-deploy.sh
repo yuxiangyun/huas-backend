@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REMOTE_HOST="${REMOTE_HOST:-huas}"
+REMOTE_HOST="${REMOTE_HOST:-baidu}"
 BARE_REPO_DIR="${BARE_REPO_DIR:-/www/git/huas-server.git}"
 APP_DIR="${APP_DIR:-/www/wwwroot/huas-server}"
 APP_NAME="${APP_NAME:-huas-server}"
 DEPLOY_BRANCH="${DEPLOY_BRANCH:-master}"
-GIT_REMOTE_NAME="${GIT_REMOTE_NAME:-huas-deploy}"
+GIT_REMOTE_NAME="${GIT_REMOTE_NAME:-baidu-deploy}"
 INSTALL_SERVER_DEPS="${INSTALL_SERVER_DEPS:-1}"
 BUILD_WEB="${BUILD_WEB:-1}"
 INSTALL_WEB_DEPS="${INSTALL_WEB_DEPS:-1}"

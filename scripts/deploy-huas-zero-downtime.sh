@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REMOTE_HOST="${REMOTE_HOST:-huas}"
+REMOTE_HOST="${REMOTE_HOST:-baidu}"
 APP_ROOT="${APP_ROOT:-/www/wwwroot/huas-server}"
 CONTROL_DIR="${CONTROL_DIR:-$APP_ROOT/.deploy}"
 APP_NAME_BASE="${APP_NAME_BASE:-huas-server}"

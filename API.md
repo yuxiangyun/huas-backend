@@ -118,6 +118,8 @@ GET /calendar/schedule.ics?studentId=2023001001&sig=<hmac_sha256(studentId, CALE
 
 - `/api/ecard` 和 `/api/user` 在上游返回非鉴权类异常且解析为空时，会返回 `error_code=5000`，但 HTTP 状态码是 `502`
 - `/api/schedule` 与 `/api/v1/schedule` 在“课表暂未公布”时不会报错，而是返回 `200 + success=true` 的空课表对象
+- `refresh=true` 回源失败且存在旧缓存时，仍可能返回 `200 + success=true`，客户端必须通过 `_meta.stale=true` 和 `_meta.refresh_failed=true` 判断这不是新鲜数据
+- JW 有时会用 HTTP 200 返回登录页，例如账号在其他地方登录导致当前 JW 会话失效；服务端会把这类页面识别为凭证过期并尝试自动恢复
 
 ## 3. 当前缓存语义
 
@@ -912,6 +914,12 @@ JW 优先课表接口。
 - `4002`：`date` 格式错误或日期非法
 - `3003`：JW 与回退 Portal 都无法恢复凭证
 - `3004`：JW 与回退 Portal 都超时且没有旧缓存可回退
+
+补充说明：
+
+- JW 会话被其他登录挤掉时，上游可能返回 HTTP 200 登录页，而不是 401/302；服务端会将其识别为 `SESSION_EXPIRED`，刷新凭证后重试
+- 如果自动恢复仍失败且没有 Portal/旧缓存可回退，接口返回 `3003`
+- 如果有旧缓存可回退，接口返回 `200`，并在 `_meta.last_error` 中暴露本次失败原因
 
 ### 6.5 `GET /api/v1/schedule`
 
@@ -2496,7 +2504,7 @@ Cache-Control: public, max-age=31536000, immutable
 2. “课表暂未公布”是 `200 success=true`，不要按失败态处理。
 3. 当前所有业务缓存 TTL 都是 `0`，所以普通刷新不会自动失效旧数据。
 4. `_meta.cached=false` 不代表没有缓存，只表示这次响应不是直接命中缓存。
-5. `refresh=true` 失败时可能收到 `stale=true` 的旧数据，此时应提示“展示旧缓存”而不是直接当成新鲜数据。
+5. `refresh=true` 失败时可能收到 `stale=true` 的旧数据，此时应提示“展示旧缓存”而不是直接当成新鲜数据；同时读取 `_meta.last_error` 区分凭证恢复失败、上游超时或结构异常。
 6. `_meta` 时间字段是 `+08:00`，不要按 UTC 误解。
 7. 验证码 `sessionId` 只在单次二次提交中有效，且服务重启会失效。
 8. `GET /api/discover/meta` 也需要 Bearer JWT，不是公开接口。

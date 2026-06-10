@@ -91,6 +91,7 @@ DB_PATH=./data/huas.db
 LOG_LEVEL=info
 TZ=Asia/Shanghai
 TIMEZONE=Asia/Shanghai
+SERVER_IDLE_TIMEOUT_SECONDS=60
 ```
 
 生成随机密钥：
@@ -98,6 +99,15 @@ TIMEZONE=Asia/Shanghai
 ```bash
 openssl rand -base64 32
 ```
+
+常用运行时配置：
+
+| 变量 | 默认值 | 作用 |
+|---|---|---|
+| `SERVER_IDLE_TIMEOUT_SECONDS` | `60` | Bun HTTP 连接 idle timeout，单位秒。课表强刷可能超过 10 秒，生产不要使用 Bun 默认值 |
+| `AUTH_LOGIN_RATE_LIMIT_MAX_FAILURES` | `5` | 同一账号登录失败限流阈值 |
+| `AUTH_LOGIN_RATE_LIMIT_WINDOW_MS` | `300000` | 登录失败统计窗口 |
+| `AUTH_LOGIN_RATE_LIMIT_BLOCK_MS` | `600000` | 登录失败触发限流后的封禁时长 |
 
 ### 3.5 安装依赖并启动
 
@@ -615,6 +625,43 @@ npm run build
 ```bash
 git push --dry-run huas-deploy master
 ```
+
+### 10.5 `/api/*` 偶发 502
+
+先确认服务本身是否还活着：
+
+```bash
+ACTIVE_SLOT="$(cat /www/wwwroot/huas-server/.deploy/active-slot)"
+PORT="$(grep -E '^PORT=' /www/wwwroot/huas-server/.env | cut -d= -f2)"
+curl -i "http://127.0.0.1:$PORT/health"
+pm2 status --no-color
+pm2 logs "huas-server-$ACTIVE_SLOT" --lines 100
+tail -n 100 /www/wwwlogs/api.huas-api.top.error.log
+```
+
+如果 nginx error log 里出现 `upstream prematurely closed connection`，同时应用日志里对应请求耗时接近 10 秒，通常是 Bun 默认 idle timeout 先关闭了仍在处理中的 HTTP 连接。
+
+修复方式：
+
+1. 确认线上 `.env` 包含 `SERVER_IDLE_TIMEOUT_SECONDS=60`
+2. 重新发布或执行 `pm2 restart <app> --update-env`
+3. 再用慢路径接口验证，例如课表 `refresh=true`
+
+### 10.6 课表强刷返回旧缓存
+
+现象：
+
+- 客户端收到 `200`，但 `_meta.stale=true`、`_meta.refresh_failed=true`
+- `_meta.last_error` 常见为 `3003`、`3004` 或 `5000`
+- 日志出现 `RefreshFallback ... 回退缓存`
+
+排查方向：
+
+- `3004` 多数是学校上游超时
+- `3003` 表示凭证过期且自动恢复失败，需要重新登录
+- 如果 JW 返回的是 HTTP 200 登录页，页面里包含 `您的账号在其它地方登录`、`/jsxsd/xk/LoginToXk`、`用户登录`、`验证码` 等特征，表示该账号的 JW 会话被其他登录挤掉
+
+当前实现会把这类 JW 登录页判定为 `SESSION_EXPIRED`，触发凭证恢复并重试。若同一账号持续在其他地方登录，JW 会话仍可能被反复挤掉，最终只能返回旧缓存或要求用户重新登录。
 
 ## 11. 当前约束
 

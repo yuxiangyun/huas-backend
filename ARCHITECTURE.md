@@ -228,6 +228,8 @@ src/
 - 302 跳转到 `cas/login`
 - 页面内容出现统一认证失效特征
 
+JW 课表还有一个特殊分支：学校上游可能用 HTTP 200 返回登录页，而不是返回 401/302。`ScheduleParser` 会识别 `/jsxsd/xk/LoginToXk`、`用户登录`、`验证码`、`您的账号在其它地方登录` 等特征，并把它归类为 `SESSION_EXPIRED`，避免把登录页误判成课表结构异常。
+
 `upstream()` 收到后会：
 
 1. 使当前失效凭证失效
@@ -271,6 +273,8 @@ src/
   - `_meta.stale = true`
   - `_meta.refresh_failed = true`
   - `_meta.last_error = 3003 | 3004 | 5000`
+
+其中 `3003` 常见于凭证恢复失败，例如 JW 会话被其他登录挤掉后，自动恢复链仍无法拿到可用子凭证。此时如果旧缓存存在，接口仍返回 `200`，但 `_meta` 明确标记为 stale。
 
 另外，`/api/schedule`、`/api/v1/schedule`、`/api/grades` 在 `refresh=true` 时会经过 `academicRefreshRateLimitMiddleware`：
 
@@ -576,6 +580,10 @@ src/
 | `JWT_SECRET` | 默认弱值 | JWT 与 AES 加密密钥，生产必须改 |
 | `DB_PATH` | `./data/huas.db` | SQLite 文件路径 |
 | `LOG_LEVEL` | `info` | 日志级别 |
+| `SERVER_IDLE_TIMEOUT_SECONDS` | `60` | Bun HTTP 连接 idle timeout，单位秒；生产慢请求不要使用 Bun 默认 10 秒 |
+| `AUTH_LOGIN_RATE_LIMIT_MAX_FAILURES` | `5` | 同一账号登录失败限流阈值 |
+| `AUTH_LOGIN_RATE_LIMIT_WINDOW_MS` | `300000` | 登录失败统计窗口 |
+| `AUTH_LOGIN_RATE_LIMIT_BLOCK_MS` | `600000` | 登录失败触发限流后的封禁时长 |
 | `GRADES_CACHE_LIMIT` | `20` | 每用户成绩缓存上限 |
 | `SCHEDULE_CACHE_LIMIT` | `120` | 每用户 JW 课表缓存上限 |
 | `PORTAL_SCHEDULE_CACHE_LIMIT` | `120` | 每用户 Portal 课表缓存上限 |

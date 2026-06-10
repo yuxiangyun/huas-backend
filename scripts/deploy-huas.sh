@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REMOTE_HOST="${REMOTE_HOST:-huas}"
+REMOTE_HOST="${REMOTE_HOST:-baidu}"
 REMOTE_DIR="${REMOTE_DIR:-/www/wwwroot/huas-server}"
 APP_NAME="${APP_NAME:-huas-server}"
 SYNC_DELETE="${SYNC_DELETE:-0}"
