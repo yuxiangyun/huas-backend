@@ -6,7 +6,7 @@ BARE_REPO_DIR="${BARE_REPO_DIR:-/www/git/huas-server.git}"
 APP_DIR="${APP_DIR:-/www/wwwroot/huas-server}"
 APP_NAME="${APP_NAME:-huas-server}"
 DEPLOY_BRANCH="${DEPLOY_BRANCH:-master}"
-GIT_REMOTE_NAME="${GIT_REMOTE_NAME:-baidu-deploy}"
+GIT_REMOTE_NAME="${GIT_REMOTE_NAME:-huas-deploy}"
 INSTALL_SERVER_DEPS="${INSTALL_SERVER_DEPS:-1}"
 BUILD_WEB="${BUILD_WEB:-1}"
 INSTALL_WEB_DEPS="${INSTALL_WEB_DEPS:-1}"
@@ -48,9 +48,28 @@ ensure_remote_bare_repo() {
 
   ssh "$REMOTE_HOST" "
     set -euo pipefail
+    if [ ! -d '$APP_DIR' ]; then
+      echo 'Missing remote app dir: $APP_DIR' >&2
+      exit 1
+    fi
+    if [ ! -f '$APP_DIR/.env' ]; then
+      echo 'Missing protected runtime env file: $APP_DIR/.env' >&2
+      exit 1
+    fi
+    if [ ! -d '$APP_DIR/data' ]; then
+      echo 'Missing protected data dir: $APP_DIR/data' >&2
+      exit 1
+    fi
+    if [ ! -d '$CONTROL_DIR' ]; then
+      echo 'Missing blue-green control dir: $CONTROL_DIR' >&2
+      exit 1
+    fi
     mkdir -p '$bare_repo_parent'
     if [ ! -d '$BARE_REPO_DIR' ]; then
       git init --bare --initial-branch '$DEPLOY_BRANCH' '$BARE_REPO_DIR'
+    elif ! git --git-dir='$BARE_REPO_DIR' rev-parse --is-bare-repository >/dev/null 2>&1; then
+      echo 'Refusing to use non-bare repository path: $BARE_REPO_DIR' >&2
+      exit 1
     fi
   "
 }
