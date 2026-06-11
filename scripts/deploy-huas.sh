@@ -9,6 +9,7 @@ BUILD_WEB="${BUILD_WEB:-1}"
 INSTALL_WEB_DEPS="${INSTALL_WEB_DEPS:-1}"
 INSTALL_SERVER_DEPS="${INSTALL_SERVER_DEPS:-1}"
 WEB_PACKAGE_MANAGER="${WEB_PACKAGE_MANAGER:-bun}"
+NPM_REGISTRY="${NPM_REGISTRY:-https://registry.npmjs.org}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -91,13 +92,13 @@ install_web_dependencies() {
     npm)
       (
         cd "$WEB_DIR"
-        npm ci --include=dev
+        npm ci --include=dev --registry="$NPM_REGISTRY"
       )
       ;;
     bun)
       (
         cd "$WEB_DIR"
-        bun install --frozen-lockfile
+        bun install --frozen-lockfile --registry="$NPM_REGISTRY"
       )
       ;;
     *)
@@ -191,7 +192,7 @@ if ! command -v bun >/dev/null 2>&1; then
 fi
 
 if [ '$INSTALL_SERVER_DEPS' = '1' ]; then
-  bun install --frozen-lockfile --production
+  bun install --frozen-lockfile --production --registry='$NPM_REGISTRY'
 fi
 
 if ! command -v pm2 >/dev/null 2>&1; then

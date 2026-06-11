@@ -11,6 +11,7 @@ INSTALL_SERVER_DEPS="${INSTALL_SERVER_DEPS:-1}"
 BUILD_WEB="${BUILD_WEB:-1}"
 INSTALL_WEB_DEPS="${INSTALL_WEB_DEPS:-1}"
 WEB_PACKAGE_MANAGER="${WEB_PACKAGE_MANAGER:-auto}"
+NPM_REGISTRY="${NPM_REGISTRY:-https://registry.npmjs.org}"
 BLUE_SLOT="${BLUE_SLOT:-blue}"
 GREEN_SLOT="${GREEN_SLOT:-green}"
 BLUE_PORT="${BLUE_PORT:-3000}"
@@ -85,13 +86,13 @@ install_web_dependencies() {
     npm)
       (
         cd "$release_dir/web"
-        npm ci --include=dev --registry=https://registry.npmjs.org
+        npm ci --include=dev --registry="$NPM_REGISTRY"
       )
       ;;
     bun)
       (
         cd "$release_dir/web"
-        bun install --frozen-lockfile
+        bun install --frozen-lockfile --registry="$NPM_REGISTRY"
       )
       ;;
     *)
@@ -326,7 +327,7 @@ prepare_release_dir "$target_slot" "$target_release_dir"
 if [[ "$INSTALL_SERVER_DEPS" == "1" ]]; then
   (
     cd "$target_release_dir"
-    bun install --frozen-lockfile --production
+    bun install --frozen-lockfile --production --registry="$NPM_REGISTRY"
   )
 fi
 
