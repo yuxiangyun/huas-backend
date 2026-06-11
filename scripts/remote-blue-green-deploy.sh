@@ -63,13 +63,13 @@ resolve_web_package_manager() {
     return
   fi
 
-  if [[ -f "$release_dir/web/package-lock.json" ]]; then
-    printf '%s\n' "npm"
+  if [[ -f "$release_dir/web/bun.lock" ]]; then
+    printf '%s\n' "bun"
     return
   fi
 
-  if [[ -f "$release_dir/web/bun.lock" ]]; then
-    printf '%s\n' "bun"
+  if [[ -f "$release_dir/web/package-lock.json" ]]; then
+    printf '%s\n' "npm"
     return
   fi
 
