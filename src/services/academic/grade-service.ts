@@ -6,6 +6,7 @@ import { config } from '../../config';
 import { createHash } from 'node:crypto';
 import { AppError, ErrorCode } from '../../utils/errors';
 import { fallbackOnRefreshFailure } from '../infra/refresh-fallback';
+import { EvaluationService } from './evaluation-service';
 
 const MAX_TERM_LENGTH = 32;
 const MAX_KCXZ_LENGTH = 32;
@@ -60,7 +61,24 @@ export class GradeService {
           body: params,
           timeout: config.timeout.business,
         });
-        return GradeParser.parse(await res.text(), { studentId, name });
+        const html = await res.text();
+        try {
+          return GradeParser.parse(html, { studentId, name });
+        } catch (error) {
+          if (!(error instanceof AppError) || error.code !== ErrorCode.EVALUATION_REQUIRED) {
+            throw error;
+          }
+
+          const discovery = await EvaluationService.discoverListUrlFromClient(client).catch(() => ({
+            evaluationRequired: true,
+            listUrl: null,
+          }));
+          throw new AppError(error.code, error.message, {
+            ...(typeof error.data === 'object' && error.data !== null ? error.data : {}),
+            evaluationRequired: true,
+            listUrl: discovery.listUrl,
+          });
+        }
       });
     } catch (error) {
       const fallback = await fallbackOnRefreshFailure({

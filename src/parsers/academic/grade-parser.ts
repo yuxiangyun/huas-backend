@@ -2,6 +2,9 @@ import * as cheerio from 'cheerio';
 import type { IGradeItem, IGradeList } from '../../types';
 import { Logger } from '../../utils/logger';
 import { SESSION_EXPIRED_INDICATORS } from '../../config';
+import { AppError, ErrorCode } from '../../utils/errors';
+
+const EVALUATION_REQUIRED_RE = /评教未完成，?不能查询成绩/;
 
 export const GradeParser = {
   parse(html: string, user?: { studentId?: string; name?: string }): IGradeList | null {
@@ -13,6 +16,13 @@ export const GradeParser = {
     if (isExpired) {
       Logger.warn('GradeParser', 'Session 过期', `HTML长度: ${html?.length || 0}`);
       throw new Error("SESSION_EXPIRED");
+    }
+
+    if (EVALUATION_REQUIRED_RE.test(html)) {
+      Logger.warn('GradeParser', '评教未完成，不能查询成绩', undefined, user?.studentId, user?.name);
+      throw new AppError(ErrorCode.EVALUATION_REQUIRED, '评教未完成，不能查询成绩', {
+        evaluationRequired: true,
+      });
     }
 
     const $ = cheerio.load(html);

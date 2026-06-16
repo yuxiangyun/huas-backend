@@ -14,10 +14,12 @@ export function success<T>(c: Context, data: T, meta?: Partial<CacheMeta>, statu
   return c.json(body, status as any);
 }
 
-export function error(c: Context, errorCode: number, message: string, httpStatus = 500) {
-  return c.json({
+export function error(c: Context, errorCode: number, message: string, httpStatus = 500, data?: unknown) {
+  const body: any = {
     success: false,
     error_code: errorCode,
     error_message: message,
-  }, httpStatus as any);
+  };
+  if (data !== undefined) body.data = data;
+  return c.json(body, httpStatus as any);
 }

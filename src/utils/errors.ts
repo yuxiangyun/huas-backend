@@ -9,6 +9,7 @@ export enum ErrorCode {
   JWT_INVALID = 4001,
   PARAM_ERROR = 4002,
   TOO_MANY_REQUESTS = 4003,
+  EVALUATION_REQUIRED = 4004,
 
   // 5xxx - System errors
   INTERNAL_ERROR = 5000,
@@ -22,16 +23,19 @@ const errorHttpStatus: Record<number, number> = {
   [ErrorCode.JWT_INVALID]: 401,
   [ErrorCode.PARAM_ERROR]: 400,
   [ErrorCode.TOO_MANY_REQUESTS]: 429,
+  [ErrorCode.EVALUATION_REQUIRED]: 409,
   [ErrorCode.INTERNAL_ERROR]: 500,
 };
 
 export class AppError extends Error {
   public code: ErrorCode;
   public httpStatus: number;
+  public data?: unknown;
 
-  constructor(code: ErrorCode, message: string) {
+  constructor(code: ErrorCode, message: string, data?: unknown) {
     super(message);
     this.code = code;
     this.httpStatus = errorHttpStatus[code] || 500;
+    this.data = data;
   }
 }

@@ -19,7 +19,7 @@ export async function fallbackOnRefreshFailure<T>(options: {
   studentId: string;
 }): Promise<{ data: T; _meta: CacheMeta } | null> {
   const errorCode = toErrorCode(options.error);
-  if (errorCode === ErrorCode.PARAM_ERROR) return null;
+  if (errorCode === ErrorCode.PARAM_ERROR || errorCode === ErrorCode.EVALUATION_REQUIRED) return null;
 
   const cached = await CacheService.get<T>(options.cacheKey, { touch: true, allowExpired: true });
   if (!cached) return null;

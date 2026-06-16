@@ -10,7 +10,7 @@ import { Logger } from '../utils/logger';
 export function onAppError(err: Error, c: Context<Env>) {
   if (err instanceof AppError) {
     Logger.error('App', err.message);
-    return error(c, err.code, err.message, err.httpStatus);
+    return error(c, err.code, err.message, err.httpStatus, err.data);
   }
 
   if (err.message === 'REQUEST_TIMEOUT') {
