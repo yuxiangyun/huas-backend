@@ -7,7 +7,10 @@
       "Bash(bun build:*)",
       "Bash(npx tsc:*)",
       "Bash(timeout 3 bun run:*)",
-      "Bash(chmod +x:*)"
+      "Bash(chmod +x:*)",
+      "mcp__chrome-devtools__list_pages",
+      "mcp__chrome-devtools__navigate_page",
+      "Bash(bun run *)"
     ]
   }
 }

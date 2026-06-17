@@ -6,6 +6,7 @@ import scheduleRoutes from './academic/schedule.routes';
 import v1ScheduleRoutes from './portal/v1-schedule.routes';
 import gradeRoutes from './academic/grade.routes';
 import evaluationRoutes from './academic/evaluation.routes';
+import classroomRoutes from './academic/classroom.routes';
 import ecardRoutes from './portal/ecard.routes';
 import userRoutes from './portal/user.routes';
 import healthRoutes from './system/health.routes';
@@ -47,6 +48,7 @@ export function registerRoutes(app: Hono) {
   api.route('/v1/schedule', v1ScheduleRoutes);
   api.route('/grades', gradeRoutes);
   api.route('/evaluations', evaluationRoutes);
+  api.route('/classrooms', classroomRoutes);
   api.route('/ecard', ecardRoutes);
   api.route('/user', userRoutes);
   api.route('/discover', discoverRoutes);

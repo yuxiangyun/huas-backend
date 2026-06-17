@@ -73,6 +73,7 @@ export interface CacheMeta {
   updated_at?: string;
   expires_at?: string;
   source?: string;
+  upstreamAccount?: string;
   stale?: boolean;
   refresh_failed?: boolean;
   last_error?: number;
