@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
+# [INPUT]: 依赖本地 git/ssh、百度服务器 SSH 别名与远端蓝绿目录结构。
+# [OUTPUT]: 对外提供 Git push 蓝绿发布初始化器，创建 baidu remote、裸仓库与 post-receive hook。
+# [POS]: scripts 的 Git 发布入口，连接本地提交与 remote-blue-green-deploy.sh。
+# [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+
 set -euo pipefail
 
 REMOTE_HOST="${REMOTE_HOST:-baidu}"
 BARE_REPO_DIR="${BARE_REPO_DIR:-/www/git/huas-server.git}"
 APP_DIR="${APP_DIR:-/www/wwwroot/huas-server}"
 APP_NAME="${APP_NAME:-huas-server}"
-DEPLOY_BRANCH="${DEPLOY_BRANCH:-master}"
-GIT_REMOTE_NAME="${GIT_REMOTE_NAME:-huas-deploy}"
+DEPLOY_BRANCH="${DEPLOY_BRANCH:-main}"
+GIT_REMOTE_NAME="${GIT_REMOTE_NAME:-baidu}"
+LEGACY_GIT_REMOTE_NAMES="${LEGACY_GIT_REMOTE_NAMES:-baidu-deploy huas-deploy}"
 INSTALL_SERVER_DEPS="${INSTALL_SERVER_DEPS:-1}"
 BUILD_WEB="${BUILD_WEB:-1}"
 INSTALL_WEB_DEPS="${INSTALL_WEB_DEPS:-1}"
@@ -26,6 +32,8 @@ require_command() {
 }
 
 ensure_local_remote() {
+  local legacy_name legacy_url
+
   if git remote get-url "$GIT_REMOTE_NAME" >/dev/null 2>&1; then
     local existing_url
     existing_url="$(git remote get-url "$GIT_REMOTE_NAME")"
@@ -40,7 +48,26 @@ ensure_local_remote() {
     echo "Added git remote: $GIT_REMOTE_NAME -> $REMOTE_GIT_URL"
   fi
 
-  git config "remote.${GIT_REMOTE_NAME}.push" "refs/heads/${DEPLOY_BRANCH}:refs/heads/${DEPLOY_BRANCH}"
+  for legacy_name in $LEGACY_GIT_REMOTE_NAMES; do
+    if [[ "$legacy_name" == "$GIT_REMOTE_NAME" ]]; then
+      continue
+    fi
+
+    if ! legacy_url="$(git remote get-url "$legacy_name" 2>/dev/null)"; then
+      continue
+    fi
+
+    if [[ "$legacy_url" != "$REMOTE_GIT_URL" ]]; then
+      echo "Legacy remote $legacy_name points elsewhere: $legacy_url" >&2
+      echo "Remove or rename it manually before continuing." >&2
+      exit 1
+    fi
+
+    git remote remove "$legacy_name"
+    echo "Removed duplicate git remote: $legacy_name"
+  done
+
+  git config "remote.${GIT_REMOTE_NAME}.push" "HEAD:refs/heads/${DEPLOY_BRANCH}"
 }
 
 ensure_remote_bare_repo() {
@@ -72,6 +99,7 @@ ensure_remote_bare_repo() {
       echo 'Refusing to use non-bare repository path: $BARE_REPO_DIR' >&2
       exit 1
     fi
+    git --git-dir='$BARE_REPO_DIR' symbolic-ref HEAD 'refs/heads/$DEPLOY_BRANCH'
   "
 }
 
@@ -151,7 +179,7 @@ Local remote:
   git remote get-url $GIT_REMOTE_NAME
 
 Push command:
-  git push $GIT_REMOTE_NAME $DEPLOY_BRANCH
+  git push $GIT_REMOTE_NAME HEAD:$DEPLOY_BRANCH
 
 Deploy mode:
   blue-green release with nginx traffic switch

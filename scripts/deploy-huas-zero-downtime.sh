@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# [INPUT]: 依赖本地 rsync/ssh 与百度服务器 .deploy 控制目录。
+# [OUTPUT]: 对外提供本地工作区快照的蓝绿发布入口。
+# [POS]: scripts 的无痛发布入口，上传 release 后委托 remote-blue-green-deploy.sh 切流。
+# [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+
 set -euo pipefail
 
 REMOTE_HOST="${REMOTE_HOST:-baidu}"

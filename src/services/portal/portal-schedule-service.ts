@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 upstream、CacheService、PortalScheduleParser、URLS、config、AppError 与刷新失败兜底
+ * [OUTPUT]: 对外提供 PortalScheduleService.getSchedule，返回 Portal 课表、缓存元信息与 _request 元信息
+ * [POS]: services/portal 的 Portal 单源课表服务，负责日期区间校验、Portal 读取、缓存与过期兜底
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { upstream } from '../infra/upstream';
 import { CacheService } from '../infra/cache-service';
 import { PortalScheduleParser } from '../../parsers';
@@ -8,6 +15,7 @@ import { fallbackOnRefreshFailure } from '../infra/refresh-fallback';
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_RANGE_DAYS = 62;
+const MS_PER_DAY = 86_400_000;
 
 function normalizeDate(rawDate: string, fieldName: 'startDate' | 'endDate'): string {
   const trimmed = (rawDate || '').trim();
@@ -20,6 +28,12 @@ function normalizeDate(rawDate: string, fieldName: 'startDate' | 'endDate'): str
     throw new AppError(ErrorCode.PARAM_ERROR, `${fieldName} 参数无效`);
   }
   return trimmed;
+}
+
+function getLookup(startDate: string, endDate: string, rangeDays: number): 'weekly' | 'range' {
+  const start = new Date(`${startDate}T00:00:00Z`);
+  const end = new Date(`${endDate}T00:00:00Z`);
+  return rangeDays === 7 && start.getUTCDay() === 1 && end.getUTCDay() === 0 ? 'weekly' : 'range';
 }
 
 export class PortalScheduleService {
@@ -40,16 +54,31 @@ export class PortalScheduleService {
       throw new AppError(ErrorCode.PARAM_ERROR, 'endDate 不能早于 startDate');
     }
 
-    const rangeDays = Math.floor((endTime - startTime) / 86_400_000);
+    const rangeDays = Math.floor((endTime - startTime) / MS_PER_DAY) + 1;
     if (rangeDays > MAX_RANGE_DAYS) {
       throw new AppError(ErrorCode.PARAM_ERROR, `日期区间不能超过 ${MAX_RANGE_DAYS} 天`);
     }
 
     const cacheKey = `portal-schedule:${studentId}:${normalizedStartDate}:${normalizedEndDate}`;
+    const requestMeta = {
+      queryDate: normalizedStartDate,
+      startDate: normalizedStartDate,
+      endDate: normalizedEndDate,
+      weekStartDate: normalizedStartDate,
+      cacheKey,
+      cache: forceRefresh ? 'bypass' : 'miss',
+      lookup: getLookup(normalizedStartDate, normalizedEndDate, rangeDays),
+    } as const;
 
     if (!forceRefresh) {
       const cached = await CacheService.get(cacheKey);
-      if (cached) return { data: cached.data, _meta: cached.meta };
+      if (cached) {
+        return {
+          data: cached.data,
+          _meta: { ...cached.meta, source: cached.meta.source || 'portal' },
+          _request: { ...requestMeta, cache: 'hit' as const },
+        };
+      }
     }
 
     let data: any;
@@ -75,13 +104,19 @@ export class PortalScheduleService {
         source: 'portal',
         studentId,
       });
-      if (fallback) return fallback;
+      if (fallback) {
+        return {
+          data: fallback.data,
+          _meta: { ...fallback._meta, source: fallback._meta.source || 'portal' },
+          _request: { ...requestMeta, fallback: 'stale' as const },
+        };
+      }
       throw error;
     }
 
     await CacheService.set(cacheKey, data, config.cacheTtl.schedule, 'portal');
     await CacheService.enforcePrefixLimit(`portal-schedule:${studentId}:`, config.cacheLimit.portalSchedulePerUser);
 
-    return { data, _meta: { cached: false, source: 'portal' } };
+    return { data, _meta: { cached: false, source: 'portal' }, _request: requestMeta };
   }
 }

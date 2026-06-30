@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖调用方传入的异步任务、重试次数、退避、抖动和 shouldRetry/onRetry 回调
+ * [OUTPUT]: 对外提供 RetryOptions 与 retryAsync()
+ * [POS]: core 的通用重试工具，被上游访问层用于瞬时故障恢复
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 export interface RetryOptions {
   attempts: number;
   baseDelayMs: number;

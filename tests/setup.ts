@@ -17,6 +17,7 @@ process.env.TZ = 'Asia/Shanghai';
 process.env.GRADES_CACHE_LIMIT = '20';
 process.env.SCHEDULE_CACHE_LIMIT = '60';
 process.env.PORTAL_SCHEDULE_CACHE_LIMIT = '60';
+process.env.CLASSROOM_ADMIN_STUDENT_ID = '202412040130';
 process.env.TREEHOLE_AVATAR_STORAGE_ROOT = join(testRoot, 'treehole-avatars');
 process.env.TREEHOLE_AVATAR_MEDIA_BASE_PATH = '/media/treehole-avatar';
 process.env.TREEHOLE_AVATAR_MAX_BYTES = '2097152';

@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 TreeholeService、config.treehole、errors/http-log/logger/response 工具
+ * [OUTPUT]: 对外默认导出 treehole Hono 路由，提供 /api/treehole 帖子、评论、点赞、通知与头像接口
+ * [POS]: routes/treehole 的匿名社区 HTTP 适配器，只解析请求与包装响应，业务规则下沉到 services/treehole
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { Hono } from 'hono';
 import { config } from '../../config';
 import { TreeholeService } from '../../services/treehole/treehole-service';

@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 infra/upstream、CacheService、UserParser、URLS、config、refresh fallback、db/schema 与 drizzle eq
+ * [OUTPUT]: 对外提供 UserService.getUserInfo，读取 Portal 用户资料并回写姓名班级缓存
+ * [POS]: services/portal 的用户资料服务，保留 parser 对凭证过期语义的唯一判定权
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { upstream } from '../infra/upstream';
 import { CacheService } from '../infra/cache-service';
 import { UserParser } from '../../parsers';
@@ -27,7 +34,6 @@ export class UserService {
           timeout: config.timeout.business,
         });
         const json = await res.json() as any;
-        if (json.code !== 0) throw new Error(json.message);
         return UserParser.parse(json);
       });
     } catch (error) {

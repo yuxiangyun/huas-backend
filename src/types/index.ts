@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 无运行时依赖，描述用户、课表、一卡通、成绩、响应与缓存元信息结构
+ * [OUTPUT]: 对外提供业务 DTO、GradePassStatus 与 ApiResponse/CacheMeta 类型
+ * [POS]: types 的共享契约源，被 parsers、services、routes 与客户端响应模型共同参照
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 // User Profile
 export interface IUserInfo {
   name: string;
@@ -25,6 +32,8 @@ export interface IECard {
 }
 
 // Grades
+export type GradePassStatus = 'passed' | 'failed' | 'unknown';
+
 export interface IGradeItem {
   term: string;
   courseCode: string;
@@ -33,6 +42,7 @@ export interface IGradeItem {
   score: number | null;
   scoreText: string;
   pass: boolean | null;
+  passStatus: GradePassStatus;
   flag: string;
   credit: number | null;
   totalHours: number | null;

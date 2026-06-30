@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 db/schema 查询服务账号，依赖 config/JW URL、upstream、ClassroomFreeParser 与时间工具
+ * [OUTPUT]: 对外提供 ClassroomFreeService，读取楼栋与空教室查询结果并返回服务账号来源元信息
+ * [POS]: services/academic 的空教室服务，用户只作为审计 actor，上游查询统一使用配置化教务服务账号
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { eq } from 'drizzle-orm';
 import { getDb, schema } from '../../db';
 import { JW_SJMS_VALUE, config } from '../../config';
@@ -9,7 +16,6 @@ import { AppError, ErrorCode } from '../../utils/errors';
 import { beijingDate, beijingIsoString } from '../../utils/time';
 import { Logger } from '../../utils/logger';
 
-const ADMIN_STUDENT_ID = '202412040130';
 const QUERY_META = { cached: false, source: 'jw', upstreamAccount: 'admin' } as const;
 
 type CampusId = 'A' | 'B';
@@ -112,17 +118,22 @@ function currentWeekError(): AppError {
 }
 
 async function resolveAdminUserId(): Promise<number> {
+  const adminStudentId = config.schoolService.classroomAdminStudentId;
+  if (!adminStudentId) {
+    throw new AppError(ErrorCode.SERVICE_ACCOUNT_UNAVAILABLE, '空教室服务账号未配置');
+  }
+
   const db = getDb();
   const rows = await db.select({
     id: schema.users.id,
   })
     .from(schema.users)
-    .where(eq(schema.users.studentId, ADMIN_STUDENT_ID))
+    .where(eq(schema.users.studentId, adminStudentId))
     .limit(1);
 
   const userId = rows[0]?.id;
   if (!userId) {
-    throw new AppError(ErrorCode.CREDENTIAL_EXPIRED, '管理员账号未配置或凭证已过期');
+    throw new AppError(ErrorCode.SERVICE_ACCOUNT_UNAVAILABLE, '空教室服务账号未登录或凭证已过期');
   }
 
   return userId;
@@ -189,7 +200,9 @@ function buildFreeQueryBody(term: string, query: NormalizedFreeQuery & { week: n
 }
 
 export class ClassroomFreeService {
-  static readonly adminStudentId = ADMIN_STUDENT_ID;
+  static get adminStudentId() {
+    return config.schoolService.classroomAdminStudentId;
+  }
 
   static async getBuildings(rawCampusId: string | undefined, actor: ClassroomQueryActor) {
     const campusId = normalizeCampusId(rawCampusId);

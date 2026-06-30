@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 db/schema、HttpClient、AuthEngine、TicketExchanger、CryptoHelper、config 与 Logger
+ * [OUTPUT]: 对外提供 CredentialManager 类与 CredentialSystem 类型
+ * [POS]: auth 的学校子凭证唯一收敛层，管理 CAS TGC、Portal JWT、JW Session 的存储、刷新、静默恢复与清理
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { eq, and, sql } from 'drizzle-orm';
 import { getDb, schema } from '../db';
 import { HttpClient } from '../core/http-client';

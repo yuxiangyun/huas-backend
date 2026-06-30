@@ -44,6 +44,8 @@ const ticketBehavior = {
 let upstreamCallCount = 0;
 let upstreamVersion = 0;
 let upstreamInjectedError: Error | null = null;
+let upstreamExecuteCallback = false;
+let upstreamJsonPayload: any = null;
 let upstreamResolver: (...args: any[]) => Promise<any>;
 
 function addDaysInTest(date: string, days: number): string {
@@ -69,6 +71,7 @@ function makeGradePayload(tag: string) {
         score: 95,
         scoreText: '95',
         pass: true,
+        passStatus: 'passed',
         flag: '',
         credit: 1,
         totalHours: 16,
@@ -134,12 +137,22 @@ mock.module('../src/auth/ticket-exchanger.ts', () => ({
 }));
 
 mock.module('../src/services/infra/upstream.ts', () => ({
-  upstream: async (...args: any[]) => {
+  upstream: async (userId: number, mode: 'jw' | 'portal', fn: (ctx: any) => Promise<any>) => {
     upstreamCallCount += 1;
     if (upstreamInjectedError) {
       throw upstreamInjectedError;
     }
-    return upstreamResolver(...args);
+    if (upstreamExecuteCallback) {
+      return fn({
+        portalToken: 'portal-token-test',
+        client: {
+          request: async () => ({
+            json: async () => upstreamJsonPayload,
+          }),
+        },
+      });
+    }
+    return upstreamResolver(userId, mode, fn);
   },
 }));
 
@@ -152,10 +165,12 @@ let registerRoutes: any;
 let GradeService: any;
 let ScheduleService: any;
 let PortalScheduleService: any;
+let ECardParser: any;
 let UserService: any;
 let CredentialManager: any;
 let CacheService: any;
 let CryptoHelper: any;
+let resetAuthLoginRateLimitStateForTests: any;
 
 async function resetDb() {
   const db = getDb();
@@ -194,10 +209,12 @@ beforeAll(async () => {
   ({ GradeService } = await import('../src/services/academic/grade-service.ts'));
   ({ ScheduleService } = await import('../src/services/academic/schedule-service.ts'));
   ({ PortalScheduleService } = await import('../src/services/portal/portal-schedule-service.ts'));
+  ({ ECardParser } = await import('../src/parsers/portal/ecard-parser.ts'));
   ({ UserService } = await import('../src/services/portal/user-service.ts'));
   ({ CredentialManager } = await import('../src/auth/credential-manager.ts'));
   ({ CacheService } = await import('../src/services/infra/cache-service.ts'));
   ({ CryptoHelper } = await import('../src/utils/crypto.ts'));
+  ({ resetAuthLoginRateLimitStateForTests } = await import('../src/middleware/auth-login-rate-limit.middleware.ts'));
   initDatabase();
 });
 
@@ -205,6 +222,8 @@ beforeEach(async () => {
   upstreamCallCount = 0;
   upstreamVersion = 0;
   upstreamInjectedError = null;
+  upstreamExecuteCallback = false;
+  upstreamJsonPayload = null;
   upstreamResolver = async () => {
     upstreamVersion += 1;
     return makeGradePayload(`grade-v${upstreamVersion}`);
@@ -218,6 +237,7 @@ beforeEach(async () => {
   ticketBehavior.exchangePortalToken = async () => ({ token: 'portal-token-refreshed', steps: [] });
 
   await resetDb();
+  resetAuthLoginRateLimitStateForTests();
 });
 
 describe('登录流程', () => {
@@ -299,12 +319,14 @@ describe('登录流程', () => {
     expect(loginCallCount).toBe(0);
   });
 
-  it('本地登录在已有上游凭证时仍可直接返回 token', async () => {
+  it('本地登录在已有完整上游凭证时可直接返回 token', async () => {
     const app = new Hono();
     app.route('/auth', authRoutes);
 
     const userId = await createUser('2023001445', 'pass-local-portal-only');
+    await CredentialManager.storeCredential(userId, 'cas_tgc', null, '{"cookies":[]}', 60_000);
     await CredentialManager.storeCredential(userId, 'portal_jwt', 'portal-token-local', null, 60_000);
+    await CredentialManager.storeCredential(userId, 'jw_session', null, '{"cookies":[]}', 60_000);
 
     const res = await app.request('http://localhost/auth/login', {
       method: 'POST',
@@ -532,6 +554,45 @@ describe('登录流程', () => {
     expect(body.needCaptcha).toBeUndefined();
   });
 
+  it('登录失败达到阈值后按学号和 IP 阻断后续请求', async () => {
+    const app = new Hono();
+    app.route('/auth', authRoutes);
+
+    let loginCallCount = 0;
+    authBehavior.login = async () => {
+      loginCallCount += 1;
+      return { success: false, needCaptcha: false, message: '密码错误', steps: [] };
+    };
+
+    for (let index = 0; index < config.authLoginRateLimit.maxFailures; index += 1) {
+      const res = await app.request('http://localhost/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-forwarded-for': '10.10.10.10',
+        },
+        body: JSON.stringify({ username: '2023001770', password: 'wrong-pass' }),
+      });
+      expect(res.status).toBe(400);
+    }
+
+    const blocked = await app.request('http://localhost/auth/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-forwarded-for': '10.10.10.10',
+      },
+      body: JSON.stringify({ username: '2023001770', password: 'wrong-pass' }),
+    });
+
+    expect(blocked.status).toBe(429);
+    expect(blocked.headers.get('Retry-After')).toBeTruthy();
+    const body = await blocked.json() as any;
+    expect(body.error_code).toBe(ErrorCode.TOO_MANY_REQUESTS);
+    expect(body.data.retryAfterSeconds).toBeGreaterThan(0);
+    expect(loginCallCount).toBe(config.authLoginRateLimit.maxFailures);
+  });
+
   it('portal token 可用时，登录会回填姓名和班级', async () => {
     const app = new Hono();
     app.route('/auth', authRoutes);
@@ -648,6 +709,37 @@ describe('登录流程', () => {
     const portalCred = creds.find((cred: any) => cred.system === 'portal_jwt');
     expect(portalCred?.value).toBe('portal-token-recovered');
     expect(creds.some((cred: any) => cred.system === 'jw_session')).toBe(false);
+  });
+
+  it('首次登录 Portal 与 JW 都失败时拒绝签发 token', async () => {
+    const app = new Hono();
+    app.route('/auth', authRoutes);
+
+    authBehavior.login = async () => ({
+      success: true,
+      portalToken: null,
+      steps: [{ label: 'cas', ok: true }],
+    });
+    ticketBehavior.exchangePortalToken = async () => ({
+      token: null,
+      steps: [{ label: 'portal', ok: false }],
+    });
+    ticketBehavior.exchangeJwSession = async () => ({
+      success: false,
+      steps: [{ label: 'jw#1', ok: false, detail: 'status:500' }],
+      upstreamUnavailable: false,
+    });
+
+    const res = await app.request('http://localhost/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: '2023001669', password: 'pass-all-failed' }),
+    });
+
+    expect(res.status).toBe(400);
+    const body = await res.json() as any;
+    expect(body.success).toBe(false);
+    expect(body.error_message).toBe('学校系统激活失败');
   });
 });
 
@@ -1211,6 +1303,18 @@ describe('用户资料回填', () => {
     expect(users[0].name).toBe('李四');
     expect(users[0].className).toBe('机自25102班');
   });
+
+  it('UserService 不在 parser 前吞掉 Portal 过期 code', async () => {
+    const userId = await createUser('2023001776', 'pass-userinfo-expired');
+
+    upstreamExecuteCallback = true;
+    upstreamJsonPayload = {
+      code: '-1',
+      message: 'token 已过期',
+    };
+
+    await expect(UserService.getUserInfo(userId, '2023001776', true)).rejects.toThrow('SESSION_EXPIRED');
+  });
 });
 
 describe('缓存与强制刷新流程', () => {
@@ -1426,6 +1530,24 @@ describe('漏洞回归：成绩缓存键放大', () => {
   });
 });
 
+describe('Portal 解析器边界', () => {
+  it('ecard 余额缺失时返回 0，格式错误时抛出明确上游错误', () => {
+    const missingBalance = ECardParser.parse({ code: 0, data: {} });
+    expect(missingBalance?.balance).toBe(0);
+    expect(Number.isNaN(missingBalance?.balance)).toBe(false);
+
+    let thrown: any;
+    try {
+      ECardParser.parse({ code: 0, data: { cardWallet: '余额未知' } });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown?.code).toBe(ErrorCode.INTERNAL_ERROR);
+    expect(thrown?.message).toBe('一卡通余额格式错误');
+  });
+});
+
 describe('课表缓存与强制刷新防护', () => {
   it('schedule date 参数格式错误时拒绝请求', async () => {
     await expect(
@@ -1437,6 +1559,23 @@ describe('课表缓存与强制刷新防护', () => {
     await expect(
       PortalScheduleService.getSchedule(1, '2023010002', '2025-03-01', '2025-02-28', false)
     ).rejects.toThrow('endDate 不能早于 startDate');
+
+    upstreamExecuteCallback = true;
+    upstreamJsonPayload = { code: 0, data: { schedule: {} } };
+    const exactMaxRange = await PortalScheduleService.getSchedule(
+      1,
+      '2023010002',
+      '2025-03-01',
+      '2025-05-01',
+      false
+    );
+    expect(exactMaxRange.data.week).toBe('2025-03-01');
+    expect(upstreamCallCount).toBe(1);
+
+    await expect(
+      PortalScheduleService.getSchedule(1, '2023010002', '2025-03-01', '2025-05-02', false)
+    ).rejects.toThrow('日期区间不能超过 62 天');
+    expect(upstreamCallCount).toBe(1);
 
     await expect(
       PortalScheduleService.getSchedule(1, '2023010002', '2025-03-01', '2025-06-30', false)

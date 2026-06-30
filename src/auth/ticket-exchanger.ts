@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 HttpClient、CryptoHelper、URLS、config 与 Logger 登录步骤记录
+ * [OUTPUT]: 对外提供 TicketExchanger，执行 TGC 到 Portal JWT/JW Session 的交换
+ * [POS]: auth 的学校子凭证交换器，被登录流程和 CredentialManager 刷新链消费
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { HttpClient } from '../core/http-client';
 import { CryptoHelper } from '../utils/crypto';
 import { URLS } from '../core/url-config';

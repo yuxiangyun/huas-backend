@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 Bun SQLite、Drizzle、schema 表定义、config.dbPath 与 Logger
+ * [OUTPUT]: 对外提供 getDb()、initDatabase() 与 schema 再导出
+ * [POS]: db 的运行期入口，负责 SQLite 连接、建表、遗留列补齐与关键时间戳回填
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { drizzle } from 'drizzle-orm/bun-sqlite';
 import { Database } from 'bun:sqlite';
 import { mkdirSync } from 'node:fs';

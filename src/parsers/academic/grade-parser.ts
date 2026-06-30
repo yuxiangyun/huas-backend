@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 cheerio、成绩 DTO、SESSION_EXPIRED_INDICATORS、Logger 与 AppError/ErrorCode
+ * [OUTPUT]: 对外提供 GradeParser，解析 JW 成绩 HTML 为 IGradeList
+ * [POS]: parsers/academic 的成绩解析器，识别 session 过期与评教未完成阻断
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import * as cheerio from 'cheerio';
 import type { IGradeItem, IGradeList } from '../../types';
 import { Logger } from '../../utils/logger';
@@ -5,6 +12,8 @@ import { SESSION_EXPIRED_INDICATORS } from '../../config';
 import { AppError, ErrorCode } from '../../utils/errors';
 
 const EVALUATION_REQUIRED_RE = /评教未完成，?不能查询成绩/;
+const FAILED_GRADE_WORDS = ['不及格', '不合格', '未通过', '不通过', '重修', '挂'];
+const PASSED_GRADE_WORDS = ['及格', '合格', '中', '良', '优', '通过'];
 
 export const GradeParser = {
   parse(html: string, user?: { studentId?: string; name?: string }): IGradeList | null {
@@ -39,6 +48,7 @@ export const GradeParser = {
       const text = (idx: number) => normalize($(cells[idx]).text());
       const scoreText = text(5);
       const score = toNumber(scoreText);
+      const pass = GradeParser.detectPass(score, scoreText);
 
       const item: IGradeItem = {
         term: text(1),
@@ -47,7 +57,8 @@ export const GradeParser = {
         groupName: text(4),
         score,
         scoreText,
-        pass: GradeParser.detectPass(score, scoreText),
+        pass,
+        passStatus: GradeParser.toPassStatus(pass),
         flag: text(6),
         credit: toNumber(text(7)),
         totalHours: toNumber(text(8)),
@@ -79,10 +90,16 @@ export const GradeParser = {
   },
 
   detectPass(score: number | null, text: string): boolean | null {
+    const normalizedText = text.trim();
+    if (normalizedText && FAILED_GRADE_WORDS.some(k => normalizedText.includes(k))) return false;
+    if (normalizedText && PASSED_GRADE_WORDS.some(k => normalizedText.includes(k))) return true;
     if (score !== null) return score >= 60;
-    if (!text) return null;
-    if (['及格', '合格', '中', '良', '优', '通过'].some(k => text.includes(k))) return true;
-    if (['不及格', '未通过', '不通过', '重修', '挂'].some(k => text.includes(k))) return false;
     return null;
+  },
+
+  toPassStatus(pass: boolean | null) {
+    if (pass === true) return 'passed';
+    if (pass === false) return 'failed';
+    return 'unknown';
   }
 };

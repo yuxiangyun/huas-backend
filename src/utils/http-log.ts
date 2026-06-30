@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 Hono Context，并使用 `_httpLog` 约定键保存请求日志细节
+ * [OUTPUT]: 对外提供 formatHttpLogDetail()、appendHttpLogDetail() 与 getHttpLogDetail()
+ * [POS]: utils 的 HTTP 日志上下文工具，被 routes 写入、logging.middleware 读取
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import type { Context } from 'hono';
 
 interface HttpLogState {

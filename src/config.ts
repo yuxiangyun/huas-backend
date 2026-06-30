@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 process.env 与 node:path，读取端口、密钥、数据库、缓存、媒体、服务账号、限流和上游超时配置
+ * [OUTPUT]: 对外提供 config、USER_AGENT 等运行时配置常量，并强制 TZ 为 Asia/Shanghai
+ * [POS]: src 的配置源，所有模块通过它读取运行参数，避免散落读取环境变量
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { dirname, join } from 'node:path';
 
 const BEIJING_TIME_ZONE = 'Asia/Shanghai';
@@ -26,6 +33,10 @@ export const config = {
     maxFailures: parsePositiveInt(process.env.AUTH_LOGIN_RATE_LIMIT_MAX_FAILURES, 5),
     windowMs: parsePositiveInt(process.env.AUTH_LOGIN_RATE_LIMIT_WINDOW_MS, 5 * 60 * 1000),
     blockMs: parsePositiveInt(process.env.AUTH_LOGIN_RATE_LIMIT_BLOCK_MS, 10 * 60 * 1000),
+  },
+
+  schoolService: {
+    classroomAdminStudentId: process.env.CLASSROOM_ADMIN_STUDENT_ID?.trim() || '',
   },
 
   // Credential TTLs (school-side)

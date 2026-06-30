@@ -1,3 +1,9 @@
+/**
+ * [INPUT]: 依赖 Hono Context 与 config 的登录限流配置
+ * [OUTPUT]: 对外提供登录限流 key 构造、状态查询、失败记录、成功重置和测试清理函数
+ * [POS]: middleware 的登录失败内存限流器，被 auth.routes.ts 在 CAS 登录入口显式调用
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
 import type { Context } from 'hono';
 import { config } from '../config';
 
@@ -22,8 +28,14 @@ const AUTH_LOGIN_RATE_LIMIT_TTL_MS = Math.max(
 
 let lastCleanupAt = 0;
 
-function normalizeUsername(username: string) {
-  return username.trim();
+function normalizePart(value: string | null | undefined) {
+  return (value || '').trim().toLowerCase();
+}
+
+export function buildAuthLoginRateLimitKey(username: string, clientIp?: string | null) {
+  const normalizedUsername = normalizePart(username);
+  if (!normalizedUsername) return '';
+  return `${normalizedUsername}:${normalizePart(clientIp) || 'unknown'}`;
 }
 
 function buildStatus(entry?: AuthLoginRateLimitEntry, now = Date.now()): AuthLoginRateLimitStatus {
@@ -75,17 +87,17 @@ export function getAuthLoginClientIp(c: Context): string | null {
 }
 
 export function getAuthLoginRateLimitStatus(
-  username: string,
+  key: string,
   now = Date.now()
 ): AuthLoginRateLimitStatus {
-  const normalizedUsername = normalizeUsername(username);
-  if (!normalizedUsername) {
+  const normalizedKey = normalizePart(key);
+  if (!normalizedKey) {
     return { failureCount: 0, limited: false, retryAfterSeconds: 0 };
   }
 
   cleanupStaleEntries(now);
 
-  const existing = authLoginRateLimitState.get(normalizedUsername);
+  const existing = authLoginRateLimitState.get(normalizedKey);
   if (!existing) {
     return { failureCount: 0, limited: false, retryAfterSeconds: 0 };
   }
@@ -94,7 +106,7 @@ export function getAuthLoginRateLimitStatus(
     existing.blockedUntil <= now
     && now - existing.windowStart >= config.authLoginRateLimit.windowMs
   ) {
-    authLoginRateLimitState.delete(normalizedUsername);
+    authLoginRateLimitState.delete(normalizedKey);
     return { failureCount: 0, limited: false, retryAfterSeconds: 0 };
   }
 
@@ -102,17 +114,17 @@ export function getAuthLoginRateLimitStatus(
 }
 
 export function recordAuthLoginFailure(
-  username: string,
+  key: string,
   now = Date.now()
 ): AuthLoginRateLimitStatus {
-  const normalizedUsername = normalizeUsername(username);
-  if (!normalizedUsername) {
+  const normalizedKey = normalizePart(key);
+  if (!normalizedKey) {
     return { failureCount: 0, limited: false, retryAfterSeconds: 0 };
   }
 
   cleanupStaleEntries(now);
 
-  const existing = authLoginRateLimitState.get(normalizedUsername);
+  const existing = authLoginRateLimitState.get(normalizedKey);
   const shouldResetWindow = !existing || (
     existing.blockedUntil <= now
     && now - existing.windowStart >= config.authLoginRateLimit.windowMs
@@ -134,14 +146,14 @@ export function recordAuthLoginFailure(
     entry.blockedUntil = Math.max(entry.blockedUntil, now + config.authLoginRateLimit.blockMs);
   }
 
-  authLoginRateLimitState.set(normalizedUsername, entry);
+  authLoginRateLimitState.set(normalizedKey, entry);
   return buildStatus(entry, now);
 }
 
-export function resetAuthLoginRateLimit(username: string) {
-  const normalizedUsername = normalizeUsername(username);
-  if (!normalizedUsername) return;
-  authLoginRateLimitState.delete(normalizedUsername);
+export function resetAuthLoginRateLimit(key: string) {
+  const normalizedKey = normalizePart(key);
+  if (!normalizedKey) return;
+  authLoginRateLimitState.delete(normalizedKey);
 }
 
 export function resetAuthLoginRateLimitStateForTests() {

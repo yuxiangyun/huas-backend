@@ -5,7 +5,7 @@
 - 运行方式：`Bun + PM2`
 - 快速发布：`scripts/deploy-huas.sh`
 - 无痛蓝绿发布：`scripts/deploy-huas-zero-downtime.sh`
-- Git Push 蓝绿发布：`git push huas-deploy master`
+- Git Push 蓝绿发布：`git push baidu HEAD:main`
 
 仓库中的 Docker 相关部署文件已经移除，不再作为维护入口。
 
@@ -31,7 +31,7 @@
 1. 服务器上使用 PM2 直接运行服务
 2. 本地通过 `scripts/deploy-huas.sh` 构建前端、同步代码并远程重启 PM2
 3. 本地通过 `scripts/deploy-huas-zero-downtime.sh` 执行蓝绿发布，在健康检查通过后再切 nginx 流量
-4. 本地通过 `git push huas-deploy master` 推送到服务器裸仓库，由 `post-receive` hook 执行蓝绿发布
+4. 本地通过 `git push baidu HEAD:main` 推送到服务器裸仓库，由 `post-receive` hook 执行蓝绿发布
 
 不再维护以下链路：
 
@@ -258,10 +258,11 @@ scripts/setup-huas-git-deploy.sh
 
 默认行为：
 
-- 本地新增 git remote：`huas-deploy`
+- 本地新增 git remote：`baidu`
 - 远程创建裸仓库：`/www/git/huas-server.git`
+- 远程裸仓库默认 HEAD 指向 `main`
 - 远程为裸仓库安装 `post-receive` hook
-- 每次推送 `master` 到 `huas-deploy` 时，自动把 commit 导出到非活动槽
+- 每次把当前 `HEAD` 推送到 `baidu` 的 `main` 时，自动把 commit 导出到非活动槽
 - 在非活动槽完成依赖安装、前端构建、健康检查
 - 通过后再切 nginx 流量到新槽位
 
@@ -286,12 +287,12 @@ scripts/setup-huas-git-deploy.sh
 初始化完成后，标准发布命令：
 
 ```bash
-git push huas-deploy master
+git push baidu HEAD:main
 ```
 
 hook 会自动执行蓝绿发布：
 
-1. 将推送的 `master` commit 导出到非活动槽
+1. 将推送的 `main` commit 导出到非活动槽
 2. 排除并保留 `.env`、`data`、`logs` 等共享内容
 3. 在非活动槽执行依赖安装和 `web` 构建
 4. 启动备用端口实例并执行 `/health`
@@ -304,7 +305,7 @@ REMOTE_HOST=huas \
 BARE_REPO_DIR=/www/git/huas-server.git \
 APP_DIR=/www/wwwroot/huas-server \
 APP_NAME=huas-server \
-DEPLOY_BRANCH=master \
+DEPLOY_BRANCH=main \
 scripts/setup-huas-git-deploy.sh
 ```
 
@@ -440,7 +441,7 @@ npm run build
 
 ### 9.1 以后默认就按这个流程发版（推荐）
 
-当前 `huas` 服务器已经完成 `huas-deploy` remote 和 `post-receive` hook 初始化。
+当前 `huas` 服务器已经完成 `baidu` remote 和 `post-receive` hook 初始化。
 
 以后日常无痛发布，直接在本地执行：
 
@@ -448,13 +449,13 @@ npm run build
 git status
 git add <你要发布的文件>
 git commit -m "发布说明"
-git push huas-deploy master
+git push baidu HEAD:main
 ```
 
-如果你当前不在 `master`，但要把当前分支头发布到线上：
+如果你当前不在 `main`，但要把当前分支头发布到线上：
 
 ```bash
-git push huas-deploy HEAD:master
+git push baidu HEAD:main
 ```
 
 标准发布结果应该是：
@@ -486,7 +487,7 @@ curl https://api.huas-api.top/health
 
 - 重装了 `huas` 服务器
 - 删除了远端裸仓库 `/www/git/huas-server.git`
-- 想重新生成 `huas-deploy` remote 或 `post-receive` hook
+- 想重新生成 `baidu` remote 或 `post-receive` hook
 
 初始化命令：
 
@@ -501,7 +502,7 @@ REMOTE_HOST=huas \
 BARE_REPO_DIR=/www/git/huas-server.git \
 APP_DIR=/www/wwwroot/huas-server \
 APP_NAME=huas-server \
-DEPLOY_BRANCH=master \
+DEPLOY_BRANCH=main \
 scripts/setup-huas-git-deploy.sh
 ```
 
@@ -530,11 +531,11 @@ scripts/deploy-huas.sh
 
 ### 9.5 回滚到上一个稳定版本
 
-如果新版本已经切流，但你确认需要快速回退，可以把上一个稳定 commit 重新推到 `master`：
+如果新版本已经切流，但你确认需要快速回退，可以把上一个稳定 commit 重新推到 `main`：
 
 ```bash
 git log --oneline
-git push --force huas-deploy <stable_commit_sha>:master
+git push --force baidu <stable_commit_sha>:main
 ```
 
 回滚后同样要做一次验证：
@@ -554,9 +555,9 @@ curl https://api.huas-api.top/health
 
 ```bash
 cd /www/wwwroot/huas-server
-git fetch origin
-git checkout master
-git pull --ff-only origin master
+git fetch github
+git checkout main
+git pull --ff-only github main
 bun install --frozen-lockfile --production
 cd web
 npm ci --include=dev
@@ -610,12 +611,12 @@ npm run build
 - 远程 `REMOTE_DIR` 是否存在并可写
 - 远程 `.env` 是否已准备好，且包含合法的 `PORT`
 
-### 10.4 `git push huas-deploy` 失败
+### 10.4 `git push baidu` 失败
 
 优先检查：
 
 - 本地是否已经执行过 `scripts/setup-huas-git-deploy.sh`
-- 本地 `git remote get-url huas-deploy` 是否指向正确的 SSH 地址
+- 本地 `git remote get-url baidu` 是否指向正确的 SSH 地址
 - 远程 `/www/git/huas-server.git/hooks/post-receive` 是否存在且可执行
 - 远程是否安装了 `git`、`rsync`、`bun`、`npm`、`pm2`、`curl`
 - 远程 `/www/wwwroot/huas-server/.env` 是否存在，且包含合法的 `PORT`
@@ -623,7 +624,7 @@ npm run build
 先做 push dry-run：
 
 ```bash
-git push --dry-run huas-deploy master
+git push --dry-run baidu HEAD:main
 ```
 
 ### 10.5 `/api/*` 偶发 502
@@ -668,7 +669,7 @@ tail -n 100 /www/wwwlogs/api.huas-api.top.error.log
 当前维护结论：
 
 - 只保留 PM2 运行方式
-- 默认发布方式是 `git push huas-deploy master`
+- 默认发布方式是 `git push baidu HEAD:main`
 - 无痛本地发布脚本是 `scripts/deploy-huas-zero-downtime.sh`
 - `scripts/deploy-huas.sh` 仅作为快速发布入口保留
 - 不再维护 Docker 和根目录 `deploy.sh`

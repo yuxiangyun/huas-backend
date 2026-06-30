@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 db/schema、treehole-shared 领域规则与 treehole-avatar-media-service 头像持久化能力
+ * [OUTPUT]: 对外提供 TreeholeUserService 用户侧帖子、评论、点赞、通知与头像业务方法
+ * [POS]: services/treehole 的用户业务编排器，承接路由请求并维护匿名社区前台语义
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { and, asc, desc, eq, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 import { getDb, schema } from '../../db';
 import { AppError, ErrorCode } from '../../utils/errors';

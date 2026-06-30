@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 sharp/heic-convert 的图片处理、config 的媒体路径、db/schema 的帖子可见性校验
+ * [OUTPUT]: 对外提供 DiscoverMediaService 图片压缩存储/删除/公开读取能力与缓存头常量
+ * [POS]: services/discover 的媒体边界，负责文件系统副作用并被用户/管理服务消费
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { and, eq, isNull } from 'drizzle-orm';
 import heicConvert from 'heic-convert';
 import sharp, { type Metadata } from 'sharp';

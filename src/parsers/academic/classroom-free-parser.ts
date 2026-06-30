@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 cheerio、SESSION_EXPIRED_INDICATORS 与教室楼栋白名单
+ * [OUTPUT]: 对外提供 ClassroomFreeParser、ClassroomBuilding、FreeClassroom 与 SPECIAL_CLASSROOM_RE
+ * [POS]: parsers/academic 的空教室解析器，处理教务 HTML/JSON 混合响应和特殊教室过滤
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import * as cheerio from 'cheerio';
 import { SESSION_EXPIRED_INDICATORS } from '../../config';
 

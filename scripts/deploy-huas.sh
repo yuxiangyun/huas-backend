@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# [INPUT]: 依赖本地 rsync/ssh、Web 构建工具与百度服务器 PM2 运行环境。
+# [OUTPUT]: 对外提供快速 rsync 发布入口，构建前端、同步代码并重载远端单进程。
+# [POS]: scripts 的短暂停机发布路径，和蓝绿发布脚本并列但不承诺无痛切流。
+# [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+
 set -euo pipefail
 
 REMOTE_HOST="${REMOTE_HOST:-baidu}"

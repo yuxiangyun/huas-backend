@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 discover-user-service 的用户业务能力与 discover-admin-service 的管理删除能力
+ * [OUTPUT]: 对外提供 DiscoverService 兼容门面，保持既有路由调用入口稳定
+ * [POS]: services/discover 的 API 门面，隔离路由层与用户/管理服务拆分细节
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { DiscoverAdminService } from './discover-admin-service';
 import { DiscoverUserService } from './discover-user-service';
 

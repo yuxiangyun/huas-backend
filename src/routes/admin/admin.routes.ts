@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 adminBasicAuthMiddleware、dashboard/content/discover/treehole/log 服务与响应工具
+ * [OUTPUT]: 对外默认导出 admin Hono 路由，提供 /api/admin 管理面接口
+ * [POS]: routes/admin 的管理 HTTP 适配器，统一 Basic Auth、管理参数解析、错误包装与操作日志
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { Hono } from 'hono';
 import { adminBasicAuthMiddleware } from '../../middleware/admin-basic-auth.middleware';
 import { success, error } from '../../utils/response';

@@ -1,4 +1,12 @@
+/**
+ * [INPUT]: 依赖 AuthEngine/TicketExchanger/CredentialManager、db/schema、JWT、CryptoHelper 与 Portal UserService
+ * [OUTPUT]: 对外默认导出 auth Hono 路由，提供 /auth/login 登录与验证码重试接口
+ * [POS]: routes/auth 的登录入口，收敛本地快捷登录、CAS 验证码、上游凭证交换与本服务 JWT 签发
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { eq } from 'drizzle-orm';
 import { timingSafeEqual } from 'node:crypto';
 import { HttpClient } from '../../core/http-client';
@@ -14,6 +22,13 @@ import { Logger } from '../../utils/logger';
 import { success, error } from '../../utils/response';
 import { ErrorCode } from '../../utils/errors';
 import { UserService } from '../../services/portal/user-service';
+import {
+  buildAuthLoginRateLimitKey,
+  getAuthLoginClientIp,
+  getAuthLoginRateLimitStatus,
+  recordAuthLoginFailure,
+  resetAuthLoginRateLimit,
+} from '../../middleware/auth-login-rate-limit.middleware';
 
 const auth = new Hono();
 
@@ -26,6 +41,16 @@ function safeEqual(a: string, b: string): boolean {
   const bBuf = Buffer.from(b, 'utf8');
   if (aBuf.length !== bBuf.length) return false;
   return timingSafeEqual(aBuf, bBuf);
+}
+
+function recordLoginFailure(c: Context, key: string) {
+  const status = recordAuthLoginFailure(key);
+  appendHttpLogDetail(c, formatHttpLogDetail({
+    loginFailures: status.failureCount,
+    loginLimited: status.limited,
+    retryAfterSeconds: status.retryAfterSeconds || undefined,
+  }));
+  return status;
 }
 
 // Cleanup old captcha sessions every 10 minutes
@@ -52,10 +77,27 @@ auth.post('/login', async (c) => {
     return error(c, ErrorCode.PARAM_ERROR, '用户名和密码不能为空', 400);
   }
 
+  const clientIp = getAuthLoginClientIp(c);
+  const rateLimitKey = buildAuthLoginRateLimitKey(username, clientIp);
+  const rateLimitStatus = getAuthLoginRateLimitStatus(rateLimitKey);
+  if (rateLimitStatus.limited) {
+    c.header('Retry-After', String(rateLimitStatus.retryAfterSeconds));
+    appendHttpLogDetail(c, formatHttpLogDetail({
+      username,
+      clientIp: clientIp || undefined,
+      result: 'rate-limited',
+      retryAfterSeconds: rateLimitStatus.retryAfterSeconds,
+    }));
+    return error(c, ErrorCode.TOO_MANY_REQUESTS, '登录失败次数过多，请稍后再试', 429, {
+      retryAfterSeconds: rateLimitStatus.retryAfterSeconds,
+    });
+  }
+
   appendHttpLogDetail(c, formatHttpLogDetail({
     username,
     loginMode: sessionId ? 'captcha' : 'password',
     hasCaptcha: Boolean(captcha),
+    clientIp: clientIp || undefined,
   }));
 
   const db = getDb();
@@ -99,6 +141,7 @@ auth.post('/login', async (c) => {
           { label: 'local', ok: true },
         ]);
         appendHttpLogDetail(c, 'result=local-success');
+        resetAuthLoginRateLimit(rateLimitKey);
 
         return success(c, {
           token,
@@ -115,11 +158,13 @@ auth.post('/login', async (c) => {
     const session = captchaSessions.get(sessionId);
     if (!session) {
       appendHttpLogDetail(c, 'result=captcha-session-missing');
+      recordLoginFailure(c, rateLimitKey);
       return error(c, ErrorCode.CAPTCHA_ERROR, '验证码会话不存在或已过期，请重新获取验证码', 400);
     }
     captchaSessions.delete(sessionId);
     if (!session.execution) {
       appendHttpLogDetail(c, 'result=captcha-session-invalid');
+      recordLoginFailure(c, rateLimitKey);
       return error(c, ErrorCode.CAPTCHA_ERROR, '验证码会话已失效，请重新获取验证码', 400);
     }
 
@@ -146,6 +191,7 @@ auth.post('/login', async (c) => {
 
   if (!execution) {
     appendHttpLogDetail(c, 'result=missing-execution');
+    recordLoginFailure(c, rateLimitKey);
     return error(c, ErrorCode.CAS_LOGIN_FAILED, '无法获取登录凭据', 400);
   }
 
@@ -165,6 +211,7 @@ auth.post('/login', async (c) => {
           const newExecution = await engine.getExecution();
           if (!newExecution) {
             appendHttpLogDetail(c, 'result=captcha-session-init-failed');
+            recordLoginFailure(c, rateLimitKey);
             Logger.auth(username, '验证码会话初始化失败', 400, loginMs, undefined, result.steps);
             return error(c, ErrorCode.CAPTCHA_ERROR, '需要验证码，但验证码会话初始化失败，请重试', 400);
           }
@@ -182,6 +229,7 @@ auth.post('/login', async (c) => {
           });
 
           appendHttpLogDetail(c, 'result=captcha-required');
+          recordLoginFailure(c, rateLimitKey);
           Logger.auth(username, '需要验证码', 400, loginMs, undefined, result.steps);
           return c.json({
             success: false,
@@ -193,11 +241,13 @@ auth.post('/login', async (c) => {
           }, 400);
         } catch {
           appendHttpLogDetail(c, 'result=captcha-fetch-failed');
+          recordLoginFailure(c, rateLimitKey);
           Logger.auth(username, '验证码获取失败', 400, loginMs, undefined, result.steps);
           return error(c, ErrorCode.CAPTCHA_ERROR, '需要验证码，但获取失败', 400);
         }
       }
       appendHttpLogDetail(c, 'result=cas-failed');
+      recordLoginFailure(c, rateLimitKey);
       Logger.auth(username, result.message || '登录失败', 400, loginMs, undefined, result.steps);
       return error(c, ErrorCode.CAS_LOGIN_FAILED, result.message || '登录失败', 400);
     }
@@ -217,10 +267,11 @@ auth.post('/login', async (c) => {
     const jwResult = await TicketExchanger.exchangeJwSession(client);
     const allSteps = [...loginSteps, ...jwResult.steps];
 
-    if (!jwResult.success && !portalToken) {
-      appendHttpLogDetail(c, 'result=jw-activation-failed');
-      Logger.auth(username, '教务系统激活失败', 200, loginMs, undefined, allSteps);
-      return error(c, ErrorCode.CAS_LOGIN_FAILED, '教务系统激活失败', 400);
+    if (!portalToken && !jwResult.success) {
+      appendHttpLogDetail(c, 'result=school-activation-failed');
+      recordLoginFailure(c, rateLimitKey);
+      Logger.auth(username, '学校系统激活失败', 400, loginMs, undefined, allSteps);
+      return error(c, ErrorCode.CAS_LOGIN_FAILED, '学校系统激活失败', 400);
     }
 
     // Upsert user in DB + store encrypted password for silent re-auth.
@@ -308,6 +359,7 @@ auth.post('/login', async (c) => {
       resolvedName,
       allSteps
     );
+    resetAuthLoginRateLimit(rateLimitKey);
 
     return success(c, {
       token,

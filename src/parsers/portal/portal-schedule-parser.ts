@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 Portal 上游 JSON、ICourse 类型与 Logger
+ * [OUTPUT]: 对外提供 PortalScheduleParser，解析 Portal 日期课表为统一课程模型
+ * [POS]: parsers/portal 的课表适配器，识别 token 过期、课表未公布和空课表
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import type { ICourse } from '../../types';
 import { Logger } from '../../utils/logger';
 

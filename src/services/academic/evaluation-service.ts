@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 cheerio、URLS、config、upstream、AppError/ErrorCode、Logger 与 HttpClient
+ * [OUTPUT]: 对外提供 EvaluationService 以及评教列表、发现、提交结果类型
+ * [POS]: services/academic 的评教业务编排器，发现评教入口、解析列表、构造满分表单并提交上游
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import * as cheerio from 'cheerio';
 import { URLS } from '../../core/url-config';
 import { config } from '../../config';

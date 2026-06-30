@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 cheerio、ICourse 类型、Logger 与 SESSION_EXPIRED_INDICATORS
+ * [OUTPUT]: 对外提供 ScheduleParser，解析 JW HTML 课表为统一课程模型
+ * [POS]: parsers/academic 的课表解析核心，识别非教学周、session 过期和课程字段映射
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import * as cheerio from 'cheerio';
 import type { ICourse } from '../../types';
 import { Logger } from '../../utils/logger';

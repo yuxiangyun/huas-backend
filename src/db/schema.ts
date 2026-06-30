@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 drizzle-orm/sqlite-core 的表、列、唯一键构造器
+ * [OUTPUT]: 对外提供 users、credentials、cache、discover、treehole 全部 SQLite 表定义
+ * [POS]: db 的类型相与查询相，和 index.ts 的运行期建表/轻迁移相保持同构
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { sqliteTable, text, integer, real, unique } from 'drizzle-orm/sqlite-core';
 import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 

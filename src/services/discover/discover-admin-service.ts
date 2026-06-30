@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 db/schema 的 Discover 表、media-service 的图片清理能力与 Logger 错误记录
+ * [OUTPUT]: 对外提供 DiscoverAdminService 管理侧软删除帖子能力
+ * [POS]: services/discover 的管理侧写操作，和用户侧服务共享媒体清理语义
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { and, eq, isNull } from 'drizzle-orm';
 import { getDb, schema } from '../../db';
 import { Logger } from '../../utils/logger';

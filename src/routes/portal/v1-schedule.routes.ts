@@ -1,27 +1,30 @@
-import { Hono } from 'hono';
+/**
+ * [INPUT]: 依赖 Hono、academicRefreshRateLimitMiddleware、ScheduleFacade、http-log 与 response.success
+ * [OUTPUT]: 默认导出 /api/v1/schedule 路由
+ * [POS]: routes/portal 的 Portal 优先课表 HTTP 适配器，只解析参数、记录日志并委托 facade
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
+import { Hono, type Context } from 'hono';
 import { academicRefreshRateLimitMiddleware } from '../../middleware/academic-refresh-rate-limit.middleware';
-import { ScheduleService } from '../../services/academic/schedule-service';
-import { PortalScheduleService } from '../../services/portal/portal-schedule-service';
-import { resolveFallbackError } from '../../utils/fallback-error';
+import { ScheduleFacade, type ScheduleFacadeResult } from '../../services/academic/schedule-facade';
 import { appendHttpLogDetail, formatHttpLogDetail } from '../../utils/http-log';
-import { AppError, ErrorCode } from '../../utils/errors';
-import { success, error } from '../../utils/response';
+import { success } from '../../utils/response';
 
 const v1Schedule = new Hono();
 
-function canFallbackToWeeklyJw(startDate: string, endDate: string): boolean {
-  const parsedStart = new Date(`${startDate}T00:00:00Z`);
-  const parsedEnd = new Date(`${endDate}T00:00:00Z`);
-  if (Number.isNaN(parsedStart.getTime()) || Number.isNaN(parsedEnd.getTime())) {
-    return false;
-  }
-
-  const diffDays = Math.floor((parsedEnd.getTime() - parsedStart.getTime()) / 86_400_000);
-  if (diffDays !== 6) {
-    return false;
-  }
-
-  return parsedStart.getUTCDay() === 1 && parsedEnd.getUTCDay() === 0;
+function appendScheduleLog(c: Context, result: ScheduleFacadeResult, forceRefresh: boolean) {
+  const requestMeta = result._request;
+  appendHttpLogDetail(c, formatHttpLogDetail({
+    week: result.data?.week,
+    courses: Array.isArray(result.data?.courses) ? result.data.courses.length : undefined,
+    cache: requestMeta.cache,
+    refresh: forceRefresh ? true : undefined,
+    fallback: requestMeta.fallback,
+    source: result._meta.source && result._meta.source !== 'portal' ? result._meta.source : undefined,
+    lookup: requestMeta.lookup && requestMeta.lookup !== 'weekly' ? requestMeta.lookup : undefined,
+    promoted: requestMeta.promotedFrom ? 'legacy' : undefined,
+  }));
 }
 
 v1Schedule.use('*', academicRefreshRateLimitMiddleware);
@@ -35,66 +38,15 @@ v1Schedule.get('/', async (c) => {
   const endDate = c.req.query('endDate');
   const forceRefresh = c.req.query('refresh') === 'true';
 
-  if (!startDate || !endDate) {
-    return error(c, ErrorCode.PARAM_ERROR, 'Missing startDate or endDate parameter', 400);
-  }
-
-  let result = await PortalScheduleService.getSchedule(userId, studentId, startDate, endDate, forceRefresh, name).catch(async (error) => {
-    if (error instanceof AppError && error.code === ErrorCode.PARAM_ERROR) {
-      throw error;
-    }
-
-    if (error instanceof Error && error.message === 'SCHEDULE_NOT_AVAILABLE') {
-      throw error;
-    }
-
-    if (!canFallbackToWeeklyJw(startDate, endDate)) {
-      throw error;
-    }
-
-    try {
-      const jwResult = await ScheduleService.getSchedule(
-        userId,
-        studentId,
-        startDate,
-        forceRefresh,
-        name,
-      );
-
-      return {
-        ...jwResult,
-        _request: {
-          queryDate: startDate,
-          weekStartDate: startDate,
-          cacheKey: `schedule:${studentId}:${startDate}`,
-          cache: forceRefresh ? 'bypass' : 'fallback',
-          fallback: 'jw',
-          lookup: 'weekly',
-        },
-      };
-    } catch (fallbackError) {
-      throw resolveFallbackError({
-        primarySource: 'portal',
-        fallbackSource: 'jw',
-        primaryError: error,
-        fallbackError,
-        studentId,
-      });
-    }
+  const result = await ScheduleFacade.getPortalFirstSchedule({
+    userId,
+    studentId,
+    name,
+    startDate,
+    endDate,
+    forceRefresh,
   });
-
-  const requestMeta = '_request' in result ? result._request : undefined;
-  const promotedFrom = requestMeta && 'promotedFrom' in requestMeta ? requestMeta.promotedFrom : undefined;
-  appendHttpLogDetail(c, formatHttpLogDetail({
-    week: result.data?.week,
-    courses: Array.isArray(result.data?.courses) ? result.data.courses.length : undefined,
-    cache: requestMeta?.cache,
-    refresh: forceRefresh ? true : undefined,
-    fallback: requestMeta?.fallback,
-    source: result._meta?.source && result._meta.source !== 'portal' ? result._meta.source : undefined,
-    lookup: requestMeta?.lookup && requestMeta.lookup !== 'weekly' ? requestMeta.lookup : undefined,
-    promoted: promotedFrom ? 'legacy' : undefined,
-  }));
+  appendScheduleLog(c, result, forceRefresh);
   return success(c, result.data, result._meta);
 });
 

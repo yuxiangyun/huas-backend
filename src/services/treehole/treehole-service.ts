@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 treehole-user-service 的用户业务能力与 treehole-admin-service 的管理能力
+ * [OUTPUT]: 对外提供 TreeholeService 兼容门面，保持既有路由调用入口稳定
+ * [POS]: services/treehole 的 API 门面，隔离路由层与用户/管理服务拆分细节
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { TreeholeAdminService } from './treehole-admin-service';
 import { TreeholeUserService } from './treehole-user-service';
 

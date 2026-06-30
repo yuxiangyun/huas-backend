@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 Hono Context、AppError/ErrorCode、response.error 与 Logger
+ * [OUTPUT]: 对外提供 onAppError 全局错误处理器
+ * [POS]: middleware 的错误语义翻译层，把 AppError、上游超时和凭证过期映射为 API 响应
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import type { Context, Env } from 'hono';
 import { AppError, ErrorCode } from '../utils/errors';
 import { error } from '../utils/response';
@@ -19,13 +26,6 @@ export function onAppError(err: Error, c: Context<Env>) {
 
   if (err.message === 'SESSION_EXPIRED') {
     return error(c, ErrorCode.CREDENTIAL_EXPIRED, '凭证已过期，请重新登录', 401);
-  }
-
-  if (err.message === 'SCHEDULE_NOT_AVAILABLE') {
-    return c.json({
-      success: true,
-      data: { week: '暂无', courses: [], message: '课表暂未公布' },
-    });
   }
 
   Logger.error('Unhandled', err.message, err);

@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 tough-cookie CookieJar、config.timeout 与 USER_AGENT
+ * [OUTPUT]: 对外提供 HttpClient，封装 CookieJar、超时、手动重定向、请求和 Cookie 持久化
+ * [POS]: core 的学校上游 HTTP 客户端，被 auth 和 services 上游访问链路消费
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { CookieJar } from 'tough-cookie';
 import { config, USER_AGENT } from '../config';
 

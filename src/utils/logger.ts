@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 winston、DailyRotateFile 与北京时区时间工具
+ * [OUTPUT]: 对外提供 Logger 日志门面与 LoginStep 类型
+ * [POS]: utils 的日志契约源，统一控制台彩色输出、文件轮转和业务/认证/HTTP/解析日志格式
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import winston from 'winston';
 import DailyRotateFile from 'winston-daily-rotate-file';
 import { beijingDateTime, beijingIsoString } from './time';

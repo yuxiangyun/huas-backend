@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 HttpClient、CryptoHelper、URLS、config 与 LoginStep 类型
+ * [OUTPUT]: 对外提供 AuthEngine，封装 CAS 验证码、execution 获取与登录提交
+ * [POS]: auth 的 CAS 原始登录流程执行器，被 auth 路由和 CredentialManager 静默重认证消费
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { HttpClient } from '../core/http-client';
 import { CryptoHelper } from '../utils/crypto';
 import { URLS } from '../core/url-config';

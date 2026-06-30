@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 Hono Context、DiscoverService 业务门面、response/errors/http-log/discover 工具
+ * [OUTPUT]: 对外提供 Discover 子路由，挂载 /api/discover 的帖子、评论、评分、删除与 meta 接口
+ * [POS]: routes/discover 的 HTTP 适配器，只解析请求与包装响应，业务规则下沉到 services/discover
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { Hono } from 'hono';
 import { config } from '../../config';
 import { DiscoverService } from '../../services/discover/discover-service';

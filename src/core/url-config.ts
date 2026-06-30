@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 无运行时依赖，集中记录学校 CAS、Portal 与 JW 上游 URL
+ * [OUTPUT]: 对外提供 URLS 常量
+ * [POS]: core 的上游地址表，被 auth、services 与 parsers 间接消费
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 export const URLS = {
   login: "https://cas.huas.edu.cn/cas/login",
   captcha: "https://cas.huas.edu.cn/cas/captcha.jpg",

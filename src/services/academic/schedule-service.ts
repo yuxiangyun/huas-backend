@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 upstream、CacheService、ScheduleParser、JW URL/config 与 refresh fallback
+ * [OUTPUT]: 对外提供 ScheduleService.getSchedule()
+ * [POS]: services/academic 的 JW 单源课表服务，负责教务读取、周缓存、旧缓存提升与 refresh 旧值回退
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { upstream } from '../infra/upstream';
 import { CacheService } from '../infra/cache-service';
 import { ScheduleParser } from '../../parsers';
@@ -106,7 +113,7 @@ export class ScheduleService {
       if (cached) {
         return {
           data: cached.data,
-          _meta: cached.meta,
+          _meta: { ...cached.meta, source: cached.meta.source || 'jw' },
           _request: {
             queryDate,
             weekStartDate,
@@ -121,10 +128,10 @@ export class ScheduleService {
         const legacyCached = await CacheService.get(legacyCacheKey);
         if (!legacyCached) continue;
 
-        await CacheService.set(cacheKey, legacyCached.data, config.cacheTtl.schedule, legacyCached.meta.source);
+        await CacheService.set(cacheKey, legacyCached.data, config.cacheTtl.schedule, legacyCached.meta.source || 'jw');
         return {
           data: legacyCached.data,
-          _meta: legacyCached.meta,
+          _meta: { ...legacyCached.meta, source: legacyCached.meta.source || 'jw' },
           _request: {
             queryDate,
             weekStartDate,
@@ -164,7 +171,7 @@ export class ScheduleService {
       if (fallback) {
         return {
           data: fallback.data,
-          _meta: fallback._meta,
+          _meta: { ...fallback._meta, source: fallback._meta.source || 'jw' },
           _request: {
             queryDate,
             weekStartDate,

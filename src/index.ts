@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 Hono/Bun server、全局中间件、路由装配、数据库初始化、媒体服务、静态资源与运行态
+ * [OUTPUT]: 启动后端 HTTP 服务，挂载 /api、/auth、/health、/m、/media、/status 并执行定时清理
+ * [POS]: src 的进程入口，连接配置、数据库、路由、中间件、静态托管和优雅停机
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { Hono, type Context } from 'hono';
 import { cors } from 'hono/cors';
 import { serveStatic } from 'hono/bun';

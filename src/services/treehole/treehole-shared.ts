@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 Drizzle schema/config、AppError/ErrorCode 与北京时区时间工具
+ * [OUTPUT]: 对外提供 Treehole 类型、分页/校验/选择器/响应转换、计数刷新和通知 helper
+ * [POS]: services/treehole 的共享内核，被用户侧与管理侧服务消费，隔离无状态领域规则
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { config } from '../../config';
 import { getDb, schema } from '../../db';

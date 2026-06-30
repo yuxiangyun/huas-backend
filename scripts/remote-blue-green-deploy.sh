@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# [INPUT]: 依赖远端 release 源目录、共享 .env/data/logs 与 nginx/PM2/Bun 运行环境。
+# [OUTPUT]: 对外提供蓝绿槽位部署、健康检查、nginx 切流与旧实例整理能力。
+# [POS]: scripts 的远端部署内核，被 Git hook 与本地蓝绿脚本共同调用。
+# [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+
 set -euo pipefail
 
 APP_ROOT="${APP_ROOT:-/www/wwwroot/huas-server}"

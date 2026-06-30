@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 Hono、authMiddleware、onAppError 与各业务子路由模块
+ * [OUTPUT]: 对外提供 registerRoutes(app)，统一挂载 public/auth/calendar 与受保护 /api 路由
+ * [POS]: routes 的总装配器，定义 /api 认证放行边界并连接入口 index.ts
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { Hono } from 'hono';
 import { authMiddleware } from '../middleware/auth.middleware';
 import { onAppError } from '../middleware/error.middleware';
