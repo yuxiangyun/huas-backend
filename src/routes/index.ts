@@ -68,13 +68,20 @@ export function registerRoutes(app: Hono) {
   // UGC compliance guard — must be on `app` level because Hono sub-app pattern matching
   // uses the mount-prefix-stripped path while c.req.path is full, creating ambiguity.
   if (config.disableUgc) {
+    const emptyList = { total: 0, items: [], hasMore: false };
     app.use('/api/discover/*', async (c, next) => {
-      if (c.req.method === 'GET' && !c.req.path.endsWith('/meta')) return success(c, null);
-      await next();
+      if (c.req.method !== 'GET' || c.req.path.endsWith('/meta')) return next();
+      if (c.req.path.endsWith('/posts') || c.req.path.endsWith('/posts/me') || c.req.path.endsWith('/comments')) {
+        return success(c, emptyList);
+      }
+      return success(c, null);
     });
     app.use('/api/treehole/*', async (c, next) => {
-      if (c.req.method === 'GET' && !c.req.path.endsWith('/meta')) return success(c, null);
-      await next();
+      if (c.req.method !== 'GET' || c.req.path.endsWith('/meta')) return next();
+      if (c.req.path.endsWith('/posts') || c.req.path.endsWith('/posts/me') || c.req.path.endsWith('/comments')) {
+        return success(c, emptyList);
+      }
+      return success(c, null);
     });
   }
 
