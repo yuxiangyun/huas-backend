@@ -1,4 +1,11 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+/**
+ * [INPUT]: 依赖 Hono 测试应用、Treehole 路由、SQLite 测试库、头像媒体服务与 JWT 测试令牌
+ * [OUTPUT]: 验证 Treehole 帖子、评论、点赞、头像、通知、管理接口与 UGC 合规热开关空态
+ * [POS]: tests 的 Treehole 业务回归套件，保护 routes/treehole 与 services/treehole 的 HTTP 契约
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { generateToken } from '../src/auth/jwt';
@@ -6,6 +13,7 @@ import { config } from '../src/config';
 import { getDb, initDatabase, schema } from '../src/db';
 import { onAppError } from '../src/middleware/error.middleware';
 import { registerRoutes } from '../src/routes';
+import { ugcComplianceState } from '../src/runtime/ugc-compliance-state';
 import {
   TreeholeAvatarMediaService,
   TREEHOLE_AVATAR_CACHE_CONTROL,
@@ -134,10 +142,23 @@ beforeAll(() => {
 });
 
 beforeEach(async () => {
+  ugcComplianceState.configure({
+    mode: 'normal',
+    discoverMockText: '',
+    treeholeMockText: '',
+  }, 'test');
   await resetData();
   authorId = await createUser('2023002001', '软件工程2401班');
   otherUserId = await createUser('2023002002', '软件工程2402班');
   thirdUserId = await createUser('2023002003', '计算机科学2401班');
+});
+
+afterEach(() => {
+  ugcComplianceState.configure({
+    mode: 'normal',
+    discoverMockText: '',
+    treeholeMockText: '',
+  }, 'test');
 });
 
 describe('treehole module', () => {
@@ -593,5 +614,149 @@ describe('treehole module', () => {
       headers: adminAuthHeader(),
     });
     expect(adminDeletePost.status).toBe(200);
+  });
+
+  it('管理接口热开启 UGC 合规后，Treehole GET 返回纯文本 mock 或空态，写操作继续可用', async () => {
+    const app = createApp();
+    const authorHeaders = await authHeaderFor(authorId, '2023002001');
+
+    const initialState = await app.request('http://localhost/api/admin/compliance/ugc', {
+      headers: adminAuthHeader(),
+    });
+    expect(initialState.status).toBe(200);
+    const initialStateBody = await initialState.json() as any;
+    expect(initialStateBody.data.mode).toBe('normal');
+    expect(initialStateBody.data.discoverMockText).toBe('');
+    expect(initialStateBody.data.treeholeMockText).toBe('');
+
+    const enableRes = await app.request('http://localhost/api/admin/compliance/ugc', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...adminAuthHeader(),
+      },
+      body: JSON.stringify({ mode: 'compliance' }),
+    });
+    expect(enableRes.status).toBe(200);
+    const enableBody = await enableRes.json() as any;
+    expect(enableBody.data.mode).toBe('compliance');
+    expect(enableBody.data.treeholeMockText).toBe('');
+
+    const unauthenticatedList = await app.request('http://localhost/api/treehole/posts');
+    expect(unauthenticatedList.status).toBe(401);
+
+    const metaRes = await app.request('http://localhost/api/treehole/meta', {
+      headers: authorHeaders,
+    });
+    expect(metaRes.status).toBe(200);
+    const metaBody = await metaRes.json() as any;
+    expect(metaBody.data.limits.maxPostLength).toBe(config.treehole.maxPostLength);
+
+    const uploadAvatarRes = await app.request('http://localhost/api/treehole/avatar', {
+      method: 'POST',
+      headers: await authHeaderFor(authorId, '2023002001'),
+      body: (() => {
+        const form = new FormData();
+        form.set('avatar', createAvatarFile('compliance-avatar.png'));
+        return form;
+      })(),
+    });
+    expect(uploadAvatarRes.status).toBe(200);
+
+    const postId = await createTreeholePost(app, authorId, '2023002001', '合规开关写入测试。');
+    await createTreeholeComment(app, postId, otherUserId, '2023002002', '开关打开时评论写入仍可用。');
+
+    const listRes = await app.request('http://localhost/api/treehole/posts?page=2&pageSize=6', {
+      headers: authorHeaders,
+    });
+    expect(listRes.status).toBe(200);
+    const listBody = await listRes.json() as any;
+    expect(listBody.data).toEqual({
+      items: [],
+      page: 2,
+      pageSize: 6,
+      total: 0,
+      hasMore: false,
+    });
+
+    const mockRes = await app.request('http://localhost/api/admin/compliance/ugc', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...adminAuthHeader(),
+      },
+      body: JSON.stringify({
+        mode: 'compliance',
+        discoverMockText: '分享美食不应该影响神秘角落',
+        treeholeMockText: '树洞维护中\n晚点回来<>',
+      }),
+    });
+    expect(mockRes.status).toBe(200);
+    const mockBody = await mockRes.json() as any;
+    expect(mockBody.data.discoverMockText).toBe('分享美食不应该影响神秘角落');
+    expect(mockBody.data.treeholeMockText).toBe('树洞维护中\n晚点回来');
+
+    const mockListRes = await app.request('http://localhost/api/treehole/posts?page=1&pageSize=6', {
+      headers: authorHeaders,
+    });
+    expect(mockListRes.status).toBe(200);
+    const mockListBody = await mockListRes.json() as any;
+    expect(mockListBody.data.total).toBe(1);
+    expect(mockListBody.data.items[0].id).toBe(0);
+    expect(mockListBody.data.items[0].content).toBe('树洞维护中\n晚点回来');
+    expect(mockListBody.data.items[0].avatarUrl).toBeNull();
+
+    const commentsRes = await app.request(`http://localhost/api/treehole/posts/${postId}/comments?page=3&pageSize=8`, {
+      headers: authorHeaders,
+    });
+    expect(commentsRes.status).toBe(200);
+    const commentsBody = await commentsRes.json() as any;
+    expect(commentsBody.data).toEqual({
+      items: [],
+      page: 3,
+      pageSize: 8,
+      total: 0,
+      hasMore: false,
+    });
+
+    const avatarRes = await app.request('http://localhost/api/treehole/avatar', {
+      headers: authorHeaders,
+    });
+    expect(avatarRes.status).toBe(200);
+    const avatarBody = await avatarRes.json() as any;
+    expect(avatarBody.data).toEqual({ avatarUrl: null });
+
+    const unreadRes = await app.request('http://localhost/api/treehole/notifications/unread-count', {
+      headers: authorHeaders,
+    });
+    expect(unreadRes.status).toBe(200);
+    const unreadBody = await unreadRes.json() as any;
+    expect(unreadBody.data).toEqual({ unreadCount: 0 });
+
+    const detailRes = await app.request(`http://localhost/api/treehole/posts/${postId}`, {
+      headers: authorHeaders,
+    });
+    expect(detailRes.status).toBe(200);
+    const detailBody = await detailRes.json() as any;
+    expect(detailBody.data).toBeNull();
+
+    const disableRes = await app.request('http://localhost/api/admin/compliance/ugc', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...adminAuthHeader(),
+      },
+      body: JSON.stringify({ mode: 'normal' }),
+    });
+    expect(disableRes.status).toBe(200);
+    expect((await disableRes.json() as any).data.mode).toBe('normal');
+
+    const restoredListRes = await app.request('http://localhost/api/treehole/posts', {
+      headers: authorHeaders,
+    });
+    expect(restoredListRes.status).toBe(200);
+    const restoredListBody = await restoredListRes.json() as any;
+    expect(restoredListBody.data.total).toBe(1);
+    expect(restoredListBody.data.items[0].id).toBe(postId);
   });
 });

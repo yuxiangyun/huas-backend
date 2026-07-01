@@ -1,3 +1,9 @@
+<!--
+  [INPUT]: 依赖 /api/admin/dashboard、/api/admin/compliance/ugc、公告/日志/Discover/Treehole 管理接口与 Chart.js
+  [OUTPUT]: 提供 /status 后台工作台 HTML，管理用户、内容、树洞、日志与 UGC 合规模式
+  [POS]: public 静态管理页，由 src/index.ts 以 Basic Auth 托管，直接消费后端管理 API
+  [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+-->
 <!DOCTYPE html>
 <html lang="zh-CN">
   <head>
@@ -378,6 +384,10 @@
         grid-template-columns: minmax(240px, 1fr) 150px auto;
       }
 
+      .compliance-grid {
+        grid-template-columns: minmax(260px, 0.75fr) minmax(320px, 1.25fr);
+      }
+
       .form-grid {
         display: grid;
         gap: 10px;
@@ -408,6 +418,39 @@
       textarea.field {
         min-height: 120px;
         resize: vertical;
+      }
+
+      .mode-toggle {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .mode-option {
+        min-height: 46px;
+        padding: 0 12px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--surface);
+        color: var(--muted);
+        font-weight: 750;
+      }
+
+      .mode-option.active {
+        border-color: var(--brand);
+        background: var(--brand-soft);
+        color: var(--brand-strong);
+      }
+
+      .compliance-preview {
+        min-height: 120px;
+        padding: 12px;
+        border: 1px dashed var(--line);
+        border-radius: var(--radius);
+        background: var(--surface-soft);
+        color: var(--muted);
+        white-space: pre-wrap;
+        word-break: break-word;
       }
 
       .btn {
@@ -688,6 +731,7 @@
 
         .two-col,
         .content-grid,
+        .compliance-grid,
         .treehole-grid {
           grid-template-columns: 1fr;
         }
@@ -849,7 +893,33 @@
             <div class="section-title">
               <div>
                 <h2>内容管理</h2>
-                <p>维护公告，查看并处理发现美食帖子。</p>
+                <p>维护公告，查看内容，并控制前台 UGC 的正常/合规模式。</p>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <h3>UGC 合规模式</h3>
+                <span id="ugcModeBadge" class="status-pill">加载中</span>
+              </div>
+              <div class="card-body grid compliance-grid">
+                <div class="form-grid">
+                  <div class="mode-toggle" role="group" aria-label="UGC 模式">
+                    <button id="ugcModeNormalBtn" class="mode-option" type="button" data-ugc-mode="normal">正常业务</button>
+                    <button id="ugcModeComplianceBtn" class="mode-option" type="button" data-ugc-mode="compliance">合规模式</button>
+                  </div>
+                  <div id="ugcModeMeta" class="card-meta">-</div>
+                  <button id="ugcModeSaveBtn" class="btn primary" type="button">保存模式</button>
+                </div>
+                <div class="form-grid">
+                  <textarea id="ugcDiscoverMockText" class="field" maxlength="400" placeholder="分享美食 mock 纯文本。留空则分享美食列表为空。"></textarea>
+                  <textarea id="ugcTreeholeMockText" class="field" maxlength="400" placeholder="神秘角落 mock 纯文本。留空则神秘角落列表为空。"></textarea>
+                  <div class="card-meta">
+                    <span id="ugcMockCount">分享美食 0 / 400 · 神秘角落 0 / 400</span>
+                    <span> · 只保存纯文本，尖括号与控制字符会被后端清理。</span>
+                  </div>
+                  <div id="ugcMockPreview" class="compliance-preview">两项 mock 都为空：前台列表返回空。</div>
+                </div>
               </div>
             </div>
 
@@ -1010,6 +1080,9 @@
       const state = {
         activeView: 'overview',
         dashboard: null,
+        ugcMode: 'normal',
+        ugcDiscoverMockText: '',
+        ugcTreeholeMockText: '',
         page: 1,
         totalPages: 1,
         announcements: [],
@@ -1077,6 +1150,15 @@
         discoverPreviewMeta: document.getElementById('discoverPreviewMeta'),
         discoverPreviewGrid: document.getElementById('discoverPreviewGrid'),
         discoverPreviewClose: document.getElementById('discoverPreviewClose'),
+        ugcModeBadge: document.getElementById('ugcModeBadge'),
+        ugcModeNormalBtn: document.getElementById('ugcModeNormalBtn'),
+        ugcModeComplianceBtn: document.getElementById('ugcModeComplianceBtn'),
+        ugcModeSaveBtn: document.getElementById('ugcModeSaveBtn'),
+        ugcModeMeta: document.getElementById('ugcModeMeta'),
+        ugcDiscoverMockText: document.getElementById('ugcDiscoverMockText'),
+        ugcTreeholeMockText: document.getElementById('ugcTreeholeMockText'),
+        ugcMockCount: document.getElementById('ugcMockCount'),
+        ugcMockPreview: document.getElementById('ugcMockPreview'),
         treeholeMeta: document.getElementById('treeholeMeta'),
         treeholeKeywordInput: document.getElementById('treeholeKeywordInput'),
         treeholeApplyBtn: document.getElementById('treeholeApplyBtn'),
@@ -1173,6 +1255,15 @@
         } catch {
           return '';
         }
+      }
+
+      function plainText(value) {
+        return String(value || '')
+          .replace(/\r\n?/g, '\n')
+          .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+          .replace(/[<>]/g, '')
+          .trim()
+          .slice(0, 400);
       }
 
       function tableHead(columns) {
@@ -1477,6 +1568,57 @@
         }`;
       }
 
+      function renderUgcCompliance(data) {
+        const mode = data?.mode === 'compliance' ? 'compliance' : 'normal';
+        state.ugcMode = mode;
+        state.ugcDiscoverMockText = plainText(data?.discoverMockText ?? '');
+        state.ugcTreeholeMockText = plainText(data?.treeholeMockText ?? '');
+        el.ugcDiscoverMockText.value = state.ugcDiscoverMockText;
+        el.ugcTreeholeMockText.value = state.ugcTreeholeMockText;
+        el.ugcModeNormalBtn.classList.toggle('active', mode === 'normal');
+        el.ugcModeComplianceBtn.classList.toggle('active', mode === 'compliance');
+        el.ugcModeBadge.className = `status-pill ${mode === 'normal' ? 'ok' : 'error'}`;
+        el.ugcModeBadge.textContent = mode === 'normal' ? '正常业务' : '合规模式';
+        el.ugcModeMeta.textContent = `更新人 ${data?.updatedBy || '-'} · ${data?.updatedAt || '-'} · ${data?.stateFile || '-'}`;
+        renderUgcMockPreview();
+      }
+
+      function renderUgcMockPreview() {
+        const discoverText = plainText(el.ugcDiscoverMockText.value);
+        const treeholeText = plainText(el.ugcTreeholeMockText.value);
+        el.ugcDiscoverMockText.value = discoverText;
+        el.ugcTreeholeMockText.value = treeholeText;
+        el.ugcMockCount.textContent = `分享美食 ${discoverText.length} / 400 · 神秘角落 ${treeholeText.length} / 400`;
+        el.ugcMockPreview.textContent = [
+          `分享美食：${discoverText || '空'}`,
+          `神秘角落：${treeholeText || '空'}`,
+        ].join('\n');
+      }
+
+      async function refreshUgcCompliance() {
+        const data = await requestJson('/api/admin/compliance/ugc');
+        renderUgcCompliance(data);
+        return data;
+      }
+
+      async function saveUgcCompliance() {
+        const done = setBusy(el.ugcModeSaveBtn, '保存中...');
+        try {
+          const data = await requestJson('/api/admin/compliance/ugc', {
+            method: 'PUT',
+            body: JSON.stringify({
+              mode: state.ugcMode,
+              discoverMockText: plainText(el.ugcDiscoverMockText.value),
+              treeholeMockText: plainText(el.ugcTreeholeMockText.value),
+            }),
+          });
+          renderUgcCompliance(data);
+          toast(state.ugcMode === 'compliance' ? 'UGC 已切换到合规模式' : 'UGC 已恢复正常业务');
+        } finally {
+          done();
+        }
+      }
+
       function formatTreeholeAuthor(author) {
         if (!author || typeof author !== 'object') return '-';
         const parts = [author.studentId, author.name, author.className].map((item) => String(item || '').trim()).filter(Boolean);
@@ -1633,6 +1775,7 @@
         try {
           const data = await requestJson(buildDashboardUrl());
           renderDashboard(data);
+          await refreshUgcCompliance();
           el.lastRefresh.textContent = `最后刷新 ${beijingDateTime()}`;
           if (state.treehole.loaded) await refreshTreeholePanel();
           if (!silent) toast('后台数据已刷新');
@@ -1865,6 +2008,30 @@
       el.discoverPreviewModal.addEventListener('click', (event) => {
         if (event.target === el.discoverPreviewModal) closeDiscoverPreview();
       });
+
+      el.ugcModeNormalBtn.addEventListener('click', () => {
+        renderUgcCompliance({
+          mode: 'normal',
+          discoverMockText: el.ugcDiscoverMockText.value,
+          treeholeMockText: el.ugcTreeholeMockText.value,
+          updatedBy: '未保存',
+          updatedAt: '待保存',
+          stateFile: '-',
+        });
+      });
+      el.ugcModeComplianceBtn.addEventListener('click', () => {
+        renderUgcCompliance({
+          mode: 'compliance',
+          discoverMockText: el.ugcDiscoverMockText.value,
+          treeholeMockText: el.ugcTreeholeMockText.value,
+          updatedBy: '未保存',
+          updatedAt: '待保存',
+          stateFile: '-',
+        });
+      });
+      el.ugcDiscoverMockText.addEventListener('input', renderUgcMockPreview);
+      el.ugcTreeholeMockText.addEventListener('input', renderUgcMockPreview);
+      el.ugcModeSaveBtn.addEventListener('click', () => saveUgcCompliance().catch((err) => toast(err.message || 'UGC 模式保存失败', 'error')));
 
       el.treeholeApplyBtn.addEventListener('click', () => applyTreeholeKeyword().catch((err) => toast(err.message || '树洞刷新失败', 'error')));
       el.treeholeKeywordInput.addEventListener('keydown', (event) => {

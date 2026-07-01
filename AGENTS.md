@@ -293,7 +293,7 @@ web/ - 移动端 Web 前端 SPA，Vite + React 19，构建产物由后端托管�
 tests/ - 业务流、解析器、路由与端到端测试
 scripts/ - 部署脚本（蓝绿发布、PM2 重启、Git push 钩子）
 data/ - SQLite 主库、PM2 烟测库、公告 JSON、Discover 图片、树洞头像
-public/ - 静态资源（status 页、dev 测试页）
+public/ - 静态资源（Basic Auth status 后台工作台、dev 测试页）
 miniprogram/ - 小程序侧服务端技能资产
 docs/ - 文档语义相，按 api、architecture、ops 收敛根目录专题 Markdown 文档
 </directory>
@@ -305,18 +305,19 @@ tsconfig.json - TypeScript 编译边界与路径别名（@/* → ./src/*）
 drizzle.config.ts - Drizzle 迁移与 SQLite 连接配置（默认 ./data/huas.db）
 ecosystem.config.cjs - PM2 进程定义（单进程、256M 上限、Asia/Shanghai）
 nginx.conf - 反向代理样板（HTTP→HTTPS、100m 体、proxy_pass 127.0.0.1:3000）
-.env / .env.example - 运行时配置（PORT / JWT_SECRET / DB_PATH / TZ / 缓存 TTL）
+.env / .env.example - 运行时配置（PORT / JWT_SECRET / DB_PATH / TZ / 缓存 TTL / DISABLE_UGC / UGC_COMPLIANCE_STATE_FILE）
+.gitignore - 排除依赖、数据库、日志与 UGC 热更新状态文件等运行态产物
 </config>
 
 <architecture_decisions>
 AGENTS.md 是唯一权威文档入口；旧入口不得恢复。
 根目录只保留 AGENTS.md；专题 Markdown 文档统一归入 docs/，并由 docs/AGENTS.md 维护局部地图。
 业务模块执行 L1/L2/L3；web 子项目是生成型前端，使用 L2 总图约束，避免逐文件注释噪音。
-所有业务数据以 SQLite 业务表为唯一真相源；内存态（captchaSessions、serverState）与文件态（data/*.json、data/discover/*、data/treehole-avatars/*）只承载会话或媒体，不得作为用户、课表、成绩等业务事实源。
+所有业务数据以 SQLite 业务表为唯一真相源；内存态（captchaSessions、serverState）与文件态（data/*.json、data/discover/*、data/treehole-avatars/*）只承载会话、运行策略或媒体，不得作为用户、课表、成绩等业务事实源。
 学校上游凭证（CAS TGC / Portal JWT / JW Session）由 CredentialManager 统一收敛，客户端只持有本服务 JWT；任何子凭证刷新失败走 3003 错误码，不向前端暴露上游细节。
 discover 与 treehole 是独立业务支线，不经过学校上游，也不依赖 CacheService；媒体访问挂在 /media/* 而非 /api/*。
 Web 前端入口是 /m，生产期由后端直接托管 web/dist；带扩展名的路径按静态资源处理，其余回退到前端 index.html。
-DISABLE_UGC=true 环境变量激活合规守卫：discover 与 treehole 所有 GET 请求（/meta 除外）统一返回 null，写操作不受影响。
+UGC 合规模式由后台 /api/admin/compliance/ugc 热控制并持久化到 data/ugc-compliance-state.json；DISABLE_UGC 只提供启动默认值。normal 模式走真实 discover/treehole；compliance 模式不读取真实 UGC，GET（/meta 除外）先过 Bearer 认证，再按模块返回后台配置的纯文本 mock：分享美食使用 discoverMockText，神秘角落使用 treeholeMockText，默认两者为空，写操作不受影响。
 </architecture_decisions>
 
 <routes>
@@ -326,6 +327,7 @@ DISABLE_UGC=true 环境变量激活合规守卫：discover 与 treehole 所有 G
 /health - 健康检查
 /api/public/* - 免 Bearer 公共接口（公告等）
 /api/admin/* - Basic Auth 管理接口
+/api/admin/compliance/ugc - Basic Auth UGC 正常/合规模式热开关
 /api/schedule、/api/v1/schedule - 课表（JW 优先 / Portal 优先，可回退）
 /api/grades - 成绩
 /api/ecard - 一卡通余额

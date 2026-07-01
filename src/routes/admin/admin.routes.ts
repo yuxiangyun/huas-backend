@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 adminBasicAuthMiddleware、dashboard/content/discover/treehole/log 服务与响应工具
- * [OUTPUT]: 对外默认导出 admin Hono 路由，提供 /api/admin 管理面接口
- * [POS]: routes/admin 的管理 HTTP 适配器，统一 Basic Auth、管理参数解析、错误包装与操作日志
+ * [INPUT]: 依赖 adminBasicAuthMiddleware、dashboard/content/discover/treehole/log 服务、ugcComplianceState 与响应工具
+ * [OUTPUT]: 对外默认导出 admin Hono 路由，提供 /api/admin 管理面接口与 UGC 合规热开关
+ * [POS]: routes/admin 的管理 HTTP 适配器，统一 Basic Auth、管理参数解析、运行态开关、错误包装与操作日志
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -15,10 +15,52 @@ import { DiscoverService } from '../../services/discover/discover-service';
 import { TerminalLogService } from '../../services/admin/terminal-log-service';
 import { TreeholeService } from '../../services/treehole/treehole-service';
 import { Logger } from '../../utils/logger';
+import { ugcComplianceState } from '../../runtime/ugc-compliance-state';
 
 const admin = new Hono();
 
 admin.use('*', adminBasicAuthMiddleware);
+
+admin.get('/compliance/ugc', (c) => {
+  return success(c, ugcComplianceState.status());
+});
+
+admin.put('/compliance/ugc', async (c) => {
+  let body: any;
+  try {
+    body = await c.req.json();
+  } catch {
+    return error(c, ErrorCode.PARAM_ERROR, '请求体必须是有效的 JSON', 400);
+  }
+
+  const mode = typeof body?.mode === 'string' ? body.mode : undefined;
+  if (mode !== undefined && mode !== 'normal' && mode !== 'compliance') {
+    return error(c, ErrorCode.PARAM_ERROR, 'mode 必须是 normal 或 compliance', 400);
+  }
+  if (mode === undefined) {
+    return error(c, ErrorCode.PARAM_ERROR, 'mode 必须提供', 400);
+  }
+  if (body?.discoverMockText !== undefined && typeof body.discoverMockText !== 'string') {
+    return error(c, ErrorCode.PARAM_ERROR, 'discoverMockText 必须是纯文本字符串', 400);
+  }
+  if (body?.treeholeMockText !== undefined && typeof body.treeholeMockText !== 'string') {
+    return error(c, ErrorCode.PARAM_ERROR, 'treeholeMockText 必须是纯文本字符串', 400);
+  }
+
+  const state = ugcComplianceState.configure({
+    mode,
+    discoverMockText: body?.discoverMockText,
+    treeholeMockText: body?.treeholeMockText,
+  }, c.get('adminUser') || 'admin');
+  Logger.operation(
+    'Admin',
+    `${state.mode === 'compliance' ? '启用' : '关闭'} UGC 合规模式`,
+    c.get('adminUser'),
+    '管理员',
+    `discoverMockTextLength=${state.discoverMockText.length}; treeholeMockTextLength=${state.treeholeMockText.length}; stateFile=${state.stateFile}`
+  );
+  return success(c, state);
+});
 
 admin.get('/dashboard', async (c) => {
   try {

@@ -593,6 +593,8 @@ JW 课表还有一个特殊分支：学校上游可能用 HTTP 200 返回登录�
 | `BUSINESS_RETRY_BASE_DELAY_MS` | `200` | 基础退避 |
 | `BUSINESS_RETRY_MAX_DELAY_MS` | `800` | 最大退避 |
 | `BUSINESS_RETRY_JITTER_MS` | `100` | 抖动 |
+| `DISABLE_UGC` | `false` | UGC 合规模式启动默认值；运行后以后台 `/api/admin/compliance/ugc` 写入的状态文件为准 |
+| `UGC_COMPLIANCE_STATE_FILE` | `data/ugc-compliance-state.json` | UGC normal/compliance 模式与分享美食/神秘角落纯文本 mock 的热更新状态文件 |
 | `DISCOVER_STORAGE_ROOT` | `data/discover` | 发现美食图片根目录 |
 | `DISCOVER_MEDIA_BASE_PATH` | `/media/discover` | 图片公开访问前缀 |
 | `DISCOVER_MAX_IMAGES` | `9` | 单帖最大图片数 |
