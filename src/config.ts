@@ -30,7 +30,7 @@ export const config = {
     idleTimeoutSeconds: Math.min(parsePositiveInt(process.env.SERVER_IDLE_TIMEOUT_SECONDS, 60), 255),
   },
   authLoginRateLimit: {
-    maxFailures: parsePositiveInt(process.env.AUTH_LOGIN_RATE_LIMIT_MAX_FAILURES, 5),
+    maxFailures: parsePositiveInt(process.env.AUTH_LOGIN_RATE_LIMIT_MAX_FAILURES, 20),
     windowMs: parsePositiveInt(process.env.AUTH_LOGIN_RATE_LIMIT_WINDOW_MS, 5 * 60 * 1000),
     blockMs: parsePositiveInt(process.env.AUTH_LOGIN_RATE_LIMIT_BLOCK_MS, 10 * 60 * 1000),
   },

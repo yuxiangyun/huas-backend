@@ -105,7 +105,7 @@ openssl rand -base64 32
 | 变量 | 默认值 | 作用 |
 |---|---|---|
 | `SERVER_IDLE_TIMEOUT_SECONDS` | `60` | Bun HTTP 连接 idle timeout，单位秒。课表强刷可能超过 10 秒，生产不要使用 Bun 默认值 |
-| `AUTH_LOGIN_RATE_LIMIT_MAX_FAILURES` | `5` | 同一账号登录失败限流阈值 |
+| `AUTH_LOGIN_RATE_LIMIT_MAX_FAILURES` | `20` | 同一账号登录失败限流阈值 |
 | `AUTH_LOGIN_RATE_LIMIT_WINDOW_MS` | `300000` | 登录失败统计窗口 |
 | `AUTH_LOGIN_RATE_LIMIT_BLOCK_MS` | `600000` | 登录失败触发限流后的封禁时长 |
 

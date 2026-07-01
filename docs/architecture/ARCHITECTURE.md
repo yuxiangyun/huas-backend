@@ -581,7 +581,7 @@ JW 课表还有一个特殊分支：学校上游可能用 HTTP 200 返回登录�
 | `DB_PATH` | `./data/huas.db` | SQLite 文件路径 |
 | `LOG_LEVEL` | `info` | 日志级别 |
 | `SERVER_IDLE_TIMEOUT_SECONDS` | `60` | Bun HTTP 连接 idle timeout，单位秒；生产慢请求不要使用 Bun 默认 10 秒 |
-| `AUTH_LOGIN_RATE_LIMIT_MAX_FAILURES` | `5` | 同一账号登录失败限流阈值 |
+| `AUTH_LOGIN_RATE_LIMIT_MAX_FAILURES` | `20` | 同一账号登录失败限流阈值 |
 | `AUTH_LOGIN_RATE_LIMIT_WINDOW_MS` | `300000` | 登录失败统计窗口 |
 | `AUTH_LOGIN_RATE_LIMIT_BLOCK_MS` | `600000` | 登录失败触发限流后的封禁时长 |
 | `GRADES_CACHE_LIMIT` | `20` | 每用户成绩缓存上限 |
