@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 process.env 与 node:path，读取端口、密钥、数据库、缓存、媒体、服务账号、限流和上游超时配置
+ * [INPUT]: 依赖 process.env 与 node:path，读取端口、密钥、数据库、缓存、媒体、服务账号、限流、上游超时与 UGC 合规开关
  * [OUTPUT]: 对外提供 config、USER_AGENT 等运行时配置常量，并强制 TZ 为 Asia/Shanghai
  * [POS]: src 的配置源，所有模块通过它读取运行参数，避免散落读取环境变量
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -25,6 +25,7 @@ export const config = {
   port: Number(process.env.PORT) || 3000,
   jwtSecret: process.env.JWT_SECRET || 'huas-server-default-secret-change-me',
   dbPath: process.env.DB_PATH || DEFAULT_DB_PATH,
+  disableUgc: process.env.DISABLE_UGC === 'true',
   timeZone: BEIJING_TIME_ZONE,
   server: {
     idleTimeoutSeconds: Math.min(parsePositiveInt(process.env.SERVER_IDLE_TIMEOUT_SECONDS, 60), 255),

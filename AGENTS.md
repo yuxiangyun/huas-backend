@@ -316,6 +316,7 @@ AGENTS.md 是唯一权威文档入口；旧入口不得恢复。
 学校上游凭证（CAS TGC / Portal JWT / JW Session）由 CredentialManager 统一收敛，客户端只持有本服务 JWT；任何子凭证刷新失败走 3003 错误码，不向前端暴露上游细节。
 discover 与 treehole 是独立业务支线，不经过学校上游，也不依赖 CacheService；媒体访问挂在 /media/* 而非 /api/*。
 Web 前端入口是 /m，生产期由后端直接托管 web/dist；带扩展名的路径按静态资源处理，其余回退到前端 index.html。
+DISABLE_UGC=true 环境变量激活合规守卫：discover 与 treehole 所有 GET 请求（/meta 除外）统一返回 null，写操作不受影响。
 </architecture_decisions>
 
 <routes>

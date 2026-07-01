@@ -1,13 +1,15 @@
 /**
- * [INPUT]: 依赖 Hono、authMiddleware、onAppError 与各业务子路由模块
+ * [INPUT]: 依赖 Hono、authMiddleware、onAppError、config、success 与各业务子路由模块
  * [OUTPUT]: 对外提供 registerRoutes(app)，统一挂载 public/auth/calendar 与受保护 /api 路由
- * [POS]: routes 的总装配器，定义 /api 认证放行边界并连接入口 index.ts
+ * [POS]: routes 的总装配器，定义 /api 认证放行边界、DISABLE_UGC 合规守卫，连接入口 index.ts
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { Hono } from 'hono';
 import { authMiddleware } from '../middleware/auth.middleware';
 import { onAppError } from '../middleware/error.middleware';
+import { config } from '../config';
+import { success } from '../utils/response';
 import authRoutes from './auth/auth.routes';
 import scheduleRoutes from './academic/schedule.routes';
 import v1ScheduleRoutes from './portal/v1-schedule.routes';
@@ -58,6 +60,18 @@ export function registerRoutes(app: Hono) {
   api.route('/classrooms', classroomRoutes);
   api.route('/ecard', ecardRoutes);
   api.route('/user', userRoutes);
+
+  if (config.disableUgc) {
+    api.use('/discover/*', async (c, next) => {
+      if (c.req.method === 'GET' && !c.req.path.endsWith('/meta')) return success(c, null);
+      await next();
+    });
+    api.use('/treehole/*', async (c, next) => {
+      if (c.req.method === 'GET' && !c.req.path.endsWith('/meta')) return success(c, null);
+      await next();
+    });
+  }
+
   api.route('/discover', discoverRoutes);
   api.route('/treehole', treeholeRoutes);
   api.route('/calendar', calendarApiRoutes);

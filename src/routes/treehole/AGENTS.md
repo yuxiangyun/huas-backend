@@ -6,11 +6,13 @@ treehole.routes.ts: 树洞 HTTP 适配器，处理 meta、头像、通知、帖�
 
 架构决策
 树洞不经过学校上游；路由只处理匿名社区 HTTP 契约，业务事实和计数维护交给 TreeholeService。
+DISABLE_UGC=true 时，routes/index.ts 中间件拦截所有 GET 请求（/meta 除外），统一返回 null；写操作不受影响。
 
 开发规范
 头像媒体、通知、评论计数和删除可见性改动必须跑 treehole 测试。
 
 变更日志
+2026-07-01: 记录 DISABLE_UGC 合规守卫对 GET 路由的全局拦截。
 2026-06-30: 播种 treehole 路由 L2 地图。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
