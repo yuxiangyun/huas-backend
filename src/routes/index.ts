@@ -61,20 +61,22 @@ export function registerRoutes(app: Hono) {
   api.route('/ecard', ecardRoutes);
   api.route('/user', userRoutes);
 
+  api.route('/discover', discoverRoutes);
+  api.route('/treehole', treeholeRoutes);
+  api.route('/calendar', calendarApiRoutes);
+
+  // UGC compliance guard — must be on `app` level because Hono sub-app pattern matching
+  // uses the mount-prefix-stripped path while c.req.path is full, creating ambiguity.
   if (config.disableUgc) {
-    api.use('/discover/*', async (c, next) => {
+    app.use('/api/discover/*', async (c, next) => {
       if (c.req.method === 'GET' && !c.req.path.endsWith('/meta')) return success(c, null);
       await next();
     });
-    api.use('/treehole/*', async (c, next) => {
+    app.use('/api/treehole/*', async (c, next) => {
       if (c.req.method === 'GET' && !c.req.path.endsWith('/meta')) return success(c, null);
       await next();
     });
   }
-
-  api.route('/discover', discoverRoutes);
-  api.route('/treehole', treeholeRoutes);
-  api.route('/calendar', calendarApiRoutes);
 
   app.route('/api', api);
 }
