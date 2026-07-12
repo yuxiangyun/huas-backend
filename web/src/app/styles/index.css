@@ -13,6 +13,11 @@
   --color-tint-soft: #eceff3;
   --color-error: #8b2f2f;
   --color-error-soft: #f8eaea;
+  --color-foreground: #1d1d1f;
+  --color-muted-foreground: #6e6e73;
+  --color-border: rgba(0, 0, 0, 0.1);
+  --color-popover: rgba(255, 255, 255, 0.96);
+  --color-popover-foreground: #1d1d1f;
   --radius-shell: 2rem;
   --radius-card: 1.75rem;
   --radius-pill: 999px;

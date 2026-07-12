@@ -1,9 +1,17 @@
-import type { AdminBasicSession } from '@/features/admin-treehole/model/admin-session';
+/**
+ * [INPUT]: 依赖本模块相邻类型、API 与应用基础设施
+ * [OUTPUT]: 提供 admin-api.ts 的公开前端契约与运行能力
+ * [POS]: web 应用分层中的现有业务边界，被页面或上层模块消费
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { apiRequest } from '@/shared/api/http-client';
 import type {
   AdminAnnouncement,
   AdminAnnouncementPayload,
   AdminAnnouncementUpdatePayload,
+  AdminAnalyticsOverview,
+  AdminComplianceStatus,
   AdminDashboardResponse,
   AdminTerminalLogResponse,
   AdminTreeholeCommentListResponse,
@@ -26,14 +34,7 @@ function buildQueryString(params: Record<string, string | number | undefined>) {
   return search ? `?${search}` : '';
 }
 
-function createAdminHeaders(session: AdminBasicSession) {
-  return {
-    Authorization: session.authorization,
-  };
-}
-
 export async function getAdminDashboard(
-  session: AdminBasicSession,
   params: { page?: number; search?: string; major?: string; grade?: string },
   options?: RequestOptions
 ) {
@@ -44,37 +45,56 @@ export async function getAdminDashboard(
       major: params.major,
       grade: params.grade,
     })}`,
-    {
-      headers: createAdminHeaders(session),
-    },
+    {},
     { auth: false, signal: options?.signal }
   );
 }
 
-export async function getAdminAnnouncements(session: AdminBasicSession, options?: RequestOptions) {
+export async function getAdminAnalyticsOverview(
+  days: 7 | 30 | 90,
+  options?: RequestOptions
+) {
+  return apiRequest<AdminAnalyticsOverview>(
+    `/api/admin/analytics/overview?days=${days}`,
+    {},
+    { auth: false, signal: options?.signal }
+  );
+}
+
+export async function getAdminComplianceStatus(options?: RequestOptions) {
+  return apiRequest<AdminComplianceStatus>('/api/admin/compliance/ugc', {}, { auth: false, signal: options?.signal });
+}
+
+export async function updateAdminComplianceStatus(
+  payload: Pick<AdminComplianceStatus, 'mode' | 'discoverMockText' | 'treeholeMockText'>
+) {
+  return apiRequest<AdminComplianceStatus>(
+    '/api/admin/compliance/ugc',
+    { method: 'PUT', body: JSON.stringify(payload) },
+    { auth: false }
+  );
+}
+
+export async function getAdminAnnouncements(options?: RequestOptions) {
   return apiRequest<AdminAnnouncement[]>(
     '/api/admin/announcements',
-    {
-      headers: createAdminHeaders(session),
-    },
+    {},
     { auth: false, signal: options?.signal }
   );
 }
 
-export async function createAdminAnnouncement(session: AdminBasicSession, payload: AdminAnnouncementPayload) {
+export async function createAdminAnnouncement(payload: AdminAnnouncementPayload) {
   return apiRequest<AdminAnnouncement>(
     '/api/admin/announcements',
     {
       method: 'POST',
       body: JSON.stringify(payload),
-      headers: createAdminHeaders(session),
     },
     { auth: false }
   );
 }
 
 export async function updateAdminAnnouncement(
-  session: AdminBasicSession,
   id: string,
   payload: AdminAnnouncementUpdatePayload
 ) {
@@ -83,36 +103,32 @@ export async function updateAdminAnnouncement(
     {
       method: 'PUT',
       body: JSON.stringify(payload),
-      headers: createAdminHeaders(session),
     },
     { auth: false }
   );
 }
 
-export async function deleteAdminAnnouncement(session: AdminBasicSession, id: string) {
+export async function deleteAdminAnnouncement(id: string) {
   return apiRequest<{ id: string }>(
     `/api/admin/announcements/${encodeURIComponent(id)}`,
     {
       method: 'DELETE',
-      headers: createAdminHeaders(session),
     },
     { auth: false }
   );
 }
 
-export async function deleteAdminDiscoverPost(session: AdminBasicSession, postId: number) {
+export async function deleteAdminDiscoverPost(postId: number) {
   return apiRequest<{ id: number }>(
     `/api/admin/discover/posts/${postId}`,
     {
       method: 'DELETE',
-      headers: createAdminHeaders(session),
     },
     { auth: false }
   );
 }
 
 export async function getAdminTreeholePosts(
-  session: AdminBasicSession,
   params: { keyword?: string; page?: number; pageSize?: number },
   options?: RequestOptions
 ) {
@@ -122,15 +138,12 @@ export async function getAdminTreeholePosts(
       page: params.page,
       pageSize: params.pageSize,
     })}`,
-    {
-      headers: createAdminHeaders(session),
-    },
+    {},
     { auth: false, signal: options?.signal }
   );
 }
 
 export async function getAdminTreeholeComments(
-  session: AdminBasicSession,
   postId: number,
   params: { page?: number; pageSize?: number },
   options?: RequestOptions
@@ -141,36 +154,32 @@ export async function getAdminTreeholeComments(
       pageSize: params.pageSize,
     })}`,
     {
-      headers: createAdminHeaders(session),
     },
     { auth: false, signal: options?.signal }
   );
 }
 
-export async function deleteAdminTreeholePost(session: AdminBasicSession, postId: number) {
+export async function deleteAdminTreeholePost(postId: number) {
   return apiRequest<{ id: number }>(
     `/api/admin/treehole/posts/${postId}`,
     {
       method: 'DELETE',
-      headers: createAdminHeaders(session),
     },
     { auth: false }
   );
 }
 
-export async function deleteAdminTreeholeComment(session: AdminBasicSession, commentId: number) {
+export async function deleteAdminTreeholeComment(commentId: number) {
   return apiRequest<{ id: number; postId: number }>(
     `/api/admin/treehole/comments/${commentId}`,
     {
       method: 'DELETE',
-      headers: createAdminHeaders(session),
     },
     { auth: false }
   );
 }
 
 export async function getAdminTerminalLogs(
-  session: AdminBasicSession,
   params: { limit?: number; keyword?: string },
   options?: RequestOptions
 ) {
@@ -179,9 +188,7 @@ export async function getAdminTerminalLogs(
       limit: params.limit,
       keyword: params.keyword,
     })}`,
-    {
-      headers: createAdminHeaders(session),
-    },
+    {},
     { auth: false, signal: options?.signal }
   );
 }

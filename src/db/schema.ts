@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 drizzle-orm/sqlite-core 的表、列、唯一键构造器
- * [OUTPUT]: 对外提供 users、credentials、cache、discover、treehole 全部 SQLite 表定义
+ * [OUTPUT]: 对外提供 users、credentials、cache、discover、treehole 与 analytics 全部 SQLite 表定义
  * [POS]: db 的类型相与查询相，和 index.ts 的运行期建表/轻迁移相保持同构
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -130,3 +130,24 @@ export const treeholeCommentNotifications = sqliteTable('treehole_comment_notifi
   readAt: integer('read_at', { mode: 'timestamp_ms' }),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
 });
+
+export const analyticsDailyMetrics = sqliteTable('analytics_daily_metrics', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  day: text('day').notNull(),
+  platform: text('platform').notNull(),
+  metric: text('metric').notNull(),
+  value: integer('value').notNull().default(0),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
+}, (table) => ({
+  dayPlatformMetricUnique: unique('uq_analytics_daily_metric').on(table.day, table.platform, table.metric),
+}));
+
+export const analyticsDailyUsers = sqliteTable('analytics_daily_users', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  day: text('day').notNull(),
+  platform: text('platform').notNull(),
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
+}, (table) => ({
+  dayPlatformUserUnique: unique('uq_analytics_daily_user').on(table.day, table.platform, table.userId),
+}));

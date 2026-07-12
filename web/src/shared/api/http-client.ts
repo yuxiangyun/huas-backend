@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖本模块相邻类型、API 与应用基础设施
+ * [OUTPUT]: 提供 http-client.ts 的公开前端契约与运行能力
+ * [POS]: web 应用分层中的现有业务边界，被页面或上层模块消费
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { useAuthStore } from '@/entities/auth/model/auth-store';
 import { buildLoginRedirectPath } from '@/app/router/redirect';
 import { API_BASE_URL } from '@/shared/config/env';
@@ -68,6 +75,7 @@ export async function requestEnvelope<T>(
   options: RequestOptions = {}
 ) {
   const headers = new Headers(init.headers);
+  headers.set('X-Client-Platform', 'web');
   const token = useAuthStore.getState().token;
 
   if (options.auth !== false && token) {
@@ -98,6 +106,10 @@ export async function apiRequest<T>(
   options: RequestOptions = {}
 ) {
   const { status, payload } = await requestEnvelope<T>(path, init, options);
+
+  if (status === 401 && path.startsWith('/api/admin/') && path !== '/api/admin/session' && typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('huas:admin-session-expired'));
+  }
 
   if (!payload) {
     throw new ApiError(status, null, '服务器返回了空响应');

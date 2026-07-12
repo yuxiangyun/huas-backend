@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖本模块相邻类型、API 与应用基础设施
+ * [OUTPUT]: 提供 router.tsx 的公开前端契约与运行能力
+ * [POS]: web 应用分层中的现有业务边界，被页面或上层模块消费
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { Navigate, createBrowserRouter } from 'react-router-dom';
 import { APP_BASENAME } from '@/shared/config/env';
 import { MobileTabShell } from '@/widgets/mobile-tab-shell/mobile-tab-shell';
@@ -32,28 +39,49 @@ export const router = createBrowserRouter(
           },
         },
         {
-          path: 'announcements',
+          path: 'users',
+          lazy: async () => {
+            const module = await import('@/pages/admin/users');
+            return { Component: module.AdminUsersPage };
+          },
+        },
+        {
+          path: 'content',
+          lazy: async () => {
+            const module = await import('@/pages/admin/content');
+            return { Component: module.AdminContentPage };
+          },
+        },
+        {
+          path: 'manage/announcements',
           lazy: async () => {
             const module = await import('@/pages/admin/announcements');
             return { Component: module.AdminAnnouncementsPage };
           },
         },
         {
-          path: 'discover',
+          path: 'manage/discover',
           lazy: async () => {
             const module = await import('@/pages/admin/discover');
             return { Component: module.AdminDiscoverPage };
           },
         },
         {
-          path: 'treehole',
+          path: 'manage/treehole',
           lazy: async () => {
             const module = await import('@/pages/admin/treehole');
             return { Component: module.AdminTreeholeSubPage };
           },
         },
         {
-          path: 'logs',
+          path: 'system/compliance',
+          lazy: async () => {
+            const module = await import('@/pages/admin/compliance');
+            return { Component: module.AdminCompliancePage };
+          },
+        },
+        {
+          path: 'system/logs',
           lazy: async () => {
             const module = await import('@/pages/admin/logs');
             return { Component: module.AdminLogsPage };

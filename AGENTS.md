@@ -293,7 +293,7 @@ web/ - 移动端 Web 前端 SPA，Vite + React 19，构建产物由后端托管�
 tests/ - 业务流、解析器、路由与端到端测试
 scripts/ - 部署脚本（蓝绿发布、PM2 重启、Git push 钩子）
 data/ - SQLite 主库、PM2 烟测库、公告 JSON、Discover 图片、树洞头像
-public/ - 静态资源（Basic Auth status 后台工作台、dev 测试页）
+public/ - 静态资源（仅保留 dev 测试页）
 miniprogram/ - 小程序侧服务端技能资产
 docs/ - 文档语义相，按 api、architecture、ops 收敛根目录专题 Markdown 文档
 </directory>
@@ -305,7 +305,7 @@ tsconfig.json - TypeScript 编译边界与路径别名（@/* → ./src/*）
 drizzle.config.ts - Drizzle 迁移与 SQLite 连接配置（默认 ./data/huas.db）
 ecosystem.config.cjs - PM2 进程定义（单进程、256M 上限、Asia/Shanghai）
 nginx.conf - 反向代理样板（HTTP→HTTPS、100m 体、proxy_pass 127.0.0.1:3000）
-.env / .env.example - 运行时配置（PORT / JWT_SECRET / DB_PATH / TZ / 缓存 TTL / DISABLE_UGC / UGC_COMPLIANCE_STATE_FILE / UGC_COMPLIANCE_ASNS / UGC_COMPLIANCE_PORTS）
+.env / .env.example - 运行时配置（PORT / JWT_SECRET / ADMIN_USERNAME / ADMIN_PASSWORD / DB_PATH / TZ / 缓存 TTL / UGC 合规参数）
 .gitignore - 排除依赖、数据库、日志与 UGC 热更新状态文件等运行态产物
 </config>
 
@@ -318,6 +318,8 @@ AGENTS.md 是唯一权威文档入口；旧入口不得恢复。
 discover 与 treehole 是独立业务支线，不经过学校上游，也不依赖 CacheService；媒体访问挂在 /media/* 而非 /api/*。
 Web 前端入口是 /m，生产期由后端直接托管 web/dist；带扩展名的路径按静态资源处理，其余回退到前端 index.html。
 UGC 合规模式由后台 /api/admin/compliance/ugc 热控制并持久化到 data/ugc-compliance-state.json；DISABLE_UGC 只提供启动默认值。normal 模式走真实 discover/treehole；compliance 模式不读取真实 UGC，GET（/meta 除外）先过 Bearer 认证，再按模块返回后台配置的纯文本 mock：分享美食使用 discoverMockText，神秘角落使用 treeholeMockText，默认两者为空，写操作不受影响。UGC_COMPLIANCE_ASNS + UGC_COMPLIANCE_PORTS 是可信反代注入 ASN 后的自动空读规则，命中时强制空 mock，不改变后台状态。
+管理后台唯一入口为 /m/admin/*，使用独立短期 HttpOnly Cookie 会话；普通用户 JWT 与后台权限不互通，旧 /status 已退役。
+后台洞察按 miniprogram、web、unknown 三类渠道记录每日去重活跃、登录、核心功能调用与错误；接入前渠道数据不回填、不推算。
 </architecture_decisions>
 
 <routes>
@@ -326,8 +328,9 @@ UGC 合规模式由后台 /api/admin/compliance/ugc 热控制并持久化到 dat
 /auth/login - CAS 登录主流程，签发本服务 JWT
 /health - 健康检查
 /api/public/* - 免 Bearer 公共接口（公告等）
-/api/admin/* - Basic Auth 管理接口
-/api/admin/compliance/ugc - Basic Auth UGC 正常/合规模式热开关
+/api/admin/session - 后台独立会话建立、探测与撤销
+/api/admin/* - HttpOnly Cookie 会话保护的管理接口
+/api/admin/compliance/ugc - UGC 正常/合规模式热开关
 /api/schedule、/api/v1/schedule - 课表（JW 优先 / Portal 优先，可回退）
 /api/grades - 成绩
 /api/ecard - 一卡通余额
@@ -337,7 +340,6 @@ UGC 合规模式由后台 /api/admin/compliance/ugc 热控制并持久化到 dat
 /api/treehole/* - 树洞业务
 /api/classrooms/* - 空教室查询（只读，管理员账号代查）
 /media/discover/*、/media/treehole-avatar/* - 静态媒体访问
-/status - Basic Auth 管理状态页
 </routes>
 
 <development_rules>

@@ -70,9 +70,14 @@ async function authHeaderFor(userId: number, studentId: string) {
   return { Authorization: `Bearer ${token}` };
 }
 
-function adminAuthHeader() {
-  const credentials = Buffer.from('test-admin:test-admin-password').toString('base64');
-  return { Authorization: `Basic ${credentials}` };
+async function adminSessionHeader(app: Hono) {
+  const response = await app.request('http://localhost/api/admin/session', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'test-admin', password: 'test-admin-password' }),
+  });
+  const cookie = response.headers.get('set-cookie')?.split(';')[0];
+  return cookie ? { Cookie: cookie } : {};
 }
 
 const originalUgcComplianceConfig = {
@@ -547,7 +552,7 @@ describe('treehole module', () => {
     const secondCommentId = await createTreeholeComment(app, secondPostId, thirdUserId, '2023002003', '风大但是很适合散步。');
 
     const listRes = await app.request('http://localhost/api/admin/treehole/posts?page=1&pageSize=10&keyword=操场', {
-      headers: adminAuthHeader(),
+      headers: await adminSessionHeader(app),
     });
     expect(listRes.status).toBe(200);
 
@@ -562,7 +567,7 @@ describe('treehole module', () => {
     expect(listBody.data.items[0].stats.commentCount).toBe(2);
 
     const commentsRes = await app.request(`http://localhost/api/admin/treehole/posts/${secondPostId}/comments?page=1&pageSize=10`, {
-      headers: adminAuthHeader(),
+      headers: await adminSessionHeader(app),
     });
     expect(commentsRes.status).toBe(200);
 
@@ -573,7 +578,7 @@ describe('treehole module', () => {
     expect(commentsBody.data.items[1].author.studentId).toBe('2023002001');
 
     const firstPostCommentsRes = await app.request(`http://localhost/api/admin/treehole/posts/${firstPostId}/comments?page=1&pageSize=10`, {
-      headers: adminAuthHeader(),
+      headers: await adminSessionHeader(app),
     });
     expect(firstPostCommentsRes.status).toBe(200);
     const firstPostCommentsBody = await firstPostCommentsRes.json() as any;
@@ -594,17 +599,17 @@ describe('treehole module', () => {
     expect(invalidPageRes.status).toBe(400);
 
     const invalidAdminPageRes = await app.request('http://localhost/api/admin/treehole/posts?page=0', {
-      headers: adminAuthHeader(),
+      headers: await adminSessionHeader(app),
     });
     expect(invalidAdminPageRes.status).toBe(400);
 
     const invalidLogLimitRes = await app.request('http://localhost/api/admin/logs?limit=0', {
-      headers: adminAuthHeader(),
+      headers: await adminSessionHeader(app),
     });
     expect(invalidLogLimitRes.status).toBe(400);
 
     const logsRes = await app.request('http://localhost/api/admin/logs?limit=5&keyword=Treehole', {
-      headers: adminAuthHeader(),
+      headers: await adminSessionHeader(app),
     });
     expect(logsRes.status).toBe(200);
     const logsBody = await logsRes.json() as any;
@@ -613,7 +618,7 @@ describe('treehole module', () => {
 
     const adminDeleteComment = await app.request(`http://localhost/api/admin/treehole/comments/${commentId}`, {
       method: 'DELETE',
-      headers: adminAuthHeader(),
+      headers: await adminSessionHeader(app),
     });
     expect(adminDeleteComment.status).toBe(200);
 
@@ -626,7 +631,7 @@ describe('treehole module', () => {
 
     const adminDeletePost = await app.request(`http://localhost/api/admin/treehole/posts/${postId}`, {
       method: 'DELETE',
-      headers: adminAuthHeader(),
+      headers: await adminSessionHeader(app),
     });
     expect(adminDeletePost.status).toBe(200);
   });
@@ -707,7 +712,7 @@ describe('treehole module', () => {
     const authorHeaders = await authHeaderFor(authorId, '2023002001');
 
     const initialState = await app.request('http://localhost/api/admin/compliance/ugc', {
-      headers: adminAuthHeader(),
+      headers: await adminSessionHeader(app),
     });
     expect(initialState.status).toBe(200);
     const initialStateBody = await initialState.json() as any;
@@ -719,7 +724,7 @@ describe('treehole module', () => {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
-        ...adminAuthHeader(),
+        ...await adminSessionHeader(app),
       },
       body: JSON.stringify({ mode: 'compliance' }),
     });
@@ -769,7 +774,7 @@ describe('treehole module', () => {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
-        ...adminAuthHeader(),
+        ...await adminSessionHeader(app),
       },
       body: JSON.stringify({
         mode: 'compliance',
@@ -830,7 +835,7 @@ describe('treehole module', () => {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
-        ...adminAuthHeader(),
+        ...await adminSessionHeader(app),
       },
       body: JSON.stringify({ mode: 'normal' }),
     });

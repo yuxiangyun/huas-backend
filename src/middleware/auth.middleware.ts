@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 JWT 验证、db/schema 用户表、response/errors/logger/time 工具与 Hono Context
+ * [INPUT]: 依赖 JWT 验证、db/schema 用户表、AnalyticsService、response/errors/logger/time 工具与 Hono Context
  * [OUTPUT]: 对外提供 authMiddleware，并扩展 Hono ContextVariableMap 的 userId/studentId/name
  * [POS]: middleware 的 Bearer 认证边界，解析本服务 JWT、恢复用户身份并节流刷新 lastActiveAt
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -13,6 +13,7 @@ import { error } from '../utils/response';
 import { ErrorCode } from '../utils/errors';
 import { Logger } from '../utils/logger';
 import { beijingDate } from '../utils/time';
+import { AnalyticsService } from '../services/admin/analytics-service';
 
 const ACTIVITY_TOUCH_INTERVAL_MS = 15 * 60 * 1000;
 
@@ -102,4 +103,14 @@ export async function authMiddleware(c: Context, next: Next) {
   }
 
   await next();
+  try {
+    AnalyticsService.recordAuthenticatedRequest({
+      userId: resolvedUser.id,
+      platformHeader: c.req.header('x-client-platform'),
+      path: c.req.path,
+      status: c.res.status,
+    });
+  } catch (analyticsError: any) {
+    Logger.warn('Analytics', '记录请求指标失败', analyticsError?.message || String(analyticsError));
+  }
 }

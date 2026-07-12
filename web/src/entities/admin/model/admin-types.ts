@@ -1,4 +1,11 @@
-export interface AdminBasicServiceStatus {
+/**
+ * [INPUT]: 依赖本模块相邻类型、API 与应用基础设施
+ * [OUTPUT]: 提供 admin-types.ts 的公开前端契约与运行能力
+ * [POS]: web 应用分层中的现有业务边界，被页面或上层模块消费
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
+export interface AdminServiceStatus {
   status: string;
   timestamp: string;
 }
@@ -107,7 +114,7 @@ export interface AdminAnnouncement {
 }
 
 export interface AdminDashboardResponse {
-  service: AdminBasicServiceStatus;
+  service: AdminServiceStatus;
   metrics: AdminMetrics;
   distributions: {
     byMajor: AdminMajorDistributionItem[];
@@ -117,6 +124,22 @@ export interface AdminDashboardResponse {
   discover: AdminDiscoverPanel;
   logs: AdminTerminalLogResponse;
   announcements: AdminAnnouncement[];
+}
+
+export interface AdminAnalyticsOverview {
+  days: 7 | 30 | 90;
+  since: string;
+  series: Array<Record<string, string | number>>;
+}
+
+export interface AdminComplianceStatus {
+  mode: 'normal' | 'compliance';
+  disabled: boolean;
+  discoverMockText: string;
+  treeholeMockText: string;
+  updatedAt: string;
+  updatedBy: string;
+  stateFile: string;
 }
 
 export interface AdminTreeholeAuthor {

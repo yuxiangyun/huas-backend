@@ -5,7 +5,7 @@
 auth/: 认证与上游凭证交换，收敛 CAS、Portal、JW 子凭证与本服务 JWT
 core/: 底层 HTTP 与重试能力，供服务层访问学校上游
 db/: SQLite/Drizzle 数据层，定义业务事实表、初始化与轻量迁移补齐
-middleware/: Hono 中间件，处理认证、限流、日志、错误与管理 Basic Auth
+middleware/: Hono 中间件，处理认证、限流、日志、错误与后台 Cookie 会话
 parsers/: 上游 HTML/JSON 解析器，只做格式转换，不触碰业务持久化
 routes/: Hono 路由层，解析 HTTP 输入并调用服务层，不承载核心业务规则
 runtime/: 进程运行态，暴露健康、关闭与就绪状态

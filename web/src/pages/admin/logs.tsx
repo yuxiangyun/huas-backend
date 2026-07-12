@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖后台实体查询、管理 API、共享 UI 与后台会话上下文
+ * [OUTPUT]: 提供 logs.tsx 对应的后台路由页面
+ * [POS]: pages/admin 的管理或运行页面，由 AdminLayout 承载
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAdminTerminalLogsQuery } from '@/entities/admin/api/admin-queries';

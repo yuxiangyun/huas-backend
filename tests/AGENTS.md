@@ -4,6 +4,7 @@
 成员清单
 academic-refresh-rate-limit.test.ts: 学业接口强制刷新频率限制回归测试
 admin-dashboard-activity.test.ts: 管理后台活跃度统计回归测试
+admin-session.test.ts: 后台 HttpOnly Cookie 会话建立、保护与撤销回归测试
 auth-login-rate-limit.test.ts: 登录失败限流策略回归测试
 business-flows.test.ts: 登录、凭证恢复、缓存降级与核心业务编排总回归套件
 classroom-free-parser.test.ts: 空教室解析器回归测试
@@ -29,6 +30,8 @@ upstream-retry.test.ts: 上游凭证失效重试、超时与恢复链回归测�
 新增、删除或重命名测试文件时同步更新本地图。
 
 变更日志
+2026-07-12: 新增后台 Cookie 会话安全属性与撤销测试。
+2026-07-12: Discover/Treehole 管理接口测试改走后台 Cookie 会话，不再构造 Basic Auth 头。
 2026-07-12: 播种 tests L2 地图，补充验证码恢复与缓存穿透测试边界。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md

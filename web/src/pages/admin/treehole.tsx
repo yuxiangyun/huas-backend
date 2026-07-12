@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖后台实体查询、管理 API、共享 UI 与后台会话上下文
+ * [OUTPUT]: 提供 treehole.tsx 对应的后台路由页面
+ * [POS]: pages/admin 的管理或运行页面，由 AdminLayout 承载
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';

@@ -1,36 +1,46 @@
-import { type FormEvent, useState } from 'react';
+/**
+ * [INPUT]: 依赖后台 Cookie 会话、React Router Outlet、QueryClient 与全局 Toast
+ * [OUTPUT]: 提供 AdminLayout、AdminOutletContextValue 与 useAdminOutletContext
+ * [POS]: pages/admin 的独立响应式后台壳，承载登录、分组导航和会话退出
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
+import { type FormEvent, useEffect, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { DoorArrowRight20Filled } from '@fluentui/react-icons/svg/door-arrow-right';
 import { NavLink, Outlet, useNavigate, useOutletContext } from 'react-router-dom';
-import { getAdminTerminalLogs } from '@/entities/admin/api/admin-api';
-import { adminQueryKeys } from '@/entities/admin/model/admin-query-keys';
 import { appRoutes } from '@/app/router/paths';
 import { useToastStore } from '@/app/state/toast-store';
+import { adminQueryKeys } from '@/entities/admin/model/admin-query-keys';
 import {
-  clearAdminBasicSession,
-  createAdminBasicSession,
-  readAdminBasicSession,
-  writeAdminBasicSession,
-  type AdminBasicSession,
+  clearAdminSession,
+  createAdminSession,
+  readAdminSession,
+  type AdminSession,
 } from '@/features/admin-treehole/model/admin-session';
 import { ApiError } from '@/shared/api/http-client';
 import { Button } from '@/shared/ui/button';
-import { Card } from '@/shared/ui/card';
-import { PageHeader } from '@/shared/ui/page-header';
 
-const fieldClassName =
-  'h-12 w-full rounded-[1.15rem] border border-line bg-white/86 px-3.5 text-ink outline-none transition focus:border-transparent focus:ring-2 focus:ring-black/10';
+const fieldClass = 'h-12 w-full rounded-xl border border-black/[0.09] bg-white px-3.5 text-ink outline-none focus:ring-2 focus:ring-[#007aff]/20';
 
-const navItems = [
-  { to: appRoutes.adminDashboard, label: '总览', description: '系统和用户概览' },
-  { to: appRoutes.adminAnnouncements, label: '公告', description: '公告新增与维护' },
-  { to: appRoutes.adminDiscover, label: 'Discover', description: '美食帖子管理' },
-  { to: appRoutes.adminTreehole, label: 'Treehole', description: '树洞与评论管理' },
-  { to: appRoutes.adminLogs, label: '日志', description: '终端日志检索' },
+const navGroups = [
+  { label: '洞察', items: [
+    { to: appRoutes.adminDashboard, label: '总览' },
+    { to: appRoutes.adminUsers, label: '用户' },
+    { to: appRoutes.adminContent, label: '内容' },
+  ] },
+  { label: '管理', items: [
+    { to: appRoutes.adminAnnouncements, label: '公告' },
+    { to: appRoutes.adminDiscover, label: 'Discover' },
+    { to: appRoutes.adminTreehole, label: 'Treehole' },
+  ] },
+  { label: '系统', items: [
+    { to: appRoutes.adminCompliance, label: '合规设置' },
+    { to: appRoutes.adminLogs, label: '运行日志' },
+  ] },
 ] as const;
 
 export interface AdminOutletContextValue {
-  session: AdminBasicSession;
+  session: AdminSession;
   onUnauthorized: (message?: string) => void;
 }
 
@@ -38,198 +48,128 @@ export function useAdminOutletContext() {
   return useOutletContext<AdminOutletContextValue>();
 }
 
-function getErrorMessage(error: unknown, fallback: string) {
-  if (error instanceof ApiError) {
-    if (error.httpStatus === 401) {
-      return '管理员账号或密码错误';
-    }
-    return error.message;
-  }
-
-  if (error instanceof Error && error.message) {
-    return error.message;
-  }
-
-  return fallback;
+function errorMessage(error: unknown) {
+  if (error instanceof ApiError) return error.httpStatus === 401 ? '管理员账号或密码错误' : error.message;
+  return error instanceof Error ? error.message : '登录失败';
 }
 
 export function AdminLayout() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const pushToast = useToastStore((state) => state.pushToast);
-
-  const [adminSession, setAdminSession] = useState<AdminBasicSession | null>(() => readAdminBasicSession());
-  const [username, setUsername] = useState(() => readAdminBasicSession()?.username ?? '');
+  const [session, setSession] = useState<AdminSession | null>(null);
+  const [sessionReady, setSessionReady] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [authMessage, setAuthMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
 
-  const loginMutation = useMutation({
-    mutationFn: async (nextSession: AdminBasicSession) =>
-      getAdminTerminalLogs(nextSession, { limit: 1 }),
-    onSuccess: (_, nextSession) => {
+  useEffect(() => {
+    let active = true;
+    readAdminSession()
+      .then((value) => {
+        if (!active) return;
+        setSession(value);
+        setUsername(value.username);
+      })
+      .catch(() => undefined)
+      .finally(() => active && setSessionReady(true));
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    const handleExpired = () => {
+      void clearAdminSession().catch(() => undefined);
       queryClient.removeQueries({ queryKey: adminQueryKeys.all() });
-      writeAdminBasicSession(nextSession);
-      setAdminSession(nextSession);
-      setAuthMessage(null);
+      setSession(null);
       setPassword('');
-      pushToast({
-        title: '已连接管理后台',
-        variant: 'success',
-      });
+      setMessage('后台会话已失效，请重新登录');
+      pushToast({ title: '后台会话已失效', variant: 'error' });
+    };
+    window.addEventListener('huas:admin-session-expired', handleExpired);
+    return () => window.removeEventListener('huas:admin-session-expired', handleExpired);
+  }, [pushToast, queryClient]);
+
+  const login = useMutation({
+    mutationFn: () => createAdminSession(username, password),
+    onSuccess: (value) => {
+      queryClient.removeQueries({ queryKey: adminQueryKeys.all() });
+      setSession(value);
+      setPassword('');
+      setMessage(null);
     },
-    onError: (error) => {
-      setAuthMessage(getErrorMessage(error, '连接后台失败'));
-    },
+    onError: (error) => setMessage(errorMessage(error)),
   });
 
-  function clearSession(message?: string) {
-    clearAdminBasicSession();
+  function clearSession(nextMessage?: string) {
+    void clearAdminSession().catch(() => undefined);
     queryClient.removeQueries({ queryKey: adminQueryKeys.all() });
-    setAdminSession(null);
+    setSession(null);
     setPassword('');
-    setAuthMessage(message ?? '管理员会话已失效，请重新登录');
+    setMessage(nextMessage ?? null);
   }
 
-  function onUnauthorized(message?: string) {
-    clearSession(message);
-    pushToast({
-      title: '后台会话已失效',
-      message: '请重新输入管理员账号和密码',
-      variant: 'error',
-    });
+  function onUnauthorized(nextMessage?: string) {
+    clearSession(nextMessage ?? '后台会话已失效，请重新登录');
+    pushToast({ title: '后台会话已失效', variant: 'error' });
   }
 
-  async function handleAdminLogin(event: FormEvent<HTMLFormElement>) {
+  function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!username.trim() || !password) {
-      setAuthMessage('请输入管理员账号和密码');
+      setMessage('请输入管理员账号和密码');
       return;
     }
-
-    setAuthMessage(null);
-    await loginMutation.mutateAsync(createAdminBasicSession(username, password));
+    login.mutate();
   }
 
-  const outletContext: AdminOutletContextValue | null = adminSession
-    ? { session: adminSession, onUnauthorized }
-    : null;
+  if (!sessionReady) {
+    return <div className="grid min-h-dvh place-items-center bg-[#f5f5f7]"><div className="h-48 w-[min(30rem,calc(100vw-2rem))] animate-pulse rounded-[1.6rem] bg-white" /></div>;
+  }
+
+  if (!session) {
+    return (
+      <main className="grid min-h-dvh place-items-center bg-[#f5f5f7] px-4 py-10">
+        <section className="w-full max-w-[28rem] rounded-[1.7rem] border border-black/[0.06] bg-white p-6 shadow-[0_18px_60px_rgba(0,0,0,0.08)] sm:p-8">
+          <p className="text-xs font-medium tracking-[0.08em] text-[#6e6e73]">HUAS ADMIN</p>
+          <h1 className="mt-2 text-[2rem] font-semibold tracking-[-0.045em]">管理后台</h1>
+          <p className="mt-2 text-sm leading-6 text-muted">后台使用独立会话，30 分钟无操作后失效。</p>
+          <form className="mt-6 space-y-4" onSubmit={submit}>
+            <label className="block space-y-2"><span className="text-sm font-medium">管理员账号</span><input autoComplete="username" className={fieldClass} value={username} onChange={(event) => setUsername(event.target.value)} /></label>
+            <label className="block space-y-2"><span className="text-sm font-medium">管理员密码</span><input autoComplete="current-password" className={fieldClass} type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+            {message ? <p className="rounded-xl bg-[#fff1f0] px-3 py-2.5 text-sm text-[#a12b25]">{message}</p> : null}
+            <Button fullWidth size="lg" type="submit" disabled={login.isPending}>{login.isPending ? '登录中…' : '登录'}</Button>
+          </form>
+          <button className="mt-5 w-full text-center text-sm text-muted" type="button" onClick={() => navigate(appRoutes.me)}>返回应用</button>
+        </section>
+      </main>
+    );
+  }
+
+  const outletContext: AdminOutletContextValue = { session, onUnauthorized };
+
+  const navigation = navGroups.map((group) => (
+    <section key={group.label} className="space-y-1">
+      <p className="px-3 pb-1 pt-3 text-[0.68rem] font-semibold tracking-[0.1em] text-[#8e8e93]">{group.label}</p>
+      {group.items.map((item) => (
+        <NavLink key={item.to} to={item.to} onClick={() => setMenuOpen(false)} className={({ isActive }) => `block rounded-[0.7rem] px-3 py-2 text-sm font-medium transition ${isActive ? 'bg-black/[0.07] text-black' : 'text-[#59595f] hover:bg-black/[0.035]'}`}>{item.label}</NavLink>
+      ))}
+    </section>
+  ));
 
   return (
-    <div className="relative min-h-dvh overflow-hidden bg-shell px-[var(--space-shell-x)] py-[var(--space-shell-top)] sm:px-6">
-      <div className="shell-backdrop absolute inset-0 -z-10" />
-
-      <div className="mx-auto max-w-[86rem] space-y-4 pb-8 sm:space-y-5">
-        <PageHeader
-          action={(
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                type="button"
-                variant="subtle"
-                onClick={() => navigate(appRoutes.me)}
-              >
-                返回应用
-              </Button>
-              {adminSession ? (
-                <Button
-                  size="sm"
-                  type="button"
-                  variant="ghost"
-                  onClick={() => {
-                    clearSession('已断开后台连接');
-                    pushToast({
-                      title: '已断开后台',
-                      variant: 'info',
-                    });
-                  }}
-                >
-                  <DoorArrowRight20Filled aria-hidden="true" className="size-4" />
-                  断开
-                </Button>
-              ) : null}
-            </div>
-          )}
-          compact
-          description="集中管理系统状态、公告、Discover、Treehole 与终端日志。"
-          eyebrow="Admin"
-          title="管理后台"
-        />
-
-        {!adminSession ? (
-          <div className="mx-auto w-full max-w-[32rem]">
-            <Card className="space-y-5 bg-card-strong">
-              <div className="space-y-1.5">
-                <h2 className="text-xl font-semibold tracking-[-0.03em] text-ink">连接管理员接口</h2>
-                <p className="text-sm leading-6 text-muted">
-                  管理页面使用后端 `/api/admin/*` 的 Basic Auth，不会复用普通用户登录态。
-                </p>
-              </div>
-
-              <form className="space-y-4" onSubmit={handleAdminLogin}>
-                <label className="block space-y-2">
-                  <span className="text-sm font-medium text-ink">管理员账号</span>
-                  <input
-                    autoComplete="username"
-                    className={fieldClassName}
-                    placeholder="请输入管理员账号"
-                    value={username}
-                    onChange={(event) => setUsername(event.target.value)}
-                  />
-                </label>
-
-                <label className="block space-y-2">
-                  <span className="text-sm font-medium text-ink">管理员密码</span>
-                  <input
-                    autoComplete="current-password"
-                    className={fieldClassName}
-                    placeholder="请输入管理员密码"
-                    type="password"
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                  />
-                </label>
-
-                {authMessage ? (
-                  <div className="rounded-[1.1rem] bg-[#fde9e5] px-4 py-3 text-sm leading-6 text-[#8a342c] ring-1 ring-[#efc9c0]">
-                    {authMessage}
-                  </div>
-                ) : null}
-
-                <Button
-                  fullWidth
-                  size="lg"
-                  type="submit"
-                  disabled={loginMutation.isPending}
-                >
-                  {loginMutation.isPending ? '验证中...' : '进入管理后台'}
-                </Button>
-              </form>
-            </Card>
-          </div>
-        ) : (
-          <>
-            <Card className="bg-card-strong p-2">
-              <nav className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-                {navItems.map((item) => (
-                  <NavLink
-                    key={item.to}
-                    className={({ isActive }) =>
-                      isActive
-                        ? 'rounded-[1rem] border border-[#e3c8b8] bg-[linear-gradient(160deg,rgba(255,241,226,0.98),rgba(255,232,211,0.82))] px-3 py-3'
-                        : 'rounded-[1rem] border border-line bg-white/70 px-3 py-3 transition hover:bg-white'
-                    }
-                    to={item.to}
-                  >
-                    <p className="text-sm font-semibold text-ink">{item.label}</p>
-                    <p className="mt-1 text-xs leading-5 text-muted">{item.description}</p>
-                  </NavLink>
-                ))}
-              </nav>
-            </Card>
-
-            {outletContext ? <Outlet context={outletContext} /> : null}
-          </>
-        )}
+    <div className="min-h-dvh bg-[#f5f5f7] text-ink">
+      <header className="sticky top-0 z-40 border-b border-black/[0.06] bg-[#f5f5f7]/90 backdrop-blur-xl lg:hidden">
+        <div className="flex h-14 items-center justify-between px-4"><button type="button" className="text-sm font-semibold" onClick={() => setMenuOpen((value) => !value)}>管理后台</button><button type="button" className="text-sm text-[#007aff]" onClick={() => clearSession()}>退出</button></div>
+        {menuOpen ? <nav className="max-h-[calc(100dvh-3.5rem)] overflow-auto border-t border-black/[0.06] bg-white px-3 pb-4">{navigation}</nav> : null}
+      </header>
+      <div className="mx-auto grid max-w-[100rem] lg:grid-cols-[13rem_minmax(0,1fr)]">
+        <aside className="sticky top-0 hidden h-dvh border-r border-black/[0.06] px-3 py-5 lg:flex lg:flex-col">
+          <div className="px-3"><p className="text-xs font-semibold tracking-[0.08em]">HUAS</p><p className="mt-1 text-lg font-semibold tracking-[-0.03em]">管理后台</p></div>
+          <nav className="mt-4 flex-1 overflow-auto">{navigation}</nav>
+          <div className="space-y-1 border-t border-black/[0.06] pt-3"><button className="w-full rounded-lg px-3 py-2 text-left text-sm text-muted hover:bg-black/[0.035]" onClick={() => navigate(appRoutes.me)}>返回应用</button><button className="w-full rounded-lg px-3 py-2 text-left text-sm text-muted hover:bg-black/[0.035]" onClick={() => clearSession()}>退出 · {session.username}</button></div>
+        </aside>
+        <main className="min-w-0 px-3 py-5 sm:px-5 lg:px-7 lg:py-7 xl:px-10"><Outlet context={outletContext} /></main>
       </div>
     </div>
   );

@@ -138,8 +138,14 @@ async function authHeaderFor(userId: number, studentId: string) {
   return { Authorization: `Bearer ${token}` };
 }
 
-function adminAuthHeader() {
-  return { Authorization: `Basic ${Buffer.from('test-admin:test-admin-password').toString('base64')}` };
+async function adminSessionHeader(app: Hono) {
+  const response = await app.request('http://localhost/api/admin/session', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'test-admin', password: 'test-admin-password' }),
+  });
+  const cookie = response.headers.get('set-cookie')?.split(';')[0];
+  return cookie ? { Cookie: cookie } : {};
 }
 
 async function createDiscoverPost(
@@ -813,10 +819,9 @@ describe('discover module', () => {
     expect(mediaBeforeDelete.headers.get('cache-control')).toBe(DISCOVER_MEDIA_CACHE_CONTROL);
     expect(await Bun.file(filePath).exists()).toBe(true);
 
-    const adminAuth = adminAuthHeader().Authorization;
     const deleteRes = await app.request(`http://localhost/api/admin/discover/posts/${postId}`, {
       method: 'DELETE',
-      headers: { Authorization: adminAuth },
+      headers: await adminSessionHeader(app),
     });
 
     expect(deleteRes.status).toBe(200);
@@ -845,14 +850,14 @@ describe('discover module', () => {
     try {
       delete process.env.ADMIN_USERNAME;
       const missingUsernameRes = await app.request('http://localhost/api/admin/compliance/ugc', {
-        headers: adminAuthHeader(),
+        headers: await adminSessionHeader(app),
       });
       expect(missingUsernameRes.status).toBe(401);
 
       process.env.ADMIN_USERNAME = username;
       delete process.env.ADMIN_PASSWORD;
       const missingPasswordRes = await app.request('http://localhost/api/admin/compliance/ugc', {
-        headers: adminAuthHeader(),
+        headers: await adminSessionHeader(app),
       });
       expect(missingPasswordRes.status).toBe(401);
     } finally {
@@ -866,7 +871,7 @@ describe('discover module', () => {
     const authorHeaders = await authHeaderFor(authorId, '2023001001');
 
     const initialState = await app.request('http://localhost/api/admin/compliance/ugc', {
-      headers: adminAuthHeader(),
+      headers: await adminSessionHeader(app),
     });
     expect(initialState.status).toBe(200);
     const initialStateBody = await initialState.json() as any;
@@ -878,7 +883,7 @@ describe('discover module', () => {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
-        ...adminAuthHeader(),
+        ...await adminSessionHeader(app),
       },
       body: JSON.stringify({ mode: 'compliance' }),
     });
@@ -927,7 +932,7 @@ describe('discover module', () => {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
-        ...adminAuthHeader(),
+        ...await adminSessionHeader(app),
       },
       body: JSON.stringify({
         mode: 'compliance',
@@ -983,7 +988,7 @@ describe('discover module', () => {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
-        ...adminAuthHeader(),
+        ...await adminSessionHeader(app),
       },
       body: JSON.stringify({ mode: 'normal' }),
     });

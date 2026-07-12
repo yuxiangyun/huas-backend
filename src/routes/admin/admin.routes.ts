@@ -1,12 +1,17 @@
 /**
- * [INPUT]: 依赖 adminBasicAuthMiddleware、dashboard/content/discover/treehole/log 服务、ugcComplianceState 与响应工具
- * [OUTPUT]: 对外默认导出 admin Hono 路由，提供 /api/admin 管理面接口与 UGC 合规热开关
- * [POS]: routes/admin 的管理 HTTP 适配器，统一 Basic Auth、管理参数解析、运行态开关、错误包装与操作日志
+ * [INPUT]: 依赖 adminSessionMiddleware、dashboard/content/discover/treehole/log 服务、ugcComplianceState 与响应工具
+ * [OUTPUT]: 对外默认导出 admin Hono 路由，提供后台会话、管理面接口与 UGC 合规热开关
+ * [POS]: routes/admin 的管理 HTTP 适配器，统一 Cookie 会话、管理参数解析、运行态开关、错误包装与操作日志
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { Hono } from 'hono';
-import { adminBasicAuthMiddleware } from '../../middleware/admin-basic-auth.middleware';
+import {
+  adminSessionMiddleware,
+  createAdminSession,
+  currentAdminSession,
+  revokeAdminSession,
+} from '../../middleware/admin-session.middleware';
 import { success, error } from '../../utils/response';
 import { ErrorCode } from '../../utils/errors';
 import { AdminDashboardService } from '../../services/admin/dashboard-service';
@@ -16,10 +21,39 @@ import { TerminalLogService } from '../../services/admin/terminal-log-service';
 import { TreeholeService } from '../../services/treehole/treehole-service';
 import { Logger } from '../../utils/logger';
 import { ugcComplianceState } from '../../runtime/ugc-compliance-state';
+import { AnalyticsService } from '../../services/admin/analytics-service';
 
 const admin = new Hono();
 
-admin.use('*', adminBasicAuthMiddleware);
+admin.post('/session', async (c) => {
+  let body: { username?: unknown; password?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return error(c, ErrorCode.PARAM_ERROR, '请输入管理员账号和密码', 400);
+  }
+
+  const username = typeof body.username === 'string' ? body.username.trim() : '';
+  const password = typeof body.password === 'string' ? body.password : '';
+  const session = createAdminSession(c, username, password);
+  if (!session) return error(c, ErrorCode.JWT_INVALID, '管理员账号或密码错误', 401);
+  Logger.operation('Admin', '建立后台会话', username, '管理员');
+  return success(c, session);
+});
+
+admin.use('*', adminSessionMiddleware);
+
+admin.get('/session', (c) => {
+  const session = currentAdminSession(c);
+  return session ? success(c, session) : error(c, ErrorCode.JWT_INVALID, '后台会话已失效', 401);
+});
+
+admin.delete('/session', (c) => {
+  const username = c.get('adminUser') || 'admin';
+  revokeAdminSession(c);
+  Logger.operation('Admin', '退出后台会话', username, '管理员');
+  return success(c, { revoked: true });
+});
 
 admin.get('/compliance/ugc', (c) => {
   return success(c, ugcComplianceState.status());
@@ -68,6 +102,16 @@ admin.get('/dashboard', async (c) => {
     return success(c, data);
   } catch (e: any) {
     return error(c, ErrorCode.INTERNAL_ERROR, e?.message || '获取管理面板数据失败', 500);
+  }
+});
+
+admin.get('/analytics/overview', async (c) => {
+  const days = Number(c.req.query('days') || 30);
+  if (![7, 30, 90].includes(days)) return error(c, ErrorCode.PARAM_ERROR, 'days 仅支持 7、30、90', 400);
+  try {
+    return success(c, await AnalyticsService.getOverview(days));
+  } catch (e: any) {
+    return error(c, ErrorCode.INTERNAL_ERROR, e?.message || '获取分析数据失败', 500);
   }
 });
 

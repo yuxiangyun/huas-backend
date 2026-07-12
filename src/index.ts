@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Hono/Bun server、全局中间件、路由装配、数据库初始化、媒体服务、静态资源与运行态
- * [OUTPUT]: 启动后端 HTTP 服务，挂载 /api、/auth、/health、/m、/media、/status 并执行定时清理
+ * [OUTPUT]: 启动后端 HTTP 服务，挂载 /api、/auth、/health、/m、/media 并执行定时清理
  * [POS]: src 的进程入口，连接配置、数据库、路由、中间件、静态托管和优雅停机
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -17,7 +17,6 @@ import { CredentialManager } from './auth/credential-manager';
 import { CacheService } from './services/infra/cache-service';
 import { config } from './config';
 import { Logger } from './utils/logger';
-import { adminBasicAuthMiddleware } from './middleware/admin-basic-auth.middleware';
 import { serverState } from './runtime/server-state';
 import {
   DiscoverMediaService,
@@ -114,12 +113,6 @@ app.get('/m/*', async (c) => {
 
 // Register all routes
 registerRoutes(app);
-
-// Admin status page (protected by Basic Auth)
-app.get('/status', adminBasicAuthMiddleware, async (c) => {
-  const html = await Bun.file(resolve(publicRoot, 'status.html')).text();
-  return c.html(html);
-});
 
 // Dev-only: API test page
 if (isDev) {

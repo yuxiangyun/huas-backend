@@ -1,56 +1,29 @@
-export interface AdminBasicSession {
+/**
+ * [INPUT]: 依赖 shared/api/http-client 的无用户 JWT 请求能力
+ * [OUTPUT]: 提供 AdminSession 类型及后台会话登录、探测、退出函数
+ * [POS]: features/admin-treehole 的后台认证模型，只持有公开会话信息，凭据由 HttpOnly Cookie 承载
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
+import { apiRequest } from '@/shared/api/http-client';
+
+export interface AdminSession {
   username: string;
-  authorization: string;
+  expiresInSeconds: number;
 }
 
-const STORAGE_KEY = 'huas-web.admin-basic-session';
-
-function encodeBase64(value: string) {
-  const bytes = new TextEncoder().encode(value);
-  let binary = '';
-
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
-  }
-
-  return window.btoa(binary);
+export function createAdminSession(username: string, password: string) {
+  return apiRequest<AdminSession>(
+    '/api/admin/session',
+    { method: 'POST', body: JSON.stringify({ username: username.trim(), password }) },
+    { auth: false }
+  );
 }
 
-export function createAdminBasicSession(username: string, password: string): AdminBasicSession {
-  const normalizedUsername = username.trim();
-  return {
-    username: normalizedUsername,
-    authorization: `Basic ${encodeBase64(`${normalizedUsername}:${password}`)}`,
-  };
+export function readAdminSession() {
+  return apiRequest<AdminSession>('/api/admin/session', {}, { auth: false });
 }
 
-export function readAdminBasicSession(): AdminBasicSession | null {
-  if (typeof window === 'undefined') return null;
-
-  try {
-    const raw = window.sessionStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-
-    const parsed = JSON.parse(raw) as Partial<AdminBasicSession>;
-    if (!parsed.username || !parsed.authorization) {
-      return null;
-    }
-
-    return {
-      username: parsed.username,
-      authorization: parsed.authorization,
-    };
-  } catch {
-    return null;
-  }
-}
-
-export function writeAdminBasicSession(session: AdminBasicSession) {
-  if (typeof window === 'undefined') return;
-  window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(session));
-}
-
-export function clearAdminBasicSession() {
-  if (typeof window === 'undefined') return;
-  window.sessionStorage.removeItem(STORAGE_KEY);
+export function clearAdminSession() {
+  return apiRequest<{ revoked: true }>('/api/admin/session', { method: 'DELETE' }, { auth: false });
 }

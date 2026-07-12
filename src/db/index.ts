@@ -296,6 +296,23 @@ export function initDatabase() {
     created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
   )`);
 
+  database.run(sql`CREATE TABLE IF NOT EXISTS analytics_daily_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    day TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    metric TEXT NOT NULL,
+    value INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+  )`);
+
+  database.run(sql`CREATE TABLE IF NOT EXISTS analytics_daily_users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    day TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+  )`);
+
   // Backward-compatible migration for older SQLite files.
   ensureLegacyColumns();
   backfillCriticalTimestamps();
@@ -338,6 +355,11 @@ export function initDatabase() {
     ON treehole_comment_notifications(post_id)`);
   database.run(sql`CREATE INDEX IF NOT EXISTS idx_treehole_comment_notifications_comment_id
     ON treehole_comment_notifications(comment_id)`);
+  database.run(sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_analytics_daily_metric
+    ON analytics_daily_metrics(day, platform, metric)`);
+  database.run(sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_analytics_daily_user
+    ON analytics_daily_users(day, platform, user_id)`);
+  database.run(sql`CREATE INDEX IF NOT EXISTS idx_analytics_daily_users_day ON analytics_daily_users(day)`);
   database.run(sql`UPDATE discover_posts
     SET comment_count = (
       SELECT count(*) FROM discover_comments

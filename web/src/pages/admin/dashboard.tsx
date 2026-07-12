@@ -1,411 +1,206 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { useAdminDashboardQuery } from '@/entities/admin/api/admin-queries';
+/**
+ * [INPUT]: 依赖后台 dashboard/analytics 查询、dither-kit area/bar 图表与后台会话上下文
+ * [OUTPUT]: 提供 AdminDashboardPage 全渠道业务洞察总览
+ * [POS]: pages/admin 的默认洞察页，以真实时间序列为主、管理入口为辅
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
+import { useMemo, useState } from 'react';
+import { AreaChart } from '@/components/dither-kit/area-chart';
+import { Area } from '@/components/dither-kit/area';
+import { BarChart } from '@/components/dither-kit/bar-chart';
+import { Bar } from '@/components/dither-kit/bar';
+import { Grid } from '@/components/dither-kit/grid';
+import { Legend } from '@/components/dither-kit/legend';
+import { Tooltip } from '@/components/dither-kit/tooltip';
+import { XAxis } from '@/components/dither-kit/x-axis';
+import { YAxis } from '@/components/dither-kit/y-axis';
+import { useAdminAnalyticsQuery, useAdminDashboardQuery } from '@/entities/admin/api/admin-queries';
 import { useAdminOutletContext } from '@/pages/admin/layout';
-import { ApiError } from '@/shared/api/http-client';
-import { Button } from '@/shared/ui/button';
-import { Card } from '@/shared/ui/card';
 
-const fieldClassName =
-  'h-11 w-full rounded-[1rem] border border-line bg-white/86 px-3 text-sm text-ink outline-none transition focus:border-transparent focus:ring-2 focus:ring-black/10';
+type Period = 7 | 30 | 90;
+type Point = Record<string, string | number>;
 
-function parsePositiveParam(value: string | null, fallback: number) {
-  const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+const PLATFORM_CONFIG = {
+  'active.miniprogram': { label: '小程序', color: 'blue' },
+  'active.web': { label: 'Web', color: 'purple' },
+  'active.unknown': { label: '未识别', color: 'grey' },
+} as const;
+
+const FEATURE_CONFIG = {
+  schedule: { label: '课表', color: 'blue' },
+  grades: { label: '成绩', color: 'purple' },
+  ecard: { label: '一卡通', color: 'green' },
+  classrooms: { label: '空教室', color: 'orange' },
+  discover: { label: 'Discover', color: 'pink' },
+  treehole: { label: 'Treehole', color: 'red' },
+} as const;
+
+const PLATFORMS = ['miniprogram', 'web', 'unknown'] as const;
+const FEATURES = Object.keys(FEATURE_CONFIG) as Array<keyof typeof FEATURE_CONFIG>;
+
+function valueOf(point: Point, key: string) {
+  const value = point[key];
+  return typeof value === 'number' ? value : 0;
 }
 
-function formatDateTime(value: string | null) {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString('zh-CN', {
-    month: 'numeric',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+function sumSeries(series: Point[], metric: string) {
+  return series.reduce(
+    (total, point) => total + PLATFORMS.reduce((sum, platform) => sum + valueOf(point, `${metric}.${platform}`), 0),
+    0
+  );
 }
 
-function formatUptime(seconds: number) {
-  const s = Math.max(0, Number(seconds || 0));
-  const d = Math.floor(s / 86400);
-  const h = Math.floor((s % 86400) / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  if (d > 0) return `${d}天 ${h}小时 ${m}分`;
-  if (h > 0) return `${h}小时 ${m}分 ${sec}秒`;
-  return `${m}分 ${sec}秒`;
+function formatDay(value: unknown) {
+  const day = String(value ?? '');
+  return day.length >= 10 ? day.slice(5).replace('-', '/') : day;
 }
 
-function getErrorMessage(error: unknown, fallback: string) {
-  if (error instanceof Error && error.message) {
-    return error.message;
-  }
-  return fallback;
+function MetricCard({ label, value, note }: { label: string; value: string; note: string }) {
+  return (
+    <article className="rounded-[1.35rem] border border-black/[0.06] bg-white px-4 py-4 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+      <p className="text-[0.72rem] font-medium tracking-[0.04em] text-muted">{label}</p>
+      <p className="mt-2 text-[1.75rem] font-semibold tracking-[-0.045em] text-ink tabular-nums">{value}</p>
+      <p className="mt-1 text-xs text-muted">{note}</p>
+    </article>
+  );
+}
+
+function ChartCard({ title, meta, children, className = '' }: {
+  title: string;
+  meta: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <section className={`rounded-[1.6rem] border border-black/[0.06] bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.04)] sm:p-5 ${className}`}>
+      <div className="mb-4 flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-[1.05rem] font-semibold tracking-[-0.02em] text-ink">{title}</h2>
+          <p className="mt-1 text-xs text-muted">{meta}</p>
+        </div>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function EmptyChart({ note }: { note: string }) {
+  return <div className="grid h-full place-items-center rounded-xl bg-black/[0.018] text-center"><div><p className="text-sm font-medium text-[#6e6e73]">暂无数据</p><p className="mt-1 text-xs text-[#8e8e93]">{note}</p></div></div>;
 }
 
 export function AdminDashboardPage() {
-  const { session, onUnauthorized } = useAdminOutletContext();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const { session } = useAdminOutletContext();
+  const [period, setPeriod] = useState<Period>(30);
+  const analyticsQuery = useAdminAnalyticsQuery(session, period);
+  const dashboardQuery = useAdminDashboardQuery(session, { page: 1 });
 
-  const page = parsePositiveParam(searchParams.get('page'), 1);
-  const search = searchParams.get('search') ?? '';
-  const major = searchParams.get('major') ?? '';
-  const grade = searchParams.get('grade') ?? '';
-  const [searchInput, setSearchInput] = useState(search);
+  const series = (analyticsQuery.data?.series ?? []) as Point[];
+  const latest = series.at(-1) ?? {};
+  const activeToday = PLATFORMS.reduce((sum, platform) => sum + valueOf(latest, `active.${platform}`), 0);
+  const featureTotal = FEATURES.reduce((sum, feature) => sum + sumSeries(series, `feature.${feature}`), 0);
+  const activeTotal = sumSeries(series, 'active');
+  const loginSuccess = sumSeries(series, 'login.success');
+  const loginFailure = sumSeries(series, 'login.failure');
+  const serverErrors = sumSeries(series, 'request.server_error');
+  const requests = sumSeries(series, 'request.total');
+  const metrics = dashboardQuery.data?.metrics;
 
-  useEffect(() => {
-    setSearchInput(search);
-  }, [search]);
-
-  const dashboardQuery = useAdminDashboardQuery(session, {
-    page,
-    search: search || undefined,
-    major: major || undefined,
-    grade: grade || undefined,
-  });
-
-  useEffect(() => {
-    if (!(dashboardQuery.error instanceof ApiError) || dashboardQuery.error.httpStatus !== 401) return;
-    onUnauthorized('管理员会话已失效，请重新登录');
-  }, [dashboardQuery.error, onUnauthorized]);
-
-  function patchSearchParams(patcher: (params: URLSearchParams) => void) {
-    const nextParams = new URLSearchParams(searchParams);
-    patcher(nextParams);
-
-    if (!nextParams.get('page') || nextParams.get('page') === '1') {
-      nextParams.delete('page');
+  const featureSeries = useMemo(() => series.map((point) => {
+    const next: Point = { day: point.day };
+    for (const feature of FEATURES) {
+      next[feature] = PLATFORMS.reduce(
+        (sum, platform) => sum + valueOf(point, `feature.${feature}.${platform}`),
+        0
+      );
     }
-    if (!nextParams.get('search')) {
-      nextParams.delete('search');
-    }
-    if (!nextParams.get('major')) {
-      nextParams.delete('major');
-    }
-    if (!nextParams.get('grade')) {
-      nextParams.delete('grade');
-    }
+    return next;
+  }), [series]);
 
-    setSearchParams(nextParams);
-  }
-
-  const summaryItems = useMemo(() => {
-    if (!dashboardQuery.data) return [];
-
-    return [
-      { label: '总用户数', value: dashboardQuery.data.metrics.totalUsers.toLocaleString('en-US') },
-      { label: '今日活跃', value: dashboardQuery.data.metrics.todayActiveUsers.toLocaleString('en-US') },
-      { label: '近7天活跃', value: dashboardQuery.data.metrics.activeUsers7d.toLocaleString('en-US') },
-      { label: '近7天新增', value: dashboardQuery.data.metrics.newUsers7d.toLocaleString('en-US') },
-      { label: '缓存条数', value: dashboardQuery.data.metrics.cacheEntries.toLocaleString('en-US') },
-      { label: '凭证条数', value: dashboardQuery.data.metrics.credentialEntries.toLocaleString('en-US') },
-      { label: 'Discover 帖子', value: dashboardQuery.data.metrics.totalDiscoverPosts.toLocaleString('en-US') },
-      { label: 'Discover 评分', value: dashboardQuery.data.metrics.totalDiscoverRatings.toLocaleString('en-US') },
-      { label: 'RSS 内存', value: `${dashboardQuery.data.metrics.memory.rssMb} MB` },
-      { label: '运行时长', value: formatUptime(dashboardQuery.data.metrics.uptimeSeconds) },
-    ];
-  }, [dashboardQuery.data]);
-
-  const users = dashboardQuery.data?.users;
-  const totalPages = users?.totalPages ?? 1;
+  const majorSeries = useMemo(() =>
+    (dashboardQuery.data?.distributions.byMajor ?? []).slice(0, 10).map((item) => ({
+      label: item.className || '未分配',
+      users: item.count,
+    })), [dashboardQuery.data]);
 
   return (
     <div className="space-y-4 sm:space-y-5">
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        {dashboardQuery.isLoading
-          ? Array.from({ length: 10 }, (_, index) => (
-              <Card key={index} className="space-y-2 bg-card-strong">
-                <div className="h-3 w-20 animate-pulse rounded bg-shell-strong" />
-                <div className="h-7 w-16 animate-pulse rounded bg-shell-strong" />
-              </Card>
-            ))
-          : summaryItems.map((item) => (
-              <Card key={item.label} className="space-y-2 bg-card-strong">
-                <p className="text-xs uppercase tracking-[0.18em] text-muted">{item.label}</p>
-                <p className="text-[1.5rem] font-semibold tracking-[-0.04em] text-ink">{item.value}</p>
-              </Card>
-            ))}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-xs font-medium tracking-[0.08em] text-[#6e6e73]">全部渠道</p>
+          <h1 className="mt-1 text-[1.8rem] font-semibold tracking-[-0.045em] text-ink sm:text-[2.15rem]">业务总览</h1>
+          <p className="mt-1 text-sm text-muted">小程序、Web 与未识别来源均计入统计。</p>
+        </div>
+        <div className="inline-flex w-fit rounded-xl bg-black/[0.055] p-1" aria-label="时间范围">
+          {([7, 30, 90] as const).map((value) => (
+            <button
+              key={value}
+              className={`rounded-[0.6rem] px-3 py-1.5 text-xs font-medium transition ${period === value ? 'bg-white text-ink shadow-sm' : 'text-muted'}`}
+              type="button"
+              onClick={() => setPeriod(value)}
+            >
+              {value} 天
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <section className="grid grid-cols-2 gap-2.5 lg:grid-cols-3 xl:grid-cols-6">
+        <MetricCard label="今日活跃" value={activeToday.toLocaleString()} note="去重用户" />
+        <MetricCard label="近 7 天新增" value={(metrics?.newUsers7d ?? 0).toLocaleString()} note="首次登录用户" />
+        <MetricCard label="登录成功率" value={`${loginSuccess + loginFailure ? Math.round(loginSuccess / (loginSuccess + loginFailure) * 1000) / 10 : 0}%`} note={`${loginSuccess + loginFailure} 次尝试`} />
+        <MetricCard label="核心功能使用" value={featureTotal.toLocaleString()} note={`过去 ${period} 天`} />
+        <MetricCard label="内容与评分" value={((metrics?.totalDiscoverPosts ?? 0) + (metrics?.totalDiscoverRatings ?? 0)).toLocaleString()} note="当前有效总量" />
+        <MetricCard label="服务端错误率" value={`${requests ? Math.round(serverErrors / requests * 10000) / 100 : 0}%`} note={`${serverErrors} / ${requests}`} />
       </section>
 
-      {dashboardQuery.data ? (
-        <section className="grid gap-3 lg:grid-cols-3">
-          <Card className="space-y-2 bg-card-strong lg:col-span-2">
-            <p className="text-base font-semibold text-ink">系统状态</p>
-            <p className="text-sm leading-6 text-muted">
-              服务状态：
-              <span className={dashboardQuery.data.service.status === 'ok' ? 'ml-1 text-[#216a4c]' : 'ml-1 text-[#8d3a35]'}>
-                {dashboardQuery.data.service.status === 'ok' ? '正常' : '异常'}
-              </span>
-            </p>
-            <p className="text-sm leading-6 text-muted">服务时间：{formatDateTime(dashboardQuery.data.service.timestamp)}</p>
-            <p className="text-sm leading-6 text-muted">Heap Used：{dashboardQuery.data.metrics.memory.heapUsedMb} MB</p>
-            <p className="text-sm leading-6 text-muted">Heap Total：{dashboardQuery.data.metrics.memory.heapTotalMb} MB</p>
-          </Card>
+      <div className="grid gap-4 xl:grid-cols-12">
+        <ChartCard title="活跃用户" meta={`过去 ${period} 天 · 按渠道`} className="xl:col-span-8">
+          <div className="h-[20rem] sm:h-[23rem]">
+            {activeTotal === 0 ? <EmptyChart note="渠道数据自接入日起统计" /> : <AreaChart data={series} config={PLATFORM_CONFIG} bloom="low" bloomOnHover>
+              <Grid />
+              <XAxis dataKey="day" tickFormatter={formatDay} maxTicks={period === 90 ? 6 : 8} />
+              <YAxis />
+              <Area dataKey="active.miniprogram" variant="gradient" />
+              <Area dataKey="active.web" variant="dotted" />
+              <Area dataKey="active.unknown" variant="hatched" />
+              <Legend isClickable />
+              <Tooltip labelKey="day" variant="frosted-glass" />
+            </AreaChart>}
+          </div>
+        </ChartCard>
 
-          <Card className="space-y-3 bg-card-strong">
-            <p className="text-base font-semibold text-ink">分布概览</p>
-            <div className="space-y-2 text-sm text-muted">
-              <p>专业数：{dashboardQuery.data.distributions.byMajor.length}</p>
-              <p>年级数：{dashboardQuery.data.distributions.byGrade.length}</p>
-              <p>用户分页：{users?.pageSize ?? 20} / 页</p>
-            </div>
-          </Card>
-        </section>
+        <ChartCard title="专业分布" meta="当前用户数 · 前 10 项" className="xl:col-span-4">
+          <div className="h-[20rem] sm:h-[23rem]">
+            {majorSeries.length === 0 ? <EmptyChart note="当前没有用户分布记录" /> : <BarChart data={majorSeries} config={{ users: { label: '用户', color: 'blue' } }} bloom="low" bloomOnHover>
+              <Grid />
+              <XAxis dataKey="label" tickFormatter={(value) => String(value).slice(0, 4)} maxTicks={5} />
+              <YAxis />
+              <Bar dataKey="users" variant="gradient" />
+              <Tooltip labelKey="label" variant="frosted-glass" />
+            </BarChart>}
+          </div>
+        </ChartCard>
+      </div>
+
+      <ChartCard title="核心功能使用" meta={`过去 ${period} 天 · 全部渠道`}>
+        <div className="h-[22rem] sm:h-[26rem]">
+          {featureTotal === 0 ? <EmptyChart note="功能使用数据自接入日起统计" /> : <BarChart data={featureSeries} config={FEATURE_CONFIG} stackType="stacked" bloom="low" bloomOnHover>
+            <Grid />
+            <XAxis dataKey="day" tickFormatter={formatDay} maxTicks={period === 90 ? 6 : 10} />
+            <YAxis />
+            {FEATURES.map((feature, index) => (
+              <Bar key={feature} dataKey={feature} variant={index % 3 === 0 ? 'gradient' : index % 3 === 1 ? 'dotted' : 'hatched'} />
+            ))}
+            <Legend isClickable align="left" />
+            <Tooltip labelKey="day" variant="frosted-glass" />
+          </BarChart>}
+        </div>
+      </ChartCard>
+
+      {analyticsQuery.isError || dashboardQuery.isError ? (
+        <p className="rounded-xl bg-[#fff1f0] px-4 py-3 text-sm text-[#a12b25]">部分数据暂时无法加载。</p>
       ) : null}
-
-      <section className="grid gap-3 xl:grid-cols-2">
-        <Card className="overflow-hidden bg-card-strong p-0">
-          <div className="border-b border-line/70 px-4 py-3">
-            <p className="text-base font-semibold text-ink">专业分布</p>
-          </div>
-          <div className="max-h-[22rem] overflow-auto">
-            <table className="min-w-full text-left text-sm">
-              <thead className="bg-white/72 text-muted">
-                <tr>
-                  <th className="px-4 py-3 font-medium">专业</th>
-                  <th className="px-4 py-3 font-medium">人数</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(dashboardQuery.data?.distributions.byMajor ?? []).map((item) => (
-                  <tr key={`${item.className}-${item.count}`} className="border-t border-line/70">
-                    <td className="px-4 py-3 text-ink">{item.className || '未分配'}</td>
-                    <td className="px-4 py-3 text-muted">{item.count.toLocaleString('en-US')}</td>
-                  </tr>
-                ))}
-                {!dashboardQuery.isLoading && (dashboardQuery.data?.distributions.byMajor.length ?? 0) === 0 ? (
-                  <tr>
-                    <td className="px-4 py-6 text-center text-muted" colSpan={2}>暂无数据</td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-
-        <Card className="overflow-hidden bg-card-strong p-0">
-          <div className="border-b border-line/70 px-4 py-3">
-            <p className="text-base font-semibold text-ink">年级分布</p>
-          </div>
-          <div className="max-h-[22rem] overflow-auto">
-            <table className="min-w-full text-left text-sm">
-              <thead className="bg-white/72 text-muted">
-                <tr>
-                  <th className="px-4 py-3 font-medium">年级</th>
-                  <th className="px-4 py-3 font-medium">人数</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(dashboardQuery.data?.distributions.byGrade ?? []).map((item) => (
-                  <tr key={`${item.grade}-${item.count}`} className="border-t border-line/70">
-                    <td className="px-4 py-3 text-ink">{item.grade}</td>
-                    <td className="px-4 py-3 text-muted">{item.count.toLocaleString('en-US')}</td>
-                  </tr>
-                ))}
-                {!dashboardQuery.isLoading && (dashboardQuery.data?.distributions.byGrade.length ?? 0) === 0 ? (
-                  <tr>
-                    <td className="px-4 py-6 text-center text-muted" colSpan={2}>暂无数据</td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      </section>
-
-      <Card className="space-y-4 bg-card-strong">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="text-base font-semibold text-ink">用户筛选</p>
-            <p className="text-sm leading-6 text-muted">支持按学号、姓名、专业和年级过滤。</p>
-          </div>
-          <Button
-            size="sm"
-            type="button"
-            variant="subtle"
-            onClick={() => void dashboardQuery.refetch()}
-          >
-            刷新
-          </Button>
-        </div>
-
-        <div className="grid gap-2 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_auto_auto]">
-          <input
-            className={fieldClassName}
-            placeholder="输入学号或姓名"
-            value={searchInput}
-            onChange={(event) => setSearchInput(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key !== 'Enter') return;
-              patchSearchParams((params) => {
-                const nextSearch = searchInput.trim();
-                if (nextSearch) {
-                  params.set('search', nextSearch);
-                } else {
-                  params.delete('search');
-                }
-                params.delete('page');
-              });
-            }}
-          />
-
-          <select
-            className={fieldClassName}
-            value={major}
-            onChange={(event) => {
-              const nextMajor = event.target.value;
-              patchSearchParams((params) => {
-                if (nextMajor) {
-                  params.set('major', nextMajor);
-                } else {
-                  params.delete('major');
-                }
-                params.delete('page');
-              });
-            }}
-          >
-            <option value="">全部专业</option>
-            {(dashboardQuery.data?.users.options.majors ?? []).map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-
-          <select
-            className={fieldClassName}
-            value={grade}
-            onChange={(event) => {
-              const nextGrade = event.target.value;
-              patchSearchParams((params) => {
-                if (nextGrade) {
-                  params.set('grade', nextGrade);
-                } else {
-                  params.delete('grade');
-                }
-                params.delete('page');
-              });
-            }}
-          >
-            <option value="">全部年级</option>
-            {(dashboardQuery.data?.users.options.grades ?? []).map((option) => (
-              <option key={option} value={option}>{option}</option>
-            ))}
-          </select>
-
-          <Button
-            size="md"
-            type="button"
-            variant="secondary"
-            onClick={() => {
-              patchSearchParams((params) => {
-                const nextSearch = searchInput.trim();
-                if (nextSearch) {
-                  params.set('search', nextSearch);
-                } else {
-                  params.delete('search');
-                }
-                params.delete('page');
-              });
-            }}
-          >
-            搜索
-          </Button>
-
-          <Button
-            size="md"
-            type="button"
-            variant="ghost"
-            onClick={() => {
-              setSearchInput('');
-              patchSearchParams((params) => {
-                params.delete('search');
-                params.delete('major');
-                params.delete('grade');
-                params.delete('page');
-              });
-            }}
-          >
-            重置
-          </Button>
-        </div>
-
-        {dashboardQuery.isError ? (
-          <div className="rounded-[1rem] bg-[#fde9e5] px-4 py-3 text-sm leading-6 text-[#8a342c] ring-1 ring-[#efc9c0]">
-            {getErrorMessage(dashboardQuery.error, '用户列表加载失败')}
-          </div>
-        ) : null}
-      </Card>
-
-      <Card className="overflow-hidden bg-card-strong p-0">
-        <div className="border-b border-line/70 px-4 py-3">
-          <p className="text-base font-semibold text-ink">用户列表</p>
-          <p className="text-sm leading-6 text-muted">
-            {users ? `总计 ${users.total} 条，当前第 ${users.page} / ${users.totalPages} 页` : '等待加载'}
-          </p>
-        </div>
-
-        <div className="overflow-auto">
-          <table className="min-w-full table-fixed text-left text-sm">
-            <thead className="bg-white/72 text-muted">
-              <tr>
-                <th className="w-[9rem] px-4 py-3 font-medium">学号</th>
-                <th className="w-[8rem] px-4 py-3 font-medium">姓名</th>
-                <th className="w-[10rem] px-4 py-3 font-medium">专业</th>
-                <th className="w-[6rem] px-4 py-3 font-medium">年级</th>
-                <th className="px-4 py-3 font-medium">最后登录</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(users?.items ?? []).map((item) => (
-                <tr key={`${item.studentId}-${item.lastLoginAt}`} className="border-t border-line/70">
-                  <td className="px-4 py-3 font-mono text-ink">{item.studentId}</td>
-                  <td className="px-4 py-3 text-ink">{item.name || '-'}</td>
-                  <td className="px-4 py-3 text-muted">{item.className || '-'}</td>
-                  <td className="px-4 py-3 text-muted">{item.grade || '-'}</td>
-                  <td className="px-4 py-3 text-muted">{formatDateTime(item.lastLoginAt)}</td>
-                </tr>
-              ))}
-              {!dashboardQuery.isLoading && (users?.items.length ?? 0) === 0 ? (
-                <tr>
-                  <td className="px-4 py-6 text-center text-muted" colSpan={5}>暂无数据</td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-
-        {users ? (
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line/70 px-4 py-3">
-            <Button
-              size="sm"
-              type="button"
-              variant="secondary"
-              disabled={users.page <= 1}
-              onClick={() =>
-                patchSearchParams((params) => {
-                  params.set('page', String(Math.max(1, users.page - 1)));
-                })
-              }
-            >
-              上一页
-            </Button>
-            <span className="text-sm text-muted">第 {users.page} / {totalPages} 页</span>
-            <Button
-              size="sm"
-              type="button"
-              variant="secondary"
-              disabled={users.page >= totalPages}
-              onClick={() =>
-                patchSearchParams((params) => {
-                  params.set('page', String(Math.min(totalPages, users.page + 1)));
-                })
-              }
-            >
-              下一页
-            </Button>
-          </div>
-        ) : null}
-      </Card>
     </div>
   );
 }
