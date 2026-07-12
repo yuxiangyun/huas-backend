@@ -147,6 +147,7 @@ src/
 | Portal JWT | 本地 TTL 7 天 | `credentials.value` | 调 Portal API |
 | JW Session | 本地 TTL 7 天 | `credentials.cookie_jar` | 调 JW API |
 | AES 加密密码 | 长期 | `users.encrypted_password` | 静默重认证 |
+| 交互登录恢复标记 | 直到真实 CAS 成功 | `credentials` 特殊记录 | 阻止验证码场景被本地快捷登录绕过 |
 
 ### 5.2 登录主流程
 
@@ -170,7 +171,10 @@ src/
 
 补充：
 
-- 若用户刚经历过“静默重认证需要验证码”，接下来的 1 分钟内会跳过本地快捷登录，直接走真实 CAS 登录。
+- 普通 TGC、Portal JWT、JW Session 到期仍使用已保存密码静默恢复，不要求用户人工登录。
+- 只有 CAS 明确返回 `needCaptcha=true` 时，CredentialManager 才删除三个学校凭证并写入无 TTL 的 `interactive_login_required` 持久标记。
+- 标记跨进程、重启与蓝绿切换存在；后续 `/auth/login` 跳过本地快捷登录，直到真实 CAS/验证码登录成功并保存学校凭证后清除。
+- `CREDENTIAL_EXPIRED/3003` 禁止 stale cache 降级，经错误中间件返回 HTTP 401，驱动现有客户端重新登录；`3004` 等瞬时失败仍可降级。
 
 ### 5.3 验证码会话
 
@@ -426,7 +430,8 @@ JW 课表还有一个特殊分支：学校上游可能用 HTTP 200 返回登录�
 #### `credentials`
 
 - 以 `(user_id, system)` 唯一
-- `system` 目前只有 `cas_tgc`、`portal_jwt`、`jw_session`
+- `system` 包含 `cas_tgc`、`portal_jwt`、`jw_session`，以及内部恢复状态 `interactive_login_required`
+- 内部恢复标记只保存 `captcha_required`，不含 Cookie、密码或学校 token，且 `expires_at` 为 `NULL`
 - 同一用户同一系统始终只保留一条最新记录
 
 #### `cache`
@@ -595,13 +600,17 @@ JW 课表还有一个特殊分支：学校上游可能用 HTTP 200 返回登录�
 | `BUSINESS_RETRY_JITTER_MS` | `100` | 抖动 |
 | `DISABLE_UGC` | `false` | UGC 合规模式启动默认值；运行后以后台 `/api/admin/compliance/ugc` 写入的状态文件为准 |
 | `UGC_COMPLIANCE_STATE_FILE` | `data/ugc-compliance-state.json` | UGC normal/compliance 模式与分享美食/神秘角落纯文本 mock 的热更新状态文件 |
+| `UGC_COMPLIANCE_ASNS` | 空字符串 | 逗号/空格分隔的 ASN 自动空态列表，命中后 UGC GET 强制返回空数据 |
+| `UGC_COMPLIANCE_PORTS` | 空字符串 | ASN 自动空态的入口端口限制，空值表示不限端口 |
+| `UGC_COMPLIANCE_ASN_HEADER` | `x-client-asn` | 可信反代注入的来源 ASN 头，支持 `AS132203` 或纯数字 |
+| `UGC_COMPLIANCE_PORT_HEADER` | `x-forwarded-port` | 可信反代注入的入口端口头 |
 | `DISCOVER_STORAGE_ROOT` | `data/discover` | 发现美食图片根目录 |
 | `DISCOVER_MEDIA_BASE_PATH` | `/media/discover` | 图片公开访问前缀 |
 | `DISCOVER_MAX_IMAGES` | `9` | 单帖最大图片数 |
 | `DISCOVER_MAX_TAGS` | `6` | 单帖最大标签数 |
 | `DISCOVER_MAX_TITLE_LENGTH` | `80` | 标题最大长度 |
 | `DISCOVER_MAX_TAG_LENGTH` | `12` | 单个标签最大长度 |
-| `DISCOVER_IMAGE_MAX_BYTES` | `8388608` | 单图最大字节数，默认 8 MB |
+| `DISCOVER_IMAGE_MAX_BYTES` | `33554432` | 单张原图最大字节数，默认 32 MB；接收后仍压缩为 WebP |
 | `DISCOVER_IMAGE_MAX_DIMENSION` | `1280` | 压缩后最长边 |
 | `DISCOVER_IMAGE_QUALITY` | `78` | WebP 压缩质量 |
 | `TREEHOLE_MAX_POST_LENGTH` | `500` | 树洞正文最大长度 |
@@ -946,10 +955,10 @@ discover 当前有三种列表模式：
 生产上的边界条件：
 
 - 单帖最多 9 张图
-- 单图默认最多 8 MB
-- Nginx `client_max_body_size` 已提高到 `100m`
+- 单张原图默认最多 32 MB，落盘只保存压缩后的 WebP
+- Nginx `client_max_body_size` 是整次请求总闸门，当前为 `100m`
 
-这意味着“应用允许但网关拦截”的上传边界已经对齐。
+这意味着单张手机原图不再被旧 8 MB 卡死，但 9 张接近上限的原图仍会先被网关挡住，避免应用一次性吃下过大的 multipart 请求。
 
 ### 13.7 后续切 OSS 的替换点
 

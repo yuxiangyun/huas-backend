@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Hono 测试应用、Discover 路由、SQLite 测试库、sharp 图片编码与 JWT 测试令牌
- * [OUTPUT]: 验证 Discover 发帖、列表、评论、媒体、管理删除与 UGC 合规热开关空态
+ * [OUTPUT]: 验证 Discover 发帖、大图压缩、列表、评论、媒体、管理删除与 UGC 合规热开关空态
  * [POS]: tests 的 Discover 业务回归套件，保护 routes/discover 与 services/discover 的 HTTP 契约
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -25,6 +25,7 @@ let authorId = 0;
 let otherAuthorId = 0;
 let raterId = 0;
 const REAL_HEIC_FIXTURE = join(process.cwd(), 'tests/fixtures/iphone.heic');
+const OLD_DISCOVER_IMAGE_LIMIT_BYTES = 8 * 1024 * 1024;
 
 function createApp() {
   const app = new Hono();
@@ -52,6 +53,25 @@ async function createImageBuffer(color: string) {
       background: color,
     },
   }).jpeg({ quality: 92 }).toBuffer();
+}
+
+async function createLargePhoneImageBuffer() {
+  const width = 2200;
+  const height = 2200;
+  const channels = 3;
+  const raw = Buffer.alloc(width * height * channels);
+
+  for (let index = 0; index < raw.length; index += 1) {
+    raw[index] = (index * 31 + 17) % 256;
+  }
+
+  return sharp(raw, {
+    raw: {
+      width,
+      height,
+      channels,
+    },
+  }).png({ compressionLevel: 0 }).toBuffer();
 }
 
 async function createHeifFamilyBuffer(color: string) {
@@ -119,7 +139,7 @@ async function authHeaderFor(userId: number, studentId: string) {
 }
 
 function adminAuthHeader() {
-  return { Authorization: `Basic ${Buffer.from('202412040130:A18569081662').toString('base64')}` };
+  return { Authorization: `Basic ${Buffer.from('test-admin:test-admin-password').toString('base64')}` };
 }
 
 async function createDiscoverPost(
@@ -312,6 +332,41 @@ describe('discover module', () => {
     expect(metadata.format).toBe('webp');
     expect(metadata.width).toBeGreaterThan(0);
     expect(metadata.height).toBeGreaterThan(0);
+  });
+
+  it('支持超过旧 8MB 的手机原图并压缩为单份 webp', async () => {
+    const app = createApp();
+    const source = await createLargePhoneImageBuffer();
+    expect(source.byteLength).toBeGreaterThan(OLD_DISCOVER_IMAGE_LIMIT_BYTES);
+    expect(source.byteLength).toBeLessThanOrEqual(config.discover.imageMaxBytes);
+
+    const form = new FormData();
+    form.set('category', '其他');
+    form.set('title', '大图压缩测试');
+    form.set('storeName', '手机相册');
+    form.set('priceText', '18元');
+    form.set('content', '这是一张超过旧限制的手机原图，后端应该先接收再压缩成 WebP。');
+    form.append('tags', '清晰');
+    form.append('images', new File([source], 'large-phone.png', { type: 'image/png' }));
+
+    const res = await app.request('http://localhost/api/discover/posts', {
+      method: 'POST',
+      headers: await authHeaderFor(authorId, '2023001001'),
+      body: form,
+    });
+
+    expect(res.status).toBe(201);
+    const body = await res.json() as any;
+    expect(body.success).toBe(true);
+    expect(body.data.images).toHaveLength(1);
+    expect(body.data.images[0].mimeType).toBe('image/webp');
+    expect(body.data.images[0].sizeBytes).toBeLessThan(source.byteLength);
+
+    const relativePath = body.data.images[0].url.replace(`${config.discover.mediaBasePath}/`, '');
+    const output = Buffer.from(await Bun.file(join(config.discover.storageRoot, relativePath)).arrayBuffer());
+    const metadata = await sharp(output).metadata();
+    expect(metadata.format).toBe('webp');
+    expect(Math.max(metadata.width || 0, metadata.height || 0)).toBeLessThanOrEqual(config.discover.imageMaxDimension);
   });
 
   it('支持真实 HEIC 文件并统一转为 webp', async () => {
@@ -758,7 +813,7 @@ describe('discover module', () => {
     expect(mediaBeforeDelete.headers.get('cache-control')).toBe(DISCOVER_MEDIA_CACHE_CONTROL);
     expect(await Bun.file(filePath).exists()).toBe(true);
 
-    const adminAuth = `Basic ${Buffer.from('202412040130:A18569081662').toString('base64')}`;
+    const adminAuth = adminAuthHeader().Authorization;
     const deleteRes = await app.request(`http://localhost/api/admin/discover/posts/${postId}`, {
       method: 'DELETE',
       headers: { Authorization: adminAuth },
@@ -780,6 +835,30 @@ describe('discover module', () => {
       deletedAt: schema.discoverPosts.deletedAt,
     }).from(schema.discoverPosts).where(eq(schema.discoverPosts.id, postId));
     expect(post[0].deletedAt).toBeTruthy();
+  });
+
+  it('管理凭据配置缺失时默认拒绝访问', async () => {
+    const app = createApp();
+    const username = process.env.ADMIN_USERNAME;
+    const password = process.env.ADMIN_PASSWORD;
+
+    try {
+      delete process.env.ADMIN_USERNAME;
+      const missingUsernameRes = await app.request('http://localhost/api/admin/compliance/ugc', {
+        headers: adminAuthHeader(),
+      });
+      expect(missingUsernameRes.status).toBe(401);
+
+      process.env.ADMIN_USERNAME = username;
+      delete process.env.ADMIN_PASSWORD;
+      const missingPasswordRes = await app.request('http://localhost/api/admin/compliance/ugc', {
+        headers: adminAuthHeader(),
+      });
+      expect(missingPasswordRes.status).toBe(401);
+    } finally {
+      process.env.ADMIN_USERNAME = username;
+      process.env.ADMIN_PASSWORD = password;
+    }
   });
 
   it('管理接口热开启 UGC 合规后，Discover GET 返回纯文本 mock 或空态，写操作继续可用', async () => {

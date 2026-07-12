@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 CacheService、CacheMeta、AppError/ErrorCode 与 Logger
+ * [OUTPUT]: 对外提供 fallbackOnRefreshFailure()，仅为非凭证型回源失败选择 stale 缓存
+ * [POS]: services/infra 的缓存降级策略边界，禁止用旧数据掩盖需要用户重新认证的 3003
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { CacheService } from './cache-service';
 import type { CacheMeta } from '../../types';
 import { AppError, ErrorCode } from '../../utils/errors';
@@ -19,7 +26,11 @@ export async function fallbackOnRefreshFailure<T>(options: {
   studentId: string;
 }): Promise<{ data: T; _meta: CacheMeta } | null> {
   const errorCode = toErrorCode(options.error);
-  if (errorCode === ErrorCode.PARAM_ERROR || errorCode === ErrorCode.EVALUATION_REQUIRED) return null;
+  if (
+    errorCode === ErrorCode.PARAM_ERROR
+    || errorCode === ErrorCode.EVALUATION_REQUIRED
+    || errorCode === ErrorCode.CREDENTIAL_EXPIRED
+  ) return null;
 
   const cached = await CacheService.get<T>(options.cacheKey, { touch: true, allowExpired: true });
   if (!cached) return null;

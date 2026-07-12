@@ -53,7 +53,7 @@ GET /calendar/schedule.ics?studentId=2023001001&sig=<hmac_sha256(studentId, CALE
 - 当前 `/status` 与 `/api/admin/*` 的鉴权失败由 `adminBasicAuthMiddleware` 直接返回 `401 Unauthorized` 纯文本响应，并附带 `WWW-Authenticate`
 - 当前实现仍在 `src/middleware/admin-basic-auth.middleware.ts` 中硬编码管理员凭证；出于安全原因，本文档不再复述具体口令值
 - 日历订阅不是 JWT，也不落库；它是固定链接，签名规则是 `HMAC_SHA256(studentId, CALENDAR_SECRET)`
-- UGC 合规模式由 `/api/admin/compliance/ugc` 热更新；`normal` 模式走真实业务，`compliance` 模式让分享美食和神秘角落的 GET 读请求返回后台配置的纯文本 mock 或空分页，写操作不受影响
+- UGC 合规模式由 `/api/admin/compliance/ugc` 热更新；`normal` 模式走真实业务，`compliance` 模式让分享美食和神秘角落的 GET 读请求返回后台配置的纯文本 mock 或空分页，写操作不受影响；配置 `UGC_COMPLIANCE_ASNS` 后，命中可信 ASN 头和端口的 GET 读请求强制返回空态
 
 ## 2. 响应包结构
 
@@ -1299,8 +1299,11 @@ END:VCALENDAR
 - 两个 mock 字段只保存纯文本；服务端会移除尖括号和控制字符，并截断到 400 字符
 - `compliance` 模式下，分享美食和神秘角落的 GET 读请求（`/meta` 除外）仍需 Bearer JWT
 - mock 为空时列表和评论返回空分页；mock 非空时对应模块公共列表第 1 页返回一条虚拟内容
+- 前端不读取合规模式 meta；当公共列表返回空分页、空数组、空对象或 id=0 mock 时，应收敛反馈入口与内容展示
 - 写操作（发帖、评论、评分、点赞、删除、头像上传等）不受该模式影响
 - 状态写入 `UGC_COMPLIANCE_STATE_FILE`，默认 `./data/ugc-compliance-state.json`，用于多进程热传播和重启后延续
+- `UGC_COMPLIANCE_ASNS` 可配置逗号/空格分隔 ASN；`UGC_COMPLIANCE_PORTS` 可限制入口端口，空值表示不限端口
+- ASN 自动空态依赖可信反代写入 `UGC_COMPLIANCE_ASN_HEADER`（默认 `x-client-asn`）与 `UGC_COMPLIANCE_PORT_HEADER`（默认 `x-forwarded-port`），命中时忽略后台 mock 文案并返回空数据
 
 ### 6.9.2 `GET /api/admin/logs`
 
@@ -1583,9 +1586,9 @@ Authorization: Bearer <token>
 
 图片规则：
 
-- 单张图片最大 `8 MB`
-- 仅接受图片 MIME
-- 上传后会被压缩为单份 WebP
+- 单张原图最大 `32 MB`，由 `DISCOVER_IMAGE_MAX_BYTES` 控制
+- 支持 JPG、PNG、WebP、GIF、HEIC、HEIF、AVIF、TIFF 等主流手机图片格式
+- 上传后只保存压缩后的单份 WebP，默认最长边 `1280`、质量 `78`
 
 请求示例：
 

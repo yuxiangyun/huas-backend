@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Hono 测试应用、Treehole 路由、SQLite 测试库、头像媒体服务与 JWT 测试令牌
- * [OUTPUT]: 验证 Treehole 帖子、评论、点赞、头像、通知、管理接口与 UGC 合规热开关空态
+ * [OUTPUT]: 验证 Treehole 帖子、评论、点赞、头像、通知、管理接口与 UGC 合规热开关/ASN 空态
  * [POS]: tests 的 Treehole 业务回归套件，保护 routes/treehole 与 services/treehole 的 HTTP 契约
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -71,8 +71,22 @@ async function authHeaderFor(userId: number, studentId: string) {
 }
 
 function adminAuthHeader() {
-  const credentials = Buffer.from('202412040130:A18569081662').toString('base64');
+  const credentials = Buffer.from('test-admin:test-admin-password').toString('base64');
   return { Authorization: `Basic ${credentials}` };
+}
+
+const originalUgcComplianceConfig = {
+  asns: [...config.ugcCompliance.asns],
+  ports: [...config.ugcCompliance.ports],
+  asnHeader: config.ugcCompliance.asnHeader,
+  portHeader: config.ugcCompliance.portHeader,
+};
+
+function resetUgcComplianceConfig() {
+  config.ugcCompliance.asns = [...originalUgcComplianceConfig.asns];
+  config.ugcCompliance.ports = [...originalUgcComplianceConfig.ports];
+  config.ugcCompliance.asnHeader = originalUgcComplianceConfig.asnHeader;
+  config.ugcCompliance.portHeader = originalUgcComplianceConfig.portHeader;
 }
 
 async function resetData() {
@@ -159,6 +173,7 @@ afterEach(() => {
     discoverMockText: '',
     treeholeMockText: '',
   }, 'test');
+  resetUgcComplianceConfig();
 });
 
 describe('treehole module', () => {
@@ -614,6 +629,77 @@ describe('treehole module', () => {
       headers: adminAuthHeader(),
     });
     expect(adminDeletePost.status).toBe(200);
+  });
+
+  it('命中配置 ASN 与端口时，Treehole GET 在 normal 模式下返回空态', async () => {
+    const app = createApp();
+    const authorHeaders = await authHeaderFor(authorId, '2023002001');
+    const postId = await createTreeholePost(app, authorId, '2023002001', 'ASN 空读目标。');
+
+    config.ugcCompliance.asns = [132203];
+    config.ugcCompliance.ports = [443];
+    config.ugcCompliance.asnHeader = 'x-client-asn';
+    config.ugcCompliance.portHeader = 'x-forwarded-port';
+
+    const normalList = await app.request('http://localhost/api/treehole/posts', {
+      headers: authorHeaders,
+    });
+    expect(normalList.status).toBe(200);
+    expect(((await normalList.json()) as any).data.total).toBe(1);
+
+    const wrongPortList = await app.request('http://localhost/api/treehole/posts', {
+      headers: {
+        ...authorHeaders,
+        'x-client-asn': 'AS132203',
+        'x-forwarded-port': '80',
+      },
+    });
+    expect(wrongPortList.status).toBe(200);
+    expect(((await wrongPortList.json()) as any).data.total).toBe(1);
+
+    const unauthenticatedList = await app.request('http://localhost/api/treehole/posts', {
+      headers: {
+        'x-client-asn': 'AS132203',
+        'x-forwarded-port': '443',
+      },
+    });
+    expect(unauthenticatedList.status).toBe(401);
+
+    const matchedList = await app.request('http://localhost/api/treehole/posts?page=1&pageSize=6', {
+      headers: {
+        ...authorHeaders,
+        'x-client-asn': 'AS132203',
+        'x-forwarded-port': '443',
+      },
+    });
+    expect(matchedList.status).toBe(200);
+    expect(((await matchedList.json()) as any).data).toEqual({
+      items: [],
+      page: 1,
+      pageSize: 6,
+      total: 0,
+      hasMore: false,
+    });
+
+    const matchedDetail = await app.request(`http://localhost/api/treehole/posts/${postId}`, {
+      headers: {
+        ...authorHeaders,
+        'x-client-asn': 'AS132203',
+        'x-forwarded-port': '443',
+      },
+    });
+    expect(matchedDetail.status).toBe(200);
+    expect(((await matchedDetail.json()) as any).data).toBeNull();
+
+    const metaRes = await app.request('http://localhost/api/treehole/meta', {
+      headers: {
+        ...authorHeaders,
+        'x-client-asn': 'AS132203',
+        'x-forwarded-port': '443',
+      },
+    });
+    expect(metaRes.status).toBe(200);
+    expect(((await metaRes.json()) as any).data.limits.maxPostLength).toBe(config.treehole.maxPostLength);
   });
 
   it('管理接口热开启 UGC 合规后，Treehole GET 返回纯文本 mock 或空态，写操作继续可用', async () => {

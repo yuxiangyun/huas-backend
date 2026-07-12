@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 sharp 图片处理、config 头像媒体路径、db/schema 的头像可见性校验
+ * [OUTPUT]: 对外提供 TreeholeAvatarMediaService 头像上传压缩/删除/公开读取能力与缓存头常量
+ * [POS]: services/treehole 的头像媒体边界，被树洞门面服务与应用入口媒体路由消费
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import sharp, { type Metadata } from 'sharp';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';

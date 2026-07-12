@@ -1,5 +1,12 @@
+/**
+ * [INPUT]: 依赖 Hono Context/Next、process.env 管理凭据与 node:crypto 时序安全比较
+ * [OUTPUT]: 对外提供 adminBasicAuthMiddleware，并扩展 adminUser 上下文
+ * [POS]: middleware 的管理端 Basic Auth 边界，配置缺失时默认拒绝访问
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import type { Context, Next } from 'hono';
-import { timingSafeEqual } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 
 declare module 'hono' {
   interface ContextVariableMap {
@@ -7,18 +14,20 @@ declare module 'hono' {
   }
 }
 
-// Fixed credentials by requirement
-const ADMIN_USERNAME = '202412040130';
-const ADMIN_PASSWORD = 'A18569081662';
-
 const BASIC_PREFIX = 'Basic ';
 const AUTH_CHALLENGE = 'Basic realm="HUAS Admin", charset="UTF-8"';
 
 function safeEqual(a: string, b: string): boolean {
-  const aBuf = Buffer.from(a, 'utf8');
-  const bBuf = Buffer.from(b, 'utf8');
-  if (aBuf.length !== bBuf.length) return false;
-  return timingSafeEqual(aBuf, bBuf);
+  const aDigest = createHash('sha256').update(a, 'utf8').digest();
+  const bDigest = createHash('sha256').update(b, 'utf8').digest();
+  return timingSafeEqual(aDigest, bDigest);
+}
+
+function getAdminCredentials() {
+  const username = process.env.ADMIN_USERNAME;
+  const password = process.env.ADMIN_PASSWORD;
+  if (!username || !password) return null;
+  return { username, password };
 }
 
 function unauthorized(c: Context) {
@@ -47,8 +56,15 @@ export async function adminBasicAuthMiddleware(c: Context, next: Next) {
 
   const username = decoded.slice(0, separatorIndex);
   const password = decoded.slice(separatorIndex + 1);
+  const credentials = getAdminCredentials();
 
-  if (!safeEqual(username, ADMIN_USERNAME) || !safeEqual(password, ADMIN_PASSWORD)) {
+  if (!credentials) {
+    return unauthorized(c);
+  }
+
+  const usernameMatches = safeEqual(username, credentials.username);
+  const passwordMatches = safeEqual(password, credentials.password);
+  if (!usernameMatches || !passwordMatches) {
     return unauthorized(c);
   }
 

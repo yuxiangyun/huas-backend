@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 AuthEngine/TicketExchanger/CredentialManager、db/schema、JWT、CryptoHelper 与 Portal UserService
  * [OUTPUT]: 对外默认导出 auth Hono 路由，提供 /auth/login 登录与验证码重试接口
- * [POS]: routes/auth 的登录入口，收敛本地快捷登录、CAS 验证码、上游凭证交换与本服务 JWT 签发
+ * [POS]: routes/auth 的登录入口，根据持久化交互标记决定本地快捷登录，并收敛 CAS 验证码、上游凭证交换与本服务 JWT 签发
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -115,7 +115,7 @@ auth.post('/login', async (c) => {
 
     const existingUser = users[0];
     const requiresInteractiveLogin = existingUser
-      ? CredentialManager.requiresInteractiveLogin(existingUser.id)
+      ? await CredentialManager.requiresInteractiveLogin(existingUser.id)
       : false;
 
     if (requiresInteractiveLogin) {
@@ -323,7 +323,7 @@ auth.post('/login', async (c) => {
       await CredentialManager.storeCredential(userId, 'jw_session', null, jarJson, config.ttl.jwSession);
     }
 
-    CredentialManager.clearLoginRecoveryState(userId);
+    await CredentialManager.clearLoginRecoveryState(userId);
 
     if (portalToken && (!resolvedName || !resolvedClassName)) {
       try {

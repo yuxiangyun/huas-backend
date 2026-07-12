@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 Hono、authMiddleware、onAppError、config、ugcComplianceState、success 与各业务子路由模块
+ * [INPUT]: 依赖 Hono、authMiddleware、onAppError、config、ugcComplianceState、success 与 UGC ASN 规则
  * [OUTPUT]: 对外提供 registerRoutes(app)，统一挂载 public/auth/calendar 与受保护 /api 路由
- * [POS]: routes 的总装配器，定义 /api 认证放行边界、UGC 运行态认证后空读守卫，连接入口 index.ts
+ * [POS]: routes 的总装配器，定义 /api 认证放行边界与 UGC 运行态/ASN 认证后空读守卫，连接入口 index.ts
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -32,6 +32,14 @@ const DISCOVER_MAX_PAGE_SIZE = 50;
 const EMPTY_TREEHOLE_AVATAR = { avatarUrl: null } as const;
 const EMPTY_TREEHOLE_UNREAD_COUNT = { unreadCount: 0 } as const;
 const MOCK_POST_ID = 0;
+
+function readFirstPositiveInt(value: string | undefined | null) {
+  const match = value?.match(/\d+/);
+  if (!match) return null;
+  const n = Number(match[0]);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.floor(n);
+}
 
 function readPositiveInt(value: string | undefined, fallback: number, max: number) {
   const n = Number(value);
@@ -135,18 +143,59 @@ function treeholeCompliancePayload(c: Context, state: UgcComplianceStatus) {
   return null;
 }
 
+function requestPortOf(c: Context) {
+  const configuredHeaderPort = readFirstPositiveInt(c.req.header(config.ugcCompliance.portHeader));
+  if (configuredHeaderPort !== null) return configuredHeaderPort;
+
+  const forwardedPort = readFirstPositiveInt(c.req.header('x-forwarded-port'));
+  if (forwardedPort !== null) return forwardedPort;
+
+  const hostPort = c.req.header('host')?.match(/:(\d+)$/)?.[1];
+  if (hostPort) return readFirstPositiveInt(hostPort);
+
+  const url = new URL(c.req.url);
+  if (url.port) return readFirstPositiveInt(url.port);
+  if (url.protocol === 'https:') return 443;
+  if (url.protocol === 'http:') return 80;
+  return null;
+}
+
+function matchesConfiguredAsn(c: Context) {
+  if (!config.ugcCompliance.asns.length) return false;
+  const requestAsn = readFirstPositiveInt(c.req.header(config.ugcCompliance.asnHeader));
+  return requestAsn !== null && config.ugcCompliance.asns.includes(requestAsn);
+}
+
+function matchesConfiguredPort(c: Context) {
+  if (!config.ugcCompliance.ports.length) return true;
+  const requestPort = requestPortOf(c);
+  return requestPort !== null && config.ugcCompliance.ports.includes(requestPort);
+}
+
+function asEmptyComplianceState(state: UgcComplianceStatus): UgcComplianceStatus {
+  return {
+    ...state,
+    mode: 'compliance',
+    disabled: true,
+    discoverMockText: '',
+    treeholeMockText: '',
+  };
+}
+
 async function ugcComplianceGuard(
   c: Context,
   next: Next,
   payloadOf: (c: Context, state: UgcComplianceStatus) => unknown
 ) {
   const state = ugcComplianceState.status();
-  if (state.mode !== 'compliance' || c.req.method !== 'GET' || c.req.path.endsWith('/meta')) return next();
+  const asnMatched = matchesConfiguredAsn(c) && matchesConfiguredPort(c);
+  if ((state.mode !== 'compliance' && !asnMatched) || c.req.method !== 'GET' || c.req.path.endsWith('/meta')) return next();
 
   const authFailure = await authMiddleware(c, async () => undefined);
   if (authFailure) return authFailure;
 
-  return success(c, payloadOf(c, state));
+  const responseState = asnMatched ? asEmptyComplianceState(state) : state;
+  return success(c, payloadOf(c, responseState));
 }
 
 export function registerRoutes(app: Hono) {

@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 process.env 与 node:path，读取端口、密钥、数据库、缓存、媒体、服务账号、限流、上游超时与 UGC 合规开关
+ * [INPUT]: 依赖 process.env 与 node:path，读取端口、密钥、数据库、缓存、媒体、服务账号、限流、上游超时与 UGC 合规 ASN 规则
  * [OUTPUT]: 对外提供 config、USER_AGENT 等运行时配置常量，并强制 TZ 为 Asia/Shanghai
  * [POS]: src 的配置源，所有模块通过它读取运行参数，避免散落读取环境变量
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -11,6 +11,9 @@ const BEIJING_TIME_ZONE = 'Asia/Shanghai';
 const DEFAULT_DB_PATH = './data/huas.db';
 const CALENDAR_SECRET = process.env.CALENDAR_SECRET?.trim() || '';
 const CALENDAR_TOKEN_SECRET_FILE = process.env.CALENDAR_TOKEN_SECRET_FILE?.trim() || '';
+const MIB = 1024 * 1024;
+const DEFAULT_DISCOVER_IMAGE_MAX_BYTES = 32 * MIB;
+const DEFAULT_TREEHOLE_AVATAR_MAX_BYTES = 2 * MIB;
 
 // Force runtime timezone to Beijing to avoid host-level timezone drift.
 process.env.TZ = BEIJING_TIME_ZONE;
@@ -19,6 +22,22 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return fallback;
   return Math.floor(n);
+}
+
+function parsePositiveIntList(value: string | undefined): number[] {
+  const items = new Set<number>();
+  for (const part of (value || '').split(/[\s,;]+/)) {
+    const match = part.match(/\d+/);
+    if (!match) continue;
+    const n = Number(match[0]);
+    if (Number.isFinite(n) && n > 0) items.add(Math.floor(n));
+  }
+  return [...items];
+}
+
+function readHeaderName(value: string | undefined, fallback: string): string {
+  const header = value?.trim().toLowerCase();
+  return header || fallback;
 }
 
 export const config = {
@@ -38,6 +57,13 @@ export const config = {
 
   schoolService: {
     classroomAdminStudentId: process.env.CLASSROOM_ADMIN_STUDENT_ID?.trim() || '',
+  },
+
+  ugcCompliance: {
+    asns: parsePositiveIntList(process.env.UGC_COMPLIANCE_ASNS),
+    ports: parsePositiveIntList(process.env.UGC_COMPLIANCE_PORTS),
+    asnHeader: readHeaderName(process.env.UGC_COMPLIANCE_ASN_HEADER, 'x-client-asn'),
+    portHeader: readHeaderName(process.env.UGC_COMPLIANCE_PORT_HEADER, 'x-forwarded-port'),
   },
 
   // Credential TTLs (school-side)
@@ -105,7 +131,7 @@ export const config = {
     maxCommentLength: parsePositiveInt(process.env.DISCOVER_MAX_COMMENT_LENGTH, 200),
     defaultCommentPageSize: parsePositiveInt(process.env.DISCOVER_DEFAULT_COMMENT_PAGE_SIZE, 50),
     maxCommentPageSize: parsePositiveInt(process.env.DISCOVER_MAX_COMMENT_PAGE_SIZE, 100),
-    imageMaxBytes: parsePositiveInt(process.env.DISCOVER_IMAGE_MAX_BYTES, 8 * 1024 * 1024),
+    imageMaxBytes: parsePositiveInt(process.env.DISCOVER_IMAGE_MAX_BYTES, DEFAULT_DISCOVER_IMAGE_MAX_BYTES),
     imageMaxDimension: parsePositiveInt(process.env.DISCOVER_IMAGE_MAX_DIMENSION, 1280),
     imageQuality: Math.min(95, Math.max(40, parsePositiveInt(process.env.DISCOVER_IMAGE_QUALITY, 78))),
   },
@@ -120,7 +146,7 @@ export const config = {
     avatarStorageRoot: process.env.TREEHOLE_AVATAR_STORAGE_ROOT
       || join(dirname(process.env.DB_PATH || DEFAULT_DB_PATH), 'treehole-avatars'),
     avatarMediaBasePath: process.env.TREEHOLE_AVATAR_MEDIA_BASE_PATH || '/media/treehole-avatar',
-    avatarMaxBytes: parsePositiveInt(process.env.TREEHOLE_AVATAR_MAX_BYTES, 2 * 1024 * 1024),
+    avatarMaxBytes: parsePositiveInt(process.env.TREEHOLE_AVATAR_MAX_BYTES, DEFAULT_TREEHOLE_AVATAR_MAX_BYTES),
   },
 };
 

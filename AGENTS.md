@@ -305,7 +305,7 @@ tsconfig.json - TypeScript 编译边界与路径别名（@/* → ./src/*）
 drizzle.config.ts - Drizzle 迁移与 SQLite 连接配置（默认 ./data/huas.db）
 ecosystem.config.cjs - PM2 进程定义（单进程、256M 上限、Asia/Shanghai）
 nginx.conf - 反向代理样板（HTTP→HTTPS、100m 体、proxy_pass 127.0.0.1:3000）
-.env / .env.example - 运行时配置（PORT / JWT_SECRET / DB_PATH / TZ / 缓存 TTL / DISABLE_UGC / UGC_COMPLIANCE_STATE_FILE）
+.env / .env.example - 运行时配置（PORT / JWT_SECRET / DB_PATH / TZ / 缓存 TTL / DISABLE_UGC / UGC_COMPLIANCE_STATE_FILE / UGC_COMPLIANCE_ASNS / UGC_COMPLIANCE_PORTS）
 .gitignore - 排除依赖、数据库、日志与 UGC 热更新状态文件等运行态产物
 </config>
 
@@ -317,7 +317,7 @@ AGENTS.md 是唯一权威文档入口；旧入口不得恢复。
 学校上游凭证（CAS TGC / Portal JWT / JW Session）由 CredentialManager 统一收敛，客户端只持有本服务 JWT；任何子凭证刷新失败走 3003 错误码，不向前端暴露上游细节。
 discover 与 treehole 是独立业务支线，不经过学校上游，也不依赖 CacheService；媒体访问挂在 /media/* 而非 /api/*。
 Web 前端入口是 /m，生产期由后端直接托管 web/dist；带扩展名的路径按静态资源处理，其余回退到前端 index.html。
-UGC 合规模式由后台 /api/admin/compliance/ugc 热控制并持久化到 data/ugc-compliance-state.json；DISABLE_UGC 只提供启动默认值。normal 模式走真实 discover/treehole；compliance 模式不读取真实 UGC，GET（/meta 除外）先过 Bearer 认证，再按模块返回后台配置的纯文本 mock：分享美食使用 discoverMockText，神秘角落使用 treeholeMockText，默认两者为空，写操作不受影响。
+UGC 合规模式由后台 /api/admin/compliance/ugc 热控制并持久化到 data/ugc-compliance-state.json；DISABLE_UGC 只提供启动默认值。normal 模式走真实 discover/treehole；compliance 模式不读取真实 UGC，GET（/meta 除外）先过 Bearer 认证，再按模块返回后台配置的纯文本 mock：分享美食使用 discoverMockText，神秘角落使用 treeholeMockText，默认两者为空，写操作不受影响。UGC_COMPLIANCE_ASNS + UGC_COMPLIANCE_PORTS 是可信反代注入 ASN 后的自动空读规则，命中时强制空 mock，不改变后台状态。
 </architecture_decisions>
 
 <routes>

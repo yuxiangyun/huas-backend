@@ -3,7 +3,7 @@
 
 成员清单
 heic-convert.ts: heic-convert 模块声明补丁，补齐第三方库类型缺口
-index.ts: 共享业务 DTO 与 API 响应类型，包含成绩 passStatus 枚举，服务、解析器与路由共同使用
+index.ts: 共享业务 DTO 与 API 响应类型，包含成绩 passStatus 与缓存 meta 结构，服务、解析器与路由共同使用
 
 架构决策
 types 只描述结构，不引入运行时代码；第三方声明补丁与业务 DTO 分开。
@@ -12,6 +12,7 @@ types 只描述结构，不引入运行时代码；第三方声明补丁与业�
 新增 DTO 必须服务真实跨模块边界，避免为单文件局部结构制造全局类型。
 
 变更日志
+2026-07-05: CacheMeta 移除 ugcCompliance 标记，前端不再读取显式合规 meta。
 2026-06-30: 成绩 DTO 增加 passStatus，避免客户端把未知成绩误判为不通过。
 2026-06-30: 播种 types L2 地图。
 

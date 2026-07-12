@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 db/schema、HttpClient、AuthEngine、TicketExchanger、CryptoHelper、config 与 Logger
- * [OUTPUT]: 对外提供 CredentialManager 类与 CredentialSystem 类型
- * [POS]: auth 的学校子凭证唯一收敛层，管理 CAS TGC、Portal JWT、JW Session 的存储、刷新、静默恢复与清理
+ * [OUTPUT]: 对外提供 CredentialManager 类与 CredentialSystem 类型，管理学校凭证生命周期和持久化交互登录恢复状态
+ * [POS]: auth 的学校子凭证唯一收敛层，管理 CAS TGC、Portal JWT、JW Session 的存储刷新，并守住 CAS 验证码恢复边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -16,30 +16,50 @@ import { Logger } from '../utils/logger';
 
 export type CredentialSystem = 'cas_tgc' | 'portal_jwt' | 'jw_session';
 
+const INTERACTIVE_LOGIN_REQUIRED_SYSTEM = 'interactive_login_required';
+
 // Silent re-auth cooldown tracking
 const reAuthState = new Map<number, { failCount: number; lastAttempt: number }>();
 const REAUTH_MAX_ATTEMPTS = 3;
 const REAUTH_COOLDOWN_MS = 60 * 1000; // 1 minute cooldown after max failures
-const interactiveLoginRequiredUntil = new Map<number, number>();
-const INTERACTIVE_LOGIN_REQUIRED_MS = 60 * 1000;
 
 export class CredentialManager {
-  static requiresInteractiveLogin(userId: number): boolean {
-    const expiresAt = interactiveLoginRequiredUntil.get(userId);
-    if (!expiresAt) return false;
-    if (expiresAt <= Date.now()) {
-      interactiveLoginRequiredUntil.delete(userId);
-      return false;
-    }
-    return true;
+  static async requiresInteractiveLogin(userId: number): Promise<boolean> {
+    const db = getDb();
+    const rows = await db.select({ id: schema.credentials.id })
+      .from(schema.credentials)
+      .where(and(
+        eq(schema.credentials.userId, userId),
+        eq(schema.credentials.system, INTERACTIVE_LOGIN_REQUIRED_SYSTEM)
+      ))
+      .limit(1);
+    return rows.length > 0;
   }
 
-  static markInteractiveLoginRequired(userId: number): void {
-    interactiveLoginRequiredUntil.set(userId, Date.now() + INTERACTIVE_LOGIN_REQUIRED_MS);
+  static async markInteractiveLoginRequired(userId: number): Promise<void> {
+    const db = getDb();
+    const now = new Date();
+    await db.insert(schema.credentials).values({
+      userId,
+      system: INTERACTIVE_LOGIN_REQUIRED_SYSTEM,
+      value: 'captcha_required',
+      cookieJar: null,
+      expiresAt: null,
+      createdAt: now,
+      updatedAt: now,
+    }).onConflictDoUpdate({
+      target: [schema.credentials.userId, schema.credentials.system],
+      set: { value: 'captcha_required', updatedAt: now },
+    });
   }
 
-  static clearLoginRecoveryState(userId: number): void {
-    interactiveLoginRequiredUntil.delete(userId);
+  static async clearLoginRecoveryState(userId: number): Promise<void> {
+    const db = getDb();
+    await db.delete(schema.credentials)
+      .where(and(
+        eq(schema.credentials.userId, userId),
+        eq(schema.credentials.system, INTERACTIVE_LOGIN_REQUIRED_SYSTEM)
+      ));
     reAuthState.delete(userId);
   }
 
@@ -101,7 +121,7 @@ export class CredentialManager {
     const existing = await this.getCredential(userId, system);
     if (existing) return existing;
 
-    if (this.requiresInteractiveLogin(userId)) {
+    if (await this.requiresInteractiveLogin(userId)) {
       Logger.warn('CredentialManager', '等待验证码登录，跳过静默恢复', `system=${system}`, String(userId));
       return null;
     }
@@ -180,7 +200,7 @@ export class CredentialManager {
    * Max 3 attempts with 1-minute cooldown after exhaustion.
    */
   static async silentReAuth(userId: number): Promise<boolean> {
-    if (this.requiresInteractiveLogin(userId)) {
+    if (await this.requiresInteractiveLogin(userId)) {
       Logger.warn('SilentReAuth', '等待验证码登录，跳过静默重认证', undefined, String(userId));
       return false;
     }
@@ -247,8 +267,8 @@ export class CredentialManager {
         steps.push({ label: 'CAS Login', ok: false, detail: result.needCaptcha ? '需要验证码' : result.message });
         this.recordReAuthFailure(userId);
         if (result.needCaptcha) {
-          this.markInteractiveLoginRequired(userId);
           await this.invalidateSchoolCredentials(userId);
+          await this.markInteractiveLoginRequired(userId);
         }
         Logger.auth(user.studentId, '静默重认证失败', 0, Date.now() - start, user.name || undefined, steps);
         return false;
@@ -288,7 +308,7 @@ export class CredentialManager {
       const jwJarJson = client.serializeJar();
       await this.storeCredential(userId, 'jw_session', null, jwJarJson, config.ttl.jwSession);
 
-      this.clearLoginRecoveryState(userId);
+      await this.clearLoginRecoveryState(userId);
       Logger.auth(user.studentId, '静默重认证成功', 200, Date.now() - start, user.name || undefined, steps);
       return true;
     } catch (e: any) {

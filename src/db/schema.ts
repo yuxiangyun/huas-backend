@@ -23,7 +23,7 @@ export const users = sqliteTable('users', {
 export const credentials = sqliteTable('credentials', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   userId: integer('user_id').notNull().references(() => users.id),
-  system: text('system').notNull(), // 'cas_tgc' | 'portal_jwt' | 'jw_session'
+  system: text('system').notNull(), // 学校凭证三类 + interactive_login_required（内部恢复状态）
   value: text('value'),
   cookieJar: text('cookie_jar'), // JSON serialized CookieJar
   expiresAt: integer('expires_at', { mode: 'timestamp_ms' }),

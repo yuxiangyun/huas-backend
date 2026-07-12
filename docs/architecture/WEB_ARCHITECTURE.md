@@ -1,7 +1,7 @@
 # HUAS Web 前端架构文档
 
-> 基线日期：2026-03-14
-> 当前代码位置：`/Users/xiangyun/Desktop/huas-server/web`
+> 基线日期：2026-07-10
+> 当前代码位置：`web/`
 > 当前线上入口：`/m`
 
 ## 1. 文档目标
@@ -229,10 +229,11 @@
 - 不再直接展示资料卡
 - 不再直接展示内容列表
 
-当前只保留三类动作：
+当前保留四类动作：
 
 - 进入“拍好饭”子页面
 - 进入“树洞”子页面
+- 复制课表日历订阅链接
 - 退出登录
 
 补充：
@@ -334,10 +335,10 @@ web/src/
    ├─ discover-feed/
    ├─ my-posts-panel/
    ├─ my-treehole-posts-panel/
+   ├─ treehole-avatar-sheet/
    ├─ treehole-compose-sheet/
    ├─ treehole-detail-sheet/
    ├─ treehole-feed/
-   └─ profile-summary/
 ```
 
 分层约束：
@@ -517,17 +518,15 @@ web/src/
 
 ## 13. 已知遗留与说明
 
-### 13.1 `ProfileSummary` 组件仍在仓库中
+### 13.1 用户资料查询仍属于活跃链路
 
-`widgets/profile-summary/profile-summary.tsx` 目前仍存在，但当前真实页面不再使用它。
+`pages/me/index.tsx` 会调用 `useUserInfoQuery` 检查资料同步状态；独立的
+`ProfileSummary` 展示组件已经不可达并移除，避免保留两套“我的”页实现。
 
-它现在更像是保留实现，不是当前活跃 UI。
+### 13.2 管理树洞只保留一套实现
 
-### 13.2 `useUserInfoQuery` 仍存在
-
-`entities/user/api/user-queries.ts` 仍然保留，但当前登录流程不再主动预取，且“我的”页也不直接消费这份数据。
-
-如果未来重新恢复资料卡展示，可以继续复用这一层。
+`/m/admin/treehole` 由路由直接懒加载 `pages/admin/treehole.tsx`，请求、Query Key 与类型统一归入
+`entities/admin/`。旧的 `pages/admin-treehole/` 与 `entities/admin-treehole/` 重复链路已经移除。
 
 ## 14. 当前验证基线
 
@@ -552,3 +551,8 @@ web/src/
 - 页面组件里不要直接写 `fetch`
 - 所有业务请求统一走 `shared/api/http-client.ts`
 - `/m` 是固定前端入口，除非全链路调整，不要随意改 basename
+
+## 16. 变更日志
+
+- 2026-07-10：移除未进入路由树的旧管理树洞页面、重复实体层、未消费的页面 barrel、
+  `ProfileSummary` 与旧悬浮发帖按钮；管理后台继续使用直接懒加载，避免重复实现进入维护面。

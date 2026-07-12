@@ -1,5 +1,13 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+/**
+ * [INPUT]: 依赖 node:fs/promises 的文件读写与原子替换能力，依赖 utils/time 的北京时间格式化
+ * [OUTPUT]: 对外提供 Announcement 类型与 AnnouncementService 公告读写服务
+ * [POS]: services/content 的公告持久化边界，以同目录临时文件保护 JSON 数据完整性
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
+import { randomUUID } from 'node:crypto';
+import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { basename, dirname, join, resolve } from 'node:path';
 import { beijingDate, beijingIsoString } from '../../utils/time';
 
 export type AnnouncementType = 'info' | 'warning' | 'error';
@@ -21,7 +29,8 @@ interface AnnouncementPayload {
   type?: string;
 }
 
-const ANNOUNCEMENTS_FILE = resolve(process.cwd(), 'data/announcements.json');
+const STORAGE_ROOT = (globalThis as { __HUAS_TEST_ROOT__?: string }).__HUAS_TEST_ROOT__ ?? process.cwd();
+const ANNOUNCEMENTS_FILE = resolve(STORAGE_ROOT, 'data/announcements.json');
 const TYPE_SET = new Set<AnnouncementType>(['info', 'warning', 'error']);
 
 const DEFAULT_ANNOUNCEMENTS: Announcement[] = [
@@ -41,11 +50,12 @@ let writeQueue = Promise.resolve();
 function isValidDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const parsed = new Date(`${value}T00:00:00.000Z`);
-  return !Number.isNaN(parsed.getTime());
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
 function normalizeDate(value?: string): string {
-  if (!value) return beijingDate();
+  if (value === undefined) return beijingDate();
+  if (typeof value !== 'string') throw new Error('公告日期必须是 YYYY-MM-DD');
   const date = value.trim();
   if (!isValidDate(date)) {
     throw new Error('公告日期必须是 YYYY-MM-DD');
@@ -54,14 +64,15 @@ function normalizeDate(value?: string): string {
 }
 
 function normalizeType(value?: string): AnnouncementType {
-  if (!value || !TYPE_SET.has(value as AnnouncementType)) {
+  const type = typeof value === 'string' ? value.trim() : '';
+  if (!TYPE_SET.has(type as AnnouncementType)) {
     throw new Error('公告类型必须是 info | warning | error');
   }
-  return value as AnnouncementType;
+  return type as AnnouncementType;
 }
 
 function normalizeText(field: string, value?: string): string {
-  const text = value?.trim();
+  const text = typeof value === 'string' ? value.trim() : '';
   if (!text) {
     throw new Error(`${field} 不能为空`);
   }
@@ -69,7 +80,13 @@ function normalizeText(field: string, value?: string): string {
 }
 
 function sanitizeId(value: string): string {
-  return value.trim();
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function assertPayload(payload: unknown): asserts payload is AnnouncementPayload {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error('公告数据必须是对象');
+  }
 }
 
 function normalizeTimestamp(value: unknown, fallback: string): string {
@@ -103,28 +120,52 @@ function sortAnnouncements(items: Announcement[]): Announcement[] {
   });
 }
 
-async function ensureAnnouncementsFile() {
-  await mkdir(dirname(ANNOUNCEMENTS_FILE), { recursive: true });
+function isFileNotFound(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && error.code === 'ENOENT';
+}
+
+function serialize(items: Announcement[]): string {
+  return `${JSON.stringify(sortAnnouncements(items), null, 2)}\n`;
+}
+
+async function atomicWrite(content: string): Promise<void> {
+  const directory = dirname(ANNOUNCEMENTS_FILE);
+  const tempFile = join(directory, `.${basename(ANNOUNCEMENTS_FILE)}.${process.pid}.${randomUUID()}.tmp`);
+  await mkdir(directory, { recursive: true });
+
   try {
-    await readFile(ANNOUNCEMENTS_FILE, 'utf8');
-  } catch {
-    await writeFile(ANNOUNCEMENTS_FILE, `${JSON.stringify(DEFAULT_ANNOUNCEMENTS, null, 2)}\n`, 'utf8');
+    await writeFile(tempFile, content, { encoding: 'utf8', flag: 'wx' });
+    await rename(tempFile, ANNOUNCEMENTS_FILE);
+  } catch (error) {
+    await unlink(tempFile).catch(() => undefined);
+    throw error;
   }
 }
 
-function toAnnouncement(raw: any): Announcement | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const id = sanitizeId(String(raw.id ?? ''));
-  const title = String(raw.title ?? '').trim();
-  const content = String(raw.content ?? '').trim();
-  const date = String(raw.date ?? '').trim();
-  const type = String(raw.type ?? '').trim();
+async function ensureAnnouncementsFile(): Promise<void> {
+  await mkdir(dirname(ANNOUNCEMENTS_FILE), { recursive: true });
+  try {
+    await readFile(ANNOUNCEMENTS_FILE, 'utf8');
+  } catch (error) {
+    if (!isFileNotFound(error)) throw error;
+    await atomicWrite(serialize(DEFAULT_ANNOUNCEMENTS));
+  }
+}
+
+function toAnnouncement(raw: unknown): Announcement | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const record = raw as Record<string, unknown>;
+  const id = sanitizeId(String(record.id ?? ''));
+  const title = String(record.title ?? '').trim();
+  const content = String(record.content ?? '').trim();
+  const date = String(record.date ?? '').trim();
+  const type = String(record.type ?? '').trim();
   if (!id || !title || !content || !isValidDate(date) || !TYPE_SET.has(type as AnnouncementType)) {
     return null;
   }
   const defaultCreatedAt = `${date}T00:00:00.000+08:00`;
-  const createdAt = normalizeTimestamp(raw.createdAt, defaultCreatedAt);
-  const updatedAt = normalizeTimestamp(raw.updatedAt, createdAt);
+  const createdAt = normalizeTimestamp(record.createdAt, defaultCreatedAt);
+  const updatedAt = normalizeTimestamp(record.updatedAt, createdAt);
   return {
     id,
     title,
@@ -136,39 +177,36 @@ function toAnnouncement(raw: any): Announcement | null {
   };
 }
 
-async function readAll(): Promise<Announcement[]> {
-  await ensureAnnouncementsFile();
-  let content = '[]';
-  try {
-    content = await readFile(ANNOUNCEMENTS_FILE, 'utf8');
-  } catch {
-    return sortAnnouncements(DEFAULT_ANNOUNCEMENTS);
-  }
-
-  let parsed: any = [];
+function parseAnnouncements(content: string): Announcement[] {
+  let parsed: unknown;
   try {
     parsed = JSON.parse(content);
   } catch {
-    parsed = [];
+    throw new Error('公告数据文件不是有效的 JSON');
   }
 
   if (!Array.isArray(parsed)) {
-    return sortAnnouncements(DEFAULT_ANNOUNCEMENTS);
+    throw new Error('公告数据文件必须是数组');
   }
 
   const normalized = parsed
     .map(toAnnouncement)
     .filter((item): item is Announcement => item !== null);
 
-  if (normalized.length === 0) {
-    return sortAnnouncements(DEFAULT_ANNOUNCEMENTS);
+  if (normalized.length !== parsed.length) {
+    throw new Error('公告数据文件包含非法记录');
   }
 
   return sortAnnouncements(normalized);
 }
 
-async function writeAll(items: Announcement[]) {
-  await writeFile(ANNOUNCEMENTS_FILE, `${JSON.stringify(sortAnnouncements(items), null, 2)}\n`, 'utf8');
+async function readAll(): Promise<Announcement[]> {
+  await ensureAnnouncementsFile();
+  return parseAnnouncements(await readFile(ANNOUNCEMENTS_FILE, 'utf8'));
+}
+
+async function writeAll(items: Announcement[]): Promise<void> {
+  await atomicWrite(serialize(items));
 }
 
 async function withWriteLock<T>(task: () => Promise<T>): Promise<T> {
@@ -189,6 +227,7 @@ export class AnnouncementService {
 
   static async create(payload: AnnouncementPayload): Promise<Announcement> {
     return withWriteLock(async () => {
+      assertPayload(payload);
       const title = normalizeText('标题', payload.title);
       const content = normalizeText('内容', payload.content);
       const date = normalizeDate(payload.date);
@@ -214,6 +253,7 @@ export class AnnouncementService {
 
   static async update(id: string, payload: AnnouncementPayload): Promise<Announcement | null> {
     return withWriteLock(async () => {
+      assertPayload(payload);
       const cleanId = sanitizeId(id);
       if (!cleanId) {
         throw new Error('公告 ID 不能为空');

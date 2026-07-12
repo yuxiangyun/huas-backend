@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 Bun Test、Hono、测试数据库及认证/课表/成绩/Portal 服务的 mock 边界
+ * [OUTPUT]: 提供登录、凭证恢复、缓存回退与核心业务编排的回归测试
+ * [POS]: tests 的业务流总回归套件，验证跨路由、服务、凭证和缓存边界的系统行为
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import {
   beforeAll,
   beforeEach,
@@ -358,13 +365,16 @@ describe('登录流程', () => {
 
     const silentOk = await CredentialManager.silentReAuth(userId);
     expect(silentOk).toBe(false);
-    expect(CredentialManager.requiresInteractiveLogin(userId)).toBe(true);
+    expect(await CredentialManager.requiresInteractiveLogin(userId)).toBe(true);
 
     const db = getDb();
     const staleCreds = await db.select()
       .from(schema.credentials)
       .where(eq(schema.credentials.userId, userId));
-    expect(staleCreds.length).toBe(0);
+    expect(staleCreds.map((cred: any) => cred.system)).toEqual(['interactive_login_required']);
+    expect(staleCreds[0].value).toBe('captcha_required');
+    expect(staleCreds[0].cookieJar).toBeNull();
+    expect(staleCreds[0].expiresAt).toBeNull();
 
     let executionCallCount = 0;
     authBehavior.getExecution = async () => {
@@ -392,7 +402,7 @@ describe('登录流程', () => {
     app.route('/auth', authRoutes);
 
     const userId = await createUser('2023001447', 'pass-force-cas');
-    CredentialManager.markInteractiveLoginRequired(userId);
+    await CredentialManager.markInteractiveLoginRequired(userId);
 
     let loginCallCount = 0;
     authBehavior.login = async () => {
@@ -408,7 +418,7 @@ describe('登录流程', () => {
 
     expect(res.status).toBe(200);
     expect(loginCallCount).toBe(1);
-    expect(CredentialManager.requiresInteractiveLogin(userId)).toBe(false);
+    expect(await CredentialManager.requiresInteractiveLogin(userId)).toBe(false);
   });
 
   it('本地密码不匹配时回退 CAS 并刷新已存密码', async () => {
@@ -802,7 +812,7 @@ describe('静默凭证链路', () => {
 
   it('等待验证码登录期间跳过静默恢复', async () => {
     const userId = await createUser('2023001006', 'pass-interactive-required');
-    CredentialManager.markInteractiveLoginRequired(userId);
+    await CredentialManager.markInteractiveLoginRequired(userId);
 
     let loginCallCount = 0;
     authBehavior.login = async () => {
@@ -813,6 +823,21 @@ describe('静默凭证链路', () => {
     const cred = await CredentialManager.getOrRefreshCredential(userId, 'portal_jwt');
     expect(cred).toBeNull();
     expect(loginCallCount).toBe(0);
+  });
+
+  it('持久化验证码标记没有 TTL，凭证过期清理不会删除它', async () => {
+    const userId = await createUser('2023001007', 'pass-persistent-marker');
+    await CredentialManager.markInteractiveLoginRequired(userId);
+
+    await CredentialManager.cleanupExpired();
+
+    expect(await CredentialManager.requiresInteractiveLogin(userId)).toBe(true);
+    const credentials = await getDb().select()
+      .from(schema.credentials)
+      .where(eq(schema.credentials.userId, userId));
+    expect(credentials).toHaveLength(1);
+    expect(credentials[0].system).toBe('interactive_login_required');
+    expect(credentials[0].expiresAt).toBeNull();
   });
 
   it('TGC 不可用时触发静默重认证并补齐凭证', async () => {
@@ -950,6 +975,33 @@ describe('默认课表路由兜底', () => {
     const body = await res.json() as any;
     expect(body.success).toBe(false);
     expect(body.error_code).toBe(ErrorCode.UPSTREAM_TIMEOUT);
+  });
+
+  it('JW 与 Portal 凭证都失效时，旧缓存不能把 3003 包装成成功响应', async () => {
+    const studentId = '2023001784';
+    const userId = await createUser(studentId, 'pass-schedule-expired');
+    const app = new Hono();
+    registerRoutes(app);
+
+    await CacheService.set(`schedule:${studentId}:2025-03-03`, makeSchedulePayload('jw-stale'), 0, 'jw');
+    await CacheService.set(
+      `portal-schedule:${studentId}:2025-03-03:2025-03-09`,
+      makeSchedulePayload('portal-stale'),
+      0,
+      'portal'
+    );
+    upstreamInjectedError = new Error('SESSION_EXPIRED');
+
+    const { generateToken } = await import('../src/auth/jwt.ts');
+    const token = await generateToken({ userId, studentId, name: `name-${studentId}` });
+    const res = await app.request('http://localhost/api/schedule?date=2025-03-05&refresh=true', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status).toBe(401);
+    const body = await res.json() as any;
+    expect(body.success).toBe(false);
+    expect(body.error_code).toBe(ErrorCode.CREDENTIAL_EXPIRED);
   });
 
   it('Portal 周课表失败时，/api/v1/schedule 会回退到 JW 课表并标记 source=jw', async () => {
@@ -1348,6 +1400,18 @@ describe('缓存与强制刷新流程', () => {
     expect(fallback._meta.refresh_failed).toBe(true);
     expect(fallback._meta.last_error).toBe(3004);
     expect(fallback.data.items[0].courseName).toBe('grade-v1');
+  });
+
+  it('refresh=true 回源凭证失效时不允许回退旧缓存', async () => {
+    const studentId = '2023001014';
+    upstreamResolver = async () => makeSchedulePayload('credential-stale');
+    await ScheduleService.getSchedule(1, studentId, '2025-03-05', false);
+
+    upstreamInjectedError = new Error('SESSION_EXPIRED');
+
+    await expect(
+      ScheduleService.getSchedule(1, studentId, '2025-03-05', true)
+    ).rejects.toThrow('SESSION_EXPIRED');
   });
 
   it('refresh=true 且上游返回课表未公布时，若有旧缓存仍回退 stale', async () => {

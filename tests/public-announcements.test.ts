@@ -1,11 +1,100 @@
-import { beforeAll, describe, expect, it } from 'bun:test';
+import { beforeAll, beforeEach, describe, expect, it, spyOn } from 'bun:test';
+import * as fsPromises from 'node:fs/promises';
+import { join } from 'node:path';
 import { Hono } from 'hono';
 import { initDatabase, getDb, schema } from '../src/db';
 import { registerRoutes } from '../src/routes';
 import { AdminDashboardService } from '../src/services/admin/dashboard-service';
+import { AnnouncementService } from '../src/services/content/announcement-service';
+
+const testRoot = (globalThis as { __HUAS_TEST_ROOT__: string }).__HUAS_TEST_ROOT__;
+const announcementsDirectory = join(testRoot, 'data');
+const announcementsFile = join(announcementsDirectory, 'announcements.json');
+const initialAnnouncements = [
+  {
+    id: '20260307-1',
+    title: '系统公告',
+    content: '公告测试数据',
+    date: '2026-03-07',
+    type: 'info',
+    createdAt: '2026-03-07T00:00:00.000+08:00',
+    updatedAt: '2026-03-07T00:00:00.000+08:00',
+  },
+];
 
 beforeAll(() => {
   initDatabase();
+});
+
+describe('announcement service 数据完整性', () => {
+  beforeEach(async () => {
+    await fsPromises.mkdir(announcementsDirectory, { recursive: true });
+    await fsPromises.writeFile(announcementsFile, `${JSON.stringify(initialAnnouncements, null, 2)}\n`);
+  });
+
+  it('拒绝格式正确但不存在的日历日期', async () => {
+    await expect(AnnouncementService.create({
+      title: '非法日期',
+      content: '不应写入',
+      date: '2026-02-29',
+      type: 'warning',
+    })).rejects.toThrow('公告日期必须是 YYYY-MM-DD');
+
+    const stored = JSON.parse(await fsPromises.readFile(announcementsFile, 'utf8'));
+    expect(stored).toEqual(initialAnnouncements);
+  });
+
+  it('拒绝非对象输入并保留原文件', async () => {
+    await expect(AnnouncementService.create(null as never)).rejects.toThrow('公告数据必须是对象');
+    const stored = JSON.parse(await fsPromises.readFile(announcementsFile, 'utf8'));
+    expect(stored).toEqual(initialAnnouncements);
+  });
+
+  it('删除最后一条公告后保持空列表', async () => {
+    expect(await AnnouncementService.remove('20260307-1')).toBe(true);
+    expect(await AnnouncementService.listAdmin()).toEqual([]);
+    expect(JSON.parse(await fsPromises.readFile(announcementsFile, 'utf8'))).toEqual([]);
+  });
+
+  it('通过同目录临时文件原子替换公告数据', async () => {
+    const renameSpy = spyOn(fsPromises, 'rename');
+    try {
+      await AnnouncementService.create({
+        title: '原子写',
+        content: '完整内容',
+        date: '2024-02-29',
+        type: ' info ',
+      });
+
+      const stored = JSON.parse(await fsPromises.readFile(announcementsFile, 'utf8'));
+      const leftovers = await fsPromises.readdir(announcementsDirectory);
+      expect(stored).toHaveLength(2);
+      expect(stored.find((item: { title: string }) => item.title === '原子写')?.type).toBe('info');
+      expect(renameSpy).toHaveBeenCalledTimes(1);
+      expect(leftovers.some((name) => name.endsWith('.tmp'))).toBe(false);
+    } finally {
+      renameSpy.mockRestore();
+    }
+  });
+
+  it('原子替换失败时保留旧文件并清理临时文件', async () => {
+    const original = await fsPromises.readFile(announcementsFile, 'utf8');
+    const renameSpy = spyOn(fsPromises, 'rename').mockRejectedValueOnce(new Error('rename failed'));
+    try {
+      await expect(AnnouncementService.create({
+        title: '失败写入',
+        content: '不应覆盖旧文件',
+        date: '2026-03-08',
+        type: 'error',
+      })).rejects.toThrow('rename failed');
+
+      const leftovers = await fsPromises.readdir(announcementsDirectory);
+      expect(await fsPromises.readFile(announcementsFile, 'utf8')).toBe(original);
+      expect(leftovers.some((name) => name.endsWith('.tmp'))).toBe(false);
+    } finally {
+      renameSpy.mockRestore();
+    }
+  });
 });
 
 describe('public announcements route', () => {
