@@ -10,6 +10,15 @@ import { APP_BASENAME } from '@/shared/config/env';
 import { MobileTabShell } from '@/widgets/mobile-tab-shell/mobile-tab-shell';
 import { ProtectedRoute } from '@/app/router/guards/protected-route';
 import { appRoutes } from '@/app/router/paths';
+import { AdminAnnouncementsPage } from '@/pages/admin/announcements';
+import { AdminCompliancePage } from '@/pages/admin/compliance';
+import { AdminContentPage } from '@/pages/admin/content';
+import { AdminDashboardPage } from '@/pages/admin/dashboard';
+import { AdminDiscoverPage } from '@/pages/admin/discover';
+import { AdminLayout } from '@/pages/admin/layout';
+import { AdminLogsPage } from '@/pages/admin/logs';
+import { AdminTreeholeSubPage } from '@/pages/admin/treehole';
+import { AdminUsersPage } from '@/pages/admin/users';
 
 export const router = createBrowserRouter(
   [
@@ -22,10 +31,7 @@ export const router = createBrowserRouter(
     },
     {
       path: appRoutes.adminRoot,
-      lazy: async () => {
-        const module = await import('@/pages/admin/layout');
-        return { Component: module.AdminLayout };
-      },
+      Component: AdminLayout,
       children: [
         {
           index: true,
@@ -33,59 +39,35 @@ export const router = createBrowserRouter(
         },
         {
           path: 'dashboard',
-          lazy: async () => {
-            const module = await import('@/pages/admin/dashboard');
-            return { Component: module.AdminDashboardPage };
-          },
+          Component: AdminDashboardPage,
         },
         {
           path: 'users',
-          lazy: async () => {
-            const module = await import('@/pages/admin/users');
-            return { Component: module.AdminUsersPage };
-          },
+          Component: AdminUsersPage,
         },
         {
           path: 'content',
-          lazy: async () => {
-            const module = await import('@/pages/admin/content');
-            return { Component: module.AdminContentPage };
-          },
+          Component: AdminContentPage,
         },
         {
           path: 'manage/announcements',
-          lazy: async () => {
-            const module = await import('@/pages/admin/announcements');
-            return { Component: module.AdminAnnouncementsPage };
-          },
+          Component: AdminAnnouncementsPage,
         },
         {
           path: 'manage/discover',
-          lazy: async () => {
-            const module = await import('@/pages/admin/discover');
-            return { Component: module.AdminDiscoverPage };
-          },
+          Component: AdminDiscoverPage,
         },
         {
           path: 'manage/treehole',
-          lazy: async () => {
-            const module = await import('@/pages/admin/treehole');
-            return { Component: module.AdminTreeholeSubPage };
-          },
+          Component: AdminTreeholeSubPage,
         },
         {
           path: 'system/compliance',
-          lazy: async () => {
-            const module = await import('@/pages/admin/compliance');
-            return { Component: module.AdminCompliancePage };
-          },
+          Component: AdminCompliancePage,
         },
         {
           path: 'system/logs',
-          lazy: async () => {
-            const module = await import('@/pages/admin/logs');
-            return { Component: module.AdminLogsPage };
-          },
+          Component: AdminLogsPage,
         },
       ],
     },

@@ -23,15 +23,16 @@ import { Button } from '@/shared/ui/button';
 const fieldClass = 'h-12 w-full rounded-xl border border-black/[0.09] bg-white px-3.5 text-ink outline-none focus:ring-2 focus:ring-[#007aff]/20';
 
 const navGroups = [
-  { label: '洞察', items: [
-    { to: appRoutes.adminDashboard, label: '总览' },
-    { to: appRoutes.adminUsers, label: '用户' },
-    { to: appRoutes.adminContent, label: '内容' },
+  { label: '概览', items: [
+    { to: appRoutes.adminDashboard, label: '业务总览' },
   ] },
-  { label: '管理', items: [
+  { label: '用户', items: [
+    { to: appRoutes.adminUsers, label: '用户' },
+  ] },
+  { label: '内容管理', items: [
     { to: appRoutes.adminAnnouncements, label: '公告' },
-    { to: appRoutes.adminDiscover, label: 'Discover' },
-    { to: appRoutes.adminTreehole, label: 'Treehole' },
+    { to: appRoutes.adminDiscover, label: '分享美食' },
+    { to: appRoutes.adminTreehole, label: '神秘角落' },
   ] },
   { label: '系统', items: [
     { to: appRoutes.adminCompliance, label: '合规设置' },

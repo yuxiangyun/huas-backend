@@ -144,6 +144,48 @@ describe('admin dashboard activity metrics', () => {
     expect(today?.['feature.schedule.miniprogram']).toBe(2);
     expect(today?.['request.total.miniprogram']).toBe(2);
   });
+
+  it('keeps core features inside their semantic client channel', async () => {
+    const users = await getDb().insert(schema.users).values([
+      { studentId: '2023999003', name: 'web-user', className: 'test' },
+      { studentId: '2023999004', name: 'miniprogram-user', className: 'test' },
+    ]).returning({ id: schema.users.id });
+
+    AnalyticsService.recordAuthenticatedRequest({
+      userId: users[0].id,
+      platformHeader: 'web',
+      path: '/api/schedule',
+      status: 200,
+    });
+    AnalyticsService.recordAuthenticatedRequest({
+      userId: users[0].id,
+      platformHeader: 'web',
+      path: '/api/discover/posts',
+      status: 200,
+    });
+    AnalyticsService.recordAuthenticatedRequest({
+      userId: users[1].id,
+      platformHeader: 'miniprogram',
+      path: '/api/evaluations/status',
+      status: 200,
+    });
+    AnalyticsService.recordAuthenticatedRequest({
+      userId: users[1].id,
+      platformHeader: 'miniprogram',
+      path: '/api/user',
+      status: 200,
+    });
+
+    const overview = await AnalyticsService.getOverview(7);
+    const today = overview.series.find((item) => item.day === beijingDate());
+
+    expect(today?.['feature.discover.web']).toBe(1);
+    expect(today?.['feature.evaluations.miniprogram']).toBe(1);
+    expect(today?.['feature.schedule.web']).toBeUndefined();
+    expect(today?.['feature.other.miniprogram']).toBeUndefined();
+    expect(today?.['request.total.web']).toBe(2);
+    expect(today?.['request.total.miniprogram']).toBe(2);
+  });
 });
 /**
  * [INPUT]: 依赖后台 dashboard/analytics 服务、认证中间件与 SQLite 测试库

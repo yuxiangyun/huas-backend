@@ -11,12 +11,17 @@ import { beijingDate } from '../../utils/time';
 
 export type AnalyticsPlatform = 'miniprogram' | 'web' | 'unknown';
 
-const FEATURE_PATHS: Array<[string, string]> = [
+const MINIPROGRAM_FEATURE_PATHS: Array<[string, string]> = [
   ['/api/v1/schedule', 'schedule'],
   ['/api/schedule', 'schedule'],
   ['/api/grades', 'grades'],
+  ['/api/evaluations', 'evaluations'],
   ['/api/ecard', 'ecard'],
   ['/api/classrooms', 'classrooms'],
+  ['/api/calendar', 'calendar'],
+];
+
+const WEB_FEATURE_PATHS: Array<[string, string]> = [
   ['/api/discover', 'discover'],
   ['/api/treehole', 'treehole'],
 ];
@@ -27,8 +32,13 @@ function normalizePlatform(value: string | undefined): AnalyticsPlatform {
   return 'unknown';
 }
 
-function featureOf(path: string) {
-  return FEATURE_PATHS.find(([prefix]) => path.startsWith(prefix))?.[1] ?? 'other';
+function featureOf(path: string, platform: AnalyticsPlatform) {
+  const paths = platform === 'miniprogram'
+    ? MINIPROGRAM_FEATURE_PATHS
+    : platform === 'web'
+      ? WEB_FEATURE_PATHS
+      : [];
+  return paths.find(([prefix]) => path.startsWith(prefix))?.[1] ?? null;
 }
 
 function increment(day: string, platform: AnalyticsPlatform, metric: string) {
@@ -57,7 +67,8 @@ export class AnalyticsService {
     db.run(sql`INSERT OR IGNORE INTO analytics_daily_users (day, platform, user_id, created_at)
       VALUES (${day}, ${platform}, ${input.userId}, ${Date.now()})`);
     increment(day, platform, 'request.total');
-    increment(day, platform, `feature.${featureOf(input.path)}`);
+    const feature = featureOf(input.path, platform);
+    if (feature) increment(day, platform, `feature.${feature}`);
     if (input.status >= 500) increment(day, platform, 'request.server_error');
     else if (input.status >= 400) increment(day, platform, 'request.client_error');
   }

@@ -24,19 +24,20 @@ type Point = Record<string, string | number>;
 const PLATFORM_CONFIG = {
   'active.miniprogram': { label: '小程序', color: 'blue' },
   'active.web': { label: 'Web', color: 'purple' },
-  'active.unknown': { label: '未识别', color: 'grey' },
 } as const;
 
 const FEATURE_CONFIG = {
   schedule: { label: '课表', color: 'blue' },
   grades: { label: '成绩', color: 'purple' },
+  evaluations: { label: '评教', color: 'grey' },
   ecard: { label: '一卡通', color: 'green' },
   classrooms: { label: '空教室', color: 'orange' },
+  calendar: { label: '日历订阅', color: 'grey' },
   discover: { label: 'Discover', color: 'pink' },
   treehole: { label: 'Treehole', color: 'red' },
 } as const;
 
-const PLATFORMS = ['miniprogram', 'web', 'unknown'] as const;
+const PLATFORMS = ['miniprogram', 'web'] as const;
 const FEATURES = Object.keys(FEATURE_CONFIG) as Array<keyof typeof FEATURE_CONFIG>;
 
 function valueOf(point: Point, key: string) {
@@ -129,7 +130,7 @@ export function AdminDashboardPage() {
         <div>
           <p className="text-xs font-medium tracking-[0.08em] text-[#6e6e73]">全部渠道</p>
           <h1 className="mt-1 text-[1.8rem] font-semibold tracking-[-0.045em] text-ink sm:text-[2.15rem]">业务总览</h1>
-          <p className="mt-1 text-sm text-muted">小程序、Web 与未识别来源均计入统计。</p>
+          <p className="mt-1 text-sm text-muted">小程序统计校园服务，Web 统计分享美食与神秘角落。</p>
         </div>
         <div className="inline-flex w-fit rounded-xl bg-black/[0.055] p-1" aria-label="时间范围">
           {([7, 30, 90] as const).map((value) => (
@@ -163,7 +164,6 @@ export function AdminDashboardPage() {
               <YAxis />
               <Area dataKey="active.miniprogram" variant="gradient" />
               <Area dataKey="active.web" variant="dotted" />
-              <Area dataKey="active.unknown" variant="hatched" />
               <Legend isClickable />
               <Tooltip labelKey="day" variant="frosted-glass" />
             </AreaChart>}
