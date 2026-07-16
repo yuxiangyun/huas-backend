@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 EvaluationService/Parser、HttpClient 测试替身与教务评教 HTML 边界样本
+ * [INPUT]: 依赖独立 EvaluationParser、EvaluationService、HttpClient 测试替身与教务评教 HTML 边界样本
  * [OUTPUT]: 验证入口发现、列表/表单解析、有界续批、重排安全回查与结果 DTO 口径
  * [POS]: tests 的评教业务回归套件，保护 HTML 适配与提交事实不可伪造
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -7,7 +7,8 @@
 
 import { describe, expect, it } from 'bun:test';
 import type { HttpClient } from '../src/core/http-client';
-import { EvaluationParser, EvaluationService } from '../src/services/academic/evaluation-service';
+import { EvaluationParser } from '../src/parsers/academic/evaluation-parser';
+import { EvaluationService } from '../src/services/academic/evaluation-service';
 
 const LIST_URL = 'https://xyjw.huas.edu.cn/jsxsd/xspj/xspj_list.do?pj0502id=batch';
 

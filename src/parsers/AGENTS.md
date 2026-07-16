@@ -2,7 +2,7 @@
 > L2 | 父级: /Users/xiangyun/workspace/huas-wechat-app/huas-server/src/AGENTS.md
 
 成员清单
-academic/: 教务 HTML/混合响应解析器，处理课表、成绩、空教室和 session 过期识别
+academic/: 教务 HTML/混合响应解析器，处理课表、成绩、评教、空教室和 session 过期识别
 portal/: Portal JSON 解析器，处理一卡通、用户资料和 Portal 课表
 index.ts: 解析器统一出口，向旧调用方暴露 parser 类型和实例
 
@@ -14,6 +14,7 @@ session 过期、评教阻断等上游语义在解析层识别，业务层决定
 新增解析器必须有 fixture 或 parser 测试覆盖；不得把路由参数和服务缓存逻辑混入解析器。
 
 变更日志
+2026-07-16: academic 收敛评教 URL、列表、表单和提交页解析，服务层不再直接解释 HTML。
 2026-06-30: 播种 parsers L2 地图。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
