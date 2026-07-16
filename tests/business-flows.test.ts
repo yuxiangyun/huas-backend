@@ -297,7 +297,7 @@ describe('登录流程', () => {
     expect(systems).toEqual(['cas_tgc', 'jw_session', 'portal_jwt']);
   });
 
-  it('数据库已有用户但无可用学校凭证时禁用本地快捷并重建凭证', async () => {
+  it('数据库已有用户且无任何学校凭证时仍可本地登录，不访问 CAS', async () => {
     const app = new Hono();
     app.route('/auth', authRoutes);
 
@@ -340,9 +340,9 @@ describe('登录流程', () => {
     const creds = await db.select()
       .from(schema.credentials)
       .where(eq(schema.credentials.userId, userId));
-    expect(creds.length).toBeGreaterThan(0);
-    expect(executionCallCount).toBe(1);
-    expect(loginCallCount).toBe(1);
+    expect(creds).toHaveLength(0);
+    expect(executionCallCount).toBe(0);
+    expect(loginCallCount).toBe(0);
   });
 
   it('本地登录在已有完整上游凭证时可直接返回 token', async () => {
