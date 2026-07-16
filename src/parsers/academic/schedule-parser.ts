@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 cheerio、ICourse 类型、Logger 与 SESSION_EXPIRED_INDICATORS
  * [OUTPUT]: 对外提供 ScheduleParser，解析 JW HTML 课表为统一课程模型
- * [POS]: parsers/academic 的课表解析核心，识别非教学周、session 过期和课程字段映射
+ * [POS]: parsers/academic 的课表解析核心，识别非教学周、session 过期并消除嵌套课程节点重复
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -167,7 +167,17 @@ export const ScheduleParser = {
       const rowSection = extractSection(rowHeader);
 
       for (let day = 1; day <= 7 && day < cells.length; day++) {
-        $(cells[day]).find('p[title], div.kb_content[title], p:not([title]), div.kb_content:not([title])').each((_, item) => {
+        const cell = $(cells[day]);
+        let courseNodes = cell.find('p[title], div.kb_content[title]').filter((_, item) => {
+          return $(item).parents('p[title], div.kb_content[title]').length === 0;
+        });
+        if (!courseNodes.length) {
+          courseNodes = cell.find('p, div.kb_content').filter((_, item) => {
+            return $(item).parents('p, div.kb_content').length === 0;
+          });
+        }
+
+        courseNodes.each((_, item) => {
           const title = ($(item).attr('title') || '').trim();
           const visibleName = $(item).text().replace(/\s+/g, ' ').trim();
           if (!title && !visibleName) return;

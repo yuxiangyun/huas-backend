@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖后台 dashboard/analytics 服务、认证中间件与 SQLite 测试库
+ * [OUTPUT]: 验证用户活跃快照、渠道 DAU、显式渠道优先级与历史 unknown 保留口径
+ * [POS]: tests 的后台洞察事实回归套件，保护时间、渠道与功能统计边界
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
@@ -145,10 +152,10 @@ describe('admin dashboard activity metrics', () => {
     expect(today?.['request.total.miniprogram']).toBe(2);
   });
 
-  it('keeps core features inside their semantic client channel', async () => {
+  it('uses an explicit channel header and only falls back for unheaded campus requests', async () => {
     const users = await getDb().insert(schema.users).values([
-      { studentId: '2023999003', name: 'web-user', className: 'test' },
-      { studentId: '2023999004', name: 'miniprogram-user', className: 'test' },
+      { studentId: '2023999003', name: 'explicit-web-user', className: 'test' },
+      { studentId: '2023999004', name: 'legacy-miniprogram-user', className: 'test' },
     ]).returning({ id: schema.users.id });
 
     AnalyticsService.recordAuthenticatedRequest({
@@ -158,14 +165,7 @@ describe('admin dashboard activity metrics', () => {
       status: 200,
     });
     AnalyticsService.recordAuthenticatedRequest({
-      userId: users[0].id,
-      platformHeader: 'web',
-      path: '/api/discover/posts',
-      status: 200,
-    });
-    AnalyticsService.recordAuthenticatedRequest({
       userId: users[1].id,
-      platformHeader: 'miniprogram',
       path: '/api/evaluations/status',
       status: 200,
     });
@@ -179,17 +179,63 @@ describe('admin dashboard activity metrics', () => {
     const overview = await AnalyticsService.getOverview(7);
     const today = overview.series.find((item) => item.day === beijingDate());
 
-    expect(today?.['feature.discover.web']).toBe(1);
+    expect(today?.['active.web']).toBe(1);
+    expect(today?.['active.miniprogram']).toBe(1);
+    expect(today?.['feature.schedule.web']).toBe(1);
     expect(today?.['feature.evaluations.miniprogram']).toBe(1);
-    expect(today?.['feature.schedule.web']).toBeUndefined();
-    expect(today?.['feature.other.miniprogram']).toBeUndefined();
-    expect(today?.['request.total.web']).toBe(2);
+    expect(today?.['request.total.web']).toBe(1);
     expect(today?.['request.total.miniprogram']).toBe(2);
   });
+
+  it('keeps historical unknown facts separate from the same user miniprogram facts', async () => {
+    const db = getDb();
+    const day = beijingDate();
+    const users = await db.insert(schema.users).values({
+      studentId: '2023999005',
+      name: 'cross-channel-user',
+      className: 'test',
+    }).returning({ id: schema.users.id });
+
+    await db.insert(schema.analyticsDailyUsers).values([
+      { day, platform: 'unknown', userId: users[0].id },
+      { day, platform: 'miniprogram', userId: users[0].id },
+    ]);
+    await db.insert(schema.analyticsDailyMetrics).values([
+      { day, platform: 'unknown', metric: 'feature.schedule', value: 4 },
+      { day, platform: 'miniprogram', metric: 'feature.schedule', value: 2 },
+    ]);
+
+    const overview = await AnalyticsService.getOverview(7);
+    const today = overview.series.find((item) => item.day === day);
+
+    expect(today?.['active.unknown']).toBe(1);
+    expect(today?.['active.miniprogram']).toBe(1);
+    expect(today?.['feature.schedule.unknown']).toBe(4);
+    expect(today?.['feature.schedule.miniprogram']).toBe(2);
+  });
+
+  it('does not apply the legacy fallback to an explicit invalid channel header', async () => {
+    const db = getDb();
+    const users = await db.insert(schema.users).values({
+      studentId: '2023999006',
+      name: 'invalid-channel-user',
+      className: 'test',
+    }).returning({ id: schema.users.id });
+
+    for (const platformHeader of ['', ' ', 'unknown', 'native']) {
+      AnalyticsService.recordAuthenticatedRequest({
+        userId: users[0].id,
+        platformHeader,
+        path: '/api/schedule',
+        status: 200,
+      });
+    }
+
+    const overview = await AnalyticsService.getOverview(7);
+    const today = overview.series.find((item) => item.day === beijingDate());
+
+    expect(today?.['active.unknown']).toBe(1);
+    expect(today?.['active.miniprogram']).toBeUndefined();
+    expect(today?.['feature.schedule.unknown']).toBe(4);
+  });
 });
-/**
- * [INPUT]: 依赖后台 dashboard/analytics 服务、认证中间件与 SQLite 测试库
- * [OUTPUT]: 验证用户活跃快照、渠道 DAU 与核心功能每日指标
- * [POS]: tests 的后台洞察事实回归套件，保护时间与渠道统计口径
- * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
- */

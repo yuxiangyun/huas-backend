@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Bun Test、Hono、测试数据库及认证/课表/成绩/Portal 服务的 mock 边界
- * [OUTPUT]: 提供登录、凭证恢复、缓存回退与核心业务编排的回归测试
+ * [OUTPUT]: 提供登录、凭证恢复、缓存回退、ICS 序列化与核心业务编排的回归测试
  * [POS]: tests 的业务流总回归套件，验证跨路由、服务、凭证和缓存边界的系统行为
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -53,12 +53,25 @@ let upstreamVersion = 0;
 let upstreamInjectedError: Error | null = null;
 let upstreamExecuteCallback = false;
 let upstreamJsonPayload: any = null;
+let upstreamRequestHandler: ((url: string, options?: RequestInit) => Promise<Response>) | null = null;
 let upstreamResolver: (...args: any[]) => Promise<any>;
 
 function addDaysInTest(date: string, days: number): string {
   const parsed = new Date(`${date}T00:00:00+08:00`);
   parsed.setDate(parsed.getDate() + days);
   return parsed.toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' });
+}
+
+function unfoldIcs(ics: string): string {
+  const logicalLines: string[] = [];
+  for (const line of ics.split('\r\n')) {
+    if (line.startsWith(' ')) {
+      logicalLines[logicalLines.length - 1] += line.slice(1);
+    } else {
+      logicalLines.push(line);
+    }
+  }
+  return logicalLines.join('\r\n');
 }
 
 function makeGradePayload(tag: string) {
@@ -153,9 +166,12 @@ mock.module('../src/services/infra/upstream.ts', () => ({
       return fn({
         portalToken: 'portal-token-test',
         client: {
-          request: async () => ({
-            json: async () => upstreamJsonPayload,
-          }),
+          request: async (url: string, options?: RequestInit) => upstreamRequestHandler
+            ? upstreamRequestHandler(url, options)
+            : new Response(JSON.stringify(upstreamJsonPayload), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }),
         },
       });
     }
@@ -173,6 +189,7 @@ let GradeService: any;
 let ScheduleService: any;
 let PortalScheduleService: any;
 let ECardParser: any;
+let ECardService: any;
 let UserService: any;
 let CredentialManager: any;
 let CacheService: any;
@@ -217,6 +234,7 @@ beforeAll(async () => {
   ({ ScheduleService } = await import('../src/services/academic/schedule-service.ts'));
   ({ PortalScheduleService } = await import('../src/services/portal/portal-schedule-service.ts'));
   ({ ECardParser } = await import('../src/parsers/portal/ecard-parser.ts'));
+  ({ ECardService } = await import('../src/services/portal/ecard-service.ts'));
   ({ UserService } = await import('../src/services/portal/user-service.ts'));
   ({ CredentialManager } = await import('../src/auth/credential-manager.ts'));
   ({ CacheService } = await import('../src/services/infra/cache-service.ts'));
@@ -231,6 +249,7 @@ beforeEach(async () => {
   upstreamInjectedError = null;
   upstreamExecuteCallback = false;
   upstreamJsonPayload = null;
+  upstreamRequestHandler = null;
   upstreamResolver = async () => {
     upstreamVersion += 1;
     return makeGradePayload(`grade-v${upstreamVersion}`);
@@ -278,7 +297,7 @@ describe('登录流程', () => {
     expect(systems).toEqual(['cas_tgc', 'jw_session', 'portal_jwt']);
   });
 
-  it('数据库已有用户时可本地登录，不触发 CAS 且无需现有凭证', async () => {
+  it('数据库已有用户但无可用学校凭证时禁用本地快捷并重建凭证', async () => {
     const app = new Hono();
     app.route('/auth', authRoutes);
 
@@ -321,9 +340,9 @@ describe('登录流程', () => {
     const creds = await db.select()
       .from(schema.credentials)
       .where(eq(schema.credentials.userId, userId));
-    expect(creds.length).toBe(0);
-    expect(executionCallCount).toBe(0);
-    expect(loginCallCount).toBe(0);
+    expect(creds.length).toBeGreaterThan(0);
+    expect(executionCallCount).toBe(1);
+    expect(loginCallCount).toBe(1);
   });
 
   it('本地登录在已有完整上游凭证时可直接返回 token', async () => {
@@ -751,6 +770,23 @@ describe('登录流程', () => {
     expect(body.success).toBe(false);
     expect(body.error_message).toBe('学校系统激活失败');
   });
+
+  it('Portal 换票超时返回 3004，不误报凭证或密码错误', async () => {
+    const app = new Hono();
+    app.route('/auth', authRoutes);
+    authBehavior.login = async () => ({ success: true, portalToken: null, steps: [] });
+    ticketBehavior.exchangePortalToken = async () => { throw new Error('REQUEST_TIMEOUT'); };
+
+    const res = await app.request('http://localhost/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: '2023001670', password: 'pass-timeout' }),
+    });
+    const body = await res.json() as any;
+
+    expect(res.status).toBe(504);
+    expect(body.error_code).toBe(ErrorCode.UPSTREAM_TIMEOUT);
+  });
 });
 
 describe('静默凭证链路', () => {
@@ -808,6 +844,16 @@ describe('静默凭证链路', () => {
 
     const cred = await CredentialManager.getOrRefreshCredential(userId, 'portal_jwt');
     expect(cred?.value).toBe('portal-token-new');
+  });
+
+  it('Portal TGC 刷新超时保持 REQUEST_TIMEOUT，不进入静默重登并退化为 3003', async () => {
+    const userId = await createUser('2023001008', 'pass-portal-timeout');
+    await CredentialManager.storeCredential(userId, 'cas_tgc', null, '{"cookies":[]}', 60_000);
+    await CredentialManager.storeCredential(userId, 'portal_jwt', 'stale', null, -1_000);
+    ticketBehavior.exchangePortalToken = async () => { throw new Error('REQUEST_TIMEOUT'); };
+
+    await expect(CredentialManager.getOrRefreshCredential(userId, 'portal_jwt'))
+      .rejects.toThrow('REQUEST_TIMEOUT');
   });
 
   it('等待验证码登录期间跳过静默恢复', async () => {
@@ -1217,6 +1263,38 @@ describe('日历订阅', () => {
     const ics = await icsRes.text();
     expect(ics).toContain('SUMMARY:线性代数');
     expect(ics).toContain(`DTSTART;TZID=Asia/Shanghai:${addDaysInTest(currentWeek.startDate, 2).replace(/-/g, '')}T100000`);
+
+    const cacheKey = `portal-schedule:2023001999:${currentWeek.startDate}:${currentWeek.endDate}`;
+    await getDb().update(schema.cache)
+      .set({ updatedAt: new Date(Date.now() - 16 * 60 * 1000) })
+      .where(eq(schema.cache.key, cacheKey));
+    const refreshed = await app.request(subscriptionUrl.toString());
+    expect(refreshed.status).toBe(200);
+    expect(upstreamCallCount).toBe(2);
+  });
+
+  it('Portal 首读失败时日历按统一门面回退 JW 周课表', async () => {
+    const userId = await createUser('2023001998', 'pass-calendar-fallback');
+    const app = new Hono();
+    registerRoutes(app);
+    const requestedModes: string[] = [];
+    upstreamResolver = async (_userId: number, mode: 'jw' | 'portal') => {
+      requestedModes.push(mode);
+      if (mode === 'portal') throw new Error('REQUEST_TIMEOUT');
+      return {
+        week: '第7周',
+        courses: [{ name: 'JW容灾课程', day: 1, section: '1-2', teacher: '', location: '', weekStr: '' }],
+      };
+    };
+    const { generateToken } = await import('../src/auth/jwt.ts');
+    const token = await generateToken({ userId, studentId: '2023001998' });
+    const link = await app.request('http://localhost/api/calendar/link', { headers: { Authorization: `Bearer ${token}` } });
+    const body = await link.json() as any;
+
+    const response = await app.request(body.data.url);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('SUMMARY:JW容灾课程');
+    expect(requestedModes).toEqual(['portal', 'jw']);
   });
 
   it('订阅链接使用 studentId + HMAC 签名，且与业务 JWT 无关', async () => {
@@ -1303,6 +1381,32 @@ describe('日历订阅', () => {
     expect(new Set(uids).size).toBe(2);
   });
 
+  it('中文长文本按 UTF-8 75-octet 上限折行且可无损还原', async () => {
+    const { buildWeeklyScheduleIcs } = await import('../src/services/calendar/calendar-subscription-service.ts');
+    const longName = '高等数学与线性代数'.repeat(12);
+    const ics = buildWeeklyScheduleIcs({
+      studentId: '2023001444',
+      weekStart: '2026-04-13',
+      generatedAt: new Date('2026-04-13T00:00:00Z'),
+      courses: [{
+        name: longName,
+        teacher: '张老师',
+        location: '逸夫楼智慧教室'.repeat(10),
+        day: 1,
+        section: '1-2',
+        weekStr: '2026-04-13',
+      }],
+    });
+    const physicalLines = ics.split('\r\n').filter(Boolean);
+
+    for (const line of physicalLines) {
+      expect(new TextEncoder().encode(line).byteLength).toBeLessThanOrEqual(75);
+    }
+
+    expect(unfoldIcs(ics)).toContain(`SUMMARY:${longName}`);
+    expect(ics).not.toContain('\uFFFD');
+  });
+
   it('课程缺少明确日期时，会根据本周起始日和 day 推导事件日期', async () => {
     const { buildWeeklyScheduleIcs, getCurrentWeekRange } = await import('../src/services/calendar/calendar-subscription-service.ts');
     const currentWeek = getCurrentWeekRange(new Date('2026-04-13T08:00:00+08:00'));
@@ -1325,7 +1429,7 @@ describe('日历订阅', () => {
 
     expect(ics).toContain(`DTSTART;TZID=Asia/Shanghai:${expectedDate.replace(/-/g, '')}T143000`);
     expect(ics).toContain(`DTEND;TZID=Asia/Shanghai:${expectedDate.replace(/-/g, '')}T161000`);
-    expect(ics).toContain(`DESCRIPTION:教师: 周老师\\n地点: 教A201\\n节次: 5-6\\n日期: ${expectedDate}`);
+    expect(unfoldIcs(ics)).toContain(`DESCRIPTION:教师: 周老师\\n地点: 教A201\\n节次: 5-6\\n日期: ${expectedDate}`);
   });
 });
 
@@ -1370,6 +1474,15 @@ describe('用户资料回填', () => {
 });
 
 describe('缓存与强制刷新流程', () => {
+  it('成绩 HTTP 5xx 不解析也不写入空成绩缓存', async () => {
+    upstreamExecuteCallback = true;
+    upstreamRequestHandler = async () => new Response(`<html><body>${'服务异常'.repeat(80)}</body></html>`, { status: 503 });
+
+    await expect(GradeService.getGrades(1, '2023001550', {}, false)).rejects.toThrow('GRADE_HTTP_503');
+    const rows = await getDb().select().from(schema.cache);
+    expect(rows.some((row: any) => row.key.startsWith('grades:2023001550:'))).toBe(false);
+  });
+
   it('refresh=false 命中缓存，refresh=true 强制回源并更新缓存', async () => {
     const first = await GradeService.getGrades(1, '2023001004', { term: '2024-2025-1' }, false);
     expect(first._meta.cached).toBe(false);
@@ -1595,11 +1708,8 @@ describe('漏洞回归：成绩缓存键放大', () => {
 });
 
 describe('Portal 解析器边界', () => {
-  it('ecard 余额缺失时返回 0，格式错误时抛出明确上游错误', () => {
-    const missingBalance = ECardParser.parse({ code: 0, data: {} });
-    expect(missingBalance?.balance).toBe(0);
-    expect(Number.isNaN(missingBalance?.balance)).toBe(false);
-
+  it('ecard 余额缺失与格式错误都抛出明确上游错误', () => {
+    expect(() => ECardParser.parse({ code: 0, data: {} })).toThrow('一卡通余额字段缺失');
     let thrown: any;
     try {
       ECardParser.parse({ code: 0, data: { cardWallet: '余额未知' } });
@@ -1609,6 +1719,18 @@ describe('Portal 解析器边界', () => {
 
     expect(thrown?.code).toBe(ErrorCode.INTERNAL_ERROR);
     expect(thrown?.message).toBe('一卡通余额格式错误');
+  });
+
+  it('ecard 余额缺失时服务不写缓存', async () => {
+    upstreamExecuteCallback = true;
+    upstreamRequestHandler = async () => new Response(JSON.stringify({ code: 0, data: {} }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    await expect(ECardService.getECard(1, '2023001551', false)).rejects.toThrow('一卡通余额字段缺失');
+    const rows = await getDb().select().from(schema.cache);
+    expect(rows.some((row: any) => row.key === 'ecard:2023001551')).toBe(false);
   });
 });
 

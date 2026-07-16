@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 HttpClient、CryptoHelper、URLS、config 与 LoginStep 类型
- * [OUTPUT]: 对外提供 AuthEngine，封装 CAS 验证码、execution 获取与登录提交
- * [POS]: auth 的 CAS 原始登录流程执行器，被 auth 路由和 CredentialManager 静默重认证消费
+ * [OUTPUT]: 对外提供 AuthEngine，封装带 HTTP/维护页校验的 CAS 验证码、execution 与登录提交
+ * [POS]: auth 的 CAS 原始登录执行器，防止上游故障被解释为密码错误
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -10,6 +10,18 @@ import { CryptoHelper } from '../utils/crypto';
 import { URLS } from '../core/url-config';
 import { config } from '../config';
 import type { LoginStep } from '../utils/logger';
+
+function assertCasHttpResponse(response: Response, operation: string, allowRedirect = false) {
+  if (response.status >= 200 && response.status < 300) return;
+  if (allowRedirect && response.status >= 300 && response.status < 400) return;
+  throw new Error(`${operation}_HTTP_${response.status}`);
+}
+
+function assertNotCasErrorPage(text: string) {
+  if (/Whitelabel Error Page|Internal Server Error|HTTP Status 5\d\d|系统维护|系统异常|服务暂不可用/.test(text)) {
+    throw new Error('CAS_MAINTENANCE');
+  }
+}
 
 export class AuthEngine {
   private client: HttpClient;
@@ -23,6 +35,7 @@ export class AuthEngine {
       `${URLS.captcha}?r=${Date.now()}`,
       { isAuthFlow: true, timeout: config.timeout.cas }
     );
+    assertCasHttpResponse(res, 'CAS_CAPTCHA');
     return res.arrayBuffer();
   }
 
@@ -31,7 +44,9 @@ export class AuthEngine {
       `${URLS.login}?service=${encodeURIComponent(URLS.servicePortal)}`,
       { isAuthFlow: true, timeout: config.timeout.cas }
     );
+    assertCasHttpResponse(res, 'CAS_EXECUTION');
     const html = await res.text();
+    assertNotCasErrorPage(html);
     const match = html.match(/name="execution" value="([^"]+)"/);
     return match ? match[1] : null;
   }
@@ -55,7 +70,9 @@ export class AuthEngine {
       isAuthFlow: true,
       timeout: config.timeout.cas,
     });
+    assertCasHttpResponse(resKey, 'CAS_PUBKEY');
     const pubKey = await resKey.text();
+    assertNotCasErrorPage(pubKey);
     const encryptedPw = CryptoHelper.encryptPassword(password, pubKey);
     if (!encryptedPw) return { success: false, message: 'Encryption failed', steps };
 
@@ -78,6 +95,7 @@ export class AuthEngine {
       timeout: config.timeout.cas,
       headers: { 'Referer': loginUrl },
     });
+    assertCasHttpResponse(res, 'CAS_LOGIN', true);
 
     if (res.status === 302) {
       const loc = res.headers.get('location');
@@ -95,6 +113,7 @@ export class AuthEngine {
 
     // Login failed
     const text = await res.text();
+    assertNotCasErrorPage(text);
     const needCaptcha = /验证码(不能为空|错误|失效|不正确)/i.test(text);
     if (needCaptcha) return { success: false, needCaptcha: true, message: '验证码错误', steps };
 

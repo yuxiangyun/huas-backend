@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 cheerio、URLS、config、upstream、AppError/ErrorCode、Logger 与 HttpClient
- * [OUTPUT]: 对外提供 EvaluationService 以及评教列表、发现、提交结果类型
- * [POS]: services/academic 的评教业务编排器，发现评教入口、解析列表、构造满分表单并提交上游
+ * [INPUT]: 依赖 cheerio、URLS、config、upstream、AppError/ErrorCode、Logger 与 HttpClient 上游响应
+ * [OUTPUT]: 对外提供 EvaluationService 以及含 actionable/blocked 的状态、发现与有界批次提交结果类型
+ * [POS]: services/academic 的评教编排器，以稳定业务字段的提交数增量抵抗批末列表重排
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -23,18 +23,49 @@ export interface EvaluationListItem {
   evaluated: string;
   submitted: string;
   pending: boolean;
+  actionable: boolean;
+  blocked: boolean;
+  state: 'pending' | 'completed' | 'blocked';
 }
 
 export interface EvaluationSubmitItem extends EvaluationListItem {
   questionCount: number;
   fullScore: number;
-  status: 'dry_run' | 'submitted' | 'skipped' | 'failed';
+  status: 'dry_run' | 'submitted' | 'failed';
   message?: string;
 }
 
 export interface EvaluationDiscoveryResult {
   evaluationRequired: boolean;
   listUrl: string | null;
+}
+
+export interface EvaluationStatusResult {
+  total: number;
+  pendingCount: number;
+  actionableCount: number;
+  blockedCount: number;
+  completedCount: number;
+  items: EvaluationListItem[];
+}
+
+export interface EvaluationSubmitResult {
+  dryRun: boolean;
+  status: EvaluationStatusResult;
+  targetCount: number;
+  attemptedCount: number;
+  previewedCount: number;
+  submittedCount: number;
+  failedCount: number;
+  batch: {
+    limit: number;
+    availableCount: number;
+    selectedCount: number;
+    remainingCount: number;
+    hasMore: boolean;
+    verificationRequests: number;
+  };
+  items: EvaluationSubmitItem[];
 }
 
 interface EvaluationListRow extends EvaluationListItem {
@@ -48,9 +79,18 @@ interface BuildFormResult {
   fullScore: number;
 }
 
+interface PendingVerification {
+  target: EvaluationListRow;
+  item: EvaluationListItem;
+  questionCount: number;
+  fullScore: number;
+}
+
 const DEFAULT_COMMENT = '好';
 const MAX_LIST_URL_LENGTH = 500;
 const MAX_DISCOVERY_PAGES = 8;
+const DEFAULT_BATCH_SIZE = 2;
+const MAX_BATCH_SIZE = 3;
 const SCORE_INPUT_PREFIX = 'sjfz_';
 const SCORE_RADIO_PREFIX = 'pj0601id_';
 const EVALUATION_LIST_PATH = '/jsxsd/xspj/xspj_list.do';
@@ -297,6 +337,11 @@ function ensureActiveSession(html: string) {
   ) {
     throw new Error('SESSION_EXPIRED');
   }
+
+  const pageText = normalizeText(cheerio.load(stripHtmlComments(html)).text());
+  if (/Whitelabel Error Page|Internal Server Error|HTTP Status 5\d\d|系统异常|服务暂不可用|错误页面/.test(pageText)) {
+    throw new Error('EVALUATION_UPSTREAM_ERROR_PAGE');
+  }
 }
 
 function isSubmitted(value: string) {
@@ -307,6 +352,9 @@ function extractListRows(html: string): EvaluationListRow[] {
   ensureActiveSession(html);
 
   const $ = cheerio.load(html);
+  if (!$('#dataList').length) {
+    throw new Error('EVALUATION_LIST_INVALID');
+  }
   const rows: EvaluationListRow[] = [];
 
   $('#dataList tr').slice(1).each((_, tr) => {
@@ -323,6 +371,9 @@ function extractListRows(html: string): EvaluationListRow[] {
     });
 
     const submitted = normalizeText($(cells[7]).text());
+    const submittedFlag = isSubmitted(submitted);
+    const actionable = Boolean(editUrl) && !submittedFlag;
+    const pending = !submittedFlag;
     const item = {
       index: normalizeText($(cells[0]).text()),
       teacherId: normalizeText($(cells[1]).text()),
@@ -332,7 +383,10 @@ function extractListRows(html: string): EvaluationListRow[] {
       totalScore: normalizeText($(cells[5]).text()),
       evaluated: normalizeText($(cells[6]).text()),
       submitted,
-      pending: Boolean(editUrl) && !isSubmitted(submitted),
+      pending,
+      actionable,
+      blocked: pending && !actionable,
+      state: submittedFlag ? 'completed' as const : actionable ? 'pending' as const : 'blocked' as const,
       editUrl,
     };
 
@@ -529,6 +583,79 @@ function toPublicItem(row: EvaluationListRow): EvaluationListItem {
   return item;
 }
 
+function toStatus(rows: EvaluationListRow[]): EvaluationStatusResult {
+  const items = rows.map(toPublicItem);
+  const pendingCount = items.filter((item) => item.pending).length;
+  return {
+    total: items.length,
+    pendingCount,
+    actionableCount: items.filter((item) => item.actionable).length,
+    blockedCount: items.filter((item) => item.blocked).length,
+    completedCount: items.filter((item) => isSubmitted(item.submitted)).length,
+    items,
+  };
+}
+
+function normalizeBatchSize(rawBatchSize: number | undefined) {
+  if (!Number.isFinite(rawBatchSize)) return DEFAULT_BATCH_SIZE;
+  return Math.min(MAX_BATCH_SIZE, Math.max(1, Math.floor(rawBatchSize!)));
+}
+
+function assertEvaluationResponse(response: Response, operation: string, allowRedirect = false) {
+  if (response.status === 401 || response.status === 403) throw new Error('SESSION_EXPIRED');
+  if (response.status >= 200 && response.status < 300) return;
+  if (allowRedirect && response.status >= 300 && response.status < 400 && response.headers.get('location')) return;
+  throw new Error(`${operation}_HTTP_${response.status}`);
+}
+
+function assertSubmitResponse(response: Response, html: string, actionUrl: string) {
+  if (response.status === 401 || response.status === 403) {
+    throw new Error('SESSION_EXPIRED');
+  }
+  if (response.status < 200 || response.status >= 400) {
+    throw new Error(`SUBMIT_HTTP_${response.status}`);
+  }
+
+  if (!html.trim()) {
+    const location = response.headers.get('location');
+    if (location && safeJwUrl(location, actionUrl)) return;
+    throw new Error('SUBMIT_RESPONSE_EMPTY');
+  }
+
+  ensureActiveSession(html);
+  const text = normalizeText(cheerio.load(stripHtmlComments(html)).text());
+  if (/提交失败|保存失败|操作失败|系统异常|发生错误|错误信息|评分项.{0,12}不能为空/.test(text)) {
+    throw new Error('SUBMIT_REJECTED');
+  }
+}
+
+function evaluationIdentity(row: EvaluationListRow) {
+  return [row.teacherId, row.teacherName, row.college, row.category].join('\u0000');
+}
+
+function submittedCountForIdentity(rows: EvaluationListRow[], target: EvaluationListRow) {
+  const identity = evaluationIdentity(target);
+  return rows.filter((row) => evaluationIdentity(row) === identity && isSubmitted(row.submitted)).length;
+}
+
+function isConfirmedSubmitted(
+  initialRows: EvaluationListRow[],
+  finalRows: EvaluationListRow[],
+  target: EvaluationListRow,
+) {
+  return submittedCountForIdentity(finalRows, target) > submittedCountForIdentity(initialRows, target);
+}
+
+async function fetchEvaluationRows(client: HttpClient, listUrl: string) {
+  const response = await client.request(listUrl, { timeout: config.timeout.business });
+  assertEvaluationResponse(response, 'EVALUATION_LIST');
+  return extractListRows(await response.text());
+}
+
+function rethrowSessionExpired(error: unknown) {
+  if (String((error as any)?.message || '') === 'SESSION_EXPIRED') throw error;
+}
+
 export class EvaluationService {
   static async discoverListUrlFromClient(client: HttpClient): Promise<EvaluationDiscoveryResult> {
     const queue = [...DISCOVERY_ENTRY_URLS];
@@ -540,6 +667,7 @@ export class EvaluationService {
       visited.add(pageUrl);
 
       const res = await client.request(pageUrl, { timeout: config.timeout.business });
+      assertEvaluationResponse(res, 'EVALUATION_DISCOVERY', true);
       const location = res.headers.get('location');
       if (location) {
         const nextUrl = safeJwUrl(location, pageUrl);
@@ -578,103 +706,127 @@ export class EvaluationService {
     const safeUrl = assertJwEvaluationListUrl(listUrl);
 
     return upstream(userId, 'jw', async ({ client }) => {
-      const res = await client.request(safeUrl, { timeout: config.timeout.business });
-      const rows = extractListRows(await res.text());
-      const items = rows.map(toPublicItem);
+      return toStatus(await fetchEvaluationRows(client, safeUrl));
+    });
+  }
 
+  static async submitFullScoreFromClient(
+    client: HttpClient,
+    listUrl: string,
+    options: { dryRun?: boolean; comment?: string; batchSize?: number } = {},
+  ): Promise<EvaluationSubmitResult> {
+    const safeUrl = assertJwEvaluationListUrl(listUrl);
+    const dryRun = options.dryRun ?? true;
+    const comment = normalizeText(options.comment || DEFAULT_COMMENT) || DEFAULT_COMMENT;
+    const batchLimit = normalizeBatchSize(options.batchSize);
+    const rows = await fetchEvaluationRows(client, safeUrl);
+    const actionableRows = rows.filter((row) => row.actionable);
+    const targetRows = actionableRows.slice(0, batchLimit);
+    const outcomes: Array<EvaluationSubmitItem | PendingVerification> = [];
+    let attemptedCount = 0;
+
+    for (const row of targetRows) {
+      const baseItem = toPublicItem(row);
+      let questionCount = 0;
+      let fullScore = 0;
+
+      try {
+        const editRes = await client.request(row.editUrl, { timeout: config.timeout.business });
+        assertEvaluationResponse(editRes, 'EVALUATION_FORM');
+        const form = buildFullScoreForm(await editRes.text(), row.editUrl, comment);
+        questionCount = form.questionCount;
+        fullScore = form.fullScore;
+
+        if (dryRun) {
+          outcomes.push({ ...baseItem, questionCount, fullScore, status: 'dry_run' });
+          continue;
+        }
+
+        attemptedCount += 1;
+        const submitRes = await client.request(form.actionUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            Referer: row.editUrl,
+          },
+          body: form.body,
+          timeout: config.timeout.business,
+        });
+        const submitHtml = await submitRes.text();
+        assertSubmitResponse(submitRes, submitHtml, form.actionUrl);
+        outcomes.push({ target: row, item: baseItem, questionCount, fullScore });
+      } catch (error: any) {
+        rethrowSessionExpired(error);
+        outcomes.push({
+          ...baseItem,
+          questionCount,
+          fullScore,
+          status: 'failed',
+          message: String(error?.message || 'SUBMIT_FAILED'),
+        });
+      }
+    }
+
+    const verificationRequests = !dryRun && attemptedCount > 0 ? 1 : 0;
+    const finalRows = verificationRequests ? await fetchEvaluationRows(client, safeUrl) : rows;
+    const results = outcomes.map((outcome): EvaluationSubmitItem => {
+      if (!('target' in outcome)) return outcome;
+      if (isConfirmedSubmitted(rows, finalRows, outcome.target)) {
+        return {
+          ...outcome.item,
+          questionCount: outcome.questionCount,
+          fullScore: outcome.fullScore,
+          status: 'submitted',
+        };
+      }
       return {
-        total: items.length,
-        pendingCount: items.filter((item) => item.pending).length,
-        items,
+        ...outcome.item,
+        questionCount: outcome.questionCount,
+        fullScore: outcome.fullScore,
+        status: 'failed',
+        message: 'SUBMIT_NOT_CONFIRMED',
       };
     });
+    const status = toStatus(finalRows);
+    const previewedCount = results.filter((item) => item.status === 'dry_run').length;
+    const submittedCount = results.filter((item) => item.status === 'submitted').length;
+    const failedCount = results.filter((item) => item.status === 'failed').length;
+
+    Logger.operation(
+      'Evaluation',
+      dryRun ? '评教满分组参预检' : '评教满分提交',
+      undefined,
+      undefined,
+      `available=${actionableRows.length}; target=${targetRows.length}; attempted=${attemptedCount}; previewed=${previewedCount}; submitted=${submittedCount}; failed=${failedCount}; remaining=${status.actionableCount}; blocked=${status.blockedCount}`,
+    );
+
+    return {
+      dryRun,
+      status,
+      targetCount: targetRows.length,
+      attemptedCount,
+      previewedCount,
+      submittedCount,
+      failedCount,
+      batch: {
+        limit: batchLimit,
+        availableCount: actionableRows.length,
+        selectedCount: targetRows.length,
+        remainingCount: status.actionableCount,
+        hasMore: status.actionableCount > 0,
+        verificationRequests,
+      },
+      items: results,
+    };
   }
 
   static async submitFullScore(
     userId: number,
     listUrl: string,
-    options: { dryRun?: boolean; comment?: string } = {},
+    options: { dryRun?: boolean; comment?: string; batchSize?: number } = {},
   ) {
-    const safeUrl = assertJwEvaluationListUrl(listUrl);
-    const dryRun = options.dryRun ?? true;
-    const comment = normalizeText(options.comment || DEFAULT_COMMENT) || DEFAULT_COMMENT;
-
     return upstream(userId, 'jw', async ({ client }) => {
-      const listRes = await client.request(safeUrl, { timeout: config.timeout.business });
-      const rows = extractListRows(await listRes.text());
-      const pendingRows = rows.filter((row) => row.pending);
-      const results: EvaluationSubmitItem[] = [];
-
-      for (const row of pendingRows) {
-        const baseItem = toPublicItem(row);
-        try {
-          const editRes = await client.request(row.editUrl, { timeout: config.timeout.business });
-          const form = buildFullScoreForm(await editRes.text(), row.editUrl, comment);
-
-          if (dryRun) {
-            results.push({
-              ...baseItem,
-              questionCount: form.questionCount,
-              fullScore: form.fullScore,
-              status: 'dry_run',
-            });
-            continue;
-          }
-
-          try {
-            const submitRes = await client.request(form.actionUrl, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                Referer: row.editUrl,
-              },
-              body: form.body,
-              timeout: config.timeout.business,
-            });
-
-            results.push({
-              ...baseItem,
-              questionCount: form.questionCount,
-              fullScore: form.fullScore,
-              status: submitRes.status >= 200 && submitRes.status < 400 ? 'submitted' : 'failed',
-              message: `status=${submitRes.status}`,
-            });
-          } catch (error: any) {
-            results.push({
-              ...baseItem,
-              questionCount: form.questionCount,
-              fullScore: form.fullScore,
-              status: 'failed',
-              message: String(error?.message || 'SUBMIT_FAILED'),
-            });
-          }
-        } catch (error: any) {
-          results.push({
-            ...baseItem,
-            questionCount: 0,
-            fullScore: 0,
-            status: 'failed',
-            message: String(error?.message || 'BUILD_FORM_FAILED'),
-          });
-        }
-      }
-
-      Logger.operation(
-        'Evaluation',
-        dryRun ? '评教满分组参预检' : '评教满分提交',
-        undefined,
-        undefined,
-        `pending=${pendingRows.length}; ok=${results.filter((item) => item.status === 'submitted' || item.status === 'dry_run').length}`,
-      );
-
-      return {
-        dryRun,
-        total: rows.length,
-        pendingCount: pendingRows.length,
-        successCount: results.filter((item) => item.status === 'submitted' || item.status === 'dry_run').length,
-        failedCount: results.filter((item) => item.status === 'failed').length,
-        items: results,
-      };
+      return this.submitFullScoreFromClient(client, listUrl, options);
     });
   }
 }

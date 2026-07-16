@@ -1,7 +1,14 @@
+/**
+ * [INPUT]: 依赖数据库用户、ScheduleFacade 双源周课表、ICourse、北京时间与 node:crypto
+ * [OUTPUT]: 提供订阅用户解析、当前周课表、RFC 5545 ICS、订阅 URL 与响应头构造能力
+ * [POS]: services/calendar 的订阅编排与序列化核心，复用双源门面并以 15 分钟窗口刷新周快照
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { createHash } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { getDb, schema } from '../../db';
-import { PortalScheduleService } from '../portal/portal-schedule-service';
+import { ScheduleFacade } from '../academic/schedule-facade';
 import type { ICourse } from '../../types';
 import { beijingDate } from '../../utils/time';
 
@@ -24,8 +31,10 @@ type CourseTiming = {
   kind: 'allDay';
 };
 
-const ICS_LINE_LIMIT = 74;
+const ICS_LINE_LIMIT_OCTETS = 75;
 const ICS_TIMEZONE = 'Asia/Shanghai';
+const UTF8_ENCODER = new TextEncoder();
+const CALENDAR_SNAPSHOT_MAX_AGE_MS = 15 * 60 * 1000;
 
 const SECTION_TIME_MAP: Record<number, SectionSlot> = {
   1: { start: '08:00', end: '08:45' },
@@ -68,16 +77,37 @@ function escapeIcsText(value: string): string {
     .replace(/,/g, '\\,');
 }
 
+function utf8Length(value: string): number {
+  return UTF8_ENCODER.encode(value).byteLength;
+}
+
+function utf8PrefixLength(value: string, maxOctets: number): number {
+  let octets = 0;
+  let length = 0;
+
+  for (const character of value) {
+    const characterOctets = utf8Length(character);
+    if (octets + characterOctets > maxOctets) break;
+    octets += characterOctets;
+    length += character.length;
+  }
+
+  return length;
+}
+
 function foldIcsLine(line: string): string[] {
-  if (line.length <= ICS_LINE_LIMIT) return [line];
+  if (utf8Length(line) <= ICS_LINE_LIMIT_OCTETS) return [line];
 
   const lines: string[] = [];
   let remaining = line;
-  while (remaining.length > ICS_LINE_LIMIT) {
-    lines.push(remaining.slice(0, ICS_LINE_LIMIT));
-    remaining = ` ${remaining.slice(ICS_LINE_LIMIT)}`;
+  while (remaining) {
+    const continuation = lines.length > 0;
+    const contentLimit = ICS_LINE_LIMIT_OCTETS - (continuation ? 1 : 0);
+    const prefixLength = utf8PrefixLength(remaining, contentLimit);
+    const prefix = remaining.slice(0, prefixLength);
+    lines.push(continuation ? ` ${prefix}` : prefix);
+    remaining = remaining.slice(prefixLength);
   }
-  lines.push(remaining);
   return lines;
 }
 
@@ -166,16 +196,23 @@ export async function resolveCalendarSubscriptionUser(studentId: string): Promis
 
 export async function getCurrentWeekSchedule(user: CalendarUser) {
   const { startDate, endDate } = getCurrentWeekRange();
+  const readSchedule = (forceRefresh: boolean) => ScheduleFacade.getPortalFirstSchedule({
+    userId: user.id,
+    studentId: user.studentId,
+    startDate,
+    endDate,
+    forceRefresh,
+    name: user.name,
+  });
+  let result = await readSchedule(false);
+  const updatedAt = result._meta.updated_at ? Date.parse(result._meta.updated_at) : NaN;
+  const staleSnapshot = result._meta.cached
+    && (!Number.isFinite(updatedAt) || Date.now() - updatedAt >= CALENDAR_SNAPSHOT_MAX_AGE_MS);
+  if (staleSnapshot) result = await readSchedule(true);
+
   return {
     range: { startDate, endDate },
-    result: await PortalScheduleService.getSchedule(
-      user.id,
-      user.studentId,
-      startDate,
-      endDate,
-      false,
-      user.name,
-    ),
+    result,
   };
 }
 

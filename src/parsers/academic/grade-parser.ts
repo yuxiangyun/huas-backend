@@ -35,6 +35,9 @@ export const GradeParser = {
     }
 
     const $ = cheerio.load(html);
+    if (!$('#dataList').length) {
+      throw new Error('GRADE_PAGE_INVALID');
+    }
     const items: IGradeItem[] = [];
     const normalize = (val: string) => val.replace(/\s+/g, ' ').trim();
     const toNumber = (val: string) => {

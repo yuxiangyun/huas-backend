@@ -1,7 +1,17 @@
+/**
+ * [INPUT]: 依赖 upstream、TicketExchanger、AuthEngine、HttpClient 测试替身与隔离数据库
+ * [OUTPUT]: 验证业务重试、Portal 换票瞬态网络故障透传及 CAS HTTP/维护页错误语义
+ * [POS]: tests 的学校上游故障语义回归套件，防止超时和维护故障退化为凭证或密码错误
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { and, eq } from 'drizzle-orm';
 import { initDatabase, getDb, schema } from '../src/db';
 import { upstream } from '../src/services/infra/upstream';
+import type { HttpClient } from '../src/core/http-client';
+import { TicketExchanger } from '../src/auth/ticket-exchanger';
+import { AuthEngine } from '../src/auth/auth-engine';
 
 const EMPTY_JAR_JSON = JSON.stringify({
   version: 'tough-cookie@5.0.0',
@@ -101,5 +111,55 @@ describe('upstream retry', () => {
       .limit(1);
 
     expect(rows.length).toBe(1);
+  });
+});
+
+describe('auth upstream failure semantics', () => {
+  it('Portal 换票 REQUEST_TIMEOUT 原样透传', async () => {
+    const client = {
+      request: async () => { throw new Error('REQUEST_TIMEOUT'); },
+    } as unknown as HttpClient;
+
+    await expect(TicketExchanger.exchangePortalToken(client)).rejects.toThrow('REQUEST_TIMEOUT');
+  });
+
+  it('Portal 换票透传 fetch/解析器已识别的全部瞬态网络错误', async () => {
+    const transientErrors = [
+      'fetch failed',
+      'read ECONNRESET',
+      'getaddrinfo EAI_AGAIN xyjw.huas.edu.cn',
+      'connect ETIMEDOUT',
+      'getaddrinfo ENOTFOUND xyjw.huas.edu.cn',
+      'network socket disconnected',
+    ];
+
+    for (const message of transientErrors) {
+      const client = {
+        request: async () => { throw new Error(message); },
+      } as unknown as HttpClient;
+
+      await expect(TicketExchanger.exchangePortalToken(client)).rejects.toThrow(message);
+    }
+  });
+
+  it('CAS execution HTTP 5xx 与 200 维护页都不会返回空 execution', async () => {
+    const httpFailure = new AuthEngine({
+      request: async () => new Response('unavailable', { status: 503 }),
+    } as unknown as HttpClient);
+    await expect(httpFailure.getExecution()).rejects.toThrow('CAS_EXECUTION_HTTP_503');
+
+    const maintenance = new AuthEngine({
+      request: async () => new Response('<html><body>系统维护，请稍后再试</body></html>', { status: 200 }),
+    } as unknown as HttpClient);
+    await expect(maintenance.getExecution()).rejects.toThrow('CAS_MAINTENANCE');
+  });
+
+  it('CAS 登录阶段 HTTP 5xx 不会被解释为密码错误', async () => {
+    const engine = new AuthEngine({
+      request: async () => new Response('unavailable', { status: 502 }),
+    } as unknown as HttpClient);
+
+    await expect(engine.login('2023001001', 'password', '', 'execution'))
+      .rejects.toThrow('CAS_PUBKEY_HTTP_502');
   });
 });

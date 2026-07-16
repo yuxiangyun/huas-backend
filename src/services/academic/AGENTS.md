@@ -3,8 +3,8 @@
 
 成员清单
 classroom-free-service.ts: 空教室服务，校验查询参数并通过 CLASSROOM_ADMIN_STUDENT_ID 配置的教务服务账号读取空教室数据
-evaluation-service.ts: 评教服务，发现评教入口、解析任务、构造满分表单并提交
-grade-service.ts: 成绩服务，按查询参数读取 JW 成绩并执行缓存策略
+evaluation-service.ts: 评教服务，以 actionable/blocked 表达任务，用有界续批及稳定业务字段的提交数增量完成批末确认
+grade-service.ts: 成绩服务，校验 JW HTTP 与页面结构后解析缓存，错误页不得成为空成绩事实
 schedule-facade.ts: 课表门面服务，统一 /api/schedule 与 /api/v1/schedule 的日期规范、JW/Portal fallback 与响应元信息
 schedule-service.ts: JW 单源课表服务，读取教务课表、处理日期/周缓存、旧缓存提升与 refresh 旧值回退
 
@@ -17,6 +17,8 @@ academic 服务是学校教务业务边界；路由不直接碰上游，解析�
 任何回源、缓存 key、refresh 限流或 fallback 行为变更必须跑 business-flows 对应用例。
 
 变更日志
+2026-07-16: 评教加入 blocked/actionable、有界续批与抗列表重排的批末回查；成绩拒绝 HTTP/结构错误页缓存。
+2026-07-16: 评教提交改为响应校验加列表回查双重确认，DTO 分离本次 submittedCount 与累计 status.completedCount。
 2026-06-30: 新增 schedule-facade.ts，收敛 /api/schedule 与 /api/v1/schedule 的双源 fallback 编排。
 2026-06-30: 空教室管理员学号从硬编码迁移到 CLASSROOM_ADMIN_STUDENT_ID，并新增服务账号不可用语义。
 2026-06-30: 播种 academic 服务 L2 地图。

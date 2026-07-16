@@ -1,29 +1,30 @@
 /**
- * [INPUT]: 依赖 Portal 上游 JSON、ICourse 类型与 Logger
- * [OUTPUT]: 对外提供 PortalScheduleParser，解析 Portal 日期课表为统一课程模型
- * [POS]: parsers/portal 的课表适配器，识别 token 过期、课表未公布和空课表
+ * [INPUT]: 依赖 Portal 上游 JSON、ICourse 类型、Logger 与 portal-code 的 code 语义判断
+ * [OUTPUT]: 对外提供 PortalScheduleParser，按请求日期范围解析 Portal 课表为统一课程模型
+ * [POS]: parsers/portal 的课表适配器，识别 token 过期、空课表并过滤范围外日期
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import type { ICourse } from '../../types';
 import { Logger } from '../../utils/logger';
+import { isPortalSessionExpiredCode, isPortalSuccessCode } from './portal-code';
 
 export const PortalScheduleParser = {
-  parse(json: any, startDate?: string, user?: { studentId?: string; name?: string }) {
+  parse(json: any, startDate?: string, endDate?: string, user?: { studentId?: string; name?: string }) {
     const week = startDate ? `${startDate}` : "日期模式";
 
-    if (json?.code === 401 || json?.message?.includes('token') || json?.message?.includes('失效') || json?.message?.includes('过期')) {
+    if (isPortalSessionExpiredCode(json?.code) || json?.message?.includes('token') || json?.message?.includes('失效') || json?.message?.includes('过期')) {
       Logger.warn('PortalScheduleParser', 'Session 过期', json?.message);
       throw new Error("SESSION_EXPIRED");
     }
 
-    if (json?.code === 0 && !json?.data?.schedule) {
+    if (isPortalSuccessCode(json?.code) && !json?.data?.schedule) {
       const message = String(json?.message || '').trim() || '没有相关数据';
       Logger.parser('PortalScheduleParser', '解析完成 共 0 个日程', user?.studentId, user?.name);
       return { week, courses: [], message };
     }
 
-    if (json?.code !== 0 || !json?.data?.schedule) {
+    if (!isPortalSuccessCode(json?.code) || !json?.data?.schedule) {
       Logger.warn('PortalScheduleParser', '数据获取失败', json?.message || '未知错误');
       if (json?.message?.includes('暂未公布') || json?.message?.includes('没有相关数据') || json?.message?.includes('获取失败adapter-server')) {
         throw new Error("SCHEDULE_NOT_AVAILABLE");
@@ -33,9 +34,16 @@ export const PortalScheduleParser = {
 
     const courses: ICourse[] = [];
     const schedule = json.data.schedule;
+    const rangeStart = startDate && /^\d{4}-\d{2}-\d{2}$/.test(startDate) ? startDate : null;
+    const defaultEnd = rangeStart
+      ? new Date(new Date(`${rangeStart}T00:00:00Z`).getTime() + 6 * 86_400_000).toISOString().slice(0, 10)
+      : null;
+    const rangeEnd = endDate && /^\d{4}-\d{2}-\d{2}$/.test(endDate) ? endDate : defaultEnd;
 
     for (const dateStr of Object.keys(schedule)) {
+      if (rangeStart && rangeEnd && (dateStr < rangeStart || dateStr > rangeEnd)) continue;
       const dateObj = new Date(`${dateStr}T00:00:00Z`);
+      if (Number.isNaN(dateObj.getTime())) continue;
       const dayOfWeek = dateObj.getUTCDay() || 7;
 
       const dayData = schedule[dateStr];

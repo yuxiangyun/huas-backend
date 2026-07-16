@@ -180,4 +180,14 @@ describe('ScheduleParser', () => {
   it('JW 返回登录页时判定为凭证失效而不是课表结构错误', () => {
     expect(() => ScheduleParser.parse(JW_LOGIN_PAGE_HTML)).toThrow('SESSION_EXPIRED');
   });
+
+  it('div.kb_content 包裹嵌套 p 时只解析一次课程', () => {
+    const html = VALID_SCHEDULE_HTML.replace(
+      "<p title='课程学分：3.5<br/>课程属性：必修<br/>课程名称：计算机网络<br/>上课时间：第5周 星期一 [01-02]节<br/>上课地点：第三教学楼A405'>计算机网络</p>",
+      "<div class='kb_content' title='课程名称：计算机网络<br/>上课时间：第5周 星期一 [01-02]节<br/>上课地点：第三教学楼A405'><p title='课程名称：计算机网络<br/>上课时间：第5周 星期一 [01-02]节'>计算机网络</p></div>",
+    );
+    const result = ScheduleParser.parse(html);
+
+    expect(result.courses.filter((course) => course.day === 1 && course.name === '计算机网络')).toHaveLength(1);
+  });
 });

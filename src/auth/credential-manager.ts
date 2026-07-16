@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 db/schema、HttpClient、AuthEngine、TicketExchanger、CryptoHelper、config 与 Logger
- * [OUTPUT]: 对外提供 CredentialManager 类与 CredentialSystem 类型，管理学校凭证生命周期和持久化交互登录恢复状态
+ * [OUTPUT]: 对外提供 CredentialManager 类、CredentialSystem 与学校凭证可用性判断，管理凭证生命周期和交互恢复状态
  * [POS]: auth 的学校子凭证唯一收敛层，管理 CAS TGC、Portal JWT、JW Session 的存储刷新，并守住 CAS 验证码恢复边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -24,6 +24,15 @@ const REAUTH_MAX_ATTEMPTS = 3;
 const REAUTH_COOLDOWN_MS = 60 * 1000; // 1 minute cooldown after max failures
 
 export class CredentialManager {
+  static async hasUsableSchoolCredential(userId: number): Promise<boolean> {
+    const credentials = await Promise.all([
+      this.getCredential(userId, 'cas_tgc'),
+      this.getCredential(userId, 'portal_jwt'),
+      this.getCredential(userId, 'jw_session'),
+    ]);
+    return credentials.some(Boolean);
+  }
+
   static async requiresInteractiveLogin(userId: number): Promise<boolean> {
     const db = getDb();
     const rows = await db.select({ id: schema.credentials.id })

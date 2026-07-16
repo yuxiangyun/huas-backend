@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 AuthEngine/TicketExchanger/CredentialManager、db/schema、JWT、CryptoHelper、AnalyticsService 与 Portal UserService
  * [OUTPUT]: 对外默认导出 auth Hono 路由，提供 /auth/login 登录与验证码重试接口
- * [POS]: routes/auth 的登录入口，根据持久化交互标记决定本地快捷登录，并收敛 CAS 验证码、上游凭证交换与本服务 JWT 签发
+ * [POS]: routes/auth 的登录入口，仅在学校凭证仍可用时允许本地快捷，并收敛 CAS 验证码、子凭证交换与 JWT 签发
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -127,12 +127,15 @@ auth.post('/login', async (c) => {
     const requiresInteractiveLogin = existingUser
       ? await CredentialManager.requiresInteractiveLogin(existingUser.id)
       : false;
+    const hasUsableSchoolCredential = existingUser
+      ? await CredentialManager.hasUsableSchoolCredential(existingUser.id)
+      : false;
 
     if (requiresInteractiveLogin) {
       appendHttpLogDetail(c, 'localShortcut=disabled-need-captcha');
     }
 
-    if (!requiresInteractiveLogin && existingUser?.encryptedPassword) {
+    if (!requiresInteractiveLogin && hasUsableSchoolCredential && existingUser?.encryptedPassword) {
       const storedPassword = CryptoHelper.decryptAES(existingUser.encryptedPassword, config.jwtSecret);
       if (storedPassword && safeEqual(storedPassword, password)) {
         const now = new Date();
@@ -158,6 +161,9 @@ auth.post('/login', async (c) => {
           user: { name: resolvedName, studentId: username, className: resolvedClassName },
         });
       }
+    }
+    if (existingUser && !hasUsableSchoolCredential) {
+      appendHttpLogDetail(c, 'localShortcut=disabled-no-school-credential');
     }
   }
 

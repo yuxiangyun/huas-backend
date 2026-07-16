@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 Portal 上游 JSON code 字段的数字与字符串形态
  * [OUTPUT]: 对外提供 isPortalSuccessCode 与 isPortalSessionExpiredCode
- * [POS]: parsers/portal 的 code 语义收口点，被一卡通与用户资料解析器复用
+ * [POS]: parsers/portal 的 code 语义收口点，被一卡通、用户资料与课表解析器复用
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 

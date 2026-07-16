@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 db/schema、北京日期工具与请求路径/渠道/用户事实
+ * [INPUT]: 依赖 db/schema、北京日期工具与请求路径/显式渠道/用户事实
  * [OUTPUT]: 提供 recordAuthenticatedRequest、recordLogin 与 getOverview 时间序列
  * [POS]: services/admin 的轻量分析事实层，记录每日渠道指标并聚合后台图表数据
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -26,19 +26,24 @@ const WEB_FEATURE_PATHS: Array<[string, string]> = [
   ['/api/treehole', 'treehole'],
 ];
 
+const FEATURE_PATHS = [...MINIPROGRAM_FEATURE_PATHS, ...WEB_FEATURE_PATHS];
+
 function normalizePlatform(value: string | undefined): AnalyticsPlatform {
   const platform = value?.trim().toLowerCase();
   if (platform === 'miniprogram' || platform === 'web') return platform;
   return 'unknown';
 }
 
-function featureOf(path: string, platform: AnalyticsPlatform) {
-  const paths = platform === 'miniprogram'
-    ? MINIPROGRAM_FEATURE_PATHS
-    : platform === 'web'
-      ? WEB_FEATURE_PATHS
-      : [];
-  return paths.find(([prefix]) => path.startsWith(prefix))?.[1] ?? null;
+function featureOf(path: string) {
+  return FEATURE_PATHS.find(([prefix]) => path.startsWith(prefix))?.[1] ?? null;
+}
+
+function requestPlatformOf(path: string, header: string | undefined): AnalyticsPlatform {
+  if (header !== undefined) return normalizePlatform(header);
+
+  // 兼容尚未发送渠道头的旧版小程序；新客户端必须以请求头作为渠道真相。
+  if (MINIPROGRAM_FEATURE_PATHS.some(([prefix]) => path.startsWith(prefix))) return 'miniprogram';
+  return 'unknown';
 }
 
 function increment(day: string, platform: AnalyticsPlatform, metric: string) {
@@ -61,13 +66,13 @@ export class AnalyticsService {
     status: number;
   }) {
     const day = beijingDate();
-    const platform = normalizePlatform(input.platformHeader);
+    const platform = requestPlatformOf(input.path, input.platformHeader);
     const db = getDb();
 
     db.run(sql`INSERT OR IGNORE INTO analytics_daily_users (day, platform, user_id, created_at)
       VALUES (${day}, ${platform}, ${input.userId}, ${Date.now()})`);
     increment(day, platform, 'request.total');
-    const feature = featureOf(input.path, platform);
+    const feature = featureOf(input.path);
     if (feature) increment(day, platform, `feature.${feature}`);
     if (input.status >= 500) increment(day, platform, 'request.server_error');
     else if (input.status >= 400) increment(day, platform, 'request.client_error');

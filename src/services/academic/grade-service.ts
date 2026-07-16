@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 JW 成绩 HTTP 响应、GradeParser、EvaluationService、upstream、CacheService 与刷新失败兜底
+ * [OUTPUT]: 对外提供 GradeService.getGrades，返回经过 HTTP/页面结构校验的成绩与缓存元信息
+ * [POS]: services/academic 的成绩读取边界，拒绝把上游错误页解析并缓存为业务空态
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { upstream } from '../infra/upstream';
 import { CacheService } from '../infra/cache-service';
 import { GradeParser } from '../../parsers';
@@ -11,6 +18,13 @@ import { EvaluationService } from './evaluation-service';
 const MAX_TERM_LENGTH = 32;
 const MAX_KCXZ_LENGTH = 32;
 const MAX_KCMC_LENGTH = 64;
+
+function assertGradeResponse(response: Response) {
+  if (response.status === 401 || response.status === 403) throw new Error('SESSION_EXPIRED');
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(`GRADE_HTTP_${response.status}`);
+  }
+}
 
 function normalizeQueryValue(raw: string | undefined, maxLength: number, fieldName: string): string {
   const normalized = (raw ?? '').trim().replace(/\s+/g, ' ');
@@ -61,6 +75,7 @@ export class GradeService {
           body: params,
           timeout: config.timeout.business,
         });
+        assertGradeResponse(res);
         const html = await res.text();
         try {
           return GradeParser.parse(html, { studentId, name });

@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 GradeParser、成绩 HTML 结构与 AppError/ErrorCode
+ * [OUTPUT]: 验证成绩状态、评教阻断、合法空表与错误页拒绝语义
+ * [POS]: tests 的 JW 成绩页面边界回归套件，防止错误页被缓存为业务空态
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { describe, expect, it } from 'bun:test';
 import { GradeParser } from '../src/parsers/academic/grade-parser';
 import { AppError, ErrorCode } from '../src/utils/errors';
@@ -62,5 +69,12 @@ describe('GradeParser', () => {
       expect((error as AppError).code).toBe(ErrorCode.EVALUATION_REQUIRED);
       expect((error as AppError).data).toEqual({ evaluationRequired: true });
     }
+  });
+
+  it('合法空成绩表返回空数组，无 dataList 的错误页被拒绝', () => {
+    const empty = GradeParser.parse(`<html><body>${'x'.repeat(220)}<table id="dataList"><tr><th>序号</th></tr></table></body></html>`);
+    expect(empty?.items).toEqual([]);
+    expect(() => GradeParser.parse(`<html><body>${'服务异常'.repeat(80)}</body></html>`))
+      .toThrow('GRADE_PAGE_INVALID');
   });
 });

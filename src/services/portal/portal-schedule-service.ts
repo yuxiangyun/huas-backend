@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 upstream、CacheService、PortalScheduleParser、URLS、config、AppError 与刷新失败兜底
- * [OUTPUT]: 对外提供 PortalScheduleService.getSchedule，返回 Portal 课表、缓存元信息与 _request 元信息
+ * [OUTPUT]: 对外提供 PortalScheduleService.getSchedule，向解析器传递完整日期范围并返回课表、缓存与 _request 元信息
  * [POS]: services/portal 的 Portal 单源课表服务，负责日期区间校验、Portal 读取、缓存与过期兜底
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -94,7 +94,7 @@ export class PortalScheduleService {
           headers: { 'X-Id-Token': portalToken! },
           timeout: config.timeout.business,
         });
-        return PortalScheduleParser.parse(await res.json(), normalizedStartDate, { studentId, name });
+        return PortalScheduleParser.parse(await res.json(), normalizedStartDate, normalizedEndDate, { studentId, name });
       });
     } catch (error) {
       const fallback = await fallbackOnRefreshFailure({

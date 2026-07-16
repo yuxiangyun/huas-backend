@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 HttpClient、CryptoHelper、URLS、config 与 Logger 登录步骤记录
- * [OUTPUT]: 对外提供 TicketExchanger，执行 TGC 到 Portal JWT/JW Session 的交换
+ * [OUTPUT]: 对外提供 TicketExchanger，执行 TGC 到 Portal JWT/JW Session 的交换并保留瞬态网络故障语义
  * [POS]: auth 的学校子凭证交换器，被登录流程和 CredentialManager 刷新链消费
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -42,7 +42,9 @@ export class TicketExchanger {
       steps.push({ label: 'portal', ok: false, detail: 'No ticket in redirect' });
       return { token: null, steps };
     } catch (e: any) {
-      steps.push({ label: 'portal', ok: false, detail: e.message });
+      const detail = String(e?.message || '');
+      steps.push({ label: 'portal', ok: false, detail });
+      if (this.isTransientUpstreamError(detail)) throw e;
       return { token: null, steps };
     }
   }
