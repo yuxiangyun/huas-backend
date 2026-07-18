@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 Hono、academicRefreshRateLimitMiddleware、GradeService 与 response.success
+ * [OUTPUT]: 默认导出 /api/grades 路由
+ * [POS]: routes/academic 的成绩 HTTP 适配器，只解析查询与 refresh 参数并转交用户身份
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { Hono } from 'hono';
 import { academicRefreshRateLimitMiddleware } from '../../middleware/academic-refresh-rate-limit.middleware';
 import { GradeService } from '../../services/academic/grade-service';

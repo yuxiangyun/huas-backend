@@ -12,6 +12,7 @@ portal/: Portal 路由，暴露一卡通、用户资料与 Portal 课表接口
 system/: 系统路由，提供健康检查
 treehole/: 树洞路由，解析匿名社区请求并调用 Treehole 服务
 index.ts: 路由总装配器，挂载 public/auth/calendar 与 /api 受保护子应用，并按 ugcComplianceState 或 ASN+端口规则认证后返回 UGC mock/空态
+schedule-route-log.ts: 双源课表共享日志适配器，统一请求结果摘要字段但不参与 source 与 fallback 决策
 
 架构决策
 路由层只做 HTTP 输入解析、认证边界、日志细节和响应包装；业务事实、事务和上游访问必须下沉到 services。
@@ -24,6 +25,7 @@ UGC 合规守卫位于 app 层以避开 Hono 子应用路径歧义，但必须�
 不要跨路由抽象参数 helper，除非错误消息、默认值和兼容行为完全一致。
 
 变更日志
+2026-07-18: 抽取 JW/Portal 双源课表的同构日志映射，业务入口与 fallback 语义继续独立。
 2026-07-12: 管理接口升级为 HttpOnly Cookie 会话，并新增渠道分析总览接口。
 2026-07-05: UGC 合规拦截响应移除显式 meta，前端只按空数据、空分页或 id=0 mock 收敛反馈入口。
 2026-07-02: UGC 守卫支持可信 ASN 头 + 端口命中后自动空读，用于指定网络来源的合规空态。

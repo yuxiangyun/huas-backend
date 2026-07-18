@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 Hono Context/Next、ErrorCode 与 response.error，读取认证后的 userId 和 refresh 查询参数
+ * [OUTPUT]: 对外提供 academicRefreshRateLimitMiddleware 与测试态重置函数
+ * [POS]: middleware 的教务强制刷新限流边界，以用户为粒度保护学校上游，不承载业务事实
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import type { Context, Next } from 'hono';
 import { ErrorCode } from '../utils/errors';
 import { error } from '../utils/response';
