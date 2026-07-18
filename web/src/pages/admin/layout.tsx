@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖后台 Cookie 会话、React Router Outlet、QueryClient 与全局 Toast
+ * [INPUT]: 依赖后台 Cookie 会话、React Router Outlet/位置、应用路径构造器、QueryClient 与全局 Toast
  * [OUTPUT]: 提供 AdminLayout、AdminOutletContextValue 与 useAdminOutletContext
  * [POS]: pages/admin 的独立响应式后台壳，承载登录、分组导航和会话退出
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -7,7 +7,7 @@
 
 import { type FormEvent, useEffect, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { NavLink, Outlet, useNavigate, useOutletContext } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate, useOutletContext } from 'react-router-dom';
 import { appRoutes } from '@/app/router/paths';
 import { useToastStore } from '@/app/state/toast-store';
 import { adminQueryKeys } from '@/entities/admin/model/admin-query-keys';
@@ -18,6 +18,7 @@ import {
   type AdminSession,
 } from '@/features/admin-treehole/model/admin-session';
 import { ApiError } from '@/shared/api/http-client';
+import { buildAppPath } from '@/shared/config/env';
 import { Button } from '@/shared/ui/button';
 
 const fieldClass = 'h-12 w-full rounded-xl border border-black/[0.09] bg-white px-3.5 text-ink outline-none focus:ring-2 focus:ring-[#007aff]/20';
@@ -55,6 +56,7 @@ function errorMessage(error: unknown) {
 }
 
 export function AdminLayout() {
+  const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const pushToast = useToastStore((state) => state.pushToast);
@@ -152,9 +154,11 @@ export function AdminLayout() {
   const navigation = navGroups.map((group) => (
     <section key={group.label} className="space-y-1">
       <p className="px-3 pb-1 pt-3 text-[0.68rem] font-semibold tracking-[0.1em] text-[#8e8e93]">{group.label}</p>
-      {group.items.map((item) => (
-        <NavLink key={item.to} to={item.to} onClick={() => setMenuOpen(false)} className={({ isActive }) => `block rounded-[0.7rem] px-3 py-2 text-sm font-medium transition ${isActive ? 'bg-black/[0.07] text-black' : 'text-[#59595f] hover:bg-black/[0.035]'}`}>{item.label}</NavLink>
-      ))}
+      {group.items.map((item) => {
+        const href = buildAppPath(item.to);
+        const isActive = location.pathname === item.to || location.pathname === href;
+        return <a key={item.to} href={href} className={`block rounded-[0.7rem] px-3 py-2 text-sm font-medium transition ${isActive ? 'bg-black/[0.07] text-black' : 'text-[#59595f] hover:bg-black/[0.035]'}`}>{item.label}</a>;
+      })}
     </section>
   ));
 
