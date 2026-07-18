@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 Treehole 查询/写入 hooks、共享评论线程、BottomSheet、ConfirmSheet 与 TreeholeAvatar
+ * [OUTPUT]: 对外提供 TreeholeDetailSheet，展示树洞详情并编排点赞、评论与删除
+ * [POS]: widgets/treehole-detail-sheet 的业务容器，保留匿名社区数据与 mutation 语义，复用无请求评论 UI
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { useEffect, useState } from 'react';
 import { useToastStore } from '@/app/state/toast-store';
 import {
@@ -15,15 +22,15 @@ import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
 import { ConfirmSheet } from '@/shared/ui/confirm-sheet';
 import { TreeholeAvatar } from '@/shared/ui/treehole-avatar';
+import {
+  CommentComposer,
+  CommentThread,
+  type CommentReplyTarget,
+} from '@/widgets/comment-thread/comment-thread';
 
 interface TreeholeDetailSheetProps {
   postId: number | null;
   onClose: () => void;
-}
-
-interface ReplyTarget {
-  id: number;
-  preview: string;
 }
 
 function formatPublishedAt(value: string) {
@@ -48,10 +55,9 @@ export function TreeholeDetailSheet({ postId, onClose }: TreeholeDetailSheetProp
   const [commentDraft, setCommentDraft] = useState('');
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const [replyTarget, setReplyTarget] = useState<ReplyTarget | null>(null);
+  const [replyTarget, setReplyTarget] = useState<CommentReplyTarget | null>(null);
   const post = postQuery.data;
   const comments = commentsQuery.data?.pages.flatMap((page) => page.items) ?? [];
-  const commentPreviewById = new Map(comments.map((item) => [item.id, item.content]));
   const maxCommentLength = metaQuery.data?.limits.maxCommentLength ?? 200;
   const likeBusy = likeMutation.isPending || unlikeMutation.isPending;
 
@@ -209,52 +215,16 @@ export function TreeholeDetailSheet({ postId, onClose }: TreeholeDetailSheetProp
             </div>
           </Card>
 
-          <Card className="space-y-3 rounded-[1.3rem] bg-white/78 shadow-none">
-            <div className="space-y-1">
-              <p className="text-base font-semibold text-ink">评论</p>
-              <p className="text-sm leading-6 text-muted">
-                默认匿名
-              </p>
-            </div>
-
-            {replyTarget ? (
-              <div className="flex items-center justify-between gap-3 rounded-[1rem] bg-tint-soft px-3 py-2 text-xs text-ink">
-                <span className="text-clamp-1">
-                  正在回复 #{replyTarget.id}：{replyTarget.preview}
-                </span>
-                <Button size="xs" type="button" variant="ghost" onClick={() => setReplyTarget(null)}>
-                  取消
-                </Button>
-              </div>
-            ) : null}
-
-            <label className="block space-y-2">
-              <textarea
-                className="min-h-24 w-full rounded-[1.05rem] border border-line bg-white/80 px-3.5 py-3 text-ink outline-none focus:border-transparent focus:ring-2 focus:ring-tint/20"
-                maxLength={maxCommentLength}
-                placeholder={replyTarget ? `回复 #${replyTarget.id}` : '写评论'}
-                value={commentDraft}
-                onChange={(event) => setCommentDraft(event.target.value)}
-              />
-              <div className="flex items-center justify-between gap-3 text-xs text-muted">
-                <span>上限 {maxCommentLength} 字</span>
-                <span>{commentDraft.length} / {maxCommentLength}</span>
-              </div>
-            </label>
-
-            <div className="flex justify-end">
-              <Button
-                className="min-w-[6rem]"
-                disabled={createCommentMutation.isPending}
-                size="sm"
-                type="button"
-                variant="secondary"
-                onClick={() => void submitComment()}
-              >
-                {createCommentMutation.isPending ? '发送中...' : '发送评论'}
-              </Button>
-            </div>
-          </Card>
+          <CommentComposer
+            description="默认匿名"
+            draft={commentDraft}
+            maxLength={maxCommentLength}
+            pending={createCommentMutation.isPending}
+            replyTarget={replyTarget}
+            onCancelReply={() => setReplyTarget(null)}
+            onDraftChange={setCommentDraft}
+            onSubmit={() => void submitComment()}
+          />
 
           {actionMessage ? (
             <div className="rounded-[1.05rem] bg-error-soft px-4 py-3 text-sm leading-6 text-error">
@@ -262,128 +232,40 @@ export function TreeholeDetailSheet({ postId, onClose }: TreeholeDetailSheetProp
             </div>
           ) : null}
 
-          {commentsQuery.isLoading ? (
-            <div className="space-y-3">
-              {Array.from({ length: 2 }, (_, index) => (
-                <Card key={index} className="space-y-2 rounded-[1.2rem] bg-white/72 shadow-none">
-                  <div className="flex items-start gap-3">
-                    <div className="size-10 animate-pulse rounded-[0.8rem] bg-shell-strong" />
-                    <div className="min-w-0 flex-1 space-y-2">
-                      <div className="h-4 w-24 animate-pulse rounded bg-shell-strong" />
-                      <div className="h-16 animate-pulse rounded-[1rem] bg-shell-strong" />
-                    </div>
-                  </div>
-                </Card>
-              ))}
-            </div>
-          ) : null}
-
-          {commentsQuery.isError ? (
-            <Card className="space-y-2 rounded-[1.2rem] bg-white/72 shadow-none">
-              <p className="text-base font-semibold text-ink">评论加载失败</p>
-              <p className="text-sm leading-6 text-muted">
-                {commentsQuery.error instanceof Error ? commentsQuery.error.message : '请求失败'}
-              </p>
-            </Card>
-          ) : null}
-
-          {!commentsQuery.isLoading && !commentsQuery.isError && comments.length === 0 ? (
-            <Card className="space-y-2 rounded-[1.2rem] bg-white/72 shadow-none">
-              <p className="text-base font-semibold text-ink">还没有评论</p>
-              <p className="text-sm leading-6 text-muted">
-                写第一条
-              </p>
-            </Card>
-          ) : null}
-
-          {!commentsQuery.isLoading && !commentsQuery.isError && comments.length > 0 ? (
-            <div className="space-y-3">
-              {comments.map((comment) => (
-                <Card key={comment.id} className="space-y-3 rounded-[1.2rem] bg-white/72 shadow-none">
-                  <div className="flex items-start gap-3">
-                    <TreeholeAvatar src={comment.avatarUrl} />
-                    <div className="min-w-0 flex-1 space-y-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
-                          <span className="rounded-pill bg-white px-3 py-1 ring-1 ring-line">
-                            {comment.isMine ? '我的评论' : '匿名评论'}
-                          </span>
-                          <span>{formatPublishedAt(comment.createdAt)}</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <Button
-                            size="xs"
-                            type="button"
-                            variant="ghost"
-                            onClick={() => {
-                              setReplyTarget({
-                                id: comment.id,
-                                preview: comment.content.length > 20 ? `${comment.content.slice(0, 20)}...` : comment.content,
-                              });
-                            }}
-                          >
-                            回复
-                          </Button>
-                          {comment.isMine ? (
-                            <Button
-                              disabled={
-                                deleteCommentMutation.isPending
-                                && deleteCommentMutation.variables?.commentId === comment.id
-                              }
-                              size="xs"
-                              type="button"
-                              variant="ghost"
-                              onClick={() => {
-                                setActionMessage(null);
-                                deleteCommentMutation.mutate(
-                                  { commentId: comment.id },
-                                  {
-                                    onError: (error) => {
-                                      setActionMessage(
-                                        error instanceof Error ? error.message : '删除评论失败，请稍后重试'
-                                      );
-                                    },
-                                  }
-                                );
-                              }}
-                            >
-                              删除
-                            </Button>
-                          ) : null}
-                        </div>
-                      </div>
-                      {comment.parentCommentId ? (
-                        <div className="rounded-[0.9rem] bg-white/80 px-3 py-2 text-xs leading-5 text-muted ring-1 ring-line">
-                          回复 #{comment.parentCommentId}
-                          {commentPreviewById.get(comment.parentCommentId)
-                            ? `：${commentPreviewById.get(comment.parentCommentId)}`
-                            : ''}
-                        </div>
-                      ) : null}
-                      <p className="text-sm leading-7 whitespace-pre-wrap text-ink">{comment.content}</p>
-                    </div>
-                  </div>
-                </Card>
-              ))}
-
-              <div className="flex justify-end">
-                {commentsQuery.hasNextPage ? (
-                  <Button
-                    className="min-w-[6rem]"
-                    disabled={commentsQuery.isFetchingNextPage}
-                    size="sm"
-                    type="button"
-                    variant="secondary"
-                    onClick={() => void commentsQuery.fetchNextPage()}
-                  >
-                    {commentsQuery.isFetchingNextPage ? '加载中...' : '更多评论'}
-                  </Button>
-                ) : (
-                  <span className="text-sm text-muted">评论已经到底了</span>
-                )}
-              </div>
-            </div>
-          ) : null}
+          <CommentThread
+            deletingCommentId={
+              deleteCommentMutation.isPending
+                ? deleteCommentMutation.variables?.commentId ?? null
+                : null
+            }
+            errorMessage={commentsQuery.error instanceof Error ? commentsQuery.error.message : '请求失败'}
+            hasNextPage={Boolean(commentsQuery.hasNextPage)}
+            isFetchingNextPage={commentsQuery.isFetchingNextPage}
+            isError={commentsQuery.isError}
+            isLoading={commentsQuery.isLoading}
+            items={comments.map((comment) => ({
+              id: comment.id,
+              parentCommentId: comment.parentCommentId,
+              content: comment.content,
+              avatarUrl: comment.avatarUrl,
+              isMine: comment.isMine,
+              authorLabel: comment.isMine ? '我的评论' : '匿名评论',
+              createdAtLabel: formatPublishedAt(comment.createdAt),
+            }))}
+            onDelete={(commentId) => {
+              setActionMessage(null);
+              deleteCommentMutation.mutate(
+                { commentId },
+                {
+                  onError: (error) => {
+                    setActionMessage(error instanceof Error ? error.message : '删除评论失败，请稍后重试');
+                  },
+                }
+              );
+            }}
+            onLoadMore={() => void commentsQuery.fetchNextPage()}
+            onReply={setReplyTarget}
+          />
         </>
       ) : null}
 

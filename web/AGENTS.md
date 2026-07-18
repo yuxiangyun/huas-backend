@@ -20,6 +20,7 @@ src/widgets/: 跨页面组合组件与移动端交互容器。
 普通用户与后台共享 Vite 产物和设计令牌，但使用独立路由壳与认证边界；后台位于 `/m/admin/*`，保持桌面优先且完整响应式。
 普通用户页面按路由懒加载；后台页面随后台壳一次加载，避免发布切换或移动网络造成动态 chunk 导航失效。
 dither-kit 以源码组件落入 `src/components/dither-kit/`，业务页面只消费公开图表部件，不修改内部绘制协议。
+Discover 与 Treehole 保留各自数据和 mutation 语义；同构的评论编辑、回复、列表状态与分页展示统一复用 `widgets/comment-thread` 无请求组件。
 
 开发规范
 新增页面先更新路由与本地图；业务文件维持 INPUT/OUTPUT/POS 头部契约。
@@ -27,6 +28,7 @@ dither-kit 以源码组件落入 `src/components/dither-kit/`，业务页面只�
 响应式不删除能力：窄屏重排图表，宽表转换为摘要卡片或详情视图。
 
 变更日志
+2026-07-18: 按评论交互语义抽出 comment-thread，Discover/Treehole 详情容器继续独立持有业务判断。
 2026-07-12: 修复后台动态 chunk 导航失效，菜单按概览、用户、内容管理、系统语义分组。
 2026-07-12: 播种 Web L2 地图，确立 `/m/admin` 独立后台、路由懒加载与 dither-kit 边界。
 
