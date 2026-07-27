@@ -9,7 +9,7 @@ content/: 公共内容服务，管理公告 JSON 与发布统计
 discover/: Discover 兼容 Facade，旧类名/类型/媒体路径单向再导出 modules/discover
 infra/: 基础设施服务，封装缓存、上游调用与刷新兜底
 portal/: Portal 兼容 Facade，一卡通/资料归 Campus Integrations，课表归 Academic
-treehole/: 树洞服务，独立社区支线，负责帖子、评论、点赞、通知与头像媒体
+treehole/: Treehole 兼容 Facade，旧类名/类型/媒体路径单向再导出 modules/treehole
 
 架构决策
 服务层只编排业务规则与持久化访问；HTTP 参数解析留在 routes，HTML/JSON 解析留在 parsers，运行态副作用收敛到 infra 或具体媒体服务。
@@ -20,6 +20,7 @@ treehole/: 树洞服务，独立社区支线，负责帖子、评论、点赞、
 超过 800 行的服务文件优先抽出无状态领域规则或查询助手，不改变 public 方法签名与返回语义。
 
 变更日志
+2026-07-27: Treehole 业务、SQLite 事务与头像媒体迁入 modules/treehole，旧 services 路径退化为 Facade。
 2026-07-27: Discover 业务与媒体迁入 modules/discover，旧 services/discover 退化为再导出 Facade。
 2026-07-27: Calendar 签名、快照与 ICS 迁入 modules/calendar，旧 services/calendar 退化为再导出 Facade。
 2026-07-27: Academic 业务迁入 modules/academic，旧 services/academic 与 PortalScheduleService 退化为再导出 Facade。

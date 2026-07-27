@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 Hono 测试应用、Treehole 路由、SQLite 测试库、头像媒体服务与 JWT 测试令牌
+ * [INPUT]: 依赖 Hono 测试应用、Treehole canonical 路由链、SQLite 测试库、兼容头像媒体出口与 JWT 测试令牌
  * [OUTPUT]: 验证 Treehole 帖子、评论、点赞、头像、通知、管理接口与 UGC 合规热开关/ASN 空态
- * [POS]: tests 的 Treehole 业务回归套件，保护 routes/treehole 与 services/treehole 的 HTTP 契约
+ * [POS]: tests 的 Treehole 业务回归套件，保护 modules/treehole 与旧 Facade 的 HTTP/事务/媒体契约
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 

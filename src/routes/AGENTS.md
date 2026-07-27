@@ -10,7 +10,7 @@ content/: 公共内容路由，提供免 Bearer 的公告读取接口
 discover/: Discover HTTP 兼容 Facade，canonical 路由位于 modules/discover/http
 portal/: Portal 路由，暴露一卡通、用户资料与 Portal 课表接口
 system/: 系统路由，提供健康检查
-treehole/: 树洞路由，解析匿名社区请求并调用 Treehole 服务
+treehole/: Treehole HTTP 兼容 Facade，canonical 路由位于 modules/treehole/http
 index.ts: 路由总装配器，挂载 public/auth/calendar 与 /api 受保护子应用，并按 ugcComplianceState 或 ASN+端口规则认证后返回 UGC mock/空态
 schedule-route-log.ts: 双源课表共享日志适配器，统一请求结果摘要字段但不参与 source 与 fallback 决策
 
@@ -25,6 +25,7 @@ UGC 合规守卫位于 app 层以避开 Hono 子应用路径歧义，但必须�
 不要跨路由抽象参数 helper，除非错误消息、默认值和兼容行为完全一致。
 
 变更日志
+2026-07-27: Treehole 路由实现迁入 modules/treehole/http，旧路径保留单向 Facade。
 2026-07-27: Discover 路由实现迁入 modules/discover/http，旧路径保留单向 Facade。
 2026-07-27: Calendar 路由实现迁入 modules/calendar/http，旧路径保留单向 Facade。
 2026-07-18: 抽取 JW/Portal 双源课表的同构日志映射，业务入口与 fallback 语义继续独立。

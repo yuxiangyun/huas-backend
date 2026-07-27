@@ -26,6 +26,7 @@ public-announcements.test.ts: 公告公共接口回归测试
 schedule-parser.test.ts: JW 真实结构、非教学周、登录页与嵌套课程节点去重回归测试
 setup.ts: 单元与业务流测试数据库、环境变量初始化
 treehole.test.ts: 树洞业务与头像媒体回归测试
+treehole-compat.test.ts: Treehole canonical composition/http 与旧 routes/services/media Facade 引用及依赖方向测试
 upstream-retry.test.ts: 上游重试、CAS HTTP/维护页、Portal 换票瞬态网络错误与凭证恢复链回归测试
 
 架构决策
@@ -38,6 +39,7 @@ upstream-retry.test.ts: 上游重试、CAS HTTP/维护页、Portal 换票瞬态�
 
 变更日志
 2026-07-27: 新增 Discover 旧路径与 canonical 模块引用一致性回归。
+2026-07-27: 新增 Treehole 旧路径引用一致性与模块依赖方向回归。
 2026-07-27: 新增 Calendar 旧路径引用一致性与 token/HMAC 兼容回归。
 2026-07-27: 新增 Campus Integrations Facade 引用一致性测试，并将 business flow mock 边界切换到 canonical 模块。
 2026-07-27: 新增 Academic Facade 引用一致性测试，并将 refresh 限流 mock 边界切换到 canonical composition。
