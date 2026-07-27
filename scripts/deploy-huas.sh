@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # [INPUT]: 依赖本地 rsync/ssh、Web 构建工具，以及远端 .env/SQLite/Bun/PM2 运行环境。
-# [OUTPUT]: 对外提供快速 rsync 发布入口，部署前快照数据库，构建前端、同步代码并重载远端单进程。
-# [POS]: scripts 的短暂停机发布路径，以快照成功作为 PM2 重载前置条件。
+# [OUTPUT]: 对外提供快速 rsync 发布入口，部署前快照数据库，构建前端、同步代码、重载单进程并等待 readiness。
+# [POS]: scripts 的短暂停机发布路径，以快照/migration 成功和 `/health/ready` 作为发布完成条件。
 # [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
 
 set -euo pipefail
@@ -13,7 +13,7 @@ SYNC_DELETE="${SYNC_DELETE:-0}"
 BUILD_WEB="${BUILD_WEB:-1}"
 INSTALL_WEB_DEPS="${INSTALL_WEB_DEPS:-1}"
 INSTALL_SERVER_DEPS="${INSTALL_SERVER_DEPS:-1}"
-WEB_PACKAGE_MANAGER="${WEB_PACKAGE_MANAGER:-bun}"
+WEB_PACKAGE_MANAGER="${WEB_PACKAGE_MANAGER:-auto}"
 NPM_REGISTRY="${NPM_REGISTRY:-https://registry.npmjs.org}"
 RELEASE_ID="${RELEASE_ID:-$(date +%Y%m%d%H%M%S)}"
 
@@ -216,10 +216,9 @@ if ! command -v curl >/dev/null 2>&1; then
 fi
 
 pm2 startOrReload ecosystem.config.cjs --only '$APP_NAME' --update-env
-pm2 save
 pm2 status '$APP_NAME' --no-color
 
-HEALTH_URL="http://127.0.0.1:\$REMOTE_PORT/health"
+HEALTH_URL="http://127.0.0.1:\$REMOTE_PORT/health/ready"
 HEALTH_OK=0
 
 for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
@@ -235,6 +234,7 @@ if [ "\$HEALTH_OK" != "1" ]; then
   exit 1
 fi
 echo "Health check passed on \$HEALTH_URL"
+pm2 save
 EOF
 )
 

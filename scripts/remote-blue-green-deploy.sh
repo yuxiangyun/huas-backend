@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # [INPUT]: 依赖含数据库运维脚本的 release 源目录、共享 .env/data/logs 与 SQLite/nginx/PM2/Bun 运行环境。
-# [OUTPUT]: 对外提供部署前数据库快照、蓝绿槽位部署、健康检查、nginx 切流与旧实例整理能力。
-# [POS]: scripts 的远端部署内核，以共享 SQLite 快照成功作为任何实例切换的前置条件。
+# [OUTPUT]: 对外提供部署前数据库快照、蓝绿槽位部署、readiness 检查、可回滚 nginx 切流与旧实例整理能力。
+# [POS]: scripts 的远端部署内核，以共享 SQLite 快照、migration 和目标槽 readiness 成功作为原子切流前置条件。
 # [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
 
 set -euo pipefail
@@ -32,6 +32,8 @@ CURRENT_DIR="$CONTROL_DIR/current"
 LOGS_DIR="$CONTROL_DIR/logs"
 ENV_DIR="$CONTROL_DIR/env"
 ECOSYSTEM_DIR="$CONTROL_DIR/ecosystem"
+NGINX_CHANGED_FILES=()
+NGINX_BACKUP_FILES=()
 
 require_command() {
   local command_name="$1"
@@ -69,13 +71,13 @@ resolve_web_package_manager() {
     return
   fi
 
-  if [[ -f "$release_dir/web/bun.lock" ]]; then
-    printf '%s\n' "bun"
+  if [[ -f "$release_dir/web/package-lock.json" ]]; then
+    printf '%s\n' "npm"
     return
   fi
 
-  if [[ -f "$release_dir/web/package-lock.json" ]]; then
-    printf '%s\n' "npm"
+  if [[ -f "$release_dir/web/bun.lock" ]]; then
+    printf '%s\n' "bun"
     return
   fi
 
@@ -132,38 +134,122 @@ run_web_build() {
 }
 
 ensure_nginx_managed() {
-  local backup_suffix
+  local backup_suffix file_path backup_path
   backup_suffix="$(date +%Y%m%d%H%M%S)"
 
-  mkdir -p "$(dirname "$NGINX_PROXY_INCLUDE")"
+  if ! mkdir -p "$(dirname "$NGINX_PROXY_INCLUDE")"; then
+    return 1
+  fi
 
   IFS=':' read -r -a vhost_files <<<"$NGINX_VHOST_FILES"
   for file_path in "${vhost_files[@]}"; do
     if [[ ! -f "$file_path" ]]; then
       echo "Missing nginx vhost file: $file_path" >&2
-      exit 1
+      rollback_nginx_vhosts
+      return 1
     fi
 
     if grep -F "include $NGINX_PROXY_INCLUDE;" "$file_path" >/dev/null 2>&1; then
       continue
     fi
 
-    cp "$file_path" "${file_path}.bak-${backup_suffix}"
-    perl -0pi -e "s@proxy_pass\\s+http://127\\.0\\.0\\.1:\\d+;[^\\n]*@include $NGINX_PROXY_INCLUDE;@g" "$file_path"
+    if ! backup_path="$(mktemp "${file_path}.bak-${backup_suffix}.XXXXXX")" \
+      || ! cp -p "$file_path" "$backup_path"; then
+      echo "Could not back up nginx vhost file: $file_path" >&2
+      rollback_nginx_vhosts
+      return 1
+    fi
+    NGINX_CHANGED_FILES+=("$file_path")
+    NGINX_BACKUP_FILES+=("$backup_path")
+
+    if ! perl -0pi -e "s@proxy_pass\\s+http://127\\.0\\.0\\.1:\\d+;[^\\n]*@include $NGINX_PROXY_INCLUDE;@g" "$file_path" \
+      || ! grep -F "include $NGINX_PROXY_INCLUDE;" "$file_path" >/dev/null 2>&1; then
+      echo "Could not install managed proxy include in: $file_path" >&2
+      rollback_nginx_vhosts
+      return 1
+    fi
+  done
+}
+
+rollback_nginx_vhosts() {
+  local index
+  for index in "${!NGINX_CHANGED_FILES[@]}"; do
+    cp -p "${NGINX_BACKUP_FILES[$index]}" "${NGINX_CHANGED_FILES[$index]}"
   done
 }
 
 write_active_proxy() {
   local active_port="$1"
   local temp_file
-  temp_file="$(mktemp)"
-  printf 'proxy_pass http://127.0.0.1:%s;\n' "$active_port" >"$temp_file"
-  mv "$temp_file" "$NGINX_PROXY_INCLUDE"
+  if ! temp_file="$(mktemp "$(dirname "$NGINX_PROXY_INCLUDE")/.huas-active-proxy.XXXXXX")"; then
+    return 1
+  fi
+  if ! printf 'proxy_pass http://127.0.0.1:%s;\n' "$active_port" >"$temp_file" \
+    || ! mv "$temp_file" "$NGINX_PROXY_INCLUDE"; then
+    rm -f "$temp_file"
+    return 1
+  fi
 }
 
-reload_nginx() {
-  "$NGINX_BIN" -t -c "$NGINX_CONF"
-  "$NGINX_BIN" -s reload -c "$NGINX_CONF"
+switch_active_proxy() {
+  local active_port="$1"
+  local proxy_dir previous_proxy had_previous
+  proxy_dir="$(dirname "$NGINX_PROXY_INCLUDE")"
+  if ! previous_proxy="$(mktemp "$proxy_dir/.huas-previous-proxy.XXXXXX")"; then
+    return 1
+  fi
+  had_previous=0
+
+  if [[ -f "$NGINX_PROXY_INCLUDE" ]]; then
+    if ! cp -p "$NGINX_PROXY_INCLUDE" "$previous_proxy"; then
+      rm -f "$previous_proxy"
+      return 1
+    fi
+    had_previous=1
+  fi
+
+  if ! write_active_proxy "$active_port"; then
+    rm -f "$previous_proxy"
+    return 1
+  fi
+
+  if ! ensure_nginx_managed; then
+    if [[ "$had_previous" == "1" ]]; then
+      mv "$previous_proxy" "$NGINX_PROXY_INCLUDE"
+    else
+      rm -f "$previous_proxy" "$NGINX_PROXY_INCLUDE"
+    fi
+    return 1
+  fi
+
+  if "$NGINX_BIN" -t -c "$NGINX_CONF" \
+    && "$NGINX_BIN" -s reload -c "$NGINX_CONF"; then
+    rm -f "$previous_proxy"
+    return 0
+  fi
+
+  echo "Nginx validation or reload failed; restoring previous routing files" >&2
+  if [[ "$had_previous" == "1" ]]; then
+    mv "$previous_proxy" "$NGINX_PROXY_INCLUDE"
+  else
+    rm -f "$previous_proxy" "$NGINX_PROXY_INCLUDE"
+  fi
+  rollback_nginx_vhosts
+  return 1
+}
+
+prepare_active_slot_record() {
+  local slot="$1"
+  local active_slot_dir temp_file
+  active_slot_dir="$(dirname "$ACTIVE_SLOT_FILE")"
+  if ! temp_file="$(mktemp "$active_slot_dir/.active-slot.XXXXXX")"; then
+    return 1
+  fi
+  if ! printf '%s\n' "$slot" >"$temp_file"; then
+    rm -f "$temp_file"
+    return 1
+  fi
+  printf '%s\n' "$temp_file"
 }
 
 ensure_runtime_env() {
@@ -241,7 +327,7 @@ EOF
 
 wait_for_health() {
   local port="$1"
-  local url="http://127.0.0.1:$port/health"
+  local url="http://127.0.0.1:$port/health/ready"
 
   for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
     if curl --fail --silent --show-error --max-time 10 "$url" >/dev/null; then
@@ -338,10 +424,6 @@ require_command pm2
 require_command curl
 require_command perl
 
-if [[ "$BUILD_WEB" == "1" ]]; then
-  require_command npm
-fi
-
 if [[ ! -x "$NGINX_BIN" ]]; then
   echo "Missing nginx binary: $NGINX_BIN" >&2
   exit 1
@@ -371,6 +453,7 @@ fi
 
 if [[ "$BUILD_WEB" == "1" ]]; then
   web_package_manager="$(resolve_web_package_manager "$target_release_dir")"
+  require_command "$web_package_manager"
   if [[ "$INSTALL_WEB_DEPS" == "1" ]]; then
     install_web_dependencies "$target_release_dir" "$web_package_manager"
   fi
@@ -386,12 +469,14 @@ runtime_env="$(ensure_runtime_env "$target_slot" "$target_port")"
 attach_runtime_env_to_release "$runtime_env" "$target_release_dir"
 ensure_pm2_app "$target_slot" "$target_current_link" "$runtime_env" "$target_port"
 wait_for_health "$target_port"
-
-ensure_nginx_managed
-write_active_proxy "$target_port"
-reload_nginx
-printf '%s\n' "$target_slot" >"$ACTIVE_SLOT_FILE"
 pm2 save >/dev/null
+
+active_slot_candidate="$(prepare_active_slot_record "$target_slot")"
+if ! switch_active_proxy "$target_port"; then
+  rm -f "$active_slot_candidate"
+  exit 1
+fi
+mv "$active_slot_candidate" "$ACTIVE_SLOT_FILE"
 
 if [[ "$active_slot" == 'legacy' ]] && pm2 describe "$LEGACY_APP_NAME" >/dev/null 2>&1; then
   echo "Legacy PM2 app $LEGACY_APP_NAME is still running on $BLUE_PORT with no traffic; it will be removed on the first deploy back to $BLUE_SLOT."

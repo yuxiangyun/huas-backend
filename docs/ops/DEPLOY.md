@@ -133,7 +133,7 @@ pm2 save
 ### 3.6 验证服务
 
 ```bash
-curl http://127.0.0.1:3000/health
+curl http://127.0.0.1:3000/health/ready
 curl -I http://127.0.0.1:3000/m
 ```
 
@@ -172,7 +172,7 @@ scripts/deploy-huas.sh
 
 默认参数：
 
-- `REMOTE_HOST=huas`
+- `REMOTE_HOST=baidu`
 - `REMOTE_DIR=/www/wwwroot/huas-server`
 - `APP_NAME=huas-server`
 
@@ -195,7 +195,7 @@ REMOTE_HOST=your-server scripts/deploy-huas.sh --dry-run
 
 | 变量 | 默认值 | 作用 |
 |---|---|---|
-| `REMOTE_HOST` | `huas` | SSH 目标主机 |
+| `REMOTE_HOST` | `baidu` | SSH 目标主机 |
 | `REMOTE_DIR` | `/www/wwwroot/huas-server` | 远程项目目录 |
 | `APP_NAME` | `huas-server` | PM2 应用名 |
 | `SYNC_DELETE` | `0` | 为 `1` 时启用 `rsync --delete`，仅清理代码残留，不删除 `.env`、`data`、`logs` |
@@ -210,8 +210,8 @@ REMOTE_HOST=your-server scripts/deploy-huas.sh --dry-run
 
 - 要求远程 `.env` 存在，并从中读取 `PORT`
 - 使用 `pm2 startOrReload ecosystem.config.cjs --only <APP_NAME> --update-env`
-- 成功后执行 `pm2 save`
-- 最后检查 `http://127.0.0.1:$PORT/health`
+- 检查 `http://127.0.0.1:$PORT/health/ready`
+- 仅在 readiness 成功后执行 `pm2 save`
 
 这意味着：
 
@@ -233,8 +233,8 @@ scripts/deploy-huas-zero-downtime.sh
 2. 对共享 `DB_PATH` 创建 SQLite 一致性快照并执行前向 migration
 3. 在非活动槽安装依赖并构建 `web/`
 4. 用 PM2 在备用端口启动新实例
-5. 对备用端口执行 `/health` 检查
-6. 仅在健康检查通过后更新 nginx upstream 并 reload nginx
+5. 对备用端口执行 `/health/ready` 检查，确认进程、SQLite 与 migration version 全部就绪
+6. 仅在 readiness 通过后更新 nginx upstream、校验配置并 reload nginx；校验或 reload 失败会恢复原路由文件
 
 当前服务器默认槽位：
 
@@ -300,13 +300,13 @@ hook 会自动执行蓝绿发布：
 1. 将推送的 `main` commit 导出到非活动槽
 2. 排除并保留 `.env`、`data`、`logs` 等共享内容
 3. 在非活动槽执行依赖安装和 `web` 构建
-4. 启动备用端口实例并执行 `/health`
+4. 启动备用端口实例并执行 `/health/ready`
 5. 健康检查通过后切 nginx 到新槽位
 
 如果需要自定义远程参数，可以在初始化时传环境变量：
 
 ```bash
-REMOTE_HOST=huas \
+REMOTE_HOST=baidu \
 BARE_REPO_DIR=/www/git/huas-server.git \
 APP_DIR=/www/wwwroot/huas-server \
 APP_NAME=huas-server \
@@ -417,7 +417,7 @@ npm run build
 
 最少需要保证：
 
-- `/m`、`/api`、`/auth`、`/health`、`/status`、`/media/*` 都转发到 Bun 服务
+- `/m`、`/api`、`/auth`、`/health`、`/metrics`、`/status`、`/media/*` 都转发到 Bun 服务
 - 请求体大小足够覆盖 Discover 多图上传
 - HTTPS 终止在 Nginx 层
 
@@ -525,14 +525,14 @@ git push baidu HEAD:main
 1. 代码被推送到服务器裸仓库
 2. `post-receive` hook 将 commit 导出到非活动槽
 3. 在非活动槽安装依赖、构建前端、启动新实例
-4. `/health` 检查通过后，nginx 才切到新槽位
+4. `/health/ready` 检查通过后，nginx 才切到新槽位
 5. 老槽位继续保留，作为下一次切换前的回退缓冲
 
 发布完成后，建议立刻验证：
 
 ```bash
 ssh huas 'cat /www/wwwroot/huas-server/.deploy/active-slot && pm2 status --no-color'
-curl https://api.huas-api.top/health
+curl https://api.huas-api.top/health/ready
 ```
 
 这条链路的几个固定规则：
@@ -560,7 +560,7 @@ scripts/setup-huas-git-deploy.sh
 如果需要自定义远程参数：
 
 ```bash
-REMOTE_HOST=huas \
+REMOTE_HOST=baidu \
 BARE_REPO_DIR=/www/git/huas-server.git \
 APP_DIR=/www/wwwroot/huas-server \
 APP_NAME=huas-server \
@@ -604,7 +604,7 @@ git push --force baidu <stable_commit_sha>:main
 
 ```bash
 ssh huas 'cat /www/wwwroot/huas-server/.deploy/active-slot && pm2 status --no-color'
-curl https://api.huas-api.top/health
+curl https://api.huas-api.top/health/ready
 ```
 
 ### 9.6 服务器手动更新（仅限 git clone 场景）
@@ -696,7 +696,7 @@ git push --dry-run baidu HEAD:main
 ```bash
 ACTIVE_SLOT="$(cat /www/wwwroot/huas-server/.deploy/active-slot)"
 PORT="$(grep -E '^PORT=' /www/wwwroot/huas-server/.env | cut -d= -f2)"
-curl -i "http://127.0.0.1:$PORT/health"
+curl -i "http://127.0.0.1:$PORT/health/ready"
 pm2 status --no-color
 pm2 logs "huas-server-$ACTIVE_SLOT" --lines 100
 tail -n 100 /www/wwwlogs/api.huas-api.top.error.log
