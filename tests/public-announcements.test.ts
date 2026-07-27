@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖公告 canonical/Facade、公共路由、Dashboard、SQLite 测试库与隔离文件根
+ * [OUTPUT]: 验证公告校验/原子替换/公共读取及 Dashboard 年级与 Discover 管理数据契约
+ * [POS]: tests 的 Operations 公告与 Dashboard 兼容回归套件
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { beforeAll, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import * as fsPromises from 'node:fs/promises';
 import { join } from 'node:path';

@@ -21,6 +21,8 @@ evaluation-parser.test.ts: 教评解析、actionable/blocked 状态、有界续�
 fixtures/: 测试二进制样本目录，包含 HEIC 图片
 grade-parser.test.ts: 成绩表结构、合法空表、错误页拒绝与评教门禁回归测试
 identity-login-application.test.ts: Identity/Login 应用编排、验证码固定周期清理、CAS 提交耗时、Portal/JW 分支与 SQLite 用户凭证原子回滚测试
+operations-application.test.ts: Operations Dashboard 构造注入与纯端口聚合隔离测试
+operations-compat.test.ts: Operations canonical 与旧 routes/services/runtime/middleware Facade 引用及依赖方向测试
 portal-schedule-parser.test.ts: Portal 日期范围、课表解析及数字/字符串 code、一卡通余额边界回归测试
 public-announcements.test.ts: 公告公共接口回归测试
 schedule-parser.test.ts: JW 真实结构、非教学周、登录页与嵌套课程节点去重回归测试
@@ -38,6 +40,7 @@ upstream-retry.test.ts: 上游重试、CAS HTTP/维护页、Portal 换票瞬态�
 新增、删除或重命名测试文件时同步更新本地图。
 
 变更日志
+2026-07-27: 新增 Operations application 端口隔离、旧出口引用一致性与依赖方向回归。
 2026-07-27: 新增 Discover 旧路径与 canonical 模块引用一致性回归。
 2026-07-27: 新增 Treehole 旧路径引用一致性与模块依赖方向回归。
 2026-07-27: 新增 Calendar 旧路径引用一致性与 token/HMAC 兼容回归。

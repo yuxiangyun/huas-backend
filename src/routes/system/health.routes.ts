@@ -1,46 +1,8 @@
-import { Hono } from 'hono';
-import { getDb } from '../../db';
-import { sql } from 'drizzle-orm';
-import { beijingIsoString } from '../../utils/time';
-import { serverState } from '../../runtime/server-state';
+/**
+ * [INPUT]: 依赖 modules/operations/http 的 canonical 健康检查路由
+ * [OUTPUT]: 继续默认导出旧 health routes 路径，保持 `/health` 挂载兼容
+ * [POS]: routes/system 的单向兼容 Facade；健康 HTTP 实现已迁入 Operations
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
 
-const health = new Hono();
-
-health.get('/', async (c) => {
-  const status = serverState.status();
-
-  if (!status.ready || status.shuttingDown) {
-    return c.json({
-      success: false,
-      data: {
-        status: status.shuttingDown ? 'shutting-down' : 'starting',
-        deploySlot: status.deploySlot,
-        shutdownSignal: status.shutdownSignal,
-      },
-    }, 503);
-  }
-
-  try {
-    const db = getDb();
-    db.run(sql`SELECT 1`);
-    return c.json({
-      success: true,
-      data: {
-        status: 'ok',
-        timestamp: beijingIsoString(),
-        uptime: process.uptime(),
-        deploySlot: status.deploySlot,
-      },
-    });
-  } catch {
-    return c.json({
-      success: false,
-      data: {
-        status: 'error',
-        deploySlot: status.deploySlot,
-      },
-    }, 503);
-  }
-});
-
-export default health;
+export { default } from '../../modules/operations/http/health.routes';

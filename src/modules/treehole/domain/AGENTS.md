@@ -3,6 +3,7 @@
 
 成员清单
 ports.ts: 定义 TreeholePersistence 与 TreeholeAvatarStorage 两个外部边界契约
+operations-query.ts: 面向 Operations 的后台帖子/评论稳定只读查询契约
 treehole.ts: 定义稳定 DTO、分页/内容校验及匿名公共视图与真实作者管理视图映射
 
 架构决策

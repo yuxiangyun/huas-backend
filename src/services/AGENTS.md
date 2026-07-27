@@ -3,9 +3,9 @@
 
 成员清单
 academic/: Academic 兼容 Facade，旧类名与路径单向再导出 modules/academic canonical 实现
-admin/: 管理台聚合服务，提供仪表盘统计与运行日志读取，不承载业务真相源
+admin/: Operations 管理服务兼容 Facade，旧 Dashboard/analytics/log 类名单向再导出 canonical 实现
 calendar/: Calendar 兼容 Facade，旧订阅函数单向再导出 modules/calendar canonical 实现
-content/: 公共内容服务，管理公告 JSON 与发布统计
+content/: Operations 公告服务兼容 Facade，旧类名/类型单向再导出 canonical 实现
 discover/: Discover 兼容 Facade，旧类名/类型/媒体路径单向再导出 modules/discover
 infra/: 基础设施服务，封装缓存、上游调用与刷新兜底
 portal/: Portal 兼容 Facade，一卡通/资料归 Campus Integrations，课表归 Academic
@@ -20,6 +20,7 @@ treehole/: Treehole 兼容 Facade，旧类名/类型/媒体路径单向再导出
 超过 800 行的服务文件优先抽出无状态领域规则或查询助手，不改变 public 方法签名与返回语义。
 
 变更日志
+2026-07-27: 管理聚合、同步 analytics、日志与公告迁入 Operations，旧 services 路径退化为 Facade。
 2026-07-27: Treehole 业务、SQLite 事务与头像媒体迁入 modules/treehole，旧 services 路径退化为 Facade。
 2026-07-27: Discover 业务与媒体迁入 modules/discover，旧 services/discover 退化为再导出 Facade。
 2026-07-27: Calendar 签名、快照与 ICS 迁入 modules/calendar，旧 services/calendar 退化为再导出 Facade。

@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 Hono、LoginApplicationService 生产装配、登录 DTO、登录限流与统一响应/日志/analytics 边界
+ * [INPUT]: 依赖 Hono、LoginApplicationService 生产装配、登录 DTO、登录限流与注入的登录 analytics 观测端口
  * [OUTPUT]: 对外默认提供 `/login` Hono 路由，保持旧登录、验证码与错误响应契约
  * [POS]: identity/http 的薄适配器，只解析/校验 HTTP、挂载限流与观测，并映射应用结果
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -14,7 +14,6 @@ import {
   recordAuthLoginFailure,
   resetAuthLoginRateLimit,
 } from '../../../middleware/auth-login-rate-limit.middleware';
-import { AnalyticsService } from '../../../services/admin/analytics-service';
 import { ErrorCode } from '../../../utils/errors';
 import { appendHttpLogDetail, formatHttpLogDetail } from '../../../utils/http-log';
 import { Logger } from '../../../utils/logger';
@@ -22,6 +21,7 @@ import { error, success } from '../../../utils/response';
 import type { LoginFailure, LoginSuccess } from '../domain/login';
 import { createScheduledLoginApplicationService } from '../infrastructure/login-composition';
 import { parseLoginRequestDto } from './login.dto';
+import { recordLoginAnalytics } from './login-analytics';
 
 const auth = new Hono();
 const loginService = createScheduledLoginApplicationService();
@@ -29,7 +29,7 @@ const loginService = createScheduledLoginApplicationService();
 auth.use('/login', async (c, next) => {
   await next();
   try {
-    AnalyticsService.recordLogin(c.req.header('x-client-platform'), c.res.status < 400);
+    recordLoginAnalytics(c.req.header('x-client-platform'), c.res.status < 400);
   } catch (analyticsError: any) {
     Logger.warn('Analytics', '记录登录指标失败', analyticsError?.message || String(analyticsError));
   }
