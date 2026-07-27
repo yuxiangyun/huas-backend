@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖后台 dashboard/analytics 查询、dither-kit area/bar 图表与后台会话上下文
- * [OUTPUT]: 提供 AdminDashboardPage 全渠道业务洞察总览
- * [POS]: pages/admin 的默认洞察页，以真实时间序列为主、管理入口为辅
+ * [OUTPUT]: 提供 AdminDashboardPage，展示业务趋势与数据库、进程、缓存运行状态
+ * [POS]: pages/admin 的默认总览页，把业务洞察和已有运行遥测收敛为单次可读视图
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -55,6 +55,16 @@ function sumSeries(series: Point[], metric: string) {
 function formatDay(value: unknown) {
   const day = String(value ?? '');
   return day.length >= 10 ? day.slice(5).replace('-', '/') : day;
+}
+
+function formatDuration(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds < 0) return '-';
+  const days = Math.floor(seconds / 86_400);
+  const hours = Math.floor((seconds % 86_400) / 3_600);
+  const minutes = Math.floor((seconds % 3_600) / 60);
+  if (days > 0) return `${days} 天 ${hours} 小时`;
+  if (hours > 0) return `${hours} 小时 ${minutes} 分`;
+  return `${minutes} 分钟`;
 }
 
 function MetricCard({ label, value, note }: { label: string; value: string; note: string }) {
@@ -154,6 +164,41 @@ export function AdminDashboardPage() {
         <MetricCard label="内容与评分" value={((metrics?.totalDiscoverPosts ?? 0) + (metrics?.totalDiscoverRatings ?? 0)).toLocaleString()} note="当前有效总量" />
         <MetricCard label="服务端错误率" value={`${requests ? Math.round(serverErrors / requests * 10000) / 100 : 0}%`} note={`${serverErrors} / ${requests}`} />
       </section>
+
+      <ChartCard
+        title="运行状态"
+        meta={dashboardQuery.data?.service.timestamp
+          ? `采样于 ${new Date(dashboardQuery.data.service.timestamp).toLocaleString('zh-CN', { hour12: false })}`
+          : '等待运行数据'}
+      >
+        <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-5">
+          <MetricCard
+            label="数据库"
+            value={dashboardQuery.data ? (dashboardQuery.data.service.status === 'ok' ? '正常' : '异常') : '-'}
+            note="SQLite 连通性"
+          />
+          <MetricCard
+            label="进程运行"
+            value={metrics ? formatDuration(metrics.uptimeSeconds) : '-'}
+            note="本次启动至今"
+          />
+          <MetricCard
+            label="常驻内存"
+            value={metrics ? `${metrics.memory.rssMb.toLocaleString()} MB` : '-'}
+            note={metrics ? `Heap ${metrics.memory.heapUsedMb.toLocaleString()} / ${metrics.memory.heapTotalMb.toLocaleString()} MB` : '进程 RSS'}
+          />
+          <MetricCard
+            label="缓存条目"
+            value={metrics ? metrics.cacheEntries.toLocaleString() : '-'}
+            note="本地 SQLite cache"
+          />
+          <MetricCard
+            label="凭证记录"
+            value={metrics ? metrics.credentialEntries.toLocaleString() : '-'}
+            note="校园系统凭证"
+          />
+        </div>
+      </ChartCard>
 
       <div className="grid gap-4 xl:grid-cols-12">
         <ChartCard title="活跃用户" meta={`过去 ${period} 天 · 按渠道`} className="xl:col-span-8">
