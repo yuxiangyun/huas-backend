@@ -10,7 +10,7 @@ composition.ts: Operations 唯一装配根，连接 Identity/Discover/Treehole �
 
 架构决策
 Operations 是管理与运行支撑纵向切片；Dashboard 不理解跨领域表，只通过 Identity/Discover/Treehole 公开只读 query ports 聚合稳定 DTO。
-analytics 保持当前请求内同步写语义；公告、日志、后台会话、UGC 文件态与 SQLite SELECT 1 属于本模块基础设施，live/ready/metrics 留待 Runtime Engineering 阶段。
+analytics 在请求内仅聚合事实，并以短周期单事务批量写入；公告、日志、后台会话、UGC 文件态与 SQLite SELECT 1 属于本模块基础设施。
 旧 routes/services/runtime/middleware 只允许单向再导出本模块 canonical 实现，本模块不得反向依赖这些 Facade。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md

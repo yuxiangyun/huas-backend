@@ -6,6 +6,7 @@ academic-refresh-rate-limit.test.ts: 学业接口强制刷新频率限制回归�
 academic-compat.test.ts: Academic canonical composition 与旧 services Facade 的运行时引用一致性测试
 admin-dashboard-activity.test.ts: 管理后台活跃度、显式渠道优先级与历史 unknown 隔离口径回归测试
 admin-session.test.ts: 后台 HttpOnly Cookie 会话建立、保护与撤销回归测试
+analytics-batch.test.ts: Analytics 内存聚合、active user 去重、单事务 flush、失败回并重试与 shutdown 回归测试
 auth-login-rate-limit.test.ts: 登录失败限流策略回归测试
 business-flows.test.ts: 登录凭证、课表/日历双源、成绩/一卡通缓存失败语义、ICS 序列化与核心编排总回归套件
 cache-modernization.test.ts: Cache 永久/限时新鲜度、版本 envelope、旧 payload、同意图 singleflight 与 observer 隔离回归测试
@@ -42,6 +43,7 @@ upstream-retry.test.ts: 上游重试、CAS HTTP/维护页、Portal 换票瞬态�
 新增、删除或重命名测试文件时同步更新本地图。
 
 变更日志
+2026-07-27: 新增 Analytics 批量写、失败重试、observer 隔离与 shutdown flush 回归。
 2026-07-27: 新增 Cache schema 兼容、TTL=0、singleflight、stale fallback 与旁路指标观察回归。
 2026-07-27: 新增 Operations application 端口隔离、旧出口引用一致性与依赖方向回归。
 2026-07-27: 新增 Discover 旧路径与 canonical 模块引用一致性回归。

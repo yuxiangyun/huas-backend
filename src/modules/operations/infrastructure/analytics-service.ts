@@ -1,15 +1,28 @@
 /**
- * [INPUT]: 依赖 Operations 自有 analytics schema、北京日期工具与请求路径/显式渠道/用户事实
- * [OUTPUT]: 提供 AnalyticsService 的同步 recordAuthenticatedRequest/recordLogin 与 overview 时间序列
- * [POS]: operations/infrastructure 的渠道分析事实 adapter，保持请求内立即写入语义
+ * [INPUT]: 依赖 Operations analytics schema、进程内 AnalyticsBatch、北京日期工具与请求事实
+ * [OUTPUT]: 提供 AnalyticsService 的无阻塞记录、失败 observer、批量 flush/shutdown 与兼容 overview
+ * [POS]: operations/infrastructure 的渠道分析 adapter，以短周期单事务批量写替代每请求 SQLite 写
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { gte, sql } from 'drizzle-orm';
 import { getDb, schema } from '../../../db';
+import { Logger } from '../../../utils/logger';
 import { beijingDate } from '../../../utils/time';
+import {
+  AnalyticsBatch,
+  type AnalyticsFlushBatch,
+  type AnalyticsFlushResult,
+  type AnalyticsPlatform,
+} from './analytics-batch';
 
-export type AnalyticsPlatform = 'miniprogram' | 'web' | 'unknown';
+export type { AnalyticsFlushResult, AnalyticsPlatform } from './analytics-batch';
+
+export const ANALYTICS_FLUSH_INTERVAL_MS = 5_000;
+export type AnalyticsFlushFailureObserver = (error: unknown) => void;
+
+const ignoreFlushFailure: AnalyticsFlushFailureObserver = () => {};
+let flushFailureObserver = ignoreFlushFailure;
 
 const MINIPROGRAM_FEATURE_PATHS: Array<[string, string]> = [
   ['/api/v1/schedule', 'schedule'],
@@ -43,13 +56,37 @@ function requestPlatformOf(path: string, header: string | undefined): AnalyticsP
   return 'unknown';
 }
 
-function increment(day: string, platform: AnalyticsPlatform, metric: string) {
+function writeAnalyticsBatch(batch: AnalyticsFlushBatch): void {
   const db = getDb();
-  db.run(sql`INSERT INTO analytics_daily_metrics (day, platform, metric, value, updated_at)
-    VALUES (${day}, ${platform}, ${metric}, 1, ${Date.now()})
-    ON CONFLICT(day, platform, metric)
-    DO UPDATE SET value = value + 1, updated_at = ${Date.now()}`);
+  const now = Date.now();
+  db.transaction((tx) => {
+    for (const fact of batch.activeUsers) {
+      tx.run(sql`INSERT OR IGNORE INTO analytics_daily_users (day, platform, user_id, created_at)
+        SELECT ${fact.day}, ${fact.platform}, ${fact.userId}, ${now}
+        WHERE EXISTS (SELECT 1 FROM users WHERE id = ${fact.userId})`);
+    }
+    for (const fact of batch.metrics) {
+      tx.run(sql`INSERT INTO analytics_daily_metrics (day, platform, metric, value, updated_at)
+        VALUES (${fact.day}, ${fact.platform}, ${fact.metric}, ${fact.value}, ${now})
+        ON CONFLICT(day, platform, metric)
+        DO UPDATE SET value = value + ${fact.value}, updated_at = ${now}`);
+    }
+  });
 }
+
+const analyticsBatch = new AnalyticsBatch(
+  { write: writeAnalyticsBatch },
+  {
+    flushIntervalMs: ANALYTICS_FLUSH_INTERVAL_MS,
+    onFlushError(error) {
+      try {
+        Logger.error('ANALYTICS', '批量持久化失败，将在下周期重试', error);
+      } finally {
+        flushFailureObserver(error);
+      }
+    },
+  },
+);
 
 export class AnalyticsService {
   static platformOf(header: string | undefined) {
@@ -64,22 +101,36 @@ export class AnalyticsService {
   }) {
     const day = beijingDate();
     const platform = requestPlatformOf(input.path, input.platformHeader);
-    const db = getDb();
-
-    db.run(sql`INSERT OR IGNORE INTO analytics_daily_users (day, platform, user_id, created_at)
-      VALUES (${day}, ${platform}, ${input.userId}, ${Date.now()})`);
-    increment(day, platform, 'request.total');
+    analyticsBatch.recordActiveUser(day, platform, input.userId);
+    analyticsBatch.increment(day, platform, 'request.total');
     const feature = featureOf(input.path);
-    if (feature) increment(day, platform, `feature.${feature}`);
-    if (input.status >= 500) increment(day, platform, 'request.server_error');
-    else if (input.status >= 400) increment(day, platform, 'request.client_error');
+    if (feature) analyticsBatch.increment(day, platform, `feature.${feature}`);
+    if (input.status >= 500) analyticsBatch.increment(day, platform, 'request.server_error');
+    else if (input.status >= 400) analyticsBatch.increment(day, platform, 'request.client_error');
   }
 
   static recordLogin(platformHeader: string | undefined, success: boolean) {
-    increment(beijingDate(), normalizePlatform(platformHeader), success ? 'login.success' : 'login.failure');
+    analyticsBatch.increment(
+      beijingDate(),
+      normalizePlatform(platformHeader),
+      success ? 'login.success' : 'login.failure',
+    );
+  }
+
+  static configureFlushFailureObserver(observer?: AnalyticsFlushFailureObserver): void {
+    flushFailureObserver = observer ?? ignoreFlushFailure;
+  }
+
+  static flush(): Promise<AnalyticsFlushResult> {
+    return analyticsBatch.flush();
+  }
+
+  static shutdown(): Promise<AnalyticsFlushResult> {
+    return analyticsBatch.shutdown();
   }
 
   static async getOverview(days: number) {
+    await analyticsBatch.flush();
     const safeDays = [7, 30, 90].includes(days) ? days : 30;
     const start = new Date();
     start.setDate(start.getDate() - safeDays + 1);
