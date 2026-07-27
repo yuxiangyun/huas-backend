@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# [INPUT]: 依赖远端 release 源目录、共享 .env/data/logs 与 nginx/PM2/Bun 运行环境。
-# [OUTPUT]: 对外提供蓝绿槽位部署、健康检查、nginx 切流与旧实例整理能力。
-# [POS]: scripts 的远端部署内核，被 Git hook 与本地蓝绿脚本共同调用。
+# [INPUT]: 依赖含数据库运维脚本的 release 源目录、共享 .env/data/logs 与 SQLite/nginx/PM2/Bun 运行环境。
+# [OUTPUT]: 对外提供部署前数据库快照、蓝绿槽位部署、健康检查、nginx 切流与旧实例整理能力。
+# [POS]: scripts 的远端部署内核，以共享 SQLite 快照成功作为任何实例切换的前置条件。
 # [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
 
 set -euo pipefail
@@ -278,6 +278,36 @@ prepare_release_dir() {
   ln -sfn "$APP_ROOT/reports" "$release_dir/reports"
 }
 
+snapshot_database() {
+  local release_source="$1"
+  if [[ ! -f "$APP_ROOT/.env" ]]; then
+    echo "Missing required remote file: $APP_ROOT/.env" >&2
+    exit 1
+  fi
+
+  (
+    set -a
+    . "$APP_ROOT/.env"
+    set +a
+    cd "$APP_ROOT"
+    bun "$release_source/scripts/db-snapshot.ts" \
+      --db "${DB_PATH:-./data/huas.db}" \
+      --output-dir "$APP_ROOT/data/snapshots" \
+      --release "$RELEASE_ID"
+  )
+}
+
+migrate_database() {
+  local release_source="$1"
+  (
+    set -a
+    . "$APP_ROOT/.env"
+    set +a
+    cd "$APP_ROOT"
+    bun "$release_source/scripts/db-migrate.ts" --db "${DB_PATH:-./data/huas.db}"
+  )
+}
+
 active_slot='legacy'
 if [[ -f "$ACTIVE_SLOT_FILE" ]]; then
   active_slot="$(tr -d '[:space:]' <"$ACTIVE_SLOT_FILE")"
@@ -316,6 +346,9 @@ if [[ ! -x "$NGINX_BIN" ]]; then
   echo "Missing nginx binary: $NGINX_BIN" >&2
   exit 1
 fi
+
+snapshot_database "$RELEASE_SOURCE_DIR"
+migrate_database "$RELEASE_SOURCE_DIR"
 
 if [[ "$target_slot" == "$BLUE_SLOT" ]] && pm2 describe "$LEGACY_APP_NAME" >/dev/null 2>&1; then
   if [[ "$active_slot" == "$GREEN_SLOT" ]]; then

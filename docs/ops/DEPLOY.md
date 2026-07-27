@@ -154,7 +154,11 @@ scripts/deploy-huas.sh
 1. 在本地构建 `web/`
 2. 用 `rsync` 同步项目到远程目录
 3. 在远程执行 `bun install --frozen-lockfile --production`
-4. 用 PM2 `startOrReload` 重载应用并执行本机健康检查
+4. 对明确的 `DB_PATH` 创建 SQLite 一致性快照
+5. 执行版本化 database migration
+6. 用 PM2 `startOrReload` 重载应用并执行本机健康检查
+
+快照或 migration 失败时脚本立即退出，不会重载 PM2。
 
 ### 4.2 本地依赖
 
@@ -226,10 +230,11 @@ scripts/deploy-huas-zero-downtime.sh
 这条链路会执行：
 
 1. 将当前代码上传到远端非活动槽
-2. 在非活动槽安装依赖并构建 `web/`
-3. 用 PM2 在备用端口启动新实例
-4. 对备用端口执行 `/health` 检查
-5. 仅在健康检查通过后更新 nginx upstream 并 reload nginx
+2. 对共享 `DB_PATH` 创建 SQLite 一致性快照并执行前向 migration
+3. 在非活动槽安装依赖并构建 `web/`
+4. 用 PM2 在备用端口启动新实例
+5. 对备用端口执行 `/health` 检查
+6. 仅在健康检查通过后更新 nginx upstream 并 reload nginx
 
 当前服务器默认槽位：
 
@@ -431,6 +436,63 @@ npm run build
 - `data/discover/`
 - `data/treehole-avatars/`
 - `data/announcements.json`
+
+### 8.1 Database migration
+
+数据库结构以 `src/db/migrations/` 中不可变的编号 migration 为事实源，当前 baseline 版本为 `1`。migration 记录写入 `huas_schema_migrations`，每个版本在单独的 SQLite immediate transaction 中执行，因此进程中断时该版本的 SQL 与版本记录会一起回滚，重跑即可恢复。
+
+对空库初始化：
+
+```bash
+bun run db:migrate -- --db ./data/huas.db
+```
+
+对已有库首次采用 baseline 时，执行器会比较表与索引的结构化 fingerprint。只有与 baseline 完全一致才写 adoption 记录；缺表、多表、列或索引定义漂移都会拒绝继续，并输出对象差异与诊断命令。不要通过手写 migration 记录绕过检查。
+
+这是只前进的 expand-contract 流程：不生成自动 down migration，也禁止在 migration 中使用破坏性 DDL。新 schema 只新增 migration 元数据表，不改变当前业务表，上一版本应用仍可读取业务数据。
+
+`initDatabase()` 旧导出和启动调用暂保留一个版本并打印 `DEPRECATED` 日志。兼容层暂时只保留关键时间戳补正；旧的 Discover/Treehole 派生计数全表修复已移出普通启动。后续版本应把部署入口统一到显式 `db:migrate` 后再移除兼容层。
+
+### 8.2 派生计数 repair
+
+先执行无写入检查：
+
+```bash
+bun run db:repair -- --db ./data/huas.db --dry-run
+```
+
+确认影响行数后执行修复：
+
+```bash
+bun run db:repair -- --db ./data/huas.db
+```
+
+repair 在事务内重新计算 Discover 的评论数、评分数/总分/两位小数均值，以及 Treehole 的点赞数、未删除评论数。它只更新不一致的帖子，可重复执行；第二次执行应报告 `0`。输出只包含影响行数，不输出数据库行内容。
+
+### 8.3 部署前 SQLite snapshot
+
+手动快照必须提供明确数据库路径与 release 标识：
+
+```bash
+bun run db:snapshot -- \
+  --db ./data/huas.db \
+  --output-dir ./data/snapshots \
+  --release manual-before-maintenance
+```
+
+命令先执行 `PRAGMA quick_check`，再使用 SQLite 官方 `VACUUM INTO` 创建一致性副本。文件名格式为：
+
+```text
+huas-<UTC时间>-schema-v<版本>-release-<标识>.db
+```
+
+普通应用启动不会自动快照。快速部署与蓝绿部署均按“snapshot → migrate → 启动/切流”执行，任一步失败都会停止发布。首次部署若数据库尚不存在，先在服务器明确执行一次空库 `db:migrate`，再进入标准部署流程。
+
+### 8.4 快照保留与恢复
+
+`data/snapshots/` 可能包含人工快照或其他工具产生的文件，发布脚本不会自动清理。运维人员只能按明确文件名、创建时间、release 和 schema version 制定保留策略；禁止用未知 glob 自动删除未识别文件。
+
+恢复时先停止所有访问该 SQLite 文件的应用进程，把目标快照复制到一个新路径并执行 `PRAGMA quick_check`，再原子切换明确的 `DB_PATH`。数据库回退必须与能够读取该 schema version 的应用版本配对；不要依赖不存在的自动 down migration。
 
 备份时至少保留：
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# [INPUT]: 依赖本地 rsync/ssh、Web 构建工具与百度服务器 PM2 运行环境。
-# [OUTPUT]: 对外提供快速 rsync 发布入口，构建前端、同步代码并重载远端单进程。
-# [POS]: scripts 的短暂停机发布路径，和蓝绿发布脚本并列但不承诺无痛切流。
+# [INPUT]: 依赖本地 rsync/ssh、Web 构建工具，以及远端 .env/SQLite/Bun/PM2 运行环境。
+# [OUTPUT]: 对外提供快速 rsync 发布入口，部署前快照数据库，构建前端、同步代码并重载远端单进程。
+# [POS]: scripts 的短暂停机发布路径，以快照成功作为 PM2 重载前置条件。
 # [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
 
 set -euo pipefail
@@ -15,6 +15,7 @@ INSTALL_WEB_DEPS="${INSTALL_WEB_DEPS:-1}"
 INSTALL_SERVER_DEPS="${INSTALL_SERVER_DEPS:-1}"
 WEB_PACKAGE_MANAGER="${WEB_PACKAGE_MANAGER:-bun}"
 NPM_REGISTRY="${NPM_REGISTRY:-https://registry.npmjs.org}"
+RELEASE_ID="${RELEASE_ID:-$(date +%Y%m%d%H%M%S)}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -199,6 +200,10 @@ fi
 if [ '$INSTALL_SERVER_DEPS' = '1' ]; then
   bun install --frozen-lockfile --production --registry='$NPM_REGISTRY'
 fi
+
+REMOTE_DB_PATH="\${DB_PATH:-./data/huas.db}"
+bun run db:snapshot -- --db "\$REMOTE_DB_PATH" --output-dir './data/snapshots' --release '$RELEASE_ID'
+bun run db:migrate -- --db "\$REMOTE_DB_PATH"
 
 if ! command -v pm2 >/dev/null 2>&1; then
   echo 'pm2 is not installed on remote host' >&2

@@ -7,6 +7,7 @@ admin-dashboard-activity.test.ts: 管理后台活跃度、显式渠道优先级�
 admin-session.test.ts: 后台 HttpOnly Cookie 会话建立、保护与撤销回归测试
 auth-login-rate-limit.test.ts: 登录失败限流策略回归测试
 business-flows.test.ts: 登录凭证、课表/日历双源、成绩/一卡通缓存失败语义、ICS 序列化与核心编排总回归套件
+database-migrations.test.ts: SQLite 空库初始化、baseline adoption、漂移拒绝、中断恢复、repair 与部署快照回归测试
 classroom-free-parser.test.ts: 空教室解析器回归测试
 discover.test.ts: Discover 业务与媒体流程回归测试
 e2e.live.test.ts: 真实上游端到端验证入口

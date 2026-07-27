@@ -12,7 +12,9 @@
     "test": "bun test --preload ./tests/setup.ts",
     "test:e2e": "bun test --preload ./tests/e2e.setup.ts ./tests/e2e.live.test.ts",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
+    "db:migrate": "bun scripts/db-migrate.ts",
+    "db:repair": "bun scripts/db-repair.ts",
+    "db:snapshot": "bun scripts/db-snapshot.ts",
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
