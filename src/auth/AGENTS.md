@@ -3,8 +3,8 @@
 
 成员清单
 auth-engine.ts: AuthEngine 兼容再导出，canonical CAS 登录执行器位于 campus-integrations/cas
-calendar-signature.ts: 日历订阅 HMAC 签名核心，生成和校验 studentId 绑定签名
-calendar-token.ts: calendar-signature 兼容别名，保留旧导入路径，不提供第二套实现
+calendar-signature.ts: Calendar canonical HMAC 签名的兼容再导出，保留旧 signature API
+calendar-token.ts: Calendar canonical HMAC 的 token 命名兼容层，保留旧 token/signature 导出
 credential-manager.ts: CredentialManager/CredentialSystem 兼容再导出，canonical 生命周期实现位于 campus-integrations/credential-recovery
 jwt.ts: 本服务 JWT 签发与验证工具，隔离客户端身份令牌
 ticket-exchanger.ts: TicketExchanger 兼容再导出，canonical TGC 换票实现位于 campus-integrations/cas
@@ -12,13 +12,14 @@ ticket-exchanger.ts: TicketExchanger 兼容再导出，canonical TGC 换票实�
 架构决策
 客户端只持有本服务 JWT；学校上游凭证实现全部归属 Campus Integrations，auth 仅保留旧导入兼容面。
 普通凭证过期继续使用加密密码静默恢复；只有 CAS 明确要求验证码才写入无 TTL 的持久化交互标记，直到真实 CAS 登录成功后清除。
-calendar-token.ts 只是兼容薄包装，真实签名逻辑只能存在于 calendar-signature.ts。
+calendar-signature.ts 与 calendar-token.ts 只是兼容薄包装，真实签名逻辑只能存在于 modules/calendar/infrastructure。
 
 开发规范
 任何凭证刷新、静默重登、验证码流程变更必须跑登录与静默凭证链路测试。
 不得在路由或前端暴露 CAS TGC、Portal JWT、JW Session 的原始细节。
 
 变更日志
+2026-07-27: 日历 HMAC 迁入 modules/calendar，旧 signature/token 路径保留兼容 Facade。
 2026-07-27: CAS 登录、换票与凭证恢复迁入 campus-integrations，旧类名与路径保留再导出 Facade。
 2026-07-16: CAS 故障不再伪装密码错误；Portal 换票瞬态网络故障保持上游错误语义。
 2026-07-12: 将验证码交互恢复状态从短期内存窗口迁移到 credentials 持久标记。
