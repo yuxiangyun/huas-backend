@@ -134,7 +134,7 @@ function makeUserPayload(name: string, studentId: string, className: string) {
   };
 }
 
-mock.module('../src/auth/auth-engine.ts', () => ({
+mock.module('../src/modules/campus-integrations/cas/auth-engine.ts', () => ({
   AuthEngine: class {
     constructor(_: any) {}
     async getExecution() {
@@ -149,14 +149,14 @@ mock.module('../src/auth/auth-engine.ts', () => ({
   },
 }));
 
-mock.module('../src/auth/ticket-exchanger.ts', () => ({
+mock.module('../src/modules/campus-integrations/cas/ticket-exchanger.ts', () => ({
   TicketExchanger: {
     exchangeJwSession: (...args: any[]) => ticketBehavior.exchangeJwSession(...args),
     exchangePortalToken: (...args: any[]) => ticketBehavior.exchangePortalToken(...args),
   },
 }));
 
-mock.module('../src/services/infra/upstream.ts', () => ({
+mock.module('../src/modules/campus-integrations/upstream/upstream.ts', () => ({
   upstream: async (userId: number, mode: 'jw' | 'portal', fn: (ctx: any) => Promise<any>) => {
     upstreamCallCount += 1;
     if (upstreamInjectedError) {

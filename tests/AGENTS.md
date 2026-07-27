@@ -7,6 +7,7 @@ admin-dashboard-activity.test.ts: 管理后台活跃度、显式渠道优先级�
 admin-session.test.ts: 后台 HttpOnly Cookie 会话建立、保护与撤销回归测试
 auth-login-rate-limit.test.ts: 登录失败限流策略回归测试
 business-flows.test.ts: 登录凭证、课表/日历双源、成绩/一卡通缓存失败语义、ICS 序列化与核心编排总回归套件
+campus-integrations-compat.test.ts: Campus Integrations canonical 实现与 auth/core/parsers/services 旧 Facade 的引用一致性测试
 database-migrations.test.ts: SQLite 空库初始化、baseline adoption、漂移拒绝、中断恢复、repair 与部署快照回归测试
 classroom-free-parser.test.ts: 空教室解析器回归测试
 discover.test.ts: Discover 业务与媒体流程回归测试
@@ -32,6 +33,7 @@ upstream-retry.test.ts: 上游重试、CAS HTTP/维护页、Portal 换票瞬态�
 新增、删除或重命名测试文件时同步更新本地图。
 
 变更日志
+2026-07-27: 新增 Campus Integrations Facade 引用一致性测试，并将 business flow mock 边界切换到 canonical 模块。
 2026-07-27: 新增 Identity/Login 应用服务与 SQLite 事务失败回滚定向测试。
 2026-07-16: 成绩/一卡通拒绝错误页和缺失余额，课表限定日期并去重嵌套节点，CAS/Portal 超时与维护页保持真实故障语义。
 2026-07-16: 评教测试覆盖 HTTP 200 错误页拒绝、提交后列表确认与本次/累计计数分离。

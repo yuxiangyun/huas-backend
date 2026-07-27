@@ -1,16 +1,16 @@
 /**
- * [INPUT]: 依赖既有 HttpClient、AuthEngine、TicketExchanger、CredentialManager、UserService、config 与 Logger
+ * [INPUT]: 直接依赖 campus-integrations 的 HttpClient、CAS 换票、凭证恢复与 Portal 用户资料 canonical 实现
  * [OUTPUT]: 对外提供 LegacyCampusLoginAdapter，实现校园登录、恢复标记与 Portal 资料 ports
- * [POS]: identity/infrastructure 的旧系统防腐层，把下一阶段待迁移的校园集成挡在 application 边界之外
+ * [POS]: identity/infrastructure 的校园登录端口适配器，单向消费 Campus Integrations 且不泄漏上游细节
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { AuthEngine } from '../../../auth/auth-engine';
-import { CredentialManager } from '../../../auth/credential-manager';
-import { TicketExchanger } from '../../../auth/ticket-exchanger';
+import { AuthEngine } from '../../campus-integrations/cas/auth-engine';
+import { CredentialManager } from '../../campus-integrations/credential-recovery/credential-manager';
+import { TicketExchanger } from '../../campus-integrations/cas/ticket-exchanger';
 import { config } from '../../../config';
-import { HttpClient } from '../../../core/http-client';
-import { UserService } from '../../../services/portal/user-service';
+import { HttpClient } from '../../campus-integrations/http/http-client';
+import { UserService } from '../../campus-integrations/portal/user-service';
 import { Logger } from '../../../utils/logger';
 import type {
   CampusLoginPort,

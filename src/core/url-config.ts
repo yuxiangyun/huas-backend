@@ -1,27 +1,8 @@
 /**
- * [INPUT]: 无运行时依赖，集中记录学校 CAS、Portal 与 JW 上游 URL
- * [OUTPUT]: 对外提供 URLS 常量
- * [POS]: core 的上游地址表，被 auth、services 与 parsers 间接消费
+ * [INPUT]: 依赖 campus-integrations 的 canonical 学校端点表
+ * [OUTPUT]: 兼容再导出 URLS 常量
+ * [POS]: core 的只读迁移 Facade，保持旧 URL 配置路径稳定
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-export const URLS = {
-  login: "https://cas.huas.edu.cn/cas/login",
-  captcha: "https://cas.huas.edu.cn/cas/captcha.jpg",
-  pubkey: "https://cas.huas.edu.cn/cas/jwt/publicKey",
-  servicePortal: "https://portal.huas.edu.cn/login",
-  serviceJw: "https://xyjw.huas.edu.cn/sso.jsp?targetUrl=base64aHR0cHM6Ly94eWp3Lmh1YXMuZWR1LmNuL2luZGV4LmpzcA==",
-  jwBase: "https://xyjw.huas.edu.cn",
-  jwIndex: "https://xyjw.huas.edu.cn/index.jsp",
-  jwMain: "https://xyjw.huas.edu.cn/jsxsd/framework/xsMain.jsp",
-  jwMainNew: "https://xyjw.huas.edu.cn/jsxsd/framework/xsMain_new.jsp",
-  kbApi: "https://xyjw.huas.edu.cn/jsxsd/framework/main_index_loadkb.jsp",
-  gradeApi: "https://xyjw.huas.edu.cn/jsxsd/kscj/cjcx_list",
-  classroomQuery: "https://xyjw.huas.edu.cn/jsxsd/kbxx/jsjy_query",
-  classroomQuery2: "https://xyjw.huas.edu.cn/jsxsd/kbxx/jsjy_query2",
-  classroomProcessAjax: "https://xyjw.huas.edu.cn/jsxsd/kbxx/jsjy_processAjax",
-  classroomInitJc: "https://xyjw.huas.edu.cn/jsxsd/kbxx/initJc",
-  ecardApi: "https://portal.huas.edu.cn/portalApi/v2/personalData/getMyECard",
-  userInfo: "https://authx-service.huas.edu.cn/personal/api/v1/personal/me/user",
-  portalScheduleEvents: "https://portal.huas.edu.cn/portal-api/v1/calendar/share/schedule/getEvents",
-};
+export { URLS } from '../modules/campus-integrations/endpoints';

@@ -2,18 +2,19 @@
 > L2 | 父级: /Users/xiangyun/workspace/huas-wechat-app/huas-server/src/parsers/AGENTS.md
 
 成员清单
-classroom-free-parser.ts: 空教室 HTML/JSON 混合解析器，提取楼栋、教室容量、周次与节次空闲状态
-evaluation-parser.ts: JW 评教 HTML 纯解析器，发现安全列表 URL、解析 actionable/blocked 任务并组装满分提交表单
-grade-parser.ts: JW 成绩 HTML 解析器，要求 dataList 结构，识别评教阻断并输出稳定成绩 DTO
-schedule-parser.ts: JW 课表 HTML 解析器，输出统一课程模型并消除 kb_content 嵌套节点重复
+classroom-free-parser.ts: Campus Integrations canonical 空教室解析器的兼容再导出
+evaluation-parser.ts: Campus Integrations canonical 评教解析函数、类型与常量的兼容再导出
+grade-parser.ts: Campus Integrations canonical 成绩解析器的兼容再导出
+schedule-parser.ts: Campus Integrations canonical 课表解析器的兼容再导出
 
 架构决策
-教务解析器承认上游页面不稳定，优先做窄输入解析和明确错误，不在此层做缓存或重试。
+本目录只保留旧路径兼容面，所有实现单向归入 campus-integrations/jw/parsers。
 
 开发规范
 每个新增上游页面分支都必须有 fixture 覆盖；发现三个以上特殊分支时优先沉淀结构化 helper。
 
 变更日志
+2026-07-27: JW parser 唯一实现迁入 campus-integrations，本目录退化为兼容 Facade。
 2026-07-16: 从评教服务抽出无状态 URL、列表、表单与提交页解析规则，恢复 parser/service 单向边界。
 2026-07-16: 成绩拒绝无 dataList 错误页；课表只解析最外层课程节点，避免 div/p 重复。
 2026-06-30: 成绩解析先判失败词再判通过词，避免“不及格/不通过/未通过”被子串误判为通过。
