@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 AppError/ErrorCode 与 Logger，对比主备校园上游失败
+ * [OUTPUT]: 对外提供 resolveFallbackError，按参数/凭证/超时优先级选择更具体错误
+ * [POS]: utils 的双源错误仲裁工具，不执行 fallback 请求也不吞掉所选错误
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { AppError, ErrorCode } from './errors';
 import { Logger } from './logger';
 

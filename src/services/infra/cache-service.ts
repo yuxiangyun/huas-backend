@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 SQLite/Drizzle cache 表、CacheMeta、北京时间与统一 Logger
+ * [OUTPUT]: 对外提供 CacheService，支持 JSON 缓存读写、TTL=0 永久值、过期清理与前缀 LRU
+ * [POS]: services/infra 的共享缓存基础设施，被纵向模块通过各自 infrastructure adapter 消费
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { eq, sql } from 'drizzle-orm';
 import { getDb, schema } from '../../db';
 import type { CacheMeta } from '../../types';

@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 Academic canonical composition mock、Hono 路由、JWT 与 SQLite 测试环境
+ * [OUTPUT]: 验证课表/成绩共享 refresh 限流桶及普通请求不占用配额
+ * [POS]: tests 的 Academic HTTP 限流回归，mock 边界对齐 modules/academic composition root
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import {
   beforeAll,
   beforeEach,
@@ -14,22 +21,17 @@ const serviceCalls = {
   schedule: 0,
 };
 
-mock.module('../src/services/academic/schedule-service.ts', () => ({
-  ScheduleService: {
-    async getSchedule() {
-      serviceCalls.schedule += 1;
-      return {
-        data: {
-          call: serviceCalls.schedule,
-          source: 'schedule',
-        },
-        _meta: { cached: false, source: 'mock' },
-      };
-    },
+const scheduleService = {
+  async getSchedule() {
+    serviceCalls.schedule += 1;
+    return {
+      data: { call: serviceCalls.schedule, source: 'schedule' },
+      _meta: { cached: false, source: 'mock' },
+    };
   },
-}));
+};
 
-mock.module('../src/services/academic/grade-service.ts', () => ({
+mock.module('../src/modules/academic/grade.ts', () => ({
   GradeService: {
     async getGrades() {
       serviceCalls.grades += 1;
@@ -44,16 +46,30 @@ mock.module('../src/services/academic/grade-service.ts', () => ({
   },
 }));
 
-mock.module('../src/services/portal/portal-schedule-service.ts', () => ({
-  PortalScheduleService: {
-    async getSchedule() {
-      serviceCalls.portalSchedule += 1;
+const portalScheduleService = {
+  async getSchedule() {
+    serviceCalls.portalSchedule += 1;
+    return {
+      data: { call: serviceCalls.portalSchedule, source: 'portal-schedule' },
+      _meta: { cached: false, source: 'mock' },
+    };
+  },
+};
+
+mock.module('../src/modules/academic/schedule.ts', () => ({
+  ScheduleService: scheduleService,
+  PortalScheduleService: portalScheduleService,
+  ScheduleFacade: {
+    async getJwFirstSchedule(options: any) {
       return {
-        data: {
-          call: serviceCalls.portalSchedule,
-          source: 'portal-schedule',
-        },
-        _meta: { cached: false, source: 'mock' },
+        ...await scheduleService.getSchedule(options.userId, options.studentId),
+        _request: { cache: options.forceRefresh ? 'bypass' : 'miss' },
+      };
+    },
+    async getPortalFirstSchedule(options: any) {
+      return {
+        ...await portalScheduleService.getSchedule(options.userId, options.studentId),
+        _request: { cache: options.forceRefresh ? 'bypass' : 'miss' },
       };
     },
   },
