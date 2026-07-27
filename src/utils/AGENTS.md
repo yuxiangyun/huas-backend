@@ -2,7 +2,7 @@
 > L2 | 父级: /Users/xiangyun/workspace/huas-wechat-app/huas-server/src/AGENTS.md
 
 成员清单
-crypto.ts: AES-GCM 加解密工具，保护本地静默重认证密码
+crypto.ts: 认证密码学适配器，以 RSA 保护 CAS 提交、解析票据 token，并用 AES-GCM 保护本地静默重认证密码
 discover.ts: Discover 领域常量与轻工具，包含分类、标签、作者标签和 JSON 数组解析
 errors.ts: API 错误码与 AppError 契约源
 fallback-error.ts: 主备上游错误选择工具，用于返回更具体的兜底错误

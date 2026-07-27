@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 node:crypto 的 RSA、AES-256-GCM、哈希与随机数能力，以及统一 Logger
+ * [OUTPUT]: 对外提供 CryptoHelper，完成 CAS 密码加密、票据 token 提取与静默认证密码加解密
+ * [POS]: utils 的密码学适配器，被旧认证实现与 Identity 登录 composition 复用，不承载登录业务规则
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { publicEncrypt, constants, createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { Logger } from './logger';
 

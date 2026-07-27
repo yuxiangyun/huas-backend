@@ -15,6 +15,7 @@ e2e.setup.ts: 端到端测试环境初始化
 evaluation-parser.test.ts: 教评解析、actionable/blocked 状态、有界续批、提交响应与抗重排批末回查测试
 fixtures/: 测试二进制样本目录，包含 HEIC 图片
 grade-parser.test.ts: 成绩表结构、合法空表、错误页拒绝与评教门禁回归测试
+identity-login-application.test.ts: Identity/Login 应用编排、验证码固定周期清理、CAS 提交耗时、Portal/JW 分支与 SQLite 用户凭证原子回滚测试
 portal-schedule-parser.test.ts: Portal 日期范围、课表解析及数字/字符串 code、一卡通余额边界回归测试
 public-announcements.test.ts: 公告公共接口回归测试
 schedule-parser.test.ts: JW 真实结构、非教学周、登录页与嵌套课程节点去重回归测试
@@ -31,6 +32,7 @@ upstream-retry.test.ts: 上游重试、CAS HTTP/维护页、Portal 换票瞬态�
 新增、删除或重命名测试文件时同步更新本地图。
 
 变更日志
+2026-07-27: 新增 Identity/Login 应用服务与 SQLite 事务失败回滚定向测试。
 2026-07-16: 成绩/一卡通拒绝错误页和缺失余额，课表限定日期并去重嵌套节点，CAS/Portal 超时与维护页保持真实故障语义。
 2026-07-16: 评教测试覆盖 HTTP 200 错误页拒绝、提交后列表确认与本次/累计计数分离。
 2026-07-16: 日历订阅补齐中文长文本 UTF-8 75-octet 折行与无损展开回归。

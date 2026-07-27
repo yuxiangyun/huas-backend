@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 hono/jwt 的 HS256 签发/验证与 config 的密钥、self JWT TTL
+ * [OUTPUT]: 对外提供 generateToken 与 verifyToken，维持客户端身份令牌 payload 契约
+ * [POS]: auth 的本服务 JWT 边界，被 Identity 登录装配与 Bearer 认证中间件消费
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { sign, verify } from 'hono/jwt';
 import { config } from '../config';
 
