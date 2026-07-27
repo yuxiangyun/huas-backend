@@ -1,65 +1,19 @@
-export const DISCOVER_CATEGORIES = ['1食堂', '2食堂', '3食堂', '5食堂', '校外', '其他'] as const;
-export const DISCOVER_COMMON_TAGS = ['好吃', '便宜', '分量足', '辣', '清淡', '排队久', '值得再吃'] as const;
+/**
+ * [INPUT]: 依赖 modules/discover/domain 的 canonical 常量、类型与纯函数
+ * [OUTPUT]: 再导出 Discover 分类、标签、作者标签、数组解析与媒体 DTO 旧工具路径
+ * [POS]: utils 的 Discover 兼容 Facade，通用调用方可继续使用旧路径而不复制领域规则
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
 
-export type DiscoverCategory = typeof DISCOVER_CATEGORIES[number];
-
-export interface DiscoverStoredImage {
-  url: string;
-  width: number;
-  height: number;
-  sizeBytes: number;
-  mimeType: string;
-}
-
-export function isDiscoverCategory(value: string): value is DiscoverCategory {
-  return DISCOVER_CATEGORIES.includes(value as DiscoverCategory);
-}
-
-export function buildDiscoverAuthorLabel(className: string | null | undefined): string {
-  const raw = (className || '').trim();
-  if (!raw) return '校园用户';
-
-  const collapsed = raw.replace(/\s+/g, ' ');
-  const stripped = collapsed
-    .replace(/(?:19|20)\d{2}级/g, '')
-    .replace(/\d{2,4}班/g, '')
-    .replace(/\d{2,4}/g, ' ')
-    .replace(/[()（）]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  if (!stripped) return '校园用户';
-  return stripped;
-}
-
-export function parseStringArray(value: string): string[] {
-  const raw = value.trim();
-  if (!raw) return [];
-
-  if (raw.startsWith('[')) {
-    try {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        return parsed
-          .map((item) => String(item ?? '').trim())
-          .filter(Boolean);
-      }
-    } catch {
-      // Fall through to delimiter-based parsing.
-    }
-  }
-
-  return raw
-    .split(/[\n,，]/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-export function safeParseJsonArray<T>(value: string, fallback: T[]): T[] {
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed as T[] : fallback;
-  } catch {
-    return fallback;
-  }
-}
+export {
+  DISCOVER_CATEGORIES,
+  DISCOVER_COMMON_TAGS,
+  buildDiscoverAuthorLabel,
+  isDiscoverCategory,
+  parseStringArray,
+  safeParseJsonArray,
+} from '../modules/discover/domain/discover';
+export type {
+  DiscoverCategory,
+  DiscoverStoredImage,
+} from '../modules/discover/domain/discover';

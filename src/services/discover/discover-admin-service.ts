@@ -1,45 +1,8 @@
 /**
- * [INPUT]: 依赖 db/schema 的 Discover 表、media-service 的图片清理能力与 Logger 错误记录
- * [OUTPUT]: 对外提供 DiscoverAdminService 管理侧软删除帖子能力
- * [POS]: services/discover 的管理侧写操作，和用户侧服务共享媒体清理语义
+ * [INPUT]: 依赖 modules/discover/composition 的 canonical 管理删除 application 委托类
+ * [OUTPUT]: 再导出旧 DiscoverAdminService 类名与路径
+ * [POS]: services/discover 的管理删除兼容 Facade，不直接理解 SQLite 或媒体实现
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { and, eq, isNull } from 'drizzle-orm';
-import { getDb, schema } from '../../db';
-import { Logger } from '../../utils/logger';
-import { DiscoverMediaService } from './media-service';
-
-export class DiscoverAdminService {
-  static async deletePost(postId: number) {
-    const db = getDb();
-    const now = new Date();
-    const updated = await db.update(schema.discoverPosts)
-      .set({
-        deletedAt: now,
-        updatedAt: now,
-      })
-      .where(and(
-        eq(schema.discoverPosts.id, postId),
-        isNull(schema.discoverPosts.deletedAt),
-      ))
-      .returning({
-        id: schema.discoverPosts.id,
-        storageKey: schema.discoverPosts.storageKey,
-      });
-
-    await this.cleanupDeletedPostStorage(updated[0]);
-
-    return updated[0] ? { id: updated[0].id } : null;
-  }
-
-  private static async cleanupDeletedPostStorage(post?: { id: number; storageKey: string } | null) {
-    if (!post) return;
-
-    try {
-      await DiscoverMediaService.removeStorage(post.storageKey);
-    } catch (err: any) {
-      Logger.error('DiscoverService', `帖子 ${post.id} 删除后清理图片失败`, err);
-    }
-  }
-}
+export { DiscoverAdminService } from '../../modules/discover/composition';

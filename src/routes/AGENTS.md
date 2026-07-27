@@ -7,7 +7,7 @@ admin/: 管理路由，暴露会话、分析、统计、公告、Discover、Tree
 auth/: 登录路由，承接 CAS/验证码登录流程并签发本服务 JWT
 calendar/: Calendar HTTP 兼容 Facade，保持认证 API 与公开 ICS 订阅原挂载路径
 content/: 公共内容路由，提供免 Bearer 的公告读取接口
-discover/: 发现美食路由，解析 multipart/JSON 请求并调用 DiscoverService
+discover/: Discover HTTP 兼容 Facade，canonical 路由位于 modules/discover/http
 portal/: Portal 路由，暴露一卡通、用户资料与 Portal 课表接口
 system/: 系统路由，提供健康检查
 treehole/: 树洞路由，解析匿名社区请求并调用 Treehole 服务
@@ -25,6 +25,7 @@ UGC 合规守卫位于 app 层以避开 Hono 子应用路径歧义，但必须�
 不要跨路由抽象参数 helper，除非错误消息、默认值和兼容行为完全一致。
 
 变更日志
+2026-07-27: Discover 路由实现迁入 modules/discover/http，旧路径保留单向 Facade。
 2026-07-27: Calendar 路由实现迁入 modules/calendar/http，旧路径保留单向 Facade。
 2026-07-18: 抽取 JW/Portal 双源课表的同构日志映射，业务入口与 fallback 语义继续独立。
 2026-07-12: 管理接口升级为 HttpOnly Cookie 会话，并新增渠道分析总览接口。

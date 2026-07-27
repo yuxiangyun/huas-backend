@@ -13,6 +13,8 @@ campus-integrations-compat.test.ts: Campus Integrations canonical 实现与 auth
 database-migrations.test.ts: SQLite 空库初始化、baseline adoption、漂移拒绝、中断恢复、repair 与部署快照回归测试
 classroom-free-parser.test.ts: 空教室解析器回归测试
 discover.test.ts: Discover 业务与媒体流程回归测试
+discover-application.test.ts: Discover application 媒体补偿与删除清理失败语义回归测试
+discover-compat.test.ts: Discover canonical composition 与旧 routes/services/media Facade 的运行时引用一致性测试
 e2e.live.test.ts: 真实上游端到端验证入口
 e2e.setup.ts: 端到端测试环境初始化
 evaluation-parser.test.ts: 教评解析、actionable/blocked 状态、有界续批、提交响应与抗重排批末回查测试
@@ -35,6 +37,7 @@ upstream-retry.test.ts: 上游重试、CAS HTTP/维护页、Portal 换票瞬态�
 新增、删除或重命名测试文件时同步更新本地图。
 
 变更日志
+2026-07-27: 新增 Discover 旧路径与 canonical 模块引用一致性回归。
 2026-07-27: 新增 Calendar 旧路径引用一致性与 token/HMAC 兼容回归。
 2026-07-27: 新增 Campus Integrations Facade 引用一致性测试，并将 business flow mock 边界切换到 canonical 模块。
 2026-07-27: 新增 Academic Facade 引用一致性测试，并将 refresh 限流 mock 边界切换到 canonical composition。
