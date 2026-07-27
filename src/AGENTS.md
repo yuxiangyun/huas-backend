@@ -6,7 +6,7 @@ auth/: 本服务 JWT/日历签名与校园认证兼容 Facade，学校凭证实�
 core/: 学校 HTTP、重试与端点的兼容 Facade，canonical 实现位于 modules/campus-integrations
 db/: SQLite/Drizzle 数据层，定义业务事实表、版本化 migration、显式 repair 与一致性 snapshot
 middleware/: Hono 中间件，处理认证、限流、日志、错误与后台 Cookie 会话
-modules/: 按业务能力组织的纵向切片，承载 Identity、Campus Integrations、Academic、Calendar、Discover、Treehole 与 Operations canonical 实现
+modules/: 按业务能力组织的纵向切片，承载 Identity、Campus Integrations、Academic、Cache、Calendar、Discover、Treehole 与 Operations canonical 实现
 parsers/: 学校解析器兼容 Facade，canonical 纯解析器位于 modules/campus-integrations
 routes/: Hono 路由层，解析 HTTP 输入并调用服务层，不承载核心业务规则
 runtime/: 进程运行态与 Operations UGC 策略兼容 Facade，保留入口所需进程关闭/就绪状态
@@ -25,6 +25,7 @@ src 是应用机器相核心；新业务按 modules 纵向切片，旧 routes �
 新增共享能力先放在最窄模块内，出现真实跨模块复用再上移到 utils 或 core。
 
 变更日志
+2026-07-27: 新增 Cache 纵向切片，显式固化 TTL=0 永久语义、版本 envelope 与同意图 singleflight，旧缓存服务退化为 Facade。
 2026-07-27: 新增 Operations 纵向切片，后台管理、同步 analytics、公告、日志、UGC 策略、会话与健康检查迁入 canonical 模块。
 2026-07-27: 新增 Treehole 纵向切片，匿名社区、管理视图、SQLite 事务与头像媒体迁入 modules/treehole。
 2026-07-27: 新增 Discover 纵向切片，帖子、评论、评分、推荐与媒体职责迁入 modules/discover。

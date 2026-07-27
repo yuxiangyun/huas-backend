@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 domain AcademicRuntimePorts、canonical ScheduleParser/JW 端点、配置、CacheMeta 与北京时间
  * [OUTPUT]: 对外提供可注入 AcademicRuntimePorts 的 ScheduleApplicationService
- * [POS]: academic/application 的 JW 单源课表用例，负责教务读取、周缓存、旧缓存提升与 refresh 旧值回退
+ * [POS]: academic/application 的 JW 单源课表用例，负责教务读取、同键回源合并、周缓存、旧缓存提升与 refresh 旧值回退
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -147,19 +147,23 @@ export class ScheduleApplicationService {
 
     let data: any;
     try {
-      data = await this.ports.upstream(userId, 'jw', async ({ client }) => {
-        const params = new URLSearchParams();
-        params.append('rq', queryDate);
-        params.append('sjmsValue', JW_SJMS_VALUE);
+      data = await this.ports.cache.runSingleflight(
+        cacheKey,
+        forceRefresh,
+        () => this.ports.upstream(userId, 'jw', async ({ client }) => {
+          const params = new URLSearchParams();
+          params.append('rq', queryDate);
+          params.append('sjmsValue', JW_SJMS_VALUE);
 
-        const res = await client.request(URLS.kbApi, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-          body: params,
-          timeout: config.timeout.business,
-        });
-        return ScheduleParser.parse(await res.text(), { studentId, name });
-      });
+          const res = await client.request(URLS.kbApi, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+            body: params,
+            timeout: config.timeout.business,
+          });
+          return ScheduleParser.parse(await res.text(), { studentId, name });
+        }),
+      );
     } catch (error) {
       const fallback = await findScheduleRefreshFallback({
         forceRefresh,

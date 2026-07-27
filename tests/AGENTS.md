@@ -8,6 +8,7 @@ admin-dashboard-activity.test.ts: 管理后台活跃度、显式渠道优先级�
 admin-session.test.ts: 后台 HttpOnly Cookie 会话建立、保护与撤销回归测试
 auth-login-rate-limit.test.ts: 登录失败限流策略回归测试
 business-flows.test.ts: 登录凭证、课表/日历双源、成绩/一卡通缓存失败语义、ICS 序列化与核心编排总回归套件
+cache-modernization.test.ts: Cache 永久/限时新鲜度、版本 envelope、旧 payload、同意图 singleflight 与 observer 隔离回归测试
 calendar-compat.test.ts: Calendar canonical 实现与 routes/services/auth 旧 Facade 的引用、token 别名与 HMAC 语义兼容测试
 campus-integrations-compat.test.ts: Campus Integrations canonical 实现与 auth/core/parsers/services 旧 Facade 的引用一致性测试
 database-migrations.test.ts: SQLite 空库初始化、baseline adoption、漂移拒绝、中断恢复、repair 与部署快照回归测试
@@ -41,6 +42,7 @@ upstream-retry.test.ts: 上游重试、CAS HTTP/维护页、Portal 换票瞬态�
 新增、删除或重命名测试文件时同步更新本地图。
 
 变更日志
+2026-07-27: 新增 Cache schema 兼容、TTL=0、singleflight、stale fallback 与旁路指标观察回归。
 2026-07-27: 新增 Operations application 端口隔离、旧出口引用一致性与依赖方向回归。
 2026-07-27: 新增 Discover 旧路径与 canonical 模块引用一致性回归。
 2026-07-27: 新增 Treehole 旧路径引用一致性与模块依赖方向回归。

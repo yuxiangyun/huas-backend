@@ -3,6 +3,7 @@
 
 成员清单
 academic/: 学业领域纵向切片，承载课表、成绩、评教与空教室 application/domain/infrastructure
+cache/: 本地缓存纵向切片，显式建模永久/限时新鲜度、版本 envelope、SQLite 持久化与进程内 singleflight
 calendar/: 日历订阅纵向切片，承载签名、用户查询、Academic 课表编排与 RFC 5545 ICS
 campus-integrations/: 学校 CAS、Portal、JW 防腐层，收敛 HTTP、凭证恢复、上游编排、资料服务与纯解析器唯一实现
 discover/: 发现美食纵向切片，承载 HTTP、用例编排、稳定规则、SQLite 事务与本地媒体
@@ -15,6 +16,7 @@ modules 采用按业务能力组织的纵向切片；切片内部依赖方向固
 旧 auth/core/parsers/routes/services 在迁移期只允许单向委托或再导出新模块，新模块不得反向依赖旧 Facade 或 routes。
 
 变更日志
+2026-07-27: 新增 Cache canonical 模块，旧缓存服务退化为 Facade，Academic/Portal 回源接入同键同刷新意图 singleflight。
 2026-07-27: 新增 Operations，旧管理 routes/services/runtime/middleware 路径退化为单向兼容 Facade。
 2026-07-27: 新增 Treehole 纵向切片，旧 routes/services 路径退化为兼容 Facade。
 2026-07-27: 新增 Discover 纵向切片，旧 routes/services/utils 路径退化为兼容 Facade。

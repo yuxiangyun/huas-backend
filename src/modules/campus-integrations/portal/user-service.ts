@@ -1,12 +1,12 @@
 /**
- * [INPUT]: 依赖 infra/upstream、CacheService、UserParser、URLS、config、refresh fallback、db/schema 与 drizzle eq
+ * [INPUT]: 依赖 canonical upstream/CacheService、UserParser、URLS、config、refresh fallback、db/schema 与 drizzle eq
  * [OUTPUT]: 对外提供 UserService.getUserInfo，读取 Portal 用户资料并回写姓名班级缓存
- * [POS]: campus-integrations/portal 的用户资料适配器，负责资料读取、缓存与用户事实回写
+ * [POS]: campus-integrations/portal 的用户资料适配器，负责同意图回源合并、缓存与用户事实回写
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { upstream } from '../upstream/upstream';
-import { CacheService } from '../../../services/infra/cache-service';
+import { CacheService } from '../../cache/cache-service';
 import { UserParser } from './parsers/user-parser';
 import { URLS } from '../endpoints';
 import { config, PORTAL_HEADERS } from '../../../config';
@@ -25,17 +25,21 @@ export class UserService {
 
     let data: any;
     try {
-      data = await upstream(userId, 'portal', async ({ client, portalToken }) => {
-        const res = await client.request(URLS.userInfo, {
-          headers: {
-            'X-Id-Token': portalToken!,
-            ...PORTAL_HEADERS,
-          },
-          timeout: config.timeout.business,
-        });
-        const json = await res.json() as any;
-        return UserParser.parse(json);
-      });
+      data = await CacheService.runSingleflight(
+        cacheKey,
+        forceRefresh,
+        () => upstream(userId, 'portal', async ({ client, portalToken }) => {
+          const res = await client.request(URLS.userInfo, {
+            headers: {
+              'X-Id-Token': portalToken!,
+              ...PORTAL_HEADERS,
+            },
+            timeout: config.timeout.business,
+          });
+          const json = await res.json() as any;
+          return UserParser.parse(json);
+        }),
+      );
     } catch (error) {
       const fallback = await fallbackOnRefreshFailure({
         forceRefresh,

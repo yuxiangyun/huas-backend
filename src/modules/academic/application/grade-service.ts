@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 GradeApplicationPorts、canonical GradeParser/端点、config 与统一错误
  * [OUTPUT]: 对外提供可注入 GradeApplicationPorts 的 GradeApplicationService
- * [POS]: academic/application 的成绩读取用例，拒绝把上游错误页解析并缓存为业务空态
+ * [POS]: academic/application 的成绩读取用例，合并同键同刷新意图回源并拒绝缓存上游错误页
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -38,39 +38,43 @@ export class GradeApplicationService {
 
     let data: any;
     try {
-      data = await this.ports.upstream(userId, 'jw', async ({ client }) => {
-        const params = new URLSearchParams();
-        params.append('kksj', term);
-        params.append('kcxz', kcxz);
-        params.append('kcmc', kcmc);
-        params.append('xsfs', 'max');
+      data = await this.ports.cache.runSingleflight(
+        cacheKey,
+        forceRefresh,
+        () => this.ports.upstream(userId, 'jw', async ({ client }) => {
+          const params = new URLSearchParams();
+          params.append('kksj', term);
+          params.append('kcxz', kcxz);
+          params.append('kcmc', kcmc);
+          params.append('xsfs', 'max');
 
-        const res = await client.request(URLS.gradeApi, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: params,
-          timeout: config.timeout.business,
-        });
-        assertGradeResponse(res);
-        const html = await res.text();
-        try {
-          return GradeParser.parse(html, { studentId, name });
-        } catch (error) {
-          if (!(error instanceof AppError) || error.code !== ErrorCode.EVALUATION_REQUIRED) {
-            throw error;
-          }
-
-          const discovery = await this.ports.discoverEvaluation(client).catch(() => ({
-            evaluationRequired: true,
-            listUrl: null,
-          }));
-          throw new AppError(error.code, error.message, {
-            ...(typeof error.data === 'object' && error.data !== null ? error.data : {}),
-            evaluationRequired: true,
-            listUrl: discovery.listUrl,
+          const res = await client.request(URLS.gradeApi, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: params,
+            timeout: config.timeout.business,
           });
-        }
-      });
+          assertGradeResponse(res);
+          const html = await res.text();
+          try {
+            return GradeParser.parse(html, { studentId, name });
+          } catch (error) {
+            if (!(error instanceof AppError) || error.code !== ErrorCode.EVALUATION_REQUIRED) {
+              throw error;
+            }
+
+            const discovery = await this.ports.discoverEvaluation(client).catch(() => ({
+              evaluationRequired: true,
+              listUrl: null,
+            }));
+            throw new AppError(error.code, error.message, {
+              ...(typeof error.data === 'object' && error.data !== null ? error.data : {}),
+              evaluationRequired: true,
+              listUrl: discovery.listUrl,
+            });
+          }
+        }),
+      );
     } catch (error) {
       const fallback = await this.ports.refreshFallback({
         forceRefresh,

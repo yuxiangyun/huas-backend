@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 domain AcademicRuntimePorts、canonical PortalScheduleParser/端点、config 与 AppError
  * [OUTPUT]: 对外提供 PortalScheduleApplicationService，返回日期课表、缓存与 _request 元信息
- * [POS]: academic/application 的 Portal 单源课表用例，负责日期区间校验、Portal 读取、缓存与过期兜底
+ * [POS]: academic/application 的 Portal 单源课表用例，负责日期区间校验、同键回源合并、缓存与过期兜底
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -83,19 +83,23 @@ export class PortalScheduleApplicationService {
 
     let data: any;
     try {
-      data = await this.ports.upstream(userId, 'portal', async ({ client, portalToken }) => {
-        const url = new URL(URLS.portalScheduleEvents);
-        url.searchParams.append('startDate', normalizedStartDate);
-        url.searchParams.append('endDate', normalizedEndDate);
-        url.searchParams.append('reqType', 'MonthView');
-        url.searchParams.append('random_number', Math.random().toString());
+      data = await this.ports.cache.runSingleflight(
+        cacheKey,
+        forceRefresh,
+        () => this.ports.upstream(userId, 'portal', async ({ client, portalToken }) => {
+          const url = new URL(URLS.portalScheduleEvents);
+          url.searchParams.append('startDate', normalizedStartDate);
+          url.searchParams.append('endDate', normalizedEndDate);
+          url.searchParams.append('reqType', 'MonthView');
+          url.searchParams.append('random_number', Math.random().toString());
 
-        const res = await client.request(url.toString(), {
-          headers: { 'X-Id-Token': portalToken! },
-          timeout: config.timeout.business,
-        });
-        return PortalScheduleParser.parse(await res.json(), normalizedStartDate, normalizedEndDate, { studentId, name });
-      });
+          const res = await client.request(url.toString(), {
+            headers: { 'X-Id-Token': portalToken! },
+            timeout: config.timeout.business,
+          });
+          return PortalScheduleParser.parse(await res.json(), normalizedStartDate, normalizedEndDate, { studentId, name });
+        }),
+      );
     } catch (error) {
       const fallback = await this.ports.refreshFallback({
         forceRefresh,

@@ -2,7 +2,7 @@
 > L2 | 父级: /Users/xiangyun/workspace/huas-wechat-app/huas-server/src/modules/academic/AGENTS.md
 
 成员清单
-cache-store.ts: Academic 缓存与 refresh stale fallback 适配入口，复用既有 SQLite 语义
+cache-store.ts: Academic 缓存、singleflight 与 refresh stale fallback 适配入口，复用 canonical Cache 语义
 campus-system.ts: Campus Integrations canonical upstream 的 AcademicUpstream 端口实现
 runtime.ts: 默认 upstream/cache/fallback 端口实现集合，仅供 composition root 装配
 evaluation-discovery.ts: 有限遍历可信 JW 导航并发现评教列表，供成绩门禁与评教共用

@@ -1,12 +1,12 @@
 /**
- * [INPUT]: 依赖 Portal 一卡通 HTTP/JSON、ECardParser、upstream、CacheService 与刷新失败兜底
+ * [INPUT]: 依赖 Portal 一卡通 HTTP/JSON、ECardParser、canonical upstream/CacheService 与刷新失败兜底
  * [OUTPUT]: 对外提供 ECardService.getECard，仅缓存具有明确余额字段的稳定一卡通 DTO
- * [POS]: campus-integrations/portal 的一卡通资料适配器，保留既有缓存与 stale fallback 语义
+ * [POS]: campus-integrations/portal 的一卡通资料适配器，保留既有缓存、同意图回源合并与 stale fallback 语义
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { upstream } from '../upstream/upstream';
-import { CacheService } from '../../../services/infra/cache-service';
+import { CacheService } from '../../cache/cache-service';
 import { ECardParser } from './parsers/ecard-parser';
 import { URLS } from '../endpoints';
 import { config } from '../../../config';
@@ -30,14 +30,18 @@ export class ECardService {
 
     let data: any;
     try {
-      data = await upstream(userId, 'portal', async ({ client, portalToken }) => {
-        const res = await client.request(URLS.ecardApi, {
-          headers: { 'X-Id-Token': portalToken! },
-          timeout: config.timeout.business,
-        });
-        assertECardResponse(res);
-        return ECardParser.parse(await res.json());
-      });
+      data = await CacheService.runSingleflight(
+        cacheKey,
+        forceRefresh,
+        () => upstream(userId, 'portal', async ({ client, portalToken }) => {
+          const res = await client.request(URLS.ecardApi, {
+            headers: { 'X-Id-Token': portalToken! },
+            timeout: config.timeout.business,
+          });
+          assertECardResponse(res);
+          return ECardParser.parse(await res.json());
+        }),
+      );
     } catch (error) {
       const fallback = await fallbackOnRefreshFailure({
         forceRefresh,

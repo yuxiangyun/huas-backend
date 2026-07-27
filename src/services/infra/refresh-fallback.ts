@@ -1,14 +1,28 @@
 /**
- * [INPUT]: 依赖 CacheService、CacheMeta、AppError/ErrorCode 与 Logger
- * [OUTPUT]: 对外提供 fallbackOnRefreshFailure()，仅为非凭证型回源失败选择 stale 缓存
+ * [INPUT]: 依赖 canonical CacheService、CacheMeta、AppError/ErrorCode 与 Logger
+ * [OUTPUT]: 对外提供 fallbackOnRefreshFailure() 与可注入观察器，仅为非凭证型回源失败选择 stale 缓存
  * [POS]: services/infra 的缓存降级策略边界，禁止用旧数据掩盖需要用户重新认证的 3003
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { CacheService } from './cache-service';
+import { CacheService } from '../../modules/cache/cache-service';
 import type { CacheMeta } from '../../types';
 import { AppError, ErrorCode } from '../../utils/errors';
 import { Logger } from '../../utils/logger';
+
+export interface RefreshFallbackObservers {
+  recordFallback?: () => void;
+}
+
+let observers: RefreshFallbackObservers = {};
+
+export function configureRefreshFallbackObservers(next: RefreshFallbackObservers): () => void {
+  const previous = observers;
+  observers = next;
+  return () => {
+    if (observers === next) observers = previous;
+  };
+}
 
 function toErrorCode(error: unknown): number {
   if (error instanceof AppError) return error.code;
@@ -41,6 +55,11 @@ export async function fallbackOnRefreshFailure<T>(options: {
     `error_code=${errorCode}`,
     options.studentId
   );
+  try {
+    observers.recordFallback?.();
+  } catch {
+    // 指标观察失败不能破坏已经选定的业务 fallback。
+  }
 
   return {
     data: cached.data,

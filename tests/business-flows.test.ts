@@ -1649,7 +1649,7 @@ describe('数据库约束与 upsert', () => {
       .from(schema.cache)
       .where(eq(schema.cache.key, 'cache:test-key'));
     expect(rows.length).toBe(1);
-    expect(JSON.parse(rows[0].data).version).toBe(2);
+    expect(JSON.parse(rows[0].data)).toEqual({ schemaVersion: 1, payload: { version: 2 } });
   });
 });
 
