@@ -105,7 +105,16 @@ let triggerDatabase: Database | null = null;
 beforeAll(() => initDatabase());
 
 beforeEach(async () => {
+  await getDb().delete(schema.treeholeCommentNotifications);
+  await getDb().delete(schema.treeholePostLikes);
+  await getDb().delete(schema.treeholeComments);
+  await getDb().delete(schema.treeholePosts);
+  await getDb().delete(schema.discoverComments);
+  await getDb().delete(schema.discoverPostRatings);
+  await getDb().delete(schema.discoverPosts);
+  await getDb().delete(schema.analyticsDailyUsers);
   await getDb().delete(schema.credentials);
+  await getDb().delete(schema.cache);
   await getDb().delete(schema.users);
 });
 

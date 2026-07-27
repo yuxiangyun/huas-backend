@@ -34,6 +34,7 @@ upstream-retry.test.ts: 上游重试、CAS HTTP/维护页、Portal 换票瞬态�
 架构决策
 测试默认隔离学校真实网络，以 mock 边界验证业务编排；e2e.live.test.ts 是唯一真实上游入口。
 凭证正确性测试必须同时覆盖普通静默恢复、验证码持久标记、真实登录清除和 3003 穿透缓存边界。
+进程级 `mock.module` 不能与其他套件共享模块缓存；由 `scripts/test.ts` 独立调度，普通数据库套件保持单并发。
 
 开发规范
 业务代码变更先跑对应定向测试，再跑 `bun test --preload ./tests/setup.ts` 全量回归。

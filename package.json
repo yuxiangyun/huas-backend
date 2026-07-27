@@ -9,7 +9,7 @@
     "web:build": "npm --prefix ./web run build",
     "web:preview": "npm --prefix ./web run preview",
     "web:typecheck": "npm --prefix ./web run typecheck",
-    "test": "bun test --preload ./tests/setup.ts",
+    "test": "bun scripts/test.ts",
     "test:e2e": "bun test --preload ./tests/e2e.setup.ts ./tests/e2e.live.test.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "bun scripts/db-migrate.ts",
