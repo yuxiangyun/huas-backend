@@ -9,12 +9,12 @@ middleware/: Hono 中间件，处理认证、限流、日志、错误与后台 C
 modules/: 按业务能力组织的纵向切片，承载 Identity、Campus Integrations、Academic、Cache、Calendar、Discover、Treehole 与 Operations canonical 实现
 parsers/: 学校解析器兼容 Facade，canonical 纯解析器位于 modules/campus-integrations
 routes/: Hono 路由层，解析 HTTP 输入并调用服务层，不承载核心业务规则
-runtime/: 进程运行态与 Operations UGC 策略兼容 Facade，保留入口所需进程关闭/就绪状态
+runtime/: 进程运行态与 Operations UGC 策略兼容 Facade，承载就绪判定、轻量指标与有界关闭 hooks
 services/: 迁移期业务兼容层，Academic/Calendar/Discover/Treehole/Operations 已迁领域只保留单向 Facade
 types/: 第三方库声明补丁，隔离外部类型缺口
 utils/: 共享工具，封装响应、错误、日志、时间、加密与 Discover 小工具
 config.ts: 运行时配置入口，从环境变量生成强类型配置对象
-index.ts: Hono 应用入口，装配中间件、静态资源、路由、清理任务与 Bun server
+index.ts: Hono 应用入口，装配中间件、静态资源、路由、指标 observer、清理任务、关闭 flush 与 Bun server
 
 架构决策
 src 是应用机器相核心；新业务按 modules 纵向切片，旧 routes 只接 HTTP，services 执行业务，db 保存事实，parsers 翻译上游格式，utils 不反向依赖业务模块。
@@ -25,6 +25,7 @@ src 是应用机器相核心；新业务按 modules 纵向切片，旧 routes �
 新增共享能力先放在最窄模块内，出现真实跨模块复用再上移到 utils 或 core。
 
 变更日志
+2026-07-27: Runtime 增加 live/ready/metrics、Analytics 有界关闭 flush 与本地/CI 单链质量门。
 2026-07-27: 新增 Cache 纵向切片，显式固化 TTL=0 永久语义、版本 envelope 与同意图 singleflight，旧缓存服务退化为 Facade。
 2026-07-27: 新增 Operations 纵向切片，后台管理、批量 analytics、公告、日志、UGC 策略、会话与健康检查迁入 canonical 模块。
 2026-07-27: 新增 Treehole 纵向切片，匿名社区、管理视图、SQLite 事务与头像媒体迁入 modules/treehole。

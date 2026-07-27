@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 Hono/Bun server、全局中间件、路由装配、数据库初始化、媒体服务、静态资源与运行态
- * [OUTPUT]: 启动后端 HTTP 服务，挂载 /api、/auth、/health、/m、/media 并执行定时清理
- * [POS]: src 的进程入口，连接配置、数据库、路由、中间件、静态托管和优雅停机
+ * [INPUT]: 依赖 Hono/Bun server、全局中间件、路由装配、数据库、媒体、静态资源、运行指标与关闭 hooks
+ * [OUTPUT]: 启动 HTTP 服务，挂载 /api、/auth、/health、/metrics、/m、/media，执行定时清理与有界关闭 flush
+ * [POS]: src 的进程入口，连接配置、数据库、路由、中间件、静态托管、运行观测和优雅停机
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -14,10 +14,16 @@ import { registerRoutes } from './routes';
 import { onAppError } from './middleware/error.middleware';
 import { loggingMiddleware } from './middleware/logging.middleware';
 import { CredentialManager } from './auth/credential-manager';
-import { CacheService } from './services/infra/cache-service';
+import { CacheService } from './modules/cache/cache-service';
 import { config } from './config';
 import { Logger } from './utils/logger';
 import { serverState } from './runtime/server-state';
+import { runtimeMetrics } from './runtime/runtime-metrics';
+import { flushShutdownHooks, registerShutdownFlushHook } from './runtime/shutdown-hooks';
+import metricsRoutes from './modules/operations/http/metrics.routes';
+import { AnalyticsService } from './modules/operations/infrastructure/analytics-service';
+import { configureRefreshFallbackObservers } from './services/infra/refresh-fallback';
+import { configureHttpClientObservers } from './modules/campus-integrations/http/http-client';
 import {
   DiscoverMediaService,
   DISCOVER_MEDIA_CACHE_CONTROL,
@@ -32,6 +38,28 @@ const isDev = process.env.NODE_ENV !== 'production';
 const appRoot = resolve(import.meta.dir, '..');
 const webDistRoot = resolve(appRoot, 'web', 'dist');
 const publicRoot = resolve(appRoot, 'public');
+
+registerShutdownFlushHook('analytics', async () => {
+  const result = await AnalyticsService.shutdown();
+  if (!result.success) Logger.warn('Shutdown', 'analytics shutdown flush returned success=false');
+});
+
+AnalyticsService.configureFlushFailureObserver(() => {
+  runtimeMetrics.recordAnalyticsFlushFailure();
+});
+
+CacheService.configureObservers({
+  recordAccess: (outcome) => runtimeMetrics.recordCache(outcome),
+  recordSingleflightMerge: () => runtimeMetrics.recordSingleflightMerge(),
+});
+
+configureRefreshFallbackObservers({
+  recordFallback: () => runtimeMetrics.recordFallback(),
+});
+
+configureHttpClientObservers({
+  recordOutcome: (outcome) => runtimeMetrics.recordUpstream(outcome),
+});
 
 function toFileResponse(file: ReturnType<typeof Bun.file>, cacheControl: string) {
   return new Response(file, {
@@ -65,10 +93,21 @@ async function serveWebIndex(c: Context) {
 initDatabase();
 
 // Global error handler (catches all errors including sub-apps)
-app.onError(onAppError);
+app.onError((error, context) => {
+  runtimeMetrics.recordSqliteBusyError(error);
+  return onAppError(error, context);
+});
 
 // Global middleware
 app.use('*', cors());
+app.use('*', async (c, next) => {
+  const startedAt = performance.now();
+  try {
+    await next();
+  } finally {
+    runtimeMetrics.recordHttpRequest(c.req.method, c.res.status, performance.now() - startedAt);
+  }
+});
 app.use('*', loggingMiddleware);
 
 app.get(`${config.discover.mediaBasePath}/*`, async (c) => {
@@ -112,6 +151,7 @@ app.get('/m/*', async (c) => {
 });
 
 // Register all routes
+app.route('/metrics', metricsRoutes);
 registerRoutes(app);
 
 // Dev-only: API test page
@@ -159,6 +199,10 @@ async function gracefulShutdown(signal: string) {
     try {
       await server.stop();
       Logger.server(`server stopped signal=${signal}`);
+      const flushResults = await flushShutdownHooks();
+      for (const result of flushResults) {
+        if (!result.ok) Logger.warn('Shutdown', `flush failed name=${result.name}`, result.error);
+      }
       process.exit(0);
     } catch (error) {
       Logger.error('Shutdown', `graceful shutdown failed signal=${signal}`, error);

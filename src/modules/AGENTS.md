@@ -8,7 +8,7 @@ calendar/: 日历订阅纵向切片，承载签名、用户查询、Academic 课
 campus-integrations/: 学校 CAS、Portal、JW 防腐层，收敛 HTTP、凭证恢复、上游编排、资料服务与纯解析器唯一实现
 discover/: 发现美食纵向切片，承载 HTTP、用例编排、稳定规则、SQLite 事务与本地媒体
 identity/: 身份领域纵向切片，隔离登录应用编排、领域契约、基础设施适配与 HTTP 映射
-operations/: 后台管理与运行支撑纵向切片，通过公开只读 query ports 聚合 Dashboard，并承载批量 analytics、公告、日志、会话、UGC 与健康检查
+operations/: 后台管理与运行支撑纵向切片，通过公开只读 query ports 聚合 Dashboard，并承载批量 analytics、公告、日志、会话、UGC、健康与指标 HTTP 适配
 treehole/: 匿名树洞纵向切片，承载 HTTP、用例编排、匿名/管理模型、SQLite 事务与头像媒体
 
 架构决策

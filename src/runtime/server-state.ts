@@ -10,6 +10,12 @@ let isShuttingDown = false;
 let shutdownSignal: string | null = null;
 
 export const serverState = {
+  markStarting() {
+    isReady = false;
+    isShuttingDown = false;
+    shutdownSignal = null;
+  },
+
   markReady() {
     isReady = true;
     isShuttingDown = false;

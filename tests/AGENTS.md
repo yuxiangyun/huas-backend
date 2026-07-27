@@ -27,6 +27,8 @@ operations-application.test.ts: Operations Dashboard 构造注入与纯端口聚
 operations-compat.test.ts: Operations canonical 与旧 routes/services/runtime/middleware Facade 引用及依赖方向测试
 portal-schedule-parser.test.ts: Portal 日期范围、课表解析及数字/字符串 code、一卡通余额边界回归测试
 public-announcements.test.ts: 公告公共接口回归测试
+runtime-check-ci.test.ts: 本地 check 脚本、单 job CI、触发器、并发取消与 observer 装配静态回归测试
+runtime-health-metrics.test.ts: live/ready 状态矩阵、轻量指标、校园 HTTP 结果观察与有界 shutdown hooks 回归测试
 schedule-parser.test.ts: JW 真实结构、非教学周、登录页与嵌套课程节点去重回归测试
 setup.ts: 单元与业务流测试数据库、环境变量初始化
 treehole.test.ts: 树洞业务与头像媒体回归测试
@@ -43,6 +45,7 @@ upstream-retry.test.ts: 上游重试、CAS HTTP/维护页、Portal 换票瞬态�
 新增、删除或重命名测试文件时同步更新本地图。
 
 变更日志
+2026-07-27: 新增 Runtime live/ready、Prometheus 指标、上游观察、shutdown flush 与精简 CI 回归。
 2026-07-27: 新增 Analytics 批量写、失败重试、observer 隔离与 shutdown flush 回归。
 2026-07-27: 新增 Cache schema 兼容、TTL=0、singleflight、stale fallback 与旁路指标观察回归。
 2026-07-27: 新增 Operations application 端口隔离、旧出口引用一致性与依赖方向回归。

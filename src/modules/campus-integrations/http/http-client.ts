@@ -1,12 +1,36 @@
 /**
- * [INPUT]: 依赖 tough-cookie CookieJar、config.timeout 与 USER_AGENT
- * [OUTPUT]: 对外提供 HttpClient，封装 CookieJar、超时、手动重定向、请求和 Cookie 持久化
+ * [INPUT]: 依赖 tough-cookie CookieJar、config.timeout、USER_AGENT 与外层注入的低基数请求结果 observer
+ * [OUTPUT]: 对外提供 HttpClient 与 configureHttpClientObservers，封装会话 HTTP 及最终 success/failure/timeout 观测
  * [POS]: campus-integrations/http 的学校上游 HTTP 客户端，是 CAS、Portal、JW 会话通信的唯一实现
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { CookieJar } from 'tough-cookie';
 import { config, USER_AGENT } from '../../../config';
+
+export type HttpClientOutcome = 'success' | 'failure' | 'timeout';
+
+export interface HttpClientObservers {
+  recordOutcome?: (outcome: HttpClientOutcome) => void;
+}
+
+let observers: HttpClientObservers = {};
+
+export function configureHttpClientObservers(next: HttpClientObservers) {
+  const previous = observers;
+  observers = next;
+  return () => {
+    observers = previous;
+  };
+}
+
+function recordOutcome(outcome: HttpClientOutcome) {
+  try {
+    observers.recordOutcome?.(outcome);
+  } catch {
+    // 观测异常不得改变学校请求、重试或凭证恢复语义。
+  }
+}
 
 export class HttpClient {
   public jar: CookieJar;
@@ -73,11 +97,14 @@ export class HttpClient {
         }
       }
 
+      recordOutcome(res.status < 400 ? 'success' : 'failure');
       return res;
     } catch (e: any) {
       if (e.name === 'AbortError' || e.name === 'TimeoutError') {
+        recordOutcome('timeout');
         throw new Error('REQUEST_TIMEOUT');
       }
+      recordOutcome('failure');
       throw e;
     } finally {
       clearTimeout(timeoutId);

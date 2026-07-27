@@ -1,0 +1,49 @@
+/**
+ * [INPUT]: 依赖 package.json 与 GitHub Actions check workflow 文本
+ * [OUTPUT]: 验证本地 check 的最小质量链路及 CI 单 job、触发器、并发取消配置
+ * [POS]: tests 的 Runtime 工程静态验收套件；共享测试地图由总控统一回环
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
+import { describe, expect, it } from 'bun:test';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
+describe('runtime local and CI quality gate', () => {
+  it('defines check as typecheck, stable full test and migration verification', async () => {
+    const packageJson = JSON.parse(await readFile(join(process.cwd(), 'package.json'), 'utf8'));
+    expect(packageJson.scripts.check).toBe('bun run typecheck && bun run test && bun run db:verify');
+    expect(packageJson.scripts.typecheck).toContain('tsc --noEmit');
+    expect(packageJson.scripts.test).toBe('bun scripts/test.ts');
+    expect(packageJson.scripts['db:verify']).toContain("Database(':memory:')");
+  });
+
+  it('uses one cancellable job for PR main, push main and manual runs', async () => {
+    const workflow = await readFile(join(process.cwd(), '.github/workflows/check.yml'), 'utf8');
+    expect(workflow).toContain('pull_request:');
+    expect(workflow).toContain('push:');
+    expect(workflow).toContain('workflow_dispatch:');
+    expect(workflow).toContain('cancel-in-progress: true');
+    expect(workflow).toContain('bun install --frozen-lockfile');
+    expect(workflow).toContain('bun run check');
+    const jobsSection = workflow.slice(workflow.indexOf('jobs:'));
+    expect((jobsSection.match(/^  [a-z][a-z-]*:\s*$/gm) || [])).toEqual(['  check:']);
+    expect(workflow).not.toContain('matrix:');
+  });
+
+  it('registers Analytics shutdown behind the bounded Runtime flush hook', async () => {
+    const entry = await readFile(join(process.cwd(), 'src/index.ts'), 'utf8');
+    expect(entry).toContain("registerShutdownFlushHook('analytics'");
+    expect(entry).toContain('await AnalyticsService.shutdown()');
+    expect(entry).toContain('await flushShutdownHooks()');
+    expect(entry).toContain('CacheService.configureObservers({');
+    expect(entry).toContain('runtimeMetrics.recordCache(outcome)');
+    expect(entry).toContain('runtimeMetrics.recordSingleflightMerge()');
+    expect(entry).toContain('configureRefreshFallbackObservers({');
+    expect(entry).toContain('runtimeMetrics.recordFallback()');
+    expect(entry).toContain('AnalyticsService.configureFlushFailureObserver');
+    expect(entry).toContain('runtimeMetrics.recordAnalyticsFlushFailure()');
+    expect(entry).toContain('configureHttpClientObservers({');
+    expect(entry).toContain('runtimeMetrics.recordUpstream(outcome)');
+  });
+});
