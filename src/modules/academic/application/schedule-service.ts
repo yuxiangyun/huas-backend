@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 domain AcademicRuntimePorts、canonical ScheduleParser/JW 端点、配置、CacheMeta 与北京时间
- * [OUTPUT]: 对外提供可注入 AcademicRuntimePorts 的 ScheduleApplicationService
- * [POS]: academic/application 的 JW 单源课表用例，负责教务读取、同键回源合并、周缓存、旧缓存提升与 refresh 旧值回退
+ * [OUTPUT]: 对外提供可注入 AcademicRuntimePorts 的 ScheduleApplicationService，并分离 current 与 stale 读取
+ * [POS]: academic/application 的 JW 单源课表用例，负责教务读取、同键回源合并、周缓存、旧缓存提升与显式旧值回退
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -107,6 +107,17 @@ export class ScheduleApplicationService {
   constructor(private readonly ports: AcademicRuntimePorts) {}
 
   async getSchedule(userId: number, studentId: string, date?: string, forceRefresh = false, name?: string) {
+    try {
+      return await this.getCurrentSchedule(userId, studentId, date, forceRefresh, name);
+    } catch (error) {
+      if (error instanceof AppError && error.code === ErrorCode.PARAM_ERROR) throw error;
+      const fallback = await this.getStaleSchedule(studentId, date, error, forceRefresh);
+      if (fallback) return fallback;
+      throw error;
+    }
+  }
+
+  async getCurrentSchedule(userId: number, studentId: string, date?: string, forceRefresh = false, name?: string) {
     const { queryDate, weekStartDate, cacheKey, legacyCacheKeys } = buildScheduleCacheContext(studentId, date);
 
     if (!forceRefresh) {
@@ -145,52 +156,23 @@ export class ScheduleApplicationService {
       }
     }
 
-    let data: any;
-    try {
-      data = await this.ports.cache.runSingleflight(
-        cacheKey,
-        forceRefresh,
-        () => this.ports.upstream(userId, 'jw', async ({ client }) => {
-          const params = new URLSearchParams();
-          params.append('rq', queryDate);
-          params.append('sjmsValue', JW_SJMS_VALUE);
+    const data = await this.ports.cache.runSingleflight(
+      cacheKey,
+      forceRefresh,
+      () => this.ports.upstream(userId, 'jw', async ({ client }) => {
+        const params = new URLSearchParams();
+        params.append('rq', queryDate);
+        params.append('sjmsValue', JW_SJMS_VALUE);
 
-          const res = await client.request(URLS.kbApi, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-            body: params,
-            timeout: config.timeout.business,
-          });
-          return ScheduleParser.parse(await res.text(), { studentId, name });
-        }),
-      );
-    } catch (error) {
-      const fallback = await findScheduleRefreshFallback({
-        forceRefresh,
-        cacheKey,
-        legacyCacheKeys,
-        error,
-        source: 'jw',
-        studentId,
-        refreshFallback: this.ports.refreshFallback,
-      });
-      if (fallback) {
-        return {
-          data: fallback.data,
-          _meta: { ...fallback._meta, source: fallback._meta.source || 'jw' },
-          _request: {
-            queryDate,
-            weekStartDate,
-            cacheKey,
-            cache: forceRefresh ? 'bypass' : 'miss',
-            fallback: 'stale',
-            lookup: fallback.lookup,
-            promotedFrom: fallback.promotedFrom,
-          },
-        };
-      }
-      throw error;
-    }
+        const res = await client.request(URLS.kbApi, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+          body: params,
+          timeout: config.timeout.business,
+        });
+        return ScheduleParser.parse(await res.text(), { studentId, name });
+      }),
+    );
 
     await this.ports.cache.set(cacheKey, data, config.cacheTtl.schedule, 'jw');
     await this.ports.cache.enforcePrefixLimit(`schedule:${studentId}:`, config.cacheLimit.schedulePerUser);
@@ -204,6 +186,34 @@ export class ScheduleApplicationService {
         cacheKey,
         cache: forceRefresh ? 'bypass' : 'miss',
         lookup: 'weekly',
+      },
+    };
+  }
+
+  async getStaleSchedule(studentId: string, date: string | undefined, error: unknown, forceRefresh = false) {
+    const { queryDate, weekStartDate, cacheKey, legacyCacheKeys } = buildScheduleCacheContext(studentId, date);
+    const fallback = await findScheduleRefreshFallback({
+      forceRefresh,
+      cacheKey,
+      legacyCacheKeys,
+      error,
+      source: 'jw',
+      studentId,
+      refreshFallback: this.ports.refreshFallback,
+    });
+    if (!fallback) return null;
+
+    return {
+      data: fallback.data,
+      _meta: { ...fallback._meta, source: fallback._meta.source || 'jw' },
+      _request: {
+        queryDate,
+        weekStartDate,
+        cacheKey,
+        cache: forceRefresh ? 'bypass' as const : 'miss' as const,
+        fallback: 'stale' as const,
+        lookup: fallback.lookup,
+        promotedFrom: fallback.promotedFrom,
       },
     };
   }

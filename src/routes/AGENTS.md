@@ -12,7 +12,7 @@ portal/: Portal 路由，暴露一卡通、用户资料与 Portal 课表接口
 system/: Operations 健康 HTTP 兼容 Facade，保持 `/health` 挂载路径
 treehole/: Treehole HTTP 兼容 Facade，canonical 路由位于 modules/treehole/http
 index.ts: 路由总装配器，挂载 public/auth/calendar 与 /api 受保护子应用，并按 ugcComplianceState 或 ASN+端口规则认证后返回 UGC mock/空态
-schedule-route-log.ts: 双源课表共享日志适配器，统一请求结果摘要字段但不参与 source 与 fallback 决策
+schedule-route-log.ts: 双源课表共享日志适配器，记录 policy/primary/source/fallback 低基数摘要但不参与来源决策
 
 架构决策
 路由层只做 HTTP 输入解析、认证边界、日志细节和响应包装；业务事实、事务和上游访问必须下沉到 services。

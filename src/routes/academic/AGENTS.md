@@ -5,10 +5,10 @@
 classroom.routes.ts: 空教室 HTTP 适配器，解析楼栋/日期/节次查询并调用 ClassroomFreeService
 evaluation.routes.ts: 评教 HTTP 适配器，区分 actionable/blocked 任务并返回有界批次、经上游回查确认的提交结果 DTO
 grade.routes.ts: 成绩 HTTP 适配器，解析查询参数并调用 GradeService
-schedule.routes.ts: JW 优先课表 HTTP 适配器，读取 date/refresh 参数，委托 ScheduleFacade 处理缓存与 Portal 兜底，并复用上层课表日志适配器
+schedule.routes.ts: 统一周课表 HTTP 适配器，读取 date/refresh 参数并委托后端热策略 ScheduleFacade，不接受客户端来源选择
 
 架构决策
-教务路由表达学校上游入口；具体解析、缓存、刷新、fallback 和凭证恢复由 services 与 middleware 承担。
+教务路由表达统一业务入口；具体来源 plan、current/stale 分阶段缓存、刷新、fallback 和凭证恢复由 Academic 与 middleware 承担。
 
 开发规范
 课表 fallback 改动必须同时跑 business-flows 与 schedule/parser 测试；评教提交改动必须跑 evaluation-parser 测试。

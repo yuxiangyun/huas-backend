@@ -1155,6 +1155,42 @@ describe('默认课表路由兜底', () => {
     expect(res.status).toBe(500);
     expect(jwCalled).toBe(false);
   });
+
+  it('管理策略热切到 portal-first 后，/api/schedule 无需重启即按 Portal→JW 执行', async () => {
+    const studentId = '2023001785';
+    const userId = await createUser(studentId, 'pass-policy-hot-switch');
+    const app = new Hono();
+    registerRoutes(app);
+    const { ScheduleSourcePolicy } = await import('../src/modules/academic/schedule.ts');
+    const { generateToken } = await import('../src/auth/jwt.ts');
+    const token = await generateToken({ userId, studentId, name: `name-${studentId}` });
+    const modes: Array<'jw' | 'portal'> = [];
+
+    await ScheduleSourcePolicy.configure('portal-first', 'business-flow-test');
+    try {
+      upstreamResolver = async (_userId: number, mode: 'jw' | 'portal') => {
+        modes.push(mode);
+        if (mode === 'portal') throw new Error('PORTAL_FAILED');
+        return makeSchedulePayload('jw-after-hot-switch');
+      };
+
+      const res = await app.request('http://localhost/api/schedule?date=2025-03-05&refresh=true', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.status).toBe(200);
+      const body = await res.json() as any;
+      expect(modes).toEqual(['portal', 'jw']);
+      expect(body.data.courses[0].name).toBe('course-jw-after-hot-switch');
+      expect(body._meta).toMatchObject({
+        source: 'jw',
+        primary_source: 'portal',
+        policy_mode: 'portal-first',
+        fallback: 'jw',
+      });
+    } finally {
+      await ScheduleSourcePolicy.configure('jw-first', 'business-flow-test-cleanup');
+    }
+  });
 });
 
 describe('日历订阅', () => {

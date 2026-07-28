@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖本模块相邻类型、API 与应用基础设施
- * [OUTPUT]: 提供 admin-query-keys.ts 的公开前端契约与运行能力
- * [POS]: web 应用分层中的现有业务边界，被页面或上层模块消费
+ * [INPUT]: 依赖后台查询的资源边界与筛选参数
+ * [OUTPUT]: 提供 dashboard、内容、日志、合规与课表来源策略的稳定 TanStack Query key
+ * [POS]: entities/admin 的缓存命名边界，让查询、mutation 和会话清理共享同一资源身份
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -13,6 +13,7 @@ export const adminQueryKeys = {
     [...adminQueryKeys.dashboardAll(), params] as const,
   analytics: (days: 7 | 30 | 90) => ['admin', 'analytics', days] as const,
   compliance: () => ['admin', 'compliance'] as const,
+  scheduleSourcePolicy: () => ['admin', 'academic', 'schedule-source-policy'] as const,
 
   announcementsAll: () => ['admin', 'announcements'] as const,
 

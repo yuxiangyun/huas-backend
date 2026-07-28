@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 domain AcademicRuntimePorts、canonical PortalScheduleParser/端点、config 与 AppError
- * [OUTPUT]: 对外提供 PortalScheduleApplicationService，返回日期课表、缓存与 _request 元信息
- * [POS]: academic/application 的 Portal 单源课表用例，负责日期区间校验、同键回源合并、缓存与过期兜底
+ * [OUTPUT]: 对外提供 PortalScheduleApplicationService，并分离 current 与 stale 日期课表读取
+ * [POS]: academic/application 的 Portal 单源课表用例，负责日期区间校验、同键回源合并、缓存与显式过期兜底
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -45,6 +45,24 @@ export class PortalScheduleApplicationService {
     forceRefresh = false,
     name?: string
   ) {
+    try {
+      return await this.getCurrentSchedule(userId, studentId, startDate, endDate, forceRefresh, name);
+    } catch (error) {
+      if (error instanceof AppError && error.code === ErrorCode.PARAM_ERROR) throw error;
+      const fallback = await this.getStaleSchedule(studentId, startDate, endDate, error, forceRefresh);
+      if (fallback) return fallback;
+      throw error;
+    }
+  }
+
+  async getCurrentSchedule(
+    userId: number,
+    studentId: string,
+    startDate: string,
+    endDate: string,
+    forceRefresh = false,
+    name?: string
+  ) {
     const normalizedStartDate = normalizeDate(startDate, 'startDate');
     const normalizedEndDate = normalizeDate(endDate, 'endDate');
 
@@ -81,46 +99,65 @@ export class PortalScheduleApplicationService {
       }
     }
 
-    let data: any;
-    try {
-      data = await this.ports.cache.runSingleflight(
-        cacheKey,
-        forceRefresh,
-        () => this.ports.upstream(userId, 'portal', async ({ client, portalToken }) => {
-          const url = new URL(URLS.portalScheduleEvents);
-          url.searchParams.append('startDate', normalizedStartDate);
-          url.searchParams.append('endDate', normalizedEndDate);
-          url.searchParams.append('reqType', 'MonthView');
-          url.searchParams.append('random_number', Math.random().toString());
+    const data = await this.ports.cache.runSingleflight(
+      cacheKey,
+      forceRefresh,
+      () => this.ports.upstream(userId, 'portal', async ({ client, portalToken }) => {
+        const url = new URL(URLS.portalScheduleEvents);
+        url.searchParams.append('startDate', normalizedStartDate);
+        url.searchParams.append('endDate', normalizedEndDate);
+        url.searchParams.append('reqType', 'MonthView');
+        url.searchParams.append('random_number', Math.random().toString());
 
-          const res = await client.request(url.toString(), {
-            headers: { 'X-Id-Token': portalToken! },
-            timeout: config.timeout.business,
-          });
-          return PortalScheduleParser.parse(await res.json(), normalizedStartDate, normalizedEndDate, { studentId, name });
-        }),
-      );
-    } catch (error) {
-      const fallback = await this.ports.refreshFallback({
-        forceRefresh,
-        cacheKey,
-        error,
-        source: 'portal',
-        studentId,
-      });
-      if (fallback) {
-        return {
-          data: fallback.data,
-          _meta: { ...fallback._meta, source: fallback._meta.source || 'portal' },
-          _request: { ...requestMeta, fallback: 'stale' as const },
-        };
-      }
-      throw error;
-    }
+        const res = await client.request(url.toString(), {
+          headers: { 'X-Id-Token': portalToken! },
+          timeout: config.timeout.business,
+        });
+        return PortalScheduleParser.parse(await res.json(), normalizedStartDate, normalizedEndDate, { studentId, name });
+      }),
+    );
 
     await this.ports.cache.set(cacheKey, data, config.cacheTtl.schedule, 'portal');
     await this.ports.cache.enforcePrefixLimit(`portal-schedule:${studentId}:`, config.cacheLimit.portalSchedulePerUser);
 
     return { data, _meta: { cached: false, source: 'portal' }, _request: requestMeta };
+  }
+
+  async getStaleSchedule(
+    studentId: string,
+    startDate: string,
+    endDate: string,
+    error: unknown,
+    forceRefresh = false,
+  ) {
+    const normalizedStartDate = normalizeDate(startDate, 'startDate');
+    const normalizedEndDate = normalizeDate(endDate, 'endDate');
+    const startTime = new Date(`${normalizedStartDate}T00:00:00Z`).getTime();
+    const endTime = new Date(`${normalizedEndDate}T00:00:00Z`).getTime();
+    const rangeDays = Math.floor((endTime - startTime) / MS_PER_DAY) + 1;
+    const cacheKey = `portal-schedule:${studentId}:${normalizedStartDate}:${normalizedEndDate}`;
+    const fallback = await this.ports.refreshFallback({
+      forceRefresh,
+      cacheKey,
+      error,
+      source: 'portal',
+      studentId,
+    });
+    if (!fallback) return null;
+
+    return {
+      data: fallback.data,
+      _meta: { ...fallback._meta, source: fallback._meta.source || 'portal' },
+      _request: {
+        queryDate: normalizedStartDate,
+        startDate: normalizedStartDate,
+        endDate: normalizedEndDate,
+        weekStartDate: normalizedStartDate,
+        cacheKey,
+        cache: forceRefresh ? 'bypass' as const : 'miss' as const,
+        fallback: 'stale' as const,
+        lookup: getLookup(normalizedStartDate, normalizedEndDate, rangeDays),
+      },
+    };
   }
 }

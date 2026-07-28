@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖本模块相邻类型、API 与应用基础设施
- * [OUTPUT]: 提供 admin-types.ts 的公开前端契约与运行能力
- * [POS]: web 应用分层中的现有业务边界，被页面或上层模块消费
+ * [INPUT]: 依赖后端管理接口的 dashboard、内容、合规与课表来源策略数据契约
+ * [OUTPUT]: 提供后台页面与 API 共用的强类型响应、请求载荷和课表来源模式
+ * [POS]: entities/admin 的协议模型边界，保证管理 UI 不重新解释后端字段
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -140,6 +140,14 @@ export interface AdminComplianceStatus {
   updatedAt: string;
   updatedBy: string;
   stateFile: string;
+}
+
+export type AdminScheduleSourceMode = 'jw-first' | 'portal-first';
+
+export interface AdminScheduleSourcePolicy {
+  mode: AdminScheduleSourceMode;
+  updatedAt: string;
+  updatedBy: string;
 }
 
 export interface AdminTreeholeAuthor {

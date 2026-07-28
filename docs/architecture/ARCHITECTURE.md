@@ -1,6 +1,6 @@
 # HUAS Server 架构与维护文档
 
-> 基线日期：2026-04-01
+> 基线日期：2026-07-28
 > 代码基线：当前工作区
 > 目标读者：前端接入方、后端维护者、后续功能扩展开发者
 
@@ -44,7 +44,7 @@ flowchart LR
   Browser["Browser / Mobile Web"] -->|No Auth| Web["/m 前端入口"]
   Client["Client / Web / Mini Program"] -->|Bearer JWT| API["/api/* 业务接口"]
   Client -->|No Auth| Public["/auth/login /health /api/public/*"]
-  Client -->|Basic Auth| Admin["/status /api/admin/*"]
+  Client -->|HttpOnly admin session| Admin["/api/admin/*"]
   Browser -->|No Auth| Media["/media/discover/* /media/treehole-avatar/*"]
 
   Web --> Assets["web/dist SPA 资源"]
@@ -77,7 +77,7 @@ flowchart LR
 - `/m` 不是 API，而是前端 SPA 入口，静态产物来自 `web/dist`
 - `/m/*` 中带扩展名的路径按静态资源处理，其余路径回退到前端 `index.html`
 - 新增公开接口时，要显式决定是否放在 `/api/public/*` 或 `/auth/*`
-- 新增管理接口时，放在 `/api/admin/*` 可以直接复用 Basic Auth
+- 新增管理接口时，放在 `/api/admin/*` 并复用统一 `adminSessionMiddleware`
 - 新增业务接口时，默认会被 Bearer 鉴权保护
 - `discover` 与 `treehole avatar` 的媒体访问都不是 API 子路由，而是单独挂在 `/media/*`
 
@@ -269,7 +269,7 @@ JW 课表还有一个特殊分支：学校上游可能用 HTTP 200 返回登录�
 
 ### 7.2 `refresh` 语义
 
-所有业务 service 都遵循相同的缓存协议：
+一般业务 service 遵循相同的缓存协议：
 
 - `refresh=false`：先查缓存，命中返回
 - `refresh=true`：跳过读缓存，强制回源，并覆盖写缓存
@@ -278,7 +278,23 @@ JW 课表还有一个特殊分支：学校上游可能用 HTTP 200 返回登录�
   - `_meta.refresh_failed = true`
   - `_meta.last_error = 3003 | 3004 | 5000`
 
-其中 `3003` 常见于凭证恢复失败，例如 JW 会话被其他登录挤掉后，自动恢复链仍无法拿到可用子凭证。此时如果旧缓存存在，接口仍返回 `200`，但 `_meta` 明确标记为 stale。
+其中 `3003` 常见于凭证恢复失败，例如 JW 会话被其他登录挤掉后，自动恢复链仍无法拿到可用子凭证。课表双源仲裁选中凭证错误时禁止 stale 掩盖，必须返回 `3003/401`；非凭证型故障才允许进入旧缓存阶段。
+
+#### 7.2.1 统一课表来源状态机
+
+`GET /api/schedule` 在 Academic application 层读取一次持久化策略快照，整个请求不再读取策略：
+
+```text
+jw-first:     JW current → Portal current → JW stale → Portal stale
+portal-first: Portal current → JW current → JW stale → Portal stale
+```
+
+- `current` 由单源 service 提供：`refresh=false` 允许正常缓存命中，`refresh=true` 强制回源；失败只抛错，不自行取 stale
+- 两个 current 都失败后，Facade 才调用显式 stale reader；旧缓存顺序不随模式改变，始终 JW 优先
+- 双源失败用 `resolveFallbackError` 仲裁参数、凭证、超时与未公布错误；双 `SCHEDULE_NOT_AVAILABLE` 返回合法空课表
+- `_meta.source` 是实际数据来源；`policy_mode`、`primary_source` 与 `fallback` 记录本次执行事实
+- `FileScheduleSourcePolicyStore` 使用同目录临时文件、fsync、原子 rename 与 owner 隔离锁目录；接管后旧 owner 的发布校验会失败，release 也只删除自己的标记，状态损坏时保留最后有效快照
+- Operations 只通过 Academic composition 暴露的 `ScheduleSourcePolicy` 调用策略用例，不越层操作文件 store
 
 另外，`/api/schedule`、`/api/v1/schedule`、`/api/grades` 在 `refresh=true` 时会经过 `academicRefreshRateLimitMiddleware`：
 
@@ -363,7 +379,7 @@ JW 课表还有一个特殊分支：学校上游可能用 HTTP 200 返回登录�
 
 ### 8.1 课表接口
 
-`/api/schedule` 与 `/api/v1/schedule` 当前都返回：
+`/api/schedule` 与兼容入口 `/api/v1/schedule` 当前都返回：
 
 ```json
 {
@@ -396,6 +412,7 @@ JW 课表还有一个特殊分支：学校上游可能用 HTTP 200 返回登录�
 
 - 接口路径不保证最终来源，必须以 `_meta.source` 作为真实来源判断。
 - `/api/schedule` 返回 `source=portal`、`/api/v1/schedule` 返回 `source=jw` 都是合法结果。
+- `/api/schedule` 的真实首选顺序由后端热策略决定，前端不传 source query；`/api/v1/schedule` 保留 Portal 任意日期范围兼容语义。
 
 ### 8.2 Portal 课表与 JW 课表的字段差异
 
@@ -592,6 +609,8 @@ JW 课表还有一个特殊分支：学校上游可能用 HTTP 200 返回登录�
 | `GRADES_CACHE_LIMIT` | `20` | 每用户成绩缓存上限 |
 | `SCHEDULE_CACHE_LIMIT` | `120` | 每用户 JW 课表缓存上限 |
 | `PORTAL_SCHEDULE_CACHE_LIMIT` | `120` | 每用户 Portal 课表缓存上限 |
+| `SCHEDULE_SOURCE_MODE` | `jw-first` | 首次无持久化状态时的课表来源模式，仅支持 `jw-first` / `portal-first`；非法值告警并回落 `jw-first` |
+| `SCHEDULE_SOURCE_POLICY_FILE` | `dirname(DB_PATH)/schedule-source-policy.json` | 课表热策略状态文件，蓝绿槽必须指向同一共享路径 |
 | `CALENDAR_BASE_URL` | 空字符串 | 日历订阅链接返回的固定外部域名 |
 | `CALENDAR_SECRET` | 空字符串 | 日历签名密钥，必须显式配置 |
 | `BUSINESS_RETRY_MAX_ATTEMPTS` | `2` | 业务请求最大尝试次数 |

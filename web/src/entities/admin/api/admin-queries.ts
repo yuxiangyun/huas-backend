@@ -1,11 +1,11 @@
 /**
- * [INPUT]: 依赖本模块相邻类型、API 与应用基础设施
- * [OUTPUT]: 提供 admin-queries.ts 的公开前端契约与运行能力
- * [POS]: web 应用分层中的现有业务边界，被页面或上层模块消费
+ * [INPUT]: 依赖 admin API、稳定 query keys、后台会话与 TanStack Query 缓存原语
+ * [OUTPUT]: 提供后台资源查询/变更 hooks，包含课表来源策略查询与权威快照写回
+ * [POS]: entities/admin 的服务器状态编排层，页面只组合查询结果和用户动作
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AdminSession } from '@/features/admin-treehole/model/admin-session';
 import {
   createAdminAnnouncement,
@@ -17,11 +17,13 @@ import {
   getAdminAnalyticsOverview,
   getAdminComplianceStatus,
   getAdminDashboard,
+  getAdminScheduleSourcePolicy,
   getAdminTerminalLogs,
   getAdminTreeholeComments,
   getAdminTreeholePosts,
   updateAdminAnnouncement,
   updateAdminComplianceStatus,
+  updateAdminScheduleSourcePolicy,
 } from '@/entities/admin/api/admin-api';
 import { adminQueryKeys } from '@/entities/admin/model/admin-query-keys';
 import type {
@@ -49,6 +51,25 @@ export function useUpdateAdminComplianceMutation(session: AdminSession | null) {
   return useMutation({
     mutationFn: (payload: Parameters<typeof updateAdminComplianceStatus>[0]) =>
       updateAdminComplianceStatus(payload),
+  });
+}
+
+export function useAdminScheduleSourcePolicyQuery(session: AdminSession | null) {
+  return useQuery({
+    queryKey: adminQueryKeys.scheduleSourcePolicy(),
+    queryFn: ({ signal }) => getAdminScheduleSourcePolicy({ signal }),
+    enabled: session !== null,
+  });
+}
+
+export function useUpdateAdminScheduleSourcePolicyMutation(_session: AdminSession | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: updateAdminScheduleSourcePolicy,
+    onSuccess: (policy) => {
+      queryClient.setQueryData(adminQueryKeys.scheduleSourcePolicy(), policy);
+    },
   });
 }
 

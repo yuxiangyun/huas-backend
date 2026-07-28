@@ -31,6 +31,7 @@ public-announcements.test.ts: 公告公共接口回归测试
 runtime-check-ci.test.ts: 本地 check 脚本、单 job CI、触发器、并发取消与 observer 装配静态回归测试
 runtime-health-metrics.test.ts: live/ready 状态矩阵、轻量指标、校园 HTTP 结果观察与有界 shutdown hooks 回归测试
 schedule-parser.test.ts: JW 真实结构、非教学周、登录页与嵌套课程节点去重回归测试
+schedule-source-policy.test.ts: 课表来源热策略、请求快照、current/stale 固定顺序、持久化与管理鉴权回归测试
 setup.ts: 单元与业务流测试数据库、环境变量初始化
 treehole.test.ts: 树洞业务与头像媒体回归测试
 treehole-compat.test.ts: Treehole canonical composition/http 与旧 routes/services/media Facade 引用及依赖方向测试

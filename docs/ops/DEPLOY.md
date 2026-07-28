@@ -87,11 +87,16 @@ cp .env.example .env
 PORT=3000
 NODE_ENV=production
 JWT_SECRET=replace-with-a-random-secret
-DB_PATH=./data/huas.db
+# 蓝绿槽必须共同访问同一个持久目录
+DB_PATH=/www/wwwroot/huas-server/data/huas.db
 LOG_LEVEL=info
 TZ=Asia/Shanghai
 TIMEZONE=Asia/Shanghai
 SERVER_IDLE_TIMEOUT_SECONDS=60
+SCHEDULE_SOURCE_MODE=jw-first
+# 默认使用 dirname(DB_PATH)/schedule-source-policy.json，无需覆盖。
+# 仅在确有需要时填写 release 外的绝对共享路径：
+# SCHEDULE_SOURCE_POLICY_FILE=/www/wwwroot/huas-server/data/schedule-source-policy.json
 ```
 
 生成随机密钥：
@@ -108,6 +113,8 @@ openssl rand -base64 32
 | `AUTH_LOGIN_RATE_LIMIT_MAX_FAILURES` | `20` | 同一账号登录失败限流阈值 |
 | `AUTH_LOGIN_RATE_LIMIT_WINDOW_MS` | `300000` | 登录失败统计窗口 |
 | `AUTH_LOGIN_RATE_LIMIT_BLOCK_MS` | `600000` | 登录失败触发限流后的封禁时长 |
+| `SCHEDULE_SOURCE_MODE` | `jw-first` | 首次没有有效状态文件时的课表来源顺序；仅支持 `jw-first` / `portal-first` |
+| `SCHEDULE_SOURCE_POLICY_FILE` | `dirname(DB_PATH)/schedule-source-policy.json` | 通常不要覆盖；`DB_PATH` 必须位于蓝绿槽共享持久目录，若覆盖则只能使用 release 外绝对共享路径 |
 
 ### 3.5 安装依赖并启动
 
@@ -715,16 +722,45 @@ tail -n 100 /www/wwwlogs/api.huas-api.top.error.log
 现象：
 
 - 客户端收到 `200`，但 `_meta.stale=true`、`_meta.refresh_failed=true`
-- `_meta.last_error` 常见为 `3003`、`3004` 或 `5000`
+- `_meta.last_error` 常见为 `3004` 或 `5000`
 - 日志出现 `RefreshFallback ... 回退缓存`
 
 排查方向：
 
 - `3004` 多数是学校上游超时
-- `3003` 表示凭证过期且自动恢复失败，需要重新登录
+- `3003` 表示凭证过期且自动恢复失败，需要重新登录；课表接口不会再用旧缓存掩盖该错误
 - 如果 JW 返回的是 HTTP 200 登录页，页面里包含 `您的账号在其它地方登录`、`/jsxsd/xk/LoginToXk`、`用户登录`、`验证码` 等特征，表示该账号的 JW 会话被其他登录挤掉
 
-当前实现会把这类 JW 登录页判定为 `SESSION_EXPIRED`，触发凭证恢复并重试。若同一账号持续在其他地方登录，JW 会话仍可能被反复挤掉，最终只能返回旧缓存或要求用户重新登录。
+当前实现会把这类 JW 登录页判定为 `SESSION_EXPIRED`，触发凭证恢复并重试。若双源凭证恢复最终失败，课表接口直接要求用户重新登录，不返回 stale 成功态。
+
+### 10.7 热切换课表来源顺序
+
+先建立后台 Cookie 会话，再读取或修改策略：
+
+```bash
+curl -sS -c /tmp/huas-admin-cookie \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"<admin>","password":"<password>"}' \
+  http://127.0.0.1:3000/api/admin/session
+
+curl -sS -b /tmp/huas-admin-cookie \
+  http://127.0.0.1:3000/api/admin/academic/schedule-source-policy
+
+curl -sS -b /tmp/huas-admin-cookie \
+  -X PUT -H 'Content-Type: application/json' \
+  -d '{"mode":"portal-first"}' \
+  http://127.0.0.1:3000/api/admin/academic/schedule-source-policy
+```
+
+切换只影响随后开始的 `/api/schedule` 请求，不清缓存、不触发校园上游请求。已执行中的请求继续使用启动时快照；响应 `_meta.policy_mode` 可用于核对。
+
+运维检查：
+
+1. 确认 PUT 后 GET 返回目标 `mode`、更新时间与操作人。
+2. 确认 `DB_PATH` 位于蓝绿槽共享持久目录；策略默认跟随其目录。若覆盖 `SCHEDULE_SOURCE_POLICY_FILE`，必须使用 release 外绝对共享路径。
+3. 查看 OPS 审计日志中的旧模式与新模式。
+4. 状态 JSON 损坏时服务保留最后有效快照并告警；修复文件或再次 PUT 后恢复跨进程传播。
+5. 不要手工删除缓存验证顺序；用独立测试账号发 `refresh=true`，观察 `_meta.primary_source/source/fallback`。
 
 ## 11. 当前约束
 

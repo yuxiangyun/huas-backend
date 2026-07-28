@@ -1,0 +1,262 @@
+<svg data-beautiful-mermaid="1.1.3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1370.58775 1637.2209999999998" width="1370.58775" height="1637.2209999999998" style="--bg:#ffffff;--fg:#1f2328;--line:#d1d9e0;--accent:#0969da;--muted:#59636e;background:var(--bg)">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap');
+  text { font-family: 'Inter', system-ui, sans-serif; }
+  svg {
+    /* Derived from --bg and --fg (overridable via --line, --accent, etc.) */
+    --_text:          var(--fg);
+    --_text-sec:      var(--muted, color-mix(in srgb, var(--fg) 60%, var(--bg)));
+    --_text-muted:    var(--muted, color-mix(in srgb, var(--fg) 40%, var(--bg)));
+    --_text-faint:    color-mix(in srgb, var(--fg) 25%, var(--bg));
+    --_line:          var(--line, color-mix(in srgb, var(--fg) 50%, var(--bg)));
+    --_arrow:         var(--accent, color-mix(in srgb, var(--fg) 85%, var(--bg)));
+    --_node-fill:     var(--surface, color-mix(in srgb, var(--fg) 3%, var(--bg)));
+    --_node-stroke:   var(--border, color-mix(in srgb, var(--fg) 20%, var(--bg)));
+    --_group-fill:    var(--bg);
+    --_group-hdr:     color-mix(in srgb, var(--fg) 5%, var(--bg));
+    --_inner-stroke:  color-mix(in srgb, var(--fg) 12%, var(--bg));
+    --_key-badge:     color-mix(in srgb, var(--fg) 10%, var(--bg));
+  }
+</style>
+<defs>
+  <marker id="arrowhead" markerWidth="8" markerHeight="5" refX="7" refY="2.5" orient="auto">
+    <polygon points="0 0, 8 2.5, 0 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+  <marker id="arrowhead-start" markerWidth="8" markerHeight="5" refX="1" refY="2.5" orient="auto-start-reverse">
+    <polygon points="8 0, 0 2.5, 8 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+</defs>
+<polyline class="edge" data-from="Entry" data-to="JwRange" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="api schedule" points="475.0790333333333,115.65833333333333 475.0790333333333,143.59 153.07849999999996,143.59 153.07849999999996,219.89" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="Entry" data-to="PortalRange" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="api v1 schedule" points="506.94236666666666,115.65833333333333 506.94236666666666,143.59 669.70245,143.59 669.7024500000001,219.89" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="JwRange" data-to="JwCache" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="153.07849999999996,256.79 153.07849999999996,300.7900000000001" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="JwCache" data-to="JwHit" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="是" points="114.05233333333331,495.92083333333335 114.05233333333331,866.1479999999998 99.73845833333337,866.1479999999998 99.73845833333337,934.1379999999998" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="JwCache" data-to="JwUpstream" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="否" points="192.10466666666662,495.92083333333335 192.10466666666662,566.947 274.5399583333334,566.947 274.5399583333334,633.247" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="JwUpstream" data-to="JwResult" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="274.5399583333334,670.1469999999999 274.5399583333333,714.1469999999999" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="JwResult" data-to="JwData" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="成功" points="245.08495833333336,802.512 245.08495833333336,1011.3479999999997 164.0011666666668,1011.3479999999997 164.00116666666668,1097.6479999999997" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="JwResult" data-to="EmptyJw" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="课表未公布" points="274.5399583333333,831.9669999999999 274.5399583333333,1031.3479999999997 316.9431666666668,1031.3479999999997 316.9431666666667,1097.6479999999997" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="JwResult" data-to="PortalFallback" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="其他失败" points="303.99495833333333,802.5119999999998 303.99495833333333,853.9669999999999 492.1151666666667,853.9669999999999 492.1151666666667,934.1379999999998" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="PortalFallback" data-to="PortalFallbackResult" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="492.1151666666667,971.0379999999998 492.1151666666667,1008.9474999999998" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="PortalFallbackResult" data-to="PortalData" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="成功" points="458.76991666666663,1108.9832499999998 458.76991666666663,1156.5479999999998 222.3247500000001,1156.5479999999998 222.3247500000001,1242.8479999999997" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="PortalFallbackResult" data-to="EmptyPortal" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="课表未公布" points="492.1151666666667,1142.3284999999998 492.1151666666667,1176.5479999999998 415.65125,1176.5479999999998 415.6512500000001,1242.8479999999997" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="PortalFallbackResult" data-to="SelectError" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="两源失败" points="525.4604166666667,1108.9832499999998 525.4604166666667,1156.5479999999998 1030.49675,1156.5479999999998 1030.49675,1220.8479999999997 1051.1740833333333,1220.8479999999997 1051.1740833333333,1242.8479999999997" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="PortalRange" data-to="PortalCache" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="669.7024500000001,256.79 669.70245,300.79" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="PortalCache" data-to="PortalHit" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="是" points="630.6762833333333,495.92083333333335 630.6762833333333,708.7669999999999 570.8162,708.7669999999999 570.8162,785.0669999999999" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="PortalCache" data-to="PortalUpstream" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="否" points="708.7286166666667,495.92083333333335 708.7286166666667,546.947 851.5435,546.947 851.5435,633.247" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="PortalUpstream" data-to="PortalResult" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="851.5435,670.1469999999999 851.5435,714.1469999999999" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="PortalResult" data-to="PortalPrimary" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="成功" points="811.5292,807.5137 811.5292,1019.3479999999997 689.1466666666666,1019.3479999999997 689.1466666666666,1097.6479999999997" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="PortalResult" data-to="EmptyPrimary" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="课表未公布" points="838.2053999999999,834.1898999999999 838.2053999999999,1019.3479999999997 849.8691666666666,1019.3479999999997 849.8691666666666,1097.6479999999997" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="PortalResult" data-to="PortalError" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="失败且非自然周" points="864.8815999999999,834.1899 864.8815999999999,1011.3479999999997 1006.1456666666667,1011.3479999999997 1006.1456666666667,1097.6479999999997" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="PortalResult" data-to="JwFallback" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="失败且为自然周" points="891.5577999999999,807.5137 891.5577999999999,849.5279999999999 1176.1306666666667,849.5279999999999 1176.1306666666667,934.1379999999998" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="JwFallback" data-to="JwFallbackResult" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1176.1306666666667,971.0379999999998 1176.1306666666667,1008.9474999999998" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="JwFallbackResult" data-to="JwFallbackData" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="成功" points="1146.6756666666668,1097.3125 1146.6756666666668,1144.5479999999998 839.89225,1144.5479999999998 839.8922500000001,1399.1209999999996" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="JwFallbackResult" data-to="EmptyFallback" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="课表未公布" points="1205.5856666666666,1097.3124999999998 1205.5856666666666,1322.8209999999997 1261.37225,1322.8209999999997 1261.37225,1399.1209999999996" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="JwFallbackResult" data-to="SelectError" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="两源失败" points="1176.1306666666667,1126.7674999999997 1176.1306666666667,1156.5479999999998 1117.45075,1156.5479999999998 1117.45075,1220.8479999999997 1114.5574166666665,1220.8479999999997 1114.5574166666665,1242.8479999999997" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="SelectError" data-to="CredentialError" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1082.86575,1279.7479999999998 1082.86575,1313.7479999999998" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="CredentialError" data-to="NoStale" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="是" points="1047.2975,1420.4527499999997 1047.2975,1468.0209999999997 851.00725,1468.0209999999997 851.0072500000001,1554.3209999999997" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="CredentialError" data-to="Stale" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="否且旧缓存存在" points="1082.86575,1456.0209999999997 1082.86575,1488.0209999999997 1065.08175,1488.0209999999997 1065.08175,1554.3209999999997" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="CredentialError" data-to="Fail" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="否且无旧缓存" points="1118.434,1420.45275 1118.434,1468.0209999999997 1261.74275,1468.0209999999997 1261.74275,1554.3209999999997" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<g class="edge-label" data-from="Entry" data-to="JwRange" data-label="api schedule">
+  <rect x="114.07849999999996" y="150.59" width="77.644" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="152.90049999999997" y="165.74" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">api schedule</text>
+</g>
+<g class="edge-label" data-from="Entry" data-to="PortalRange" data-label="api v1 schedule">
+  <rect x="625.70245" y="150.59" width="87.742" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="669.57345" y="165.74" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">api v1 schedule</text>
+</g>
+<g class="edge-label" data-from="JwCache" data-to="JwHit" data-label="是">
+  <rect x="84.73845833333337" y="873.1479999999998" width="29.53" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="99.50345833333337" y="888.2979999999998" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">是</text>
+</g>
+<g class="edge-label" data-from="JwCache" data-to="JwUpstream" data-label="否">
+  <rect x="259.5399583333334" y="573.947" width="29.53" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="274.3049583333334" y="589.097" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">否</text>
+</g>
+<g class="edge-label" data-from="JwResult" data-to="JwData" data-label="成功">
+  <rect x="143.0011666666668" y="1018.3479999999998" width="41.41" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="163.70616666666677" y="1033.4979999999998" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">成功</text>
+</g>
+<g class="edge-label" data-from="JwResult" data-to="EmptyJw" data-label="课表未公布">
+  <rect x="277.9431666666668" y="1038.3479999999997" width="77.05000000000001" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="316.4681666666668" y="1053.4979999999998" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">课表未公布</text>
+</g>
+<g class="edge-label" data-from="JwResult" data-to="PortalFallback" data-label="其他失败">
+  <rect x="459.1151666666667" y="860.9669999999999" width="65.17" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="491.7001666666667" y="876.1169999999998" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">其他失败</text>
+</g>
+<g class="edge-label" data-from="PortalFallbackResult" data-to="PortalData" data-label="成功">
+  <rect x="201.3247500000001" y="1163.5479999999998" width="41.41" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="222.0297500000001" y="1178.6979999999999" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">成功</text>
+</g>
+<g class="edge-label" data-from="PortalFallbackResult" data-to="EmptyPortal" data-label="课表未公布">
+  <rect x="376.65125" y="1183.5479999999998" width="77.05000000000001" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="415.17625" y="1198.6979999999999" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">课表未公布</text>
+</g>
+<g class="edge-label" data-from="PortalFallbackResult" data-to="SelectError" data-label="两源失败">
+  <rect x="997.49675" y="1163.5479999999998" width="65.17" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="1030.08175" y="1178.6979999999999" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">两源失败</text>
+</g>
+<g class="edge-label" data-from="PortalCache" data-to="PortalHit" data-label="是">
+  <rect x="555.8162" y="715.7669999999999" width="29.53" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="570.5812" y="730.9169999999999" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">是</text>
+</g>
+<g class="edge-label" data-from="PortalCache" data-to="PortalUpstream" data-label="否">
+  <rect x="836.5435" y="553.947" width="29.53" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="851.3085" y="569.097" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">否</text>
+</g>
+<g class="edge-label" data-from="PortalResult" data-to="PortalPrimary" data-label="成功">
+  <rect x="668.1466666666666" y="1038.3479999999997" width="41.41" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="688.8516666666667" y="1053.4979999999998" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">成功</text>
+</g>
+<g class="edge-label" data-from="PortalResult" data-to="EmptyPrimary" data-label="课表未公布">
+  <rect x="810.8691666666666" y="1026.3479999999997" width="77.05000000000001" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="849.3941666666666" y="1041.4979999999998" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">课表未公布</text>
+</g>
+<g class="edge-label" data-from="PortalResult" data-to="PortalError" data-label="失败且非自然周">
+  <rect x="955.6456666666667" y="1018.3479999999998" width="100.81000000000002" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="1006.0506666666666" y="1033.4979999999998" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">失败且非自然周</text>
+</g>
+<g class="edge-label" data-from="PortalResult" data-to="JwFallback" data-label="失败且为自然周">
+  <rect x="1125.6306666666667" y="856.5279999999999" width="100.81000000000002" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="1176.0356666666667" y="871.6779999999999" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">失败且为自然周</text>
+</g>
+<g class="edge-label" data-from="JwFallbackResult" data-to="JwFallbackData" data-label="成功">
+  <rect x="818.89225" y="1329.8209999999997" width="41.41" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="839.59725" y="1344.9709999999998" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">成功</text>
+</g>
+<g class="edge-label" data-from="JwFallbackResult" data-to="EmptyFallback" data-label="课表未公布">
+  <rect x="1222.37225" y="1329.8209999999997" width="77.05000000000001" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="1260.89725" y="1344.9709999999998" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">课表未公布</text>
+</g>
+<g class="edge-label" data-from="JwFallbackResult" data-to="SelectError" data-label="两源失败">
+  <rect x="1084.45075" y="1163.5479999999998" width="65.17" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="1117.03575" y="1178.6979999999999" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">两源失败</text>
+</g>
+<g class="edge-label" data-from="CredentialError" data-to="NoStale" data-label="是">
+  <rect x="836.00725" y="1475.0209999999997" width="29.53" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="850.77225" y="1490.1709999999998" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">是</text>
+</g>
+<g class="edge-label" data-from="CredentialError" data-to="Stale" data-label="否且旧缓存存在">
+  <rect x="1014.58175" y="1495.0209999999997" width="100.81000000000002" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="1064.98675" y="1510.1709999999998" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">否且旧缓存存在</text>
+</g>
+<g class="edge-label" data-from="CredentialError" data-to="Fail" data-label="否且无旧缓存">
+  <rect x="1217.24275" y="1475.0209999999997" width="88.93" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="1261.7077499999998" y="1490.1709999999998" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">否且无旧缓存</text>
+</g>
+<g class="node" data-id="Entry" data-label="入口" data-shape="diamond">
+  <polygon points="491.0107,36 538.8057,83.795 491.0107,131.59 443.21569999999997,83.795" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="491.0107" y="83.795" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">入口</text>
+</g>
+<g class="node" data-id="JwRange" data-label="按查询日归一化自然周" data-shape="rectangle">
+  <rect x="58.00350000000003" y="219.89" width="190.14999999999998" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="153.07850000000002" y="238.33999999999997" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">按查询日归一化自然周</text>
+</g>
+<g class="node" data-id="PortalRange" data-label="校验开始结束日期 最多 62 天" data-shape="rectangle">
+  <rect x="556.4729500000001" y="219.89" width="226.459" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="669.7024500000001" y="238.33999999999997" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">校验开始结束日期 最多 62 天</text>
+</g>
+<g class="node" data-id="JwCache" data-label="refresh 为 false 且缓存命中" data-shape="diamond">
+  <polygon points="153.0785,300.7900000000001 270.157,417.86850000000004 153.0785,534.947 36,417.86850000000004" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="153.0785" y="417.86850000000004" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">refresh 为 false 且缓存命中</text>
+</g>
+<g class="node" data-id="JwHit" data-label="返回 JW 缓存" data-shape="rectangle">
+  <rect x="36.89695833333337" y="934.1379999999998" width="125.68299999999999" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="99.73845833333337" y="952.5879999999999" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">返回 JW 缓存</text>
+</g>
+<g class="node" data-id="JwUpstream" data-label="JW 回源并写周缓存" data-shape="rectangle">
+  <rect x="190.57995833333337" y="633.247" width="167.92" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="274.53995833333335" y="651.697" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">JW 回源并写周缓存</text>
+</g>
+<g class="node" data-id="JwResult" data-label="JW 结果" data-shape="diamond">
+  <polygon points="274.5399583333333,714.1469999999999 333.44995833333326,773.0569999999999 274.5399583333333,831.9669999999999 215.6299583333333,773.0569999999999" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="274.5399583333333" y="773.0569999999999" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">JW 结果</text>
+</g>
+<g class="node" data-id="JwData" data-label="返回 source JW" data-shape="rectangle">
+  <rect x="94.4906666666667" y="1097.6479999999997" width="139.021" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="164.00116666666668" y="1116.0979999999997" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">返回 source JW</text>
+</g>
+<g class="node" data-id="EmptyJw" data-label="200 空课表" data-shape="rectangle">
+  <rect x="261.51166666666666" y="1097.6479999999997" width="110.863" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="316.9431666666667" y="1116.0979999999997" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">200 空课表</text>
+</g>
+<g class="node" data-id="PortalFallback" data-label="Portal 查询同一自然周" data-shape="rectangle">
+  <rect x="400.3746666666667" y="934.1379999999998" width="183.481" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="492.1151666666667" y="952.5879999999999" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Portal 查询同一自然周</text>
+</g>
+<g class="node" data-id="PortalFallbackResult" data-label="Portal 结果" data-shape="diamond">
+  <polygon points="492.11516666666665,1008.9474999999996 558.8056666666666,1075.6379999999997 492.11516666666665,1142.3284999999996 425.42466666666667,1075.6379999999997" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="492.11516666666665" y="1075.6379999999997" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Portal 结果</text>
+</g>
+<g class="node" data-id="PortalData" data-label="返回 source Portal 与 fallback" data-shape="rectangle">
+  <rect x="112.42975000000013" y="1242.8479999999997" width="219.78999999999994" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="222.3247500000001" y="1261.2979999999998" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">返回 source Portal 与 fallback</text>
+</g>
+<g class="node" data-id="EmptyPortal" data-label="200 空课表" data-shape="rectangle">
+  <rect x="360.2197500000001" y="1242.8479999999997" width="110.863" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="415.6512500000001" y="1261.2979999999998" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">200 空课表</text>
+</g>
+<g class="node" data-id="SelectError" data-label="按错误优先级选择失败" data-shape="rectangle">
+  <rect x="987.79075" y="1242.8479999999997" width="190.14999999999998" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="1082.86575" y="1261.2979999999998" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">按错误优先级选择失败</text>
+</g>
+<g class="node" data-id="PortalCache" data-label="refresh 为 false 且缓存命中" data-shape="diamond">
+  <polygon points="669.70245,300.7900000000001 786.78095,417.86850000000004 669.70245,534.947 552.62395,417.86850000000004" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="669.70245" y="417.86850000000004" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">refresh 为 false 且缓存命中</text>
+</g>
+<g class="node" data-id="PortalHit" data-label="返回 Portal 缓存" data-shape="rectangle">
+  <rect x="500.1942" y="785.0669999999999" width="141.244" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="570.8162" y="803.5169999999999" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">返回 Portal 缓存</text>
+</g>
+<g class="node" data-id="PortalUpstream" data-label="Portal 回源并写区间缓存" data-shape="rectangle">
+  <rect x="752.393" y="633.247" width="198.301" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="851.5435" y="651.697" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Portal 回源并写区间缓存</text>
+</g>
+<g class="node" data-id="PortalResult" data-label="Portal 结果" data-shape="diamond">
+  <polygon points="851.5435,714.1469999999999 918.234,780.8375 851.5435,847.528 784.853,780.8375" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="851.5435" y="780.8375" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Portal 结果</text>
+</g>
+<g class="node" data-id="PortalPrimary" data-label="返回 source Portal" data-shape="rectangle">
+  <rect x="611.8556666666666" y="1097.6479999999997" width="154.582" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="689.1466666666665" y="1116.0979999999997" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">返回 source Portal</text>
+</g>
+<g class="node" data-id="EmptyPrimary" data-label="200 空课表" data-shape="rectangle">
+  <rect x="794.4376666666667" y="1097.6479999999997" width="110.863" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="849.8691666666667" y="1116.0979999999997" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">200 空课表</text>
+</g>
+<g class="node" data-id="PortalError" data-label="直接返回原错误" data-shape="rectangle">
+  <rect x="933.3006666666666" y="1097.6479999999997" width="145.69" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="1006.1456666666667" y="1116.0979999999997" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">直接返回原错误</text>
+</g>
+<g class="node" data-id="JwFallback" data-label="JW 查询周课表" data-shape="rectangle">
+  <rect x="1106.9906666666666" y="934.1379999999998" width="138.28" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="1176.1306666666667" y="952.5879999999999" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">JW 查询周课表</text>
+</g>
+<g class="node" data-id="JwFallbackResult" data-label="JW 结果" data-shape="diamond">
+  <polygon points="1176.1306666666667,1008.9474999999999 1235.0406666666668,1067.8574999999998 1176.1306666666667,1126.7675 1117.2206666666666,1067.8574999999998" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="1176.1306666666667" y="1067.8574999999998" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">JW 结果</text>
+</g>
+<g class="node" data-id="JwFallbackData" data-label="返回 source JW 与 fallback" data-shape="rectangle">
+  <rect x="737.7777500000001" y="1399.1209999999996" width="204.22899999999996" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="839.8922500000001" y="1417.5709999999997" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">返回 source JW 与 fallback</text>
+</g>
+<g class="node" data-id="EmptyFallback" data-label="200 空课表" data-shape="rectangle">
+  <rect x="1205.94075" y="1399.1209999999996" width="110.863" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="1261.37225" y="1417.5709999999997" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">200 空课表</text>
+</g>
+<g class="node" data-id="CredentialError" data-label="错误是 3003" data-shape="diamond">
+  <polygon points="1082.86575,1313.7479999999998 1154.00225,1384.8845 1082.86575,1456.021 1011.72925,1384.8845" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="1082.86575" y="1384.8845" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">错误是 3003</text>
+</g>
+<g class="node" data-id="NoStale" data-label="401 不允许旧缓存掩盖" data-shape="rectangle">
+  <rect x="760.7487500000001" y="1554.3209999999997" width="180.51699999999997" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="851.0072500000001" y="1572.7709999999997" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">401 不允许旧缓存掩盖</text>
+</g>
+<g class="node" data-id="Stale" data-label="200 stale 与 refresh failed" data-shape="rectangle">
+  <rect x="969.26575" y="1554.3209999999997" width="191.63199999999995" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="1065.08175" y="1572.7709999999997" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">200 stale 与 refresh failed</text>
+</g>
+<g class="node" data-id="Fail" data-label="返回选中的错误" data-shape="rectangle">
+  <rect x="1188.8977499999999" y="1554.3209999999997" width="145.69" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="1261.74275" y="1572.7709999999997" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">返回选中的错误</text>
+</g>
+</svg>

@@ -3,7 +3,7 @@
 
 成员清单
 heic-convert.ts: heic-convert 模块声明补丁，补齐第三方库类型缺口
-index.ts: 共享业务 DTO 与 API 响应类型，包含成绩 passStatus 与缓存 meta 结构，服务、解析器与路由共同使用
+index.ts: 共享业务 DTO 与 API 响应类型，包含成绩 passStatus、缓存状态及课表策略观测 meta，服务、解析器与路由共同使用
 
 架构决策
 types 只描述结构，不引入运行时代码；第三方声明补丁与业务 DTO 分开。

@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖本模块相邻类型、API 与应用基础设施
- * [OUTPUT]: 提供 admin-api.ts 的公开前端契约与运行能力
- * [POS]: web 应用分层中的现有业务边界，被页面或上层模块消费
+ * [INPUT]: 依赖共享 apiRequest、后台 Cookie 会话与 entities/admin 的强类型协议
+ * [OUTPUT]: 提供 dashboard、内容、合规、日志与课表来源策略的管理 HTTP 命令
+ * [POS]: entities/admin 的唯一 HTTP 适配边界，向查询层屏蔽路径、方法与 AbortSignal 细节
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -13,6 +13,8 @@ import type {
   AdminAnalyticsOverview,
   AdminComplianceStatus,
   AdminDashboardResponse,
+  AdminScheduleSourceMode,
+  AdminScheduleSourcePolicy,
   AdminTerminalLogResponse,
   AdminTreeholeCommentListResponse,
   AdminTreeholePostListResponse,
@@ -71,6 +73,22 @@ export async function updateAdminComplianceStatus(
   return apiRequest<AdminComplianceStatus>(
     '/api/admin/compliance/ugc',
     { method: 'PUT', body: JSON.stringify(payload) },
+    { auth: false }
+  );
+}
+
+export async function getAdminScheduleSourcePolicy(options?: RequestOptions) {
+  return apiRequest<AdminScheduleSourcePolicy>(
+    '/api/admin/academic/schedule-source-policy',
+    {},
+    { auth: false, signal: options?.signal }
+  );
+}
+
+export async function updateAdminScheduleSourcePolicy(mode: AdminScheduleSourceMode) {
+  return apiRequest<AdminScheduleSourcePolicy>(
+    '/api/admin/academic/schedule-source-policy',
+    { method: 'PUT', body: JSON.stringify({ mode }) },
     { auth: false }
   );
 }

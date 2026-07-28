@@ -57,9 +57,24 @@ const portalScheduleService = {
 };
 
 mock.module('../src/modules/academic/schedule.ts', () => ({
+  isScheduleSourceMode: (value: unknown) => value === 'jw-first' || value === 'portal-first',
   ScheduleService: scheduleService,
   PortalScheduleService: portalScheduleService,
+  ScheduleSourcePolicy: {
+    async status() {
+      return { mode: 'jw-first', updatedAt: 'test', updatedBy: 'test' };
+    },
+    async configure(mode: 'jw-first' | 'portal-first', updatedBy: string) {
+      return { mode, updatedAt: 'test', updatedBy };
+    },
+  },
   ScheduleFacade: {
+    async getSchedule(options: any) {
+      return {
+        ...await scheduleService.getSchedule(options.userId, options.studentId),
+        _request: { cache: options.forceRefresh ? 'bypass' : 'miss' },
+      };
+    },
     async getJwFirstSchedule(options: any) {
       return {
         ...await scheduleService.getSchedule(options.userId, options.studentId),

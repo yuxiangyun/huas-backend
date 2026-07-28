@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 无运行时依赖，描述用户、课表、一卡通、成绩、响应与缓存元信息结构
- * [OUTPUT]: 对外提供业务 DTO、GradePassStatus 与 ApiResponse/CacheMeta 类型
+ * [OUTPUT]: 对外提供业务 DTO、GradePassStatus 与 ApiResponse/CacheMeta（含课表策略观测）类型
  * [POS]: types 的共享契约源，被 parsers、services、routes 与客户端响应模型共同参照
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -87,4 +87,7 @@ export interface CacheMeta {
   stale?: boolean;
   refresh_failed?: boolean;
   last_error?: number;
+  policy_mode?: 'jw-first' | 'portal-first';
+  primary_source?: 'jw' | 'portal';
+  fallback?: 'jw' | 'portal' | 'stale';
 }

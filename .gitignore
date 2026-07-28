@@ -8,4 +8,7 @@ dist/
 logs/
 *.log
 data/ugc-compliance-state.json
+data/schedule-source-policy.json
+data/schedule-source-policy.json.lock/
+data/schedule-source-policy.json.*.tmp
 .DS_Store

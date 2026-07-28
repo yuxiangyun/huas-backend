@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 JW/Portal 单源课表用例、domain 课表契约、fallback error 与日期/错误工具
- * [OUTPUT]: 对外提供 ScheduleFacadeApplicationService、单源 reader ports 与课表结果类型
- * [POS]: academic/application 的课表编排门面，统一 JW/Portal 优先级、日期范围、fallback 与响应元信息
+ * [INPUT]: 依赖 JW/Portal current/stale readers、来源策略快照、fallback error 与日期/错误工具
+ * [OUTPUT]: 对外提供 ScheduleFacadeApplicationService、单源 reader ports 与统一有序双源编排
+ * [POS]: academic/application 的课表编排门面，按请求级策略快照先穷尽 current，再固定 JW→Portal 读取 stale
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -15,20 +15,56 @@ import type {
   ScheduleRequestMeta,
   ScheduleSource,
 } from '../domain/schedule';
+import {
+  getScheduleSourcePlan,
+  type ScheduleSourceMode,
+  type ScheduleSourcePolicySnapshot,
+} from '../domain/schedule-source-policy';
 
 export type { ScheduleFacadeResult, ScheduleRequestMeta } from '../domain/schedule';
 
 export interface JwScheduleReader {
-  getSchedule(userId: number, studentId: string, date?: string, forceRefresh?: boolean, name?: string): Promise<RawScheduleResult>;
+  getCurrentSchedule(
+    userId: number,
+    studentId: string,
+    date?: string,
+    forceRefresh?: boolean,
+    name?: string,
+  ): Promise<RawScheduleResult>;
+  getStaleSchedule(
+    studentId: string,
+    date: string | undefined,
+    error: unknown,
+    forceRefresh?: boolean,
+  ): Promise<RawScheduleResult | null>;
 }
 
 export interface PortalScheduleReader {
-  getSchedule(userId: number, studentId: string, startDate: string, endDate: string, forceRefresh?: boolean, name?: string): Promise<RawScheduleResult>;
+  getCurrentSchedule(
+    userId: number,
+    studentId: string,
+    startDate: string,
+    endDate: string,
+    forceRefresh?: boolean,
+    name?: string,
+  ): Promise<RawScheduleResult>;
+  getStaleSchedule(
+    studentId: string,
+    startDate: string,
+    endDate: string,
+    error: unknown,
+    forceRefresh?: boolean,
+  ): Promise<RawScheduleResult | null>;
+}
+
+export interface ScheduleSourcePolicyReader {
+  status(): Promise<ScheduleSourcePolicySnapshot>;
 }
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const DAY_MS = 86_400_000;
 const MAX_PORTAL_RANGE_DAYS = 62;
+const STALE_SOURCE_PLAN = ['jw', 'portal'] as const;
 
 type RawRequestMeta = Partial<Omit<ScheduleRequestMeta, 'cache' | 'fallback' | 'lookup'> & {
   cache: string;
@@ -46,6 +82,17 @@ type PortalRange = {
   startDate: string;
   endDate: string;
   rangeDays: number;
+};
+
+type OrchestrationOptions = {
+  userId: number;
+  studentId: string;
+  name?: string;
+  forceRefresh: boolean;
+  range: PortalRange & { queryDate?: string };
+  plan: readonly ScheduleSource[];
+  stopOnUnavailable: boolean;
+  policy?: ScheduleSourcePolicySnapshot;
 };
 
 function parseStrictDate(value: string, fieldName: string): Date {
@@ -78,18 +125,12 @@ function normalizePortalRange(startDate?: string, endDate?: string): PortalRange
   const end = parseStrictDate(normalizedEndDate, 'endDate');
   const rangeDays = Math.floor((end.getTime() - start.getTime()) / DAY_MS) + 1;
 
-  if (rangeDays <= 0) {
-    throw new AppError(ErrorCode.PARAM_ERROR, 'endDate 不能早于 startDate');
-  }
+  if (rangeDays <= 0) throw new AppError(ErrorCode.PARAM_ERROR, 'endDate 不能早于 startDate');
   if (rangeDays > MAX_PORTAL_RANGE_DAYS) {
     throw new AppError(ErrorCode.PARAM_ERROR, `日期区间不能超过 ${MAX_PORTAL_RANGE_DAYS} 天`);
   }
 
-  return {
-    startDate: normalizedStartDate,
-    endDate: normalizedEndDate,
-    rangeDays,
-  };
+  return { startDate: normalizedStartDate, endDate: normalizedEndDate, rangeDays };
 }
 
 function addUtcDays(date: Date, days: number): Date {
@@ -103,7 +144,6 @@ function getWeekRange(rawDate?: string): PortalRange & { queryDate: string } {
   const parsed = new Date(`${queryDate}T00:00:00Z`);
   const weekStart = addUtcDays(parsed, -((parsed.getUTCDay() + 6) % 7));
   const weekEnd = addUtcDays(weekStart, 6);
-
   return {
     queryDate,
     startDate: weekStart.toISOString().slice(0, 10),
@@ -144,11 +184,24 @@ function isParamError(error: unknown): boolean {
   return error instanceof AppError && error.code === ErrorCode.PARAM_ERROR;
 }
 
+function isCredentialError(error: unknown): boolean {
+  if (error instanceof AppError) {
+    return error.code === ErrorCode.CREDENTIAL_EXPIRED || error.code === ErrorCode.JWT_INVALID;
+  }
+  return error instanceof Error && error.message === 'SESSION_EXPIRED';
+}
+
 function isScheduleUnavailable(error: unknown): boolean {
   return error instanceof Error && error.message === 'SCHEDULE_NOT_AVAILABLE';
 }
 
-function completeResult(result: RawScheduleResult, source: ScheduleSource, request?: Partial<ScheduleRequestMeta>): ScheduleFacadeResult {
+function completeResult(
+  result: RawScheduleResult,
+  source: ScheduleSource,
+  primarySource: ScheduleSource,
+  fallback: ScheduleSource | 'stale' | undefined,
+  policy?: ScheduleSourcePolicySnapshot,
+): ScheduleFacadeResult {
   const meta = result._meta ?? {};
   return {
     data: result.data,
@@ -156,52 +209,73 @@ function completeResult(result: RawScheduleResult, source: ScheduleSource, reque
       cached: meta.cached ?? false,
       ...meta,
       source: meta.source || source,
+      primary_source: primarySource,
+      fallback,
+      ...(policy ? { policy_mode: policy.mode } : {}),
     },
     _request: {
       ...(result._request ?? {}),
-      ...request,
+      ...(fallback ? { fallback } : {}),
     } as ScheduleRequestMeta,
   };
 }
 
-function emptySchedule(source: ScheduleSource, request: ScheduleRequestMeta): ScheduleFacadeResult {
+function emptySchedule(
+  source: ScheduleSource,
+  primarySource: ScheduleSource,
+  request: ScheduleRequestMeta,
+  policy?: ScheduleSourcePolicySnapshot,
+): ScheduleFacadeResult {
   return {
-    data: {
-      week: '暂无',
-      courses: [],
-      message: '课表暂未公布',
-    },
+    data: { week: '暂无', courses: [], message: '课表暂未公布' },
     _meta: {
       cached: false,
       source,
+      primary_source: primarySource,
+      ...(policy ? { policy_mode: policy.mode } : {}),
     },
     _request: request,
   };
 }
 
-function resolveFallbackFailure(options: {
-  primarySource: ScheduleSource;
-  fallbackSource: ScheduleSource;
-  primaryError: unknown;
-  fallbackError: unknown;
-  primaryRequest: ScheduleRequestMeta;
-  fallbackRequest: ScheduleRequestMeta;
-  studentId: string;
-}): ScheduleFacadeResult {
-  const selected = resolveFallbackError(options);
-  if (!isScheduleUnavailable(selected)) throw selected;
-
-  return emptySchedule(
-    Object.is(selected, options.fallbackError) ? options.fallbackSource : options.primarySource,
-    Object.is(selected, options.fallbackError) ? options.fallbackRequest : options.primaryRequest,
-  );
+function selectFailure(
+  errors: ReadonlyMap<ScheduleSource, unknown>,
+  plan: readonly ScheduleSource[],
+  studentId: string,
+): unknown {
+  const [primarySource, fallbackSource] = plan;
+  const primaryError = errors.get(primarySource);
+  if (!fallbackSource) return primaryError;
+  const fallbackError = errors.get(fallbackSource);
+  if (fallbackError === undefined) return primaryError;
+  return resolveFallbackError({ primarySource, fallbackSource, primaryError, fallbackError, studentId });
 }
 
 export class ScheduleFacadeApplicationService {
   constructor(
     private readonly jwSchedule: JwScheduleReader,
     private readonly portalSchedule: PortalScheduleReader,
+    private readonly policy?: ScheduleSourcePolicyReader,
   ) {}
+
+  async getSchedule(options: {
+    userId: number;
+    studentId: string;
+    date?: string;
+    forceRefresh?: boolean;
+    name?: string;
+  }): Promise<ScheduleFacadeResult> {
+    if (!this.policy) throw new Error('SCHEDULE_SOURCE_POLICY_NOT_CONFIGURED');
+    const policy = await this.policy.status();
+    return this.orchestrate({
+      ...options,
+      forceRefresh: options.forceRefresh ?? false,
+      range: getWeekRange(options.date),
+      plan: getScheduleSourcePlan(policy.mode),
+      stopOnUnavailable: false,
+      policy,
+    });
+  }
 
   async getJwFirstSchedule(options: {
     userId: number;
@@ -210,50 +284,13 @@ export class ScheduleFacadeApplicationService {
     forceRefresh?: boolean;
     name?: string;
   }): Promise<ScheduleFacadeResult> {
-    const forceRefresh = options.forceRefresh ?? false;
-    const range = getWeekRange(options.date);
-    const jwRequest = buildJwRequest(options.studentId, range.queryDate, range.startDate, forceRefresh ? 'bypass' : 'miss');
-
-    try {
-      const result = await this.jwSchedule.getSchedule(
-        options.userId,
-        options.studentId,
-        range.queryDate,
-        forceRefresh,
-        options.name,
-      );
-      return completeResult(result, 'jw');
-    } catch (primaryError) {
-      if (isParamError(primaryError)) throw primaryError;
-      if (isScheduleUnavailable(primaryError)) return emptySchedule('jw', jwRequest);
-
-      const portalRequest = buildPortalRequest(options.studentId, range, forceRefresh ? 'bypass' : 'fallback');
-      try {
-        const result = await this.portalSchedule.getSchedule(
-          options.userId,
-          options.studentId,
-          range.startDate,
-          range.endDate,
-          forceRefresh,
-          options.name,
-        );
-        return completeResult(result, 'portal', {
-          cache: forceRefresh ? 'bypass' : 'fallback',
-          fallback: 'portal',
-          lookup: 'weekly',
-        });
-      } catch (fallbackError) {
-        return resolveFallbackFailure({
-          primarySource: 'jw',
-          fallbackSource: 'portal',
-          primaryError,
-          fallbackError,
-          primaryRequest: jwRequest,
-          fallbackRequest: portalRequest,
-          studentId: options.studentId,
-        });
-      }
-    }
+    return this.orchestrate({
+      ...options,
+      forceRefresh: options.forceRefresh ?? false,
+      range: getWeekRange(options.date),
+      plan: getScheduleSourcePlan('jw-first'),
+      stopOnUnavailable: true,
+    });
   }
 
   async getPortalFirstSchedule(options: {
@@ -264,49 +301,108 @@ export class ScheduleFacadeApplicationService {
     forceRefresh?: boolean;
     name?: string;
   }): Promise<ScheduleFacadeResult> {
-    const forceRefresh = options.forceRefresh ?? false;
     const range = normalizePortalRange(options.startDate, options.endDate);
-    const portalRequest = buildPortalRequest(options.studentId, range, forceRefresh ? 'bypass' : 'miss');
+    const plan = isWeeklyRange(range) ? getScheduleSourcePlan('portal-first') : ['portal'] as const;
+    return this.orchestrate({
+      ...options,
+      forceRefresh: options.forceRefresh ?? false,
+      range,
+      plan,
+      stopOnUnavailable: true,
+    });
+  }
 
-    try {
-      const result = await this.portalSchedule.getSchedule(
-        options.userId,
-        options.studentId,
-        range.startDate,
-        range.endDate,
-        forceRefresh,
-        options.name,
-      );
-      return completeResult(result, 'portal');
-    } catch (primaryError) {
-      if (isParamError(primaryError)) throw primaryError;
-      if (isScheduleUnavailable(primaryError)) return emptySchedule('portal', portalRequest);
-      if (!isWeeklyRange(range)) throw primaryError;
+  private async orchestrate(options: OrchestrationOptions): Promise<ScheduleFacadeResult> {
+    const primarySource = options.plan[0];
+    const errors = new Map<ScheduleSource, unknown>();
 
-      const jwRequest = buildJwRequest(options.studentId, range.startDate, range.startDate, forceRefresh ? 'bypass' : 'fallback');
+    for (const source of options.plan) {
       try {
-        const result = await this.jwSchedule.getSchedule(
-          options.userId,
-          options.studentId,
-          range.startDate,
-          forceRefresh,
-          options.name,
+        const result = await this.readCurrent(source, options);
+        return completeResult(
+          result,
+          source,
+          primarySource,
+          source === primarySource ? undefined : source,
+          options.policy,
         );
-        return completeResult(result, 'jw', {
-          cache: forceRefresh ? 'bypass' : 'fallback',
-          fallback: 'jw',
-        });
-      } catch (fallbackError) {
-        return resolveFallbackFailure({
-          primarySource: 'portal',
-          fallbackSource: 'jw',
-          primaryError,
-          fallbackError,
-          primaryRequest: portalRequest,
-          fallbackRequest: jwRequest,
-          studentId: options.studentId,
-        });
+      } catch (currentError) {
+        if (isParamError(currentError)) throw currentError;
+        errors.set(source, currentError);
+        if (options.stopOnUnavailable && isScheduleUnavailable(currentError)) {
+          const stale = await this.readStale(source, currentError, options);
+          if (stale) return completeResult(stale, source, primarySource, 'stale', options.policy);
+          return emptySchedule(source, primarySource, this.requestFor(source, options), options.policy);
+        }
       }
     }
+
+    const selectedError = selectFailure(errors, options.plan, options.studentId);
+    if (isCredentialError(selectedError)) throw selectedError;
+
+    for (const source of STALE_SOURCE_PLAN) {
+      if (!errors.has(source) || !options.plan.includes(source)) continue;
+      const stale = await this.readStale(source, errors.get(source), options);
+      if (stale) return completeResult(stale, source, primarySource, 'stale', options.policy);
+    }
+
+    if (isScheduleUnavailable(selectedError)) {
+      const selectedSource = options.plan.find((source) => Object.is(errors.get(source), selectedError)) ?? primarySource;
+      return emptySchedule(selectedSource, primarySource, this.requestFor(selectedSource, options), options.policy);
+    }
+    throw selectedError;
+  }
+
+  private readCurrent(source: ScheduleSource, options: OrchestrationOptions): Promise<RawScheduleResult> {
+    if (source === 'jw') {
+      return this.jwSchedule.getCurrentSchedule(
+        options.userId,
+        options.studentId,
+        options.range.queryDate ?? options.range.startDate,
+        options.forceRefresh,
+        options.name,
+      );
+    }
+    return this.portalSchedule.getCurrentSchedule(
+      options.userId,
+      options.studentId,
+      options.range.startDate,
+      options.range.endDate,
+      options.forceRefresh,
+      options.name,
+    );
+  }
+
+  private readStale(source: ScheduleSource, sourceError: unknown, options: OrchestrationOptions) {
+    if (source === 'jw') {
+      return this.jwSchedule.getStaleSchedule(
+        options.studentId,
+        options.range.queryDate ?? options.range.startDate,
+        sourceError,
+        options.forceRefresh,
+      );
+    }
+    return this.portalSchedule.getStaleSchedule(
+      options.studentId,
+      options.range.startDate,
+      options.range.endDate,
+      sourceError,
+      options.forceRefresh,
+    );
+  }
+
+  private requestFor(source: ScheduleSource, options: OrchestrationOptions): ScheduleRequestMeta {
+    const cache = options.forceRefresh ? 'bypass' : 'miss';
+    if (source === 'jw') {
+      return buildJwRequest(
+        options.studentId,
+        options.range.queryDate ?? options.range.startDate,
+        options.range.startDate,
+        cache,
+      );
+    }
+    return buildPortalRequest(options.studentId, options.range, cache);
   }
 }
+
+export type { ScheduleSourceMode, ScheduleSourcePolicySnapshot } from '../domain/schedule-source-policy';

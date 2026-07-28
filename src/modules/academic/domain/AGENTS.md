@@ -3,6 +3,7 @@
 
 成员清单
 schedule.ts: 双源课表结果、缓存状态与请求追踪的稳定领域契约
+schedule-source-policy.ts: 课表来源模式、状态快照、持久化端口与 JW/Portal 有序 plan 纯规则
 ports.ts: Academic 校园上游、缓存与 refresh fallback 的真实 I/O 端口
 grade.ts: 成绩查询规范化与 hash、评教发现依赖端口
 evaluation.ts: 评教任务、状态、批次提交 DTO 与应用依赖端口

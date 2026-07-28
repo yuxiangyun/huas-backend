@@ -13,7 +13,7 @@ runtime/: 进程运行态与 Operations UGC 策略兼容 Facade，承载就绪�
 services/: 迁移期业务兼容层，Academic/Calendar/Discover/Treehole/Operations 已迁领域只保留单向 Facade
 types/: 第三方库声明补丁，隔离外部类型缺口
 utils/: 共享工具，封装响应、错误、日志、时间、加密与 Discover 小工具
-config.ts: 运行时配置入口，从环境变量生成强类型配置对象
+config.ts: 运行时配置入口，从环境变量生成强类型配置对象，包含课表来源策略默认模式与共享状态路径
 index.ts: Hono 应用入口，装配中间件、静态资源、路由、指标 observer、清理任务、关闭 flush 与 Bun server
 
 架构决策

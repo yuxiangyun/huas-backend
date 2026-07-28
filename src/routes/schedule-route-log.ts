@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 Hono Context、ScheduleFacadeResult 与 http-log 明细工具
- * [OUTPUT]: 对外提供 appendScheduleRouteLog，统一记录双源课表路由的请求结果摘要
- * [POS]: routes 的课表日志适配器，被 JW 优先与 Portal 优先路由共同复用，不承载 fallback 业务判断
+ * [INPUT]: 依赖 Hono Context、含策略观测字段的 ScheduleFacadeResult 与 http-log 明细工具
+ * [OUTPUT]: 对外提供 appendScheduleRouteLog，统一记录双源课表路由的模式、来源与回退摘要
+ * [POS]: routes 的课表日志适配器，被统一策略入口与 legacy Portal 路由复用，不承载 fallback 业务判断
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -15,16 +15,19 @@ export function appendScheduleRouteLog(
   c: Context,
   result: ScheduleFacadeResult,
   forceRefresh: boolean,
-  primarySource: SchedulePrimarySource
+  legacyPrimarySource?: SchedulePrimarySource
 ) {
   const requestMeta = result._request;
+  const primarySource = result._meta.primary_source || legacyPrimarySource;
   appendHttpLogDetail(c, formatHttpLogDetail({
     week: result.data?.week,
     courses: Array.isArray(result.data?.courses) ? result.data.courses.length : undefined,
     cache: requestMeta.cache,
     refresh: forceRefresh ? true : undefined,
     fallback: requestMeta.fallback,
-    source: result._meta.source && result._meta.source !== primarySource ? result._meta.source : undefined,
+    mode: result._meta.policy_mode,
+    primary: primarySource,
+    source: result._meta.source,
     lookup: requestMeta.lookup && requestMeta.lookup !== 'weekly' ? requestMeta.lookup : undefined,
     promoted: requestMeta.promotedFrom ? 'legacy' : undefined,
   }));

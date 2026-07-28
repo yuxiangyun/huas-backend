@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 process.env 与 node:path，读取端口、密钥、数据库、缓存、媒体、服务账号、限流、上游超时与 UGC 合规 ASN 规则
+ * [INPUT]: 依赖 process.env 与 node:path，读取端口、密钥、数据库、缓存、课表来源策略、媒体、服务账号、限流、上游超时与 UGC 合规 ASN 规则
  * [OUTPUT]: 对外提供 config、USER_AGENT 等运行时配置常量，并强制 TZ 为 Asia/Shanghai
  * [POS]: src 的配置源，所有模块通过它读取运行参数，避免散落读取环境变量
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -57,6 +57,12 @@ export const config = {
 
   schoolService: {
     classroomAdminStudentId: process.env.CLASSROOM_ADMIN_STUDENT_ID?.trim() || '',
+  },
+
+  scheduleSourcePolicy: {
+    environmentMode: process.env.SCHEDULE_SOURCE_MODE?.trim() || '',
+    stateFile: process.env.SCHEDULE_SOURCE_POLICY_FILE?.trim()
+      || join(dirname(process.env.DB_PATH || DEFAULT_DB_PATH), 'schedule-source-policy.json'),
   },
 
   ugcCompliance: {

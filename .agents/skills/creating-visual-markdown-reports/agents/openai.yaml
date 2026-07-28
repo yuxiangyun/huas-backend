@@ -1,0 +1,4 @@
+interface:
+  display_name: "创建可视化 Markdown 报告"
+  short_description: "分析代码或文档并生成带 Beautiful Mermaid SVG 的报告"
+  default_prompt: "使用 $creating-visual-markdown-reports 分析当前材料并生成简洁的可视化 Markdown 报告。"

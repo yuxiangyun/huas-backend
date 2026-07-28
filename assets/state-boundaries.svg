@@ -1,0 +1,102 @@
+<svg data-beautiful-mermaid="1.1.3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1880.9349999999997 270.70000000000005" width="1880.9349999999997" height="270.70000000000005" style="--bg:#ffffff;--fg:#1f2328;--line:#d1d9e0;--accent:#0969da;--muted:#59636e;background:var(--bg)">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap');
+  text { font-family: 'Inter', system-ui, sans-serif; }
+  svg {
+    /* Derived from --bg and --fg (overridable via --line, --accent, etc.) */
+    --_text:          var(--fg);
+    --_text-sec:      var(--muted, color-mix(in srgb, var(--fg) 60%, var(--bg)));
+    --_text-muted:    var(--muted, color-mix(in srgb, var(--fg) 40%, var(--bg)));
+    --_text-faint:    color-mix(in srgb, var(--fg) 25%, var(--bg));
+    --_line:          var(--line, color-mix(in srgb, var(--fg) 50%, var(--bg)));
+    --_arrow:         var(--accent, color-mix(in srgb, var(--fg) 85%, var(--bg)));
+    --_node-fill:     var(--surface, color-mix(in srgb, var(--fg) 3%, var(--bg)));
+    --_node-stroke:   var(--border, color-mix(in srgb, var(--fg) 20%, var(--bg)));
+    --_group-fill:    var(--bg);
+    --_group-hdr:     color-mix(in srgb, var(--fg) 5%, var(--bg));
+    --_inner-stroke:  color-mix(in srgb, var(--fg) 12%, var(--bg));
+    --_key-badge:     color-mix(in srgb, var(--fg) 10%, var(--bg));
+  }
+</style>
+<defs>
+  <marker id="arrowhead" markerWidth="8" markerHeight="5" refX="7" refY="2.5" orient="auto">
+    <polygon points="0 0, 8 2.5, 0 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+  <marker id="arrowhead-start" markerWidth="8" markerHeight="5" refX="1" refY="2.5" orient="auto-start-reverse">
+    <polygon points="8 0, 0 2.5, 8 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+</defs>
+<polyline class="edge" data-from="State" data-to="Sqlite" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1030.2765,72.9 1030.2765,89.9 371.60300000000007,89.9 371.60300000000007,106.9" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="State" data-to="Files" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1030.2765,72.9 1030.2765,89.9 1030.2765,89.9 1030.2765,106.9" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="State" data-to="Memory" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1030.2765,72.9 1030.2765,89.9 1605.069,89.9 1605.069,106.9" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="Sqlite" data-to="Identity" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="371.60300000000007,157.8 371.60300000000007,167.8 118.47800000000001,167.8 118.47800000000001,177.8" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="Sqlite" data-to="Discover" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="371.60300000000007,157.8 371.60300000000007,167.8 293.2795000000001,167.8 293.2795000000001,177.8" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="Sqlite" data-to="Treehole" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="371.60300000000007,157.8 371.60300000000007,167.8 449.92650000000003,167.8 449.92650000000003,177.8" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="Sqlite" data-to="Analytics" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="371.60300000000007,157.8 371.60300000000007,167.8 607.685,167.8 607.685,177.8" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="Files" data-to="Json" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1030.2765,143.8 1030.2765,160.8 793.6015000000001,160.8 793.6015000000001,177.8" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="Files" data-to="Media" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1030.2765,143.8 1030.2765,160.8 1030.2765,160.8 1030.2765,177.8" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="Files" data-to="Logs" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1030.2765,143.8 1030.2765,160.8 1263.2465,160.8 1263.2465,177.8" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="Memory" data-to="Captcha" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1605.069,143.8 1605.069,160.8 1438.048,160.8 1438.048,177.8" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="Memory" data-to="Admin" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1605.069,143.8 1605.069,160.8 1605.069,160.8 1605.069,177.8" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="Memory" data-to="Limits" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1605.069,143.8 1605.069,160.8 1779.4999999999998,160.8 1779.4999999999998,177.8" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<g class="node" data-id="State" data-label="应用状态" data-shape="rectangle">
+  <rect x="979.6614999999999" y="36" width="101.22999999999999" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="1030.2765" y="54.45" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">应用状态</text>
+</g>
+<g class="node" data-id="Sqlite" data-label="SQLite 可持久化" data-shape="cylinder">
+  <rect x="299.8695000000001" y="113.9" width="143.46699999999998" height="36.900000000000006" fill="var(--_node-fill)" stroke="none" />
+  <line x1="299.8695000000001" y1="113.9" x2="299.8695000000001" y2="150.8" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <line x1="443.33650000000006" y1="113.9" x2="443.33650000000006" y2="150.8" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <ellipse cx="371.60300000000007" cy="150.8" rx="71.73349999999999" ry="7" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <ellipse cx="371.60300000000007" cy="113.9" rx="71.73349999999999" ry="7" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="371.60300000000007" y="132.35000000000002" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">SQLite 可持久化</text>
+</g>
+<g class="node" data-id="Files" data-label="本地文件可持久化" data-shape="rectangle">
+  <rect x="950.0215000000001" y="106.9" width="160.51" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="1030.2765" y="125.35000000000001" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">本地文件可持久化</text>
+</g>
+<g class="node" data-id="Memory" data-label="进程内状态" data-shape="rectangle">
+  <rect x="1547.0439999999999" y="106.9" width="116.05" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="1605.069" y="125.35000000000001" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">进程内状态</text>
+</g>
+<g class="node" data-id="Identity" data-label="用户 凭证 业务缓存" data-shape="rectangle">
+  <rect x="36" y="177.8" width="164.95600000000002" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="118.47800000000001" y="196.25" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">用户 凭证 业务缓存</text>
+</g>
+<g class="node" data-id="Discover" data-label="Discover 三表" data-shape="rectangle">
+  <rect x="228.95600000000007" y="177.8" width="128.647" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="293.2795000000001" y="196.25" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Discover 三表</text>
+</g>
+<g class="node" data-id="Treehole" data-label="Treehole 四表" data-shape="rectangle">
+  <rect x="385.60300000000007" y="177.8" width="128.647" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="449.92650000000003" y="196.25" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Treehole 四表</text>
+</g>
+<g class="node" data-id="Analytics" data-label="分析统计两表" data-shape="rectangle">
+  <rect x="542.25" y="177.8" width="130.87" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="607.685" y="196.25" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">分析统计两表</text>
+</g>
+<g class="node" data-id="Json" data-label="公告与 UGC 合规 JSON" data-shape="rectangle">
+  <rect x="701.1200000000001" y="177.8" width="184.96299999999997" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="793.6015000000001" y="196.25" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">公告与 UGC 合规 JSON</text>
+</g>
+<g class="node" data-id="Media" data-label="Discover 图片与 Treehole 头像" data-shape="rectangle">
+  <rect x="914.0830000000001" y="177.8" width="232.38699999999994" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="1030.2765" y="196.25" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Discover 图片与 Treehole 头像</text>
+</g>
+<g class="node" data-id="Logs" data-label="业务日志与 PM2 日志" data-shape="rectangle">
+  <rect x="1174.47" y="177.8" width="177.55299999999997" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="1263.2465" y="196.25" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">业务日志与 PM2 日志</text>
+</g>
+<g class="node" data-id="Captcha" data-label="验证码会话" data-shape="rectangle">
+  <rect x="1380.023" y="177.8" width="116.05" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="1438.048" y="196.25" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">验证码会话</text>
+</g>
+<g class="node" data-id="Admin" data-label="管理员 Cookie 会话" data-shape="rectangle">
+  <rect x="1524.0729999999999" y="177.8" width="161.99200000000002" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="1605.069" y="196.25" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">管理员 Cookie 会话</text>
+</g>
+<g class="node" data-id="Limits" data-label="登录失败限流" data-shape="rectangle">
+  <rect x="1714.0649999999998" y="177.8" width="130.87" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="1779.4999999999998" y="196.25" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">登录失败限流</text>
+</g>
+</svg>

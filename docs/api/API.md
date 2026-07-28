@@ -1,6 +1,6 @@
 # HUAS Server API 文档
 
-> 基线日期：2026-04-01
+> 基线日期：2026-07-28
 > Base URL：`http://localhost:3000`
 > 时区约定：服务端固定使用 `Asia/Shanghai`，文档中的时间示例均为 `+08:00`
 
@@ -11,14 +11,15 @@
 | `POST /auth/login` | 无 | CAS 登录，获取本服务 JWT |
 | `GET /health` | 无 | 健康检查 |
 | `GET /api/public/announcements` | 无 | 公告弹窗列表 |
-| `GET /status` | Basic Auth | 管理状态页 HTML |
-| `GET /api/admin/dashboard` | Basic Auth | 管理仪表盘 |
-| `GET/PUT /api/admin/compliance/ugc` | Basic Auth | UGC 正常/合规模式热开关 |
-| `GET/POST/PUT/DELETE /api/admin/announcements*` | Basic Auth | 公告管理 |
-| `GET /api/admin/logs` | Basic Auth | 终端日志读取 |
-| `DELETE /api/admin/discover/posts/:id` | Basic Auth | Discover 管理删帖 |
-| `GET/DELETE /api/admin/treehole/*` | Basic Auth | Treehole 管理接口 |
-| `GET /api/schedule` | Bearer JWT | JW 优先课表，JW 失败时可回退 Portal |
+| `POST/GET/DELETE /api/admin/session` | 登录凭据 / 后台 Cookie | 建立、探测与撤销后台会话 |
+| `GET /api/admin/dashboard` | 后台 HttpOnly Cookie | 管理仪表盘 |
+| `GET/PUT /api/admin/compliance/ugc` | 后台 HttpOnly Cookie | UGC 正常/合规模式热开关 |
+| `GET/PUT /api/admin/academic/schedule-source-policy` | 后台 HttpOnly Cookie | 课表 JW/Portal 优先模式热切换 |
+| `GET/POST/PUT/DELETE /api/admin/announcements*` | 后台 HttpOnly Cookie | 公告管理 |
+| `GET /api/admin/logs` | 后台 HttpOnly Cookie | 终端日志读取 |
+| `DELETE /api/admin/discover/posts/:id` | 后台 HttpOnly Cookie | Discover 管理删帖 |
+| `GET/DELETE /api/admin/treehole/*` | 后台 HttpOnly Cookie | Treehole 管理接口 |
+| `GET /api/schedule` | Bearer JWT | 后端策略控制 JW/Portal 优先级的统一周课表 |
 | `GET /api/v1/schedule` | Bearer JWT | Portal 优先课表；周视图请求失败时可回退 JW |
 | `GET /api/calendar/link` | Bearer JWT | 获取当前用户日历订阅链接 |
 | `GET /api/grades` | Bearer JWT | 成绩 |
@@ -36,10 +37,13 @@ Bearer Token 使用：
 Authorization: Bearer <token>
 ```
 
-管理员接口与 `/status` 使用 HTTP Basic Auth：
+管理员接口先建立独立后台会话，再携带 HttpOnly Cookie：
 
 ```http
-Authorization: Basic <base64(username:password)>
+POST /api/admin/session
+Content-Type: application/json
+
+{"username":"...","password":"..."}
 ```
 
 日历订阅签名使用：
@@ -50,8 +54,7 @@ GET /calendar/schedule.ics?studentId=2023001001&sig=<hmac_sha256(studentId, CALE
 
 补充说明：
 
-- 当前 `/status` 与 `/api/admin/*` 的鉴权失败由 `adminBasicAuthMiddleware` 直接返回 `401 Unauthorized` 纯文本响应，并附带 `WWW-Authenticate`
-- 当前实现仍在 `src/middleware/admin-basic-auth.middleware.ts` 中硬编码管理员凭证；出于安全原因，本文档不再复述具体口令值
+- `/api/admin/session` 建立短期 HttpOnly Cookie；其余 `/api/admin/*` 统一由 `adminSessionMiddleware` 保护，普通用户 Bearer JWT 不具备后台权限
 - 日历订阅不是 JWT，也不落库；它是固定链接，签名规则是 `HMAC_SHA256(studentId, CALENDAR_SECRET)`
 - UGC 合规模式由 `/api/admin/compliance/ugc` 热更新；`normal` 模式走真实业务，`compliance` 模式让分享美食和神秘角落的 GET 读请求返回后台配置的纯文本 mock 或空分页，写操作不受影响；配置 `UGC_COMPLIANCE_ASNS` 后，命中可信 ASN 头和端口的 GET 读请求强制返回空态
 
@@ -92,6 +95,9 @@ GET /calendar/schedule.ics?studentId=2023001001&sig=<hmac_sha256(studentId, CALE
 | `stale` | boolean | `true` 表示回退到了旧缓存，或读取到了过期缓存 |
 | `refresh_failed` | boolean | `true` 表示本次回源失败，但返回了旧缓存 |
 | `last_error` | number | 导致回退的错误码，如 `3003`、`3004`、`5000` |
+| `policy_mode` | string | `/api/schedule` 本次请求采用的 `jw-first` 或 `portal-first` 快照 |
+| `primary_source` | string | 本次策略首选来源，取值 `jw` 或 `portal` |
+| `fallback` | string | 实际跨源/旧缓存回退，取值 `jw`、`portal` 或 `stale` |
 
 ### 2.3 失败响应
 
@@ -132,7 +138,8 @@ GET /calendar/schedule.ics?studentId=2023001001&sig=<hmac_sha256(studentId, CALE
 - 所有 5 个业务接口都会把成功回源结果写入 `cache` 表
 - `refresh=false`：先查缓存，命中直接返回
 - `refresh=true`：跳过读缓存，强制回源，并覆盖写回缓存
-- 回源失败时：如果同 key 还有旧缓存，会回退旧缓存并返回 `_meta.stale=true`
+- `/api/schedule` 的首选来源 current 失败后，必须先尝试第二来源 current；两边都失败才固定按 JW、Portal 顺序查旧缓存
+- 其他单源业务回源失败时：如果同 key 还有旧缓存，会回退旧缓存并返回 `_meta.stale=true`
 
 ### 3.2 当前 TTL
 
@@ -860,9 +867,16 @@ CAS 统一认证登录。
 
 ### 6.4 `GET /api/schedule`
 
-JW 优先课表接口。
+后端热策略控制的统一周课表接口。客户端不能通过 query 选择来源；每次请求开始时读取一次策略快照。
 
-注意：路由名不等于最终数据源。若 JW 回源失败且同周 Portal 课表可用，接口会直接回退到 Portal，并在 `_meta.source` 中返回 `portal`。
+两种状态机：
+
+```text
+jw-first:     JW current → Portal current → JW stale → Portal stale → 错误/合法空课表
+portal-first: Portal current → JW current → JW stale → Portal stale → 错误/合法空课表
+```
+
+`current` 保留既有缓存语义：`refresh=false` 可以命中该来源未过期/永久缓存，`refresh=true` 强制访问校园上游。关键约束是单源失败时不得先返回自身 stale；旧缓存阶段始终 JW 优先。`_meta.source` 表示实际数据来源，不能用它推断策略首选来源。
 
 查询参数：
 
@@ -893,7 +907,9 @@ JW 优先课表接口。
     "cached": true,
     "cache_time": "2026-03-08T08:00:00.000+08:00",
     "updated_at": "2026-03-08T08:00:00.000+08:00",
-    "source": "jw"
+    "source": "jw",
+    "policy_mode": "jw-first",
+    "primary_source": "jw"
   }
 }
 ```
@@ -921,7 +937,8 @@ JW 优先课表接口。
 
 - JW 会话被其他登录挤掉时，上游可能返回 HTTP 200 登录页，而不是 401/302；服务端会将其识别为 `SESSION_EXPIRED`，刷新凭证后重试
 - 如果自动恢复仍失败且没有 Portal/旧缓存可回退，接口返回 `3003`
-- 如果有旧缓存可回退，接口返回 `200`，并在 `_meta.last_error` 中暴露本次失败原因
+- 非凭证型故障且有旧缓存可回退时，接口返回 `200`，并用 `_meta.stale=true`、`refresh_failed=true`、`fallback=stale` 与 `last_error` 暴露降级
+- 两个来源的凭证错误经优先级仲裁后必须返回 `3003/401`，旧缓存不能掩盖重新登录要求
 
 ### 6.5 `GET /api/v1/schedule`
 
@@ -1257,7 +1274,7 @@ END:VCALENDAR
 
 ### 6.9.1 `GET/PUT /api/admin/compliance/ugc`
 
-后台热控制 UGC 正常/合规模式，需 HTTP Basic Auth。
+后台热控制 UGC 正常/合规模式，需有效后台 Cookie 会话。
 
 `GET` 返回当前状态：
 
@@ -1305,9 +1322,39 @@ END:VCALENDAR
 - `UGC_COMPLIANCE_ASNS` 可配置逗号/空格分隔 ASN；`UGC_COMPLIANCE_PORTS` 可限制入口端口，空值表示不限端口
 - ASN 自动空态依赖可信反代写入 `UGC_COMPLIANCE_ASN_HEADER`（默认 `x-client-asn`）与 `UGC_COMPLIANCE_PORT_HEADER`（默认 `x-forwarded-port`），命中时忽略后台 mock 文案并返回空数据
 
-### 6.9.2 `GET /api/admin/logs`
+### 6.9.2 `GET/PUT /api/admin/academic/schedule-source-policy`
 
-读取最新终端日志，需 HTTP Basic Auth。
+后台 Cookie 会话保护的课表来源热策略接口。管理操作只改变后续 `/api/schedule` 的来源顺序，不清缓存，也不主动访问校园上游。
+
+`GET` 返回当前有效快照：
+
+```json
+{
+  "success": true,
+  "data": {
+    "mode": "portal-first",
+    "updatedAt": "2026-07-28T16:00:00.000+08:00",
+    "updatedBy": "admin"
+  }
+}
+```
+
+`PUT` 请求体：
+
+```json
+{
+  "mode": "jw-first"
+}
+```
+
+- `mode` 只能是 `jw-first` 或 `portal-first`；缺失、`default`、`jw`、`portal` 均返回 `4002/400`
+- 成功写入后，后续业务请求无需重启即可读取新快照
+- 写入采用同目录临时文件 + 原子 rename；失败时保留旧有效状态并返回错误
+- 状态文件损坏或暂时读取失败时，进程保留最后有效快照；首次无文件时回落 `SCHEDULE_SOURCE_MODE`，再回落 `jw-first`
+
+### 6.9.3 `GET /api/admin/logs`
+
+读取最新终端日志，需有效后台 Cookie 会话。
 
 查询参数：
 
@@ -1342,11 +1389,11 @@ END:VCALENDAR
 
 - `items[].source` 只会是 `out | error`
 - 读取来源固定为 `logs/pm2-out.log` 与 `logs/pm2-error.log`
-- Basic Auth 失败时返回 `401 Unauthorized` 纯文本，不走 JSON 错误包
+- 后台 Cookie 缺失或失效时返回 `401` JSON 错误包
 
-### 6.9.3 `GET /api/admin/treehole/posts`
+### 6.9.4 `GET /api/admin/treehole/posts`
 
-管理员查看树洞列表，需 HTTP Basic Auth。
+管理员查看树洞列表，需有效后台 Cookie 会话。
 
 查询参数：
 
@@ -1398,11 +1445,11 @@ END:VCALENDAR
 
 - `summary` 统计的是当前全量未删除树洞、评论、点赞总数，不受 `keyword` 过滤影响
 - `author` 是管理员可见的实名作者信息，不是匿名展示字段
-- Basic Auth 失败时返回 `401 Unauthorized` 纯文本，不走 JSON 错误包
+- 后台 Cookie 缺失或失效时返回 `401` JSON 错误包
 
-### 6.9.4 `GET /api/admin/treehole/posts/:id/comments`
+### 6.9.5 `GET /api/admin/treehole/posts/:id/comments`
 
-管理员查看某条树洞的评论列表，需 HTTP Basic Auth。
+管理员查看某条树洞的评论列表，需有效后台 Cookie 会话。
 
 查询参数：
 
@@ -1444,11 +1491,11 @@ END:VCALENDAR
 
 - 只返回未删除评论
 - 目标帖子不存在或已删除时，返回 `404 + error_code=4002`
-- Basic Auth 失败时返回 `401 Unauthorized` 纯文本，不走 JSON 错误包
+- 后台 Cookie 缺失或失效时返回 `401` JSON 错误包
 
 ### 6.10 `GET /api/admin/announcements`
 
-返回公告完整列表，需 Basic Auth。
+返回公告完整列表，需有效后台 Cookie 会话。
 
 响应中的每条公告都包含：
 
@@ -1462,7 +1509,7 @@ END:VCALENDAR
 
 ### 6.11 `POST /api/admin/announcements`
 
-新增公告，需 Basic Auth。
+新增公告，需有效后台 Cookie 会话。
 
 请求体：
 
@@ -1485,7 +1532,7 @@ END:VCALENDAR
 
 ### 6.12 `PUT /api/admin/announcements/:id`
 
-更新公告，需 Basic Auth，支持部分字段更新。
+更新公告，需有效后台 Cookie 会话，支持部分字段更新。
 
 示例：
 
@@ -1504,7 +1551,7 @@ END:VCALENDAR
 
 ### 6.13 `DELETE /api/admin/announcements/:id`
 
-删除公告，需 Basic Auth。
+删除公告，需有效后台 Cookie 会话。
 
 成功响应：
 
@@ -1967,7 +2014,7 @@ Authorization: Bearer <token>
 
 ### 6.21 `DELETE /api/admin/discover/posts/:id`
 
-管理员删除帖子，需 HTTP Basic Auth。
+管理员删除帖子，需有效后台 Cookie 会话。
 
 请求示例：
 
@@ -1997,7 +2044,7 @@ Authorization: Basic <base64(username:password)>
 
 鉴权失败补充：
 
-- Basic Auth 缺失或错误时，直接返回 `401 Unauthorized` 纯文本，并附 `WWW-Authenticate`
+- 后台 Cookie 缺失或失效时返回 `401` JSON 错误包
 
 ### 6.22 `GET /media/discover/:storageKey/:fileName`
 
@@ -2364,7 +2411,7 @@ Authorization: Bearer <token>
 
 ### 6.34 `DELETE /api/admin/treehole/posts/:id`
 
-管理员删除树洞，需 HTTP Basic Auth。
+管理员删除树洞，需有效后台 Cookie 会话。
 
 请求示例：
 
@@ -2394,11 +2441,11 @@ Authorization: Basic <base64(username:password)>
 
 鉴权失败补充：
 
-- Basic Auth 缺失或错误时，直接返回 `401 Unauthorized` 纯文本，并附 `WWW-Authenticate`
+- 后台 Cookie 缺失或失效时返回 `401` JSON 错误包
 
 ### 6.35 `DELETE /api/admin/treehole/comments/:id`
 
-管理员删除树洞评论，需 HTTP Basic Auth。
+管理员删除树洞评论，需有效后台 Cookie 会话。
 
 请求示例：
 
@@ -2429,7 +2476,7 @@ Authorization: Basic <base64(username:password)>
 
 鉴权失败补充：
 
-- Basic Auth 缺失或错误时，直接返回 `401 Unauthorized` 纯文本，并附 `WWW-Authenticate`
+- 后台 Cookie 缺失或失效时返回 `401` JSON 错误包
 
 ### 6.36 `GET /api/treehole/avatar`
 

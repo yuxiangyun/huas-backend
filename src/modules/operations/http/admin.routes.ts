@@ -1,11 +1,12 @@
 /**
- * [INPUT]: 依赖 Operations 会话、application/composition、自有 infrastructure 与统一响应/审计日志
- * [OUTPUT]: 默认导出 admin Hono 路由，提供会话、dashboard、内容、社区与 UGC 管理接口
- * [POS]: operations/http 的管理面协议适配器，统一 Cookie、参数错误、运行策略与审计日志
+ * [INPUT]: 依赖 Operations 会话/application/composition、Academic 策略公开门面、自有 infrastructure 与统一响应/审计日志
+ * [OUTPUT]: 默认导出 admin Hono 路由，提供会话、dashboard、内容、社区、UGC 与课表来源策略管理接口
+ * [POS]: operations/http 的管理面协议适配器，统一 Cookie、参数错误、跨领域公开命令与审计日志
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { Hono } from 'hono';
+import { isScheduleSourceMode, ScheduleSourcePolicy } from '../../academic/schedule';
 import { ErrorCode } from '../../../utils/errors';
 import { Logger } from '../../../utils/logger';
 import { error, success } from '../../../utils/response';
@@ -85,6 +86,39 @@ admin.put('/compliance/ugc', async (c) => {
     `discoverMockTextLength=${state.discoverMockText.length}; treeholeMockTextLength=${state.treeholeMockText.length}; stateFile=${state.stateFile}`,
   );
   return success(c, state);
+});
+
+admin.get('/academic/schedule-source-policy', async (c) => {
+  return success(c, await ScheduleSourcePolicy.status());
+});
+
+admin.put('/academic/schedule-source-policy', async (c) => {
+  let body: { mode?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return error(c, ErrorCode.PARAM_ERROR, '请求体必须是有效的 JSON', 400);
+  }
+  if (!isScheduleSourceMode(body?.mode)) {
+    return error(c, ErrorCode.PARAM_ERROR, 'mode 必须是 jw-first 或 portal-first', 400);
+  }
+
+  const actor = c.get('adminUser') || 'admin';
+  const previous = await ScheduleSourcePolicy.status();
+  try {
+    const current = await ScheduleSourcePolicy.configure(body.mode, actor);
+    Logger.operation(
+      'Admin',
+      '切换课表来源策略',
+      actor,
+      '管理员',
+      `previous=${previous.mode}; current=${current.mode}`,
+    );
+    return success(c, current);
+  } catch (cause: any) {
+    Logger.error('SchedulePolicy', '课表来源策略写入失败', cause);
+    return error(c, ErrorCode.INTERNAL_ERROR, cause?.message || '课表来源策略写入失败', 500);
+  }
 });
 
 admin.get('/dashboard', async (c) => {

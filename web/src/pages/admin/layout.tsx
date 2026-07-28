@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖后台 Cookie 会话、React Router Outlet/位置、应用路径构造器、QueryClient 与全局 Toast
- * [OUTPUT]: 提供 AdminLayout、AdminOutletContextValue 与 useAdminOutletContext
+ * [OUTPUT]: 提供 AdminLayout、AdminOutletContextValue 与 useAdminOutletContext，导航统一指向系统设置 canonical
  * [POS]: pages/admin 的独立响应式后台壳，承载登录、分组导航和会话退出
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -36,7 +36,7 @@ const navGroups = [
     { to: appRoutes.adminTreehole, label: '神秘角落' },
   ] },
   { label: '系统', items: [
-    { to: appRoutes.adminCompliance, label: '合规设置' },
+    { to: appRoutes.adminSettings, label: '设置' },
     { to: appRoutes.adminLogs, label: '运行日志' },
   ] },
 ] as const;

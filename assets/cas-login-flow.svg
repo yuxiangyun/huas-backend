@@ -1,0 +1,276 @@
+<svg data-beautiful-mermaid="1.1.3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 931.4634166666666 3365.7310000000016" width="931.4634166666666" height="3365.7310000000016" style="--bg:#ffffff;--fg:#1f2328;--line:#d1d9e0;--accent:#0969da;--muted:#59636e;background:var(--bg)">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap');
+  text { font-family: 'Inter', system-ui, sans-serif; }
+  svg {
+    /* Derived from --bg and --fg (overridable via --line, --accent, etc.) */
+    --_text:          var(--fg);
+    --_text-sec:      var(--muted, color-mix(in srgb, var(--fg) 60%, var(--bg)));
+    --_text-muted:    var(--muted, color-mix(in srgb, var(--fg) 40%, var(--bg)));
+    --_text-faint:    color-mix(in srgb, var(--fg) 25%, var(--bg));
+    --_line:          var(--line, color-mix(in srgb, var(--fg) 50%, var(--bg)));
+    --_arrow:         var(--accent, color-mix(in srgb, var(--fg) 85%, var(--bg)));
+    --_node-fill:     var(--surface, color-mix(in srgb, var(--fg) 3%, var(--bg)));
+    --_node-stroke:   var(--border, color-mix(in srgb, var(--fg) 20%, var(--bg)));
+    --_group-fill:    var(--bg);
+    --_group-hdr:     color-mix(in srgb, var(--fg) 5%, var(--bg));
+    --_inner-stroke:  color-mix(in srgb, var(--fg) 12%, var(--bg));
+    --_key-badge:     color-mix(in srgb, var(--fg) 10%, var(--bg));
+  }
+</style>
+<defs>
+  <marker id="arrowhead" markerWidth="8" markerHeight="5" refX="7" refY="2.5" orient="auto">
+    <polygon points="0 0, 8 2.5, 0 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+  <marker id="arrowhead-start" markerWidth="8" markerHeight="5" refX="1" refY="2.5" orient="auto-start-reverse">
+    <polygon points="8 0, 0 2.5, 8 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+</defs>
+<polyline class="edge" data-from="Start" data-to="Json" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="175.56975,72.9 175.56975000000003,116.9" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="Json" data-to="Param" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="否" points="152.22808333333336,233.60833333333338 152.22808333333336,604.591 98.8415,604.591 98.8415,680.891" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="Json" data-to="Limit" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="是" points="198.9114166666667,233.60833333333335 198.9114166666667,288.95000000000005 252.298,288.95000000000005 252.298,365.25" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="Limit" data-to="TooMany" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="已封禁" points="231.42633333333333,469.60833333333335 231.42633333333333,685.491 210.21875000000006,685.491 210.21875000000003,761.7909999999999" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="Limit" data-to="CaptchaMode" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="可继续" points="273.16966666666667,469.60833333333335 273.16966666666667,502.48 389.23975,502.48 389.23975,578.78" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="CaptchaMode" data-to="LocalFlag" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="否" points="363.30458333333337,708.4558333333333 363.30458333333337,766.391 331.1105416666667,766.391 331.1105416666667,842.6909999999999" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="LocalFlag" data-to="LocalPass" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="是" points="300.358875,996.4493333333334 300.358875,1059.201 272.8930416666667,1059.201 272.8930416666667,1135.501" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="LocalPass" data-to="Touch" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="是" points="247.08137500000004,1264.5593333333334 247.08137500000004,1687.2160000000001 204.89287499999998,1687.2160000000001 204.89287500000003,1763.516" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="Touch" data-to="LocalJwt" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="204.89287500000003,1800.4160000000002 204.892875,1849.288" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="LocalPass" data-to="NewClient" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="否" points="298.7047083333334,1264.5593333333334 298.7047083333334,1322.3709999999999 358.46520833333335,1322.3709999999999 358.46520833333335,1386.6709999999998 376.03720833333335,1386.6709999999998 376.03720833333335,1398.6709999999998" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="LocalFlag" data-to="NewClient" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="否" points="361.86220833333334,996.4493333333334 361.86220833333334,1322.3709999999999 414.041875,1322.3709999999999 414.041875,1386.6709999999998 431.5165416666667,1386.6709999999998 431.5165416666667,1398.6709999999998" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="CaptchaMode" data-to="Restore" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="是" points="415.17491666666666,708.4558333333333 415.17491666666666,830.6909999999999 599.679125,830.6909999999999 599.6791249999999,1039.781" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="Restore" data-to="CaptchaExpired" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="否" points="571.3974583333334,1181.1893333333333 571.3974583333334,1241.4709999999998 537.643375,1241.4709999999998 537.643375,1317.7709999999997" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="Restore" data-to="RestoreJar" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="是" points="627.9607916666666,1181.189333333333 627.9607916666666,1305.7709999999997 661.8584583333334,1305.7709999999997 661.8584583333333,1479.571" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="NewClient" data-to="Execution" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="403.776875,1435.571 403.776875,1479.571" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="Execution" data-to="CasLogin" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="403.776875,1516.471 403.776875,1538.471 541.4832083333333,1538.471 541.4832083333333,1560.471" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="RestoreJar" data-to="CasLogin" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="661.8584583333334,1516.471 661.8584583333334,1538.471 541.4832083333333,1538.471 541.4832083333333,1560.471" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="CasLogin" data-to="CasResult" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="541.4832083333333,1597.371 541.4832083333333,1641.371" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="CasResult" data-to="LoginFail" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="密码错误" points="510.3609583333333,1734.7377500000002 510.3609583333333,1901.3160000000003 217.1106666666667,1901.3160000000003 217.1106666666667,1989.6160000000002" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="CasResult" data-to="FetchCaptcha" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="需要验证码" points="541.4832083333333,1765.8600000000001 541.4832083333333,1913.3160000000003 427.10966666666667,1913.3160000000003 427.10966666666667,1989.6160000000002" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="FetchCaptcha" data-to="SaveCaptcha" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="427.10966666666667,2026.5160000000003 427.10966666666667,2070.516" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="SaveCaptcha" data-to="NeedCaptcha" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="427.10966666666667,2107.416 427.10966666666667,2572.5500000000006" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="CasResult" data-to="Portal" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="成功" points="572.6054583333333,1734.7377500000002 572.6054583333333,1777.8600000000001 672.4179166666667,1777.8600000000001 672.4179166666667,1849.288" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="Portal" data-to="ExchangePortal" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="否" points="640.92525,2006.7513333333334 640.92525,2075.116 626.3641666666666,2075.116 626.3641666666666,2151.416" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="Portal" data-to="ActivateJw" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="是" points="703.9105833333333,2006.7513333333336 703.9105833333333,2075.116 718.4716666666666,2075.116 718.4716666666666,2220.3160000000003 698.3050833333333,2220.3160000000003 698.3050833333333,2232.3160000000003" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="ExchangePortal" data-to="ActivateJw" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="626.3641666666666,2188.3160000000003 626.3641666666666,2220.3160000000003 646.53075,2220.3160000000003 646.53075,2232.3160000000003" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="ActivateJw" data-to="SchoolReady" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="672.4179166666667,2269.2160000000003 672.4179166666667,2313.2160000000003" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="SchoolReady" data-to="ActivateFail" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="否" points="633.76225,2506.494333333334 633.76225,2577.1500000000005 560.3789166666667,2577.1500000000005 560.3789166666667,2653.4500000000007" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="SchoolReady" data-to="PersistUser" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="是" points="711.0735833333333,2506.494333333334 711.0735833333333,2577.150000000001 784.4569166666666,2577.150000000001 784.4569166666665,2653.450000000001" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="PersistUser" data-to="PersistCred" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="784.4569166666665,2690.3500000000013 784.4569166666666,2734.3500000000013" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="PersistCred" data-to="ClearFlag" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="784.4569166666666,2771.2500000000014 784.4569166666665,2815.2500000000014" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="ClearFlag" data-to="Profile" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="784.4569166666665,2852.1500000000015 784.4569166666665,2896.1500000000015" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="Profile" data-to="Backfill" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="是" points="749.8767499999999,3069.0508333333346 749.8767499999999,3135.631000000001 743.0344166666666,3135.631000000001 743.0344166666666,3211.9310000000014" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="Profile" data-to="FinalJwt" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="否" points="819.0370833333333,3069.0508333333346 819.0370833333333,3135.631000000001 825.8794166666667,3135.631000000001 825.8794166666667,3280.8310000000015 805.6510833333333,3280.8310000000015 805.6510833333333,3292.8310000000015" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="Backfill" data-to="FinalJwt" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="743.0344166666666,3248.8310000000015 743.0344166666666,3280.8310000000015 763.26275,3280.8310000000015 763.26275,3292.8310000000015" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<g class="edge-label" data-from="Json" data-to="Param" data-label="否">
+  <rect x="83.8415" y="611.591" width="29.53" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="98.6065" y="626.741" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">否</text>
+</g>
+<g class="edge-label" data-from="Json" data-to="Limit" data-label="是">
+  <rect x="237.298" y="295.95000000000005" width="29.53" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="252.063" y="311.1" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">是</text>
+</g>
+<g class="edge-label" data-from="Limit" data-to="TooMany" data-label="已封禁">
+  <rect x="183.21875000000006" y="692.491" width="53.29" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="209.86375000000007" y="707.641" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">已封禁</text>
+</g>
+<g class="edge-label" data-from="Limit" data-to="CaptchaMode" data-label="可继续">
+  <rect x="362.23975" y="509.48" width="53.29" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="388.88475" y="524.63" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">可继续</text>
+</g>
+<g class="edge-label" data-from="CaptchaMode" data-to="LocalFlag" data-label="否">
+  <rect x="316.1105416666667" y="773.391" width="29.53" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="330.87554166666666" y="788.5409999999999" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">否</text>
+</g>
+<g class="edge-label" data-from="LocalFlag" data-to="LocalPass" data-label="是">
+  <rect x="257.8930416666667" y="1066.201" width="29.53" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="272.6580416666667" y="1081.351" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">是</text>
+</g>
+<g class="edge-label" data-from="LocalPass" data-to="Touch" data-label="是">
+  <rect x="189.892875" y="1694.2160000000001" width="29.53" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="204.657875" y="1709.3660000000002" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">是</text>
+</g>
+<g class="edge-label" data-from="LocalPass" data-to="NewClient" data-label="否">
+  <rect x="343.46520833333335" y="1329.3709999999999" width="29.53" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="358.23020833333334" y="1344.521" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">否</text>
+</g>
+<g class="edge-label" data-from="LocalFlag" data-to="NewClient" data-label="否">
+  <rect x="399.041875" y="1329.3709999999999" width="29.53" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="413.806875" y="1344.521" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">否</text>
+</g>
+<g class="edge-label" data-from="CaptchaMode" data-to="Restore" data-label="是">
+  <rect x="584.679125" y="970.4809999999997" width="29.53" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="599.444125" y="985.6309999999996" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">是</text>
+</g>
+<g class="edge-label" data-from="Restore" data-to="CaptchaExpired" data-label="否">
+  <rect x="522.643375" y="1248.4709999999998" width="29.53" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="537.408375" y="1263.6209999999999" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">否</text>
+</g>
+<g class="edge-label" data-from="Restore" data-to="RestoreJar" data-label="是">
+  <rect x="646.8584583333334" y="1410.271" width="29.53" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="661.6234583333334" y="1425.421" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">是</text>
+</g>
+<g class="edge-label" data-from="CasResult" data-to="LoginFail" data-label="密码错误">
+  <rect x="184.1106666666667" y="1920.3160000000003" width="65.17" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="216.6956666666667" y="1935.4660000000003" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">密码错误</text>
+</g>
+<g class="edge-label" data-from="CasResult" data-to="FetchCaptcha" data-label="需要验证码">
+  <rect x="388.1096666666667" y="1920.3160000000003" width="77.05000000000001" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="426.6346666666667" y="1935.4660000000003" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">需要验证码</text>
+</g>
+<g class="edge-label" data-from="CasResult" data-to="Portal" data-label="成功">
+  <rect x="651.4179166666667" y="1784.8600000000001" width="41.41" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="672.1229166666667" y="1800.0100000000002" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">成功</text>
+</g>
+<g class="edge-label" data-from="Portal" data-to="ExchangePortal" data-label="否">
+  <rect x="611.3641666666666" y="2082.116" width="29.53" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="626.1291666666666" y="2097.266" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">否</text>
+</g>
+<g class="edge-label" data-from="Portal" data-to="ActivateJw" data-label="是">
+  <rect x="703.4716666666666" y="2082.116" width="29.53" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="718.2366666666666" y="2097.266" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">是</text>
+</g>
+<g class="edge-label" data-from="SchoolReady" data-to="ActivateFail" data-label="否">
+  <rect x="545.3789166666667" y="2584.1500000000005" width="29.53" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="560.1439166666667" y="2599.3000000000006" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">否</text>
+</g>
+<g class="edge-label" data-from="SchoolReady" data-to="PersistUser" data-label="是">
+  <rect x="769.4569166666666" y="2584.150000000001" width="29.53" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="784.2219166666666" y="2599.300000000001" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">是</text>
+</g>
+<g class="edge-label" data-from="Profile" data-to="Backfill" data-label="是">
+  <rect x="728.0344166666666" y="3142.631000000001" width="29.53" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="742.7994166666666" y="3157.7810000000013" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">是</text>
+</g>
+<g class="edge-label" data-from="Profile" data-to="FinalJwt" data-label="否">
+  <rect x="810.8794166666667" y="3142.631000000001" width="29.53" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="825.6444166666666" y="3157.7810000000013" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">否</text>
+</g>
+<g class="node" data-id="Start" data-label="POST auth login" data-shape="rectangle">
+  <rect x="107.91174999999998" y="36" width="135.316" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="175.56975" y="54.45" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">POST auth login</text>
+</g>
+<g class="node" data-id="Json" data-label="请求体有效" data-shape="diamond">
+  <polygon points="175.56975000000003,116.9 245.59475000000003,186.925 175.56975000000003,256.95000000000005 105.54475000000002,186.925" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="175.56975000000003" y="186.925" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">请求体有效</text>
+</g>
+<g class="node" data-id="Param" data-label="400 参数错误" data-shape="rectangle">
+  <rect x="36" y="680.891" width="125.68299999999999" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="98.8415" y="699.341" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">400 参数错误</text>
+</g>
+<g class="node" data-id="Limit" data-label="登录限流" data-shape="diamond">
+  <polygon points="252.298,365.25 314.913,427.865 252.298,490.48 189.683,427.865" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="252.298" y="427.865" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">登录限流</text>
+</g>
+<g class="node" data-id="TooMany" data-label="429 与 Retry After" data-shape="rectangle">
+  <rect x="137.00325000000004" y="761.7909999999999" width="146.43099999999998" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="210.21875000000003" y="780.241" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">429 与 Retry After</text>
+</g>
+<g class="node" data-id="CaptchaMode" data-label="携带 sessionId" data-shape="diamond">
+  <polygon points="389.23975,578.78 467.04525,656.5854999999999 389.23975,734.3909999999998 311.43425,656.5854999999999" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="389.23975" y="656.5854999999999" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">携带 sessionId</text>
+</g>
+<g class="node" data-id="LocalFlag" data-label="允许本地快捷登录" data-shape="diamond">
+  <polygon points="331.1105416666667,842.6909999999999 423.3655416666667,934.9459999999999 331.1105416666667,1027.201 238.85554166666668,934.9459999999999" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="331.1105416666667" y="934.9459999999999" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">允许本地快捷登录</text>
+</g>
+<g class="node" data-id="LocalPass" data-label="加密密码匹配" data-shape="diamond">
+  <polygon points="272.8930416666667,1135.501 350.3280416666667,1212.936 272.8930416666667,1290.3709999999999 195.4580416666667,1212.936" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="272.8930416666667" y="1212.936" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">加密密码匹配</text>
+</g>
+<g class="node" data-id="Touch" data-label="更新登录与活跃时间" data-shape="rectangle">
+  <rect x="117.22787500000004" y="1763.516" width="175.32999999999998" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="204.89287500000003" y="1781.9660000000001" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">更新登录与活跃时间</text>
+</g>
+<g class="node" data-id="LocalJwt" data-label="签发 Self JWT" data-shape="rectangle">
+  <rect x="141.31037500000002" y="1849.288" width="127.16499999999999" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="204.892875" y="1867.738" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">签发 Self JWT</text>
+</g>
+<g class="node" data-id="NewClient" data-label="新建 CAS CookieJar" data-shape="rectangle">
+  <rect x="320.557875" y="1398.6709999999998" width="166.438" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="403.776875" y="1417.1209999999999" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">新建 CAS CookieJar</text>
+</g>
+<g class="node" data-id="Restore" data-label="验证码会话存在" data-shape="diamond">
+  <polygon points="599.679125,1039.7809999999997 684.524125,1124.6259999999997 599.679125,1209.4709999999998 514.834125,1124.6259999999997" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="599.679125" y="1124.6259999999997" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">验证码会话存在</text>
+</g>
+<g class="node" data-id="CaptchaExpired" data-label="400 验证码会话过期" data-shape="rectangle">
+  <rect x="452.571875" y="1317.7709999999997" width="170.14299999999997" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="537.643375" y="1336.2209999999998" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">400 验证码会话过期</text>
+</g>
+<g class="node" data-id="RestoreJar" data-label="一次性恢复 CookieJar 与 execution" data-shape="rectangle">
+  <rect x="532.3269583333333" y="1479.571" width="259.063" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="661.8584583333334" y="1498.021" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">一次性恢复 CookieJar 与 execution</text>
+</g>
+<g class="node" data-id="Execution" data-label="获取 CAS execution" data-shape="rectangle">
+  <rect x="323.521875" y="1479.571" width="160.51" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="403.776875" y="1498.021" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">获取 CAS execution</text>
+</g>
+<g class="node" data-id="CasLogin" data-label="获取公钥 加密密码 提交 CAS" data-shape="rectangle">
+  <rect x="429.7357083333333" y="1560.471" width="223.49499999999998" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="541.4832083333333" y="1578.921" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">获取公钥 加密密码 提交 CAS</text>
+</g>
+<g class="node" data-id="CasResult" data-label="CAS 结果" data-shape="diamond">
+  <polygon points="541.4832083333333,1641.371 603.7277083333333,1703.6155 541.4832083333333,1765.8600000000001 479.2387083333333,1703.6155" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="541.4832083333333" y="1703.6155" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">CAS 结果</text>
+</g>
+<g class="node" data-id="LoginFail" data-label="记录失败并返回 3001" data-shape="rectangle">
+  <rect x="130.55716666666672" y="1989.6160000000002" width="173.10699999999997" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="217.1106666666667" y="2008.0660000000003" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">记录失败并返回 3001</text>
+</g>
+<g class="node" data-id="FetchCaptcha" data-label="获取图片和新 execution" data-shape="rectangle">
+  <rect x="331.6641666666667" y="1989.6160000000002" width="190.89099999999996" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="427.10966666666667" y="2008.0660000000003" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">获取图片和新 execution</text>
+</g>
+<g class="node" data-id="SaveCaptcha" data-label="内存保存会话 最多 1000 条 10 分钟" data-shape="rectangle">
+  <rect x="301.28316666666666" y="2070.516" width="251.653" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="427.10966666666667" y="2088.966" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">内存保存会话 最多 1000 条 10 分钟</text>
+</g>
+<g class="node" data-id="NeedCaptcha" data-label="返回 sessionId 与图片" data-shape="rectangle">
+  <rect x="337.9626666666667" y="2572.5500000000006" width="178.29399999999998" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="427.10966666666667" y="2591.0000000000005" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">返回 sessionId 与图片</text>
+</g>
+<g class="node" data-id="Portal" data-label="响应含 Portal Token" data-shape="diamond">
+  <polygon points="672.4179166666668,1849.288 766.8959166666668,1943.766 672.4179166666668,2038.2440000000001 577.9399166666667,1943.766" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="672.4179166666668" y="1943.766" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">响应含 Portal Token</text>
+</g>
+<g class="node" data-id="ExchangePortal" data-label="TGC 换 Portal Token" data-shape="rectangle">
+  <rect x="544.2566666666667" y="2151.416" width="164.21499999999997" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="626.3641666666666" y="2169.866" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">TGC 换 Portal Token</text>
+</g>
+<g class="node" data-id="ActivateJw" data-label="激活 JW 最多三次" data-shape="rectangle">
+  <rect x="594.7564166666666" y="2232.3160000000003" width="155.32299999999998" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="672.4179166666665" y="2250.766" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">激活 JW 最多三次</text>
+</g>
+<g class="node" data-id="SchoolReady" data-label="Portal 或 JW 至少一个可用" data-shape="diamond">
+  <polygon points="672.4179166666667,2313.2160000000003 788.3849166666666,2429.1830000000004 672.4179166666667,2545.1500000000005 556.4509166666667,2429.1830000000004" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="672.4179166666667" y="2429.1830000000004" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Portal 或 JW 至少一个可用</text>
+</g>
+<g class="node" data-id="ActivateFail" data-label="记录失败并返回 3001" data-shape="rectangle">
+  <rect x="473.8254166666667" y="2653.4500000000007" width="173.10699999999997" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="560.3789166666667" y="2671.9000000000005" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">记录失败并返回 3001</text>
+</g>
+<g class="node" data-id="PersistUser" data-label="Upsert 用户并 AES 保存密码" data-shape="rectangle">
+  <rect x="674.9324166666665" y="2653.450000000001" width="219.04899999999998" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="784.4569166666665" y="2671.900000000001" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Upsert 用户并 AES 保存密码</text>
+</g>
+<g class="node" data-id="PersistCred" data-label="保存 TGC Portal JW 可用凭证" data-shape="rectangle">
+  <rect x="673.4504166666666" y="2734.3500000000013" width="222.013" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="784.4569166666665" y="2752.800000000001" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">保存 TGC Portal JW 可用凭证</text>
+</g>
+<g class="node" data-id="ClearFlag" data-label="清除交互登录标记" data-shape="rectangle">
+  <rect x="704.2019166666666" y="2815.2500000000014" width="160.51" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="784.4569166666666" y="2833.700000000001" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">清除交互登录标记</text>
+</g>
+<g class="node" data-id="Profile" data-label="Portal 可用且资料缺失" data-shape="diamond">
+  <polygon points="784.4569166666666,2896.1500000000015 888.1974166666666,2999.8905000000013 784.4569166666666,3103.631000000001 680.7164166666666,2999.8905000000013" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="784.4569166666666" y="2999.8905000000013" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Portal 可用且资料缺失</text>
+</g>
+<g class="node" data-id="Backfill" data-label="回填姓名与班级" data-shape="rectangle">
+  <rect x="670.1894166666666" y="3211.9310000000014" width="145.69" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="743.0344166666666" y="3230.381000000001" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">回填姓名与班级</text>
+</g>
+<g class="node" data-id="FinalJwt" data-label="签发 Self JWT" data-shape="rectangle">
+  <rect x="720.8744166666667" y="3292.8310000000015" width="127.16499999999999" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="784.4569166666666" y="3311.2810000000013" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">签发 Self JWT</text>
+</g>
+</svg>
