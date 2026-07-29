@@ -1,15 +1,13 @@
 /**
- * [INPUT]: 依赖 motion/react 的出入场动画、Card 容器与浏览器键盘/滚动能力
- * [OUTPUT]: 对外提供 BottomSheet，统一遮罩、对话框语义、页面锁滚动与移动/桌面弹层布局
- * [POS]: shared/ui 的模态容器原语，移动端使用不透明面板隔绝底部导航，桌面端保留玻璃层次
+ * [INPUT]: 依赖 Radix Dialog 的焦点管理、Portal 与浏览器对话框语义
+ * [OUTPUT]: 对外提供 BottomSheet，移动端呈现短任务底部抽屉，桌面端呈现居中对话框
+ * [POS]: shared/ui 的模态交互原语，负责遮罩、Esc、焦点锁定与安全区，不承载长表单
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import type { PropsWithChildren } from 'react';
-import { useEffect } from 'react';
-import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import * as Dialog from '@radix-ui/react-dialog';
 import { cn } from '@/shared/lib/cn';
-import { Card } from '@/shared/ui/card';
 
 interface BottomSheetProps extends PropsWithChildren {
   open: boolean;
@@ -25,7 +23,7 @@ interface BottomSheetProps extends PropsWithChildren {
 export function BottomSheet({
   open,
   onClose,
-  closeLabel = '关闭弹层',
+  closeLabel = '关闭',
   contentClassName,
   overlayClassName,
   sheetClassName,
@@ -33,104 +31,47 @@ export function BottomSheet({
   showHandle = true,
   children,
 }: BottomSheetProps) {
-  const prefersReducedMotion = useReducedMotion();
-  const isMobileViewport =
-    typeof window !== 'undefined' && window.matchMedia('(max-width: 639px)').matches;
-
-  const overlayTransition = prefersReducedMotion
-    ? { duration: 0 }
-    : {
-        duration: isMobileViewport ? 0.14 : 0.18,
-        ease: [0.22, 1, 0.36, 1] as const,
-      };
-
-  const sheetTransition = prefersReducedMotion
-    ? { duration: 0 }
-    : {
-        duration: isMobileViewport ? 0.18 : 0.24,
-        ease: [0.22, 1, 0.36, 1] as const,
-      };
-
-  const sheetMotion = prefersReducedMotion
-    ? { initial: { y: 0, opacity: 1 }, exit: { y: 0, opacity: 1 } }
-    : {
-        initial: { y: isMobileViewport ? 20 : 28, opacity: 0 },
-        exit: { y: isMobileViewport ? 16 : 22, opacity: 0 },
-      };
-
-  useEffect(() => {
-    if (!open) return;
-
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        onClose();
-      }
-    };
-
-    window.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener('keydown', onKeyDown);
-    };
-  }, [onClose, open]);
-
   return (
-    <AnimatePresence>
-      {open ? (
-        <>
-          <motion.button
-            aria-label={closeLabel}
+    <Dialog.Root open={open} onOpenChange={(nextOpen) => {
+      if (!nextOpen) onClose();
+    }}>
+      <Dialog.Portal>
+        <Dialog.Overlay
+          className={cn(
+            'fixed inset-0 z-40 bg-black/40 data-[state=closed]:animate-out data-[state=open]:animate-in data-[state=closed]:fade-out data-[state=open]:fade-in',
+            overlayClassName
+          )}
+        />
+        <div
+          className={cn(
+            'pointer-events-none fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6',
+            viewportClassName
+          )}
+        >
+          <Dialog.Content
+            aria-describedby={undefined}
             className={cn(
-              'fixed inset-0 z-40 bg-black/20 sm:backdrop-blur-[2px] max-sm:bg-black/24',
-              overlayClassName
+              'pointer-events-auto max-h-[92dvh] w-full overflow-hidden rounded-t-[1rem] border border-line bg-white shadow-[0_20px_60px_rgba(0,0,0,0.18)] outline-none sm:max-w-[var(--layout-sheet-max)] sm:rounded-[0.875rem]',
+              sheetClassName
             )}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={overlayTransition}
-            type="button"
-            onClick={onClose}
-          />
-          <motion.div
-            aria-modal="true"
-            className={cn(
-              'fixed inset-x-0 bottom-0 z-50 mx-auto w-full max-w-[var(--layout-sheet-max)] transform-gpu px-[var(--space-sheet-x)] pb-[calc(var(--space-tab-bottom)+0.2rem)] sm:px-6',
-              viewportClassName
-            )}
-            initial={sheetMotion.initial}
-            animate={{ y: 0, opacity: 1 }}
-            exit={sheetMotion.exit}
-            role="dialog"
-            style={{ willChange: 'transform, opacity' }}
-            transition={sheetTransition}
           >
-            <Card
+            <Dialog.Title className="sr-only">{closeLabel}</Dialog.Title>
+            {showHandle ? (
+              <div className="flex justify-center pb-1 pt-2.5 sm:hidden">
+                <span className="h-1 w-9 rounded-full bg-black/15" />
+              </div>
+            ) : null}
+            <div
               className={cn(
-                'max-h-[min(88dvh,56rem)] overflow-hidden rounded-[1.55rem] border-white/80 bg-card-strong p-0 max-sm:bg-white max-sm:shadow-[0_14px_32px_rgba(15,23,42,0.14)] sm:rounded-[2rem]',
-                sheetClassName
+                'max-h-[calc(92dvh-1rem)] overflow-y-auto overscroll-contain px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-3 sm:max-h-[calc(88dvh-2rem)] sm:px-5 sm:pb-5 sm:pt-5',
+                contentClassName
               )}
             >
-              {showHandle ? (
-                <div className="flex justify-center pt-2.5 sm:pt-3">
-                  <span className="h-1.5 w-10 rounded-pill bg-black/10 sm:w-12" />
-                </div>
-              ) : null}
-              <div
-                className={cn(
-                  'max-h-[calc(min(88dvh,56rem)-1rem)] overflow-y-auto px-[var(--space-card-padding)] pb-[var(--space-sheet-y)] sm:px-6',
-                  showHandle ? 'pt-2.5 sm:pt-3' : 'pt-[var(--space-sheet-y)]',
-                  contentClassName
-                )}
-              >
-                {children}
-              </div>
-            </Card>
-          </motion.div>
-        </>
-      ) : null}
-    </AnimatePresence>
+              {children}
+            </div>
+          </Dialog.Content>
+        </div>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }

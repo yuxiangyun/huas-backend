@@ -23,7 +23,7 @@ import { Card } from '@/shared/ui/card';
 import { ConfirmSheet } from '@/shared/ui/confirm-sheet';
 
 const fieldClassName =
-  'h-11 w-full rounded-[1rem] border border-line bg-white/86 px-3 text-sm text-ink outline-none transition focus:border-transparent focus:ring-2 focus:ring-black/10';
+  'field-control h-11 min-h-11 py-2 text-sm';
 
 function parsePositiveParam(value: string | null, fallback: number) {
   const parsed = Number(value);
@@ -199,21 +199,22 @@ export function AdminTreeholeSubPage() {
 
   return (
     <div className="space-y-4">
+      <h1 className="text-2xl font-semibold tracking-[-0.025em]">树洞内容</h1>
       <div className="grid gap-3 sm:grid-cols-3">
         <Card className="space-y-1.5 bg-card-strong">
-          <p className="text-xs uppercase tracking-[0.18em] text-muted">树洞总数</p>
+          <p className="text-xs text-muted">动态</p>
           <p className="text-[1.6rem] font-semibold tracking-[-0.04em] text-ink">
             {postsQuery.data?.summary.totalPosts ?? 0}
           </p>
         </Card>
         <Card className="space-y-1.5 bg-card-strong">
-          <p className="text-xs uppercase tracking-[0.18em] text-muted">评论总数</p>
+          <p className="text-xs text-muted">评论</p>
           <p className="text-[1.6rem] font-semibold tracking-[-0.04em] text-ink">
             {postsQuery.data?.summary.totalComments ?? 0}
           </p>
         </Card>
         <Card className="space-y-1.5 bg-card-strong">
-          <p className="text-xs uppercase tracking-[0.18em] text-muted">点赞总数</p>
+          <p className="text-xs text-muted">点赞</p>
           <p className="text-[1.6rem] font-semibold tracking-[-0.04em] text-ink">
             {postsQuery.data?.summary.totalLikes ?? 0}
           </p>
@@ -294,22 +295,15 @@ export function AdminTreeholeSubPage() {
         </div>
 
         {postsQuery.isError ? (
-          <div className="rounded-[1rem] bg-[#fde9e5] px-4 py-3 text-sm leading-6 text-[#8a342c] ring-1 ring-[#efc9c0]">
-            {getErrorMessage(postsQuery.error, '树洞列表加载失败')}
-          </div>
+          <p className="text-sm text-error">加载失败，请重试</p>
         ) : null}
       </Card>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(22rem,0.9fr)]">
         <Card className="overflow-hidden bg-card-strong p-0">
           <div className="flex items-center justify-between border-b border-line/70 px-4 py-3">
-            <div>
-              <p className="text-base font-semibold text-ink">树洞列表</p>
-              <p className="text-sm leading-6 text-muted">
-                {postsQuery.data ? `共 ${postsQuery.data.total} 条，当前第 ${postsQuery.data.page} / ${totalPages} 页` : '等待加载'}
-              </p>
-            </div>
-            <span className="text-sm text-muted">{keyword ? `关键词：${keyword}` : '全部内容'}</span>
+            <div className="flex items-baseline gap-2"><p className="text-base font-semibold text-ink">动态</p>{postsQuery.data ? <span className="text-xs text-muted">{postsQuery.data.total} 条</span> : null}</div>
+            {keyword ? <span className="text-sm text-muted">{keyword}</span> : null}
           </div>
 
           <div className="overflow-auto">
@@ -352,7 +346,8 @@ export function AdminTreeholeSubPage() {
                         <Button
                           size="xs"
                           type="button"
-                          variant="danger"
+                          className="text-error hover:text-error"
+                          variant="ghost"
                           disabled={deletePostMutation.isPending}
                           onClick={() => setPendingDeletePostId(post.id)}
                         >
@@ -424,11 +419,7 @@ export function AdminTreeholeSubPage() {
                 {[selectedPost.author.studentId, selectedPost.author.name, selectedPost.author.className].filter(Boolean).join(' · ')}
               </div>
 
-              {commentsQuery.isError && !(commentsQuery.error instanceof ApiError && commentsQuery.error.httpStatus === 404) ? (
-                <div className="px-4 py-4 text-sm text-[#8a342c]">
-                  {getErrorMessage(commentsQuery.error, '评论加载失败')}
-                </div>
-              ) : null}
+              {commentsQuery.isError && !(commentsQuery.error instanceof ApiError && commentsQuery.error.httpStatus === 404) ? <div className="px-4 py-4 text-sm text-error">评论加载失败，请重试</div> : null}
 
               <div className="max-h-[35rem] overflow-auto">
                 <table className="min-w-full table-fixed text-left text-sm">
@@ -454,7 +445,8 @@ export function AdminTreeholeSubPage() {
                           <Button
                             size="xs"
                             type="button"
-                            variant="danger"
+                            className="text-error hover:text-error"
+                            variant="ghost"
                             disabled={deleteCommentMutation.isPending}
                             onClick={() => setPendingDeleteCommentId(comment.id)}
                           >
@@ -513,9 +505,9 @@ export function AdminTreeholeSubPage() {
       <ConfirmSheet
         open={pendingDeletePostId !== null}
         busy={deletePostMutation.isPending}
-        title={pendingDeletePostId ? `确认删除树洞 #${pendingDeletePostId}？` : '确认删除该树洞？'}
+        title={pendingDeletePostId ? `删除树洞 #${pendingDeletePostId}？` : '删除树洞？'}
         description="删除后不可恢复。"
-        confirmLabel="确认删帖"
+        confirmLabel="删除"
         tone="danger"
         onClose={() => setPendingDeletePostId(null)}
         onConfirm={() => {
@@ -527,9 +519,9 @@ export function AdminTreeholeSubPage() {
       <ConfirmSheet
         open={pendingDeleteCommentId !== null}
         busy={deleteCommentMutation.isPending}
-        title={pendingDeleteCommentId ? `确认删除评论 #${pendingDeleteCommentId}？` : '确认删除该评论？'}
+        title={pendingDeleteCommentId ? `删除评论 #${pendingDeleteCommentId}？` : '删除评论？'}
         description="删除后不可恢复。"
-        confirmLabel="确认删除"
+        confirmLabel="删除"
         tone="danger"
         onClose={() => setPendingDeleteCommentId(null)}
         onConfirm={() => {

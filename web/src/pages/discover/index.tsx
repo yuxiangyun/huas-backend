@@ -8,7 +8,6 @@
 import { lazy, startTransition, Suspense, useEffect, useState } from 'react';
 import { useIsFetching, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { useToastStore } from '@/app/state/toast-store';
 import { useUiStore } from '@/app/state/ui-store';
 import { useDiscoverMetaQuery } from '@/entities/discover/api/discover-queries';
 import { discoverQueryKeys } from '@/entities/discover/model/discover-query-keys';
@@ -17,7 +16,6 @@ import {
   type DiscoverCategory,
   type DiscoverSort,
 } from '@/entities/discover/model/discover-types';
-import { PageHeader } from '@/shared/ui/page-header';
 import { DiscoverFeed } from '@/widgets/discover-feed/discover-feed';
 
 const loadDiscoverComposeSheet = () => import('@/widgets/discover-compose-sheet/discover-compose-sheet');
@@ -49,7 +47,6 @@ function parseCategory(value: string | null): DiscoverCategory | 'all' {
 export function DiscoverPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
-  const pushToast = useToastStore((state) => state.pushToast);
   const setActiveTab = useUiStore((state) => state.setActiveTab);
   const composeSheetOpen = useUiStore((state) => state.discoverComposeSheetOpen);
   const openComposeSheet = useUiStore((state) => state.openDiscoverComposeSheet);
@@ -107,25 +104,12 @@ export function DiscoverPage() {
     });
   }
 
-  const handleRefreshDiscover = async () => {
-    try {
-      await queryClient.refetchQueries({
-        queryKey: currentListQueryKey,
-        exact: true,
-        type: 'active',
-      }, {
-        throwOnError: true,
-      });
-      pushToast({
-        title: '已刷新',
-        variant: 'success',
-      });
-    } catch {
-      pushToast({
-        title: '刷新失败',
-        variant: 'error',
-      });
-    }
+  const handleRefreshDiscover = () => {
+    void queryClient.refetchQueries({
+      queryKey: currentListQueryKey,
+      exact: true,
+      type: 'active',
+    });
   };
 
   const handleOpenComposeSheet = () => {
@@ -144,18 +128,12 @@ export function DiscoverPage() {
 
   return (
     <div className="page-stack-mobile">
-      <PageHeader
-        compact
-        description="看推荐，也能发"
-        title="拍好饭"
-      />
-
       <DiscoverFeed
         categories={metaQuery.data?.categories ?? DISCOVER_CATEGORIES}
         category={category}
         sort={sort}
         onComposeClick={handleOpenComposeSheet}
-        onRefreshClick={() => void handleRefreshDiscover()}
+        onRefreshClick={handleRefreshDiscover}
         refreshing={discoverFetchingCount > 0}
         onCategoryChange={(nextCategory) =>
           patchSearchParams((params) => {
@@ -175,7 +153,7 @@ export function DiscoverPage() {
       {metaQuery.isError ? (
         <div className="px-1">
           <div className="rounded-[1.2rem] bg-error-soft px-4 py-3 text-sm leading-6 text-error">
-            {metaQuery.error instanceof Error ? metaQuery.error.message : '分类信息加载失败'}
+            分类加载失败，请重试
           </div>
         </div>
       ) : null}

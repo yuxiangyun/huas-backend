@@ -6,7 +6,7 @@ index.ts: SQLite 运行期兼容入口，创建连接并委托版本化 migratio
 migrator.ts: migration 事务执行与版本记录内核，基于结构化 schema 指纹严格控制 baseline adoption 和漂移拒绝
 migrations/: 不可变编号 migration 目录，保存 0001 baseline 与唯一版本注册表
 repair.ts: Discover/Treehole 派生计数显式修复内核，支持无写入 dry-run 与幂等事务更新
-schema.ts: Drizzle 表结构类型相，声明 users、credentials、cache、discover、treehole 与每日分析事实表
+schema.ts: Drizzle 表结构类型相，声明含社区资料的 users、credentials、cache、discover、treehole 与每日分析事实表
 snapshot.ts: 部署前 SQLite VACUUM INTO 快照内核，输出带时间、schema version 与 release 的一致性副本
 
 架构决策
@@ -22,6 +22,7 @@ credentials 除三个学校凭证外，还承载无敏感值、无 TTL 的 `inte
 migration 只允许 expand-contract 前向演进，不提供自动 down，不执行破坏性 DDL；已发布 migration 不得改写。
 
 变更日志
+2026-07-29: 新增 0002 expand-only 迁移与 community_nickname 类型映射，社区昵称不覆盖校园真实姓名。
 2026-07-27: 建立 0001 baseline、迁移记录与严格指纹 adoption；派生计数 repair 和部署前 snapshot 从普通启动中分离。
 2026-07-12: 新增渠道每日指标与去重活跃用户事实表，为后台时间序列提供可信口径。
 2026-07-12: 明确 credentials 的第四种内部值用于跨进程保存验证码恢复状态，不扩展公开凭证类型。

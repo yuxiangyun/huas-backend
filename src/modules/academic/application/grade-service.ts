@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 GradeApplicationPorts、canonical GradeParser/端点、config 与统一错误
- * [OUTPUT]: 对外提供可注入 GradeApplicationPorts 的 GradeApplicationService
- * [POS]: academic/application 的成绩读取用例，合并同键同刷新意图回源并拒绝缓存上游错误页
+ * [OUTPUT]: 对外提供可注入 GradeApplicationPorts 的 GradeApplicationService，以 45 秒总预算有限恢复凭证和重试成绩临时故障
+ * [POS]: academic/application 的 fresh-first 成绩读取用例，合并同键刷新并仅在新鲜路径穷尽后进入 stale fallback
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -16,6 +16,11 @@ function assertGradeResponse(response: Response) {
   if (response.status < 200 || response.status >= 300) {
     throw new Error(`GRADE_HTTP_${response.status}`);
   }
+}
+
+function isRetryableGradeError(error: unknown): boolean {
+  const message = String((error as any)?.message || '');
+  return /^GRADE_HTTP_(?:502|503|504)$/.test(message) || message === 'GRADE_PAGE_INVALID';
 }
 
 export class GradeApplicationService {
@@ -73,6 +78,11 @@ export class GradeApplicationService {
               listUrl: discovery.listUrl,
             });
           }
+        }, {
+          totalTimeoutMs: config.timeout.gradeFreshBudget,
+          credentialMaxAttempts: 2,
+          requestMaxAttempts: config.retry.businessMaxAttempts,
+          isRetryableError: isRetryableGradeError,
         }),
       );
     } catch (error) {

@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 React 节点类型与 shared/lib/cn 的样式合并能力
+ * [OUTPUT]: 对外提供 SegmentedControl 与选项类型，统一单选分段交互
+ * [POS]: shared/ui 的受控选择原语，由调用方管理当前值与变更结果
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import type { ReactNode } from 'react';
 import { cn } from '@/shared/lib/cn';
 
@@ -34,10 +41,10 @@ export function SegmentedControl<T extends string>({
   return (
     <div
       className={cn(
-        'glass-panel flex items-center gap-1 p-1',
+        'flex items-center gap-1 border border-line bg-tint-soft p-1',
         layout === 'fill'
-          ? 'w-full rounded-[1.4rem]'
-          : 'inline-flex max-w-full rounded-[1.25rem]',
+          ? 'w-full rounded-[0.75rem]'
+          : 'inline-flex max-w-full rounded-[0.75rem]',
         className
       )}
     >
@@ -50,12 +57,12 @@ export function SegmentedControl<T extends string>({
               key={item.value}
               aria-pressed={active}
               className={cn(
-                'rounded-pill font-medium whitespace-nowrap transition duration-150 disabled:cursor-not-allowed disabled:opacity-45 motion-reduce:transition-none',
+                'rounded-[0.5rem] font-medium whitespace-nowrap transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/35 disabled:cursor-not-allowed disabled:opacity-45 motion-reduce:transition-none',
                 itemSizeClasses[size],
                 layout === 'fill' ? 'flex-1 px-3' : 'shrink-0 px-4',
                 active
-                  ? 'bg-ink text-white shadow-card max-sm:shadow-none'
-                  : 'text-muted hover:bg-white/65 hover:text-ink active:bg-white'
+                  ? 'bg-white text-ink shadow-card'
+                  : 'text-muted hover:text-ink'
               )}
               disabled={item.disabled}
               type="button"

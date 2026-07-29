@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 TreeholePersistence port、Drizzle 用户头像可见性查询及用户/管理 SQLite adapter
+ * [INPUT]: 依赖 TreeholePersistence port、Drizzle 社区资料可见性查询及用户/管理 SQLite adapter
  * [OUTPUT]: 对外提供完整实现 TreeholePersistence 的 SQLiteTreeholePersistence
  * [POS]: modules/treehole/infrastructure 的聚合持久化 adapter，向 application 隐藏 SQL 职责拆分
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -21,7 +21,11 @@ export class SQLiteTreeholePersistence implements TreeholePersistence {
   private readonly admin = new SQLiteTreeholeAdminPersistence();
 
   getAvatar(userId: number) { return this.user.getAvatar(userId); }
+  getCommunityProfile(userId: number) { return this.user.getCommunityProfile(userId); }
   setAvatarUrl(userId: number, avatarUrl: string | null) { return this.user.setAvatarUrl(userId, avatarUrl); }
+  setCommunityProfile(userId: number, profile: { nickname: string | null; avatarUrl?: string }) {
+    return this.user.setCommunityProfile(userId, profile);
+  }
   getUnreadNotificationCount(userId: number) { return this.user.getUnreadNotificationCount(userId); }
   markAllNotificationsRead(userId: number) { return this.user.markAllNotificationsRead(userId); }
   listPosts(options: { userId: number; page: number; pageSize: number }) { return this.user.listPosts(options); }

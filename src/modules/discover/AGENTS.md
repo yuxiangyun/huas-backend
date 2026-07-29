@@ -12,5 +12,9 @@ composition.ts: 模块组合根，注入 SQLite 与媒体 adapter，并暴露兼
 依赖方向固定为 http → composition → application → domain ports；composition 单点连接 infrastructure，application 不感知 Drizzle、Bun 或文件系统。
 评分聚合、评论计数等事务整体保留在 SQLite adapter；发帖失败媒体补偿与软删除后媒体清理由 application 编排。
 Operations 只消费 DiscoverOperationsQueryPort，帖子/评分表、作者 join 与图片 JSON 映射不越出本模块。
+前台作者资料从 users 实时投影：昵称优先、班级脱敏标签回退；头像可空且不写入 Discover 内容表。
+
+变更日志
+2026-07-29: Discover 帖子与评论接入共享社区昵称/头像，保留无昵称时的既有同学标签。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md

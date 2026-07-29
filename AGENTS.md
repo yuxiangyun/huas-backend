@@ -341,9 +341,11 @@ AGENTS.md 是全局导航入口；各模块通过 L2 地图与业务文件 L3 �
 SQLite 是业务事实源；data 下 JSON、媒体与内存态只承载运行策略、会话或资源，不代替业务表。
 学校上游凭证由 CredentialManager 收敛，客户端只持本服务 JWT；凭证恢复失败统一返回 3003。
 课表由 Academic Facade 按持久化策略执行双源 current，再按 JW、Portal 固定顺序选择 stale；管理面只调用 Academic 暴露的策略用例。
+成绩强制刷新执行 JW fresh-first：45 秒总预算内有限恢复凭证并重试明确临时错误，只有新鲜路径穷尽后才允许 stale fallback。
 课表来源策略文件默认位于 dirname(DB_PATH)，生产蓝绿槽必须共享同一绝对持久路径，运行态 JSON、锁与临时文件不得纳入 Git。
 discover 与 treehole 是独立业务支线，媒体访问挂载于 /media/*，不经过学校上游。
-Web 入口为 /m，管理端使用独立 HttpOnly Cookie 会话，普通用户 JWT 与后台权限不互通。
+Web 社区昵称与头像存于 users 并实时投影到 discover/treehole；昵称不覆盖校园姓名，内容事实表不保存资料快照。
+Web 入口为 /m，普通用户默认进入 Treehole；管理端使用独立 HttpOnly Cookie 会话，普通用户 JWT 与后台权限不互通。
 Git push 始终把当前 HEAD 推到 baidu/main，由远端 hook 完成数据库快照、迁移、非活动槽构建、readiness 与 nginx 原子切流。
 </architecture_decisions>
 
@@ -358,6 +360,7 @@ Git push 始终把当前 HEAD 推到 baidu/main，由远端 hook 完成数据库
 /api/schedule、/api/v1/schedule - 双源课表与兼容入口
 /api/grades、/api/ecard、/api/user - 校园业务接口
 /api/discover/*、/api/treehole/* - 独立 UGC 业务
+/api/treehole/profile - Web 社区昵称与头像的认证读写入口
 /api/classrooms/* - 管理员账号代查的空教室只读接口
 /media/discover/*、/media/treehole-avatar/* - 静态媒体访问
 </routes>

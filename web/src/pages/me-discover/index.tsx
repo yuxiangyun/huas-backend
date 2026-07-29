@@ -1,18 +1,17 @@
 /**
- * [INPUT]: 依赖当前用户 Discover 无限列表查询、个人内容面板与 React Router 导航
- * [OUTPUT]: 对外提供 MeDiscoverPage，展示个人发布概览、列表与详情返回路径
- * [POS]: pages/me-discover 的页面编排器，负责聚合已加载数据，不复制帖子卡片展示逻辑
+ * [INPUT]: 依赖当前用户 Discover 无限列表、个人内容面板与 React Router 导航
+ * [OUTPUT]: 对外提供 MeDiscoverPage，展示当前用户的好饭发布列表
+ * [POS]: pages/me-discover 的路由编排器，不重复列表统计或详情卡片
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
+import { ArrowLeft } from 'lucide-react';
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft20Filled } from '@fluentui/react-icons/svg/arrow-left';
 import { appRoutes } from '@/app/router/paths';
 import { useUiStore } from '@/app/state/ui-store';
 import { useMyDiscoverInfinitePostsQuery } from '@/entities/discover/api/discover-queries';
-import { Button } from '@/shared/ui/button';
-import { Card } from '@/shared/ui/card';
+import { IconButton } from '@/shared/ui/icon-button';
 import { PageHeader } from '@/shared/ui/page-header';
 import { MyPostsPanel } from '@/widgets/my-posts-panel/my-posts-panel';
 
@@ -21,93 +20,26 @@ export function MeDiscoverPage() {
   const setActiveTab = useUiStore((state) => state.setActiveTab);
   const myPostsQuery = useMyDiscoverInfinitePostsQuery({ pageSize: 10 });
   const myPosts = myPostsQuery.data?.pages.flatMap((page) => page.items) ?? [];
-  const totalPosts = myPostsQuery.data?.pages[0]?.total ?? myPosts.length;
-  const totalComments = myPosts.reduce((sum, post) => sum + post.commentCount, 0);
-  const averageRating = myPosts.length
-    ? myPosts.reduce((sum, post) => sum + post.rating.average, 0) / myPosts.length
-    : 0;
-  const categoryCounts = myPosts.reduce<Record<string, number>>((acc, post) => {
-    acc[post.category] = (acc[post.category] || 0) + 1;
-    return acc;
-  }, {});
-  const topCategoryEntry = Object.entries(categoryCounts).sort((a, b) => b[1] - a[1])[0];
 
-  useEffect(() => {
-    setActiveTab('me');
-  }, [setActiveTab]);
+  useEffect(() => setActiveTab('me'), [setActiveTab]);
 
   return (
     <div className="page-stack-mobile">
       <PageHeader
-        action={(
-          <Button className="px-2.5" size="sm" type="button" variant="ghost" onClick={() => navigate(appRoutes.me)}>
-            <ArrowLeft20Filled aria-hidden="true" className="size-4" />
-            返回
-          </Button>
-        )}
+        action={<IconButton icon={<ArrowLeft aria-hidden="true" className="size-4" />} label="返回" size="sm" onClick={() => navigate(appRoutes.me)} />}
         compact
-        description="我的发布"
-        eyebrow="拍好饭"
-        title="拍好饭"
+        title="我的好饭"
       />
 
-      <Card className="space-y-3 bg-card-strong">
-        <div className="space-y-1">
-          <p className="text-base font-semibold text-ink">概览</p>
-          <p className="text-sm leading-6 text-muted">
-            只看自己的内容
-          </p>
-        </div>
-
-        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-          <div className="rounded-[1.1rem] bg-white/78 px-3.5 py-3 ring-1 ring-line">
-            <p className="text-xs uppercase tracking-[0.18em] text-muted">发布数</p>
-            <p className="mt-2 text-[1.45rem] font-semibold tracking-[-0.04em] text-ink">{totalPosts}</p>
-            <p className="mt-1.5 text-[0.82rem] leading-5 text-muted">累计</p>
-          </div>
-          <div className="rounded-[1.1rem] bg-white/78 px-3.5 py-3 ring-1 ring-line">
-            <p className="text-xs uppercase tracking-[0.18em] text-muted">评论数</p>
-            <p className="mt-2 text-[1.45rem] font-semibold tracking-[-0.04em] text-ink">{totalComments}</p>
-            <p className="mt-1.5 text-[0.82rem] leading-5 text-muted">已加载</p>
-          </div>
-          <div className="rounded-[1.1rem] bg-white/78 px-3.5 py-3 ring-1 ring-line">
-            <p className="text-xs uppercase tracking-[0.18em] text-muted">平均评分</p>
-            <p className="mt-2 text-[1.45rem] font-semibold tracking-[-0.04em] text-ink">
-              {myPosts.length ? averageRating.toFixed(1) : '--'}
-            </p>
-            <p className="mt-1.5 text-[0.82rem] leading-5 text-muted">已加载</p>
-          </div>
-          <div className="col-span-2 rounded-[1.1rem] bg-white/78 px-3.5 py-3 ring-1 ring-line sm:col-span-1">
-            <p className="text-xs uppercase tracking-[0.18em] text-muted">最常发布</p>
-            <p className="mt-2 text-[1.45rem] font-semibold tracking-[-0.04em] text-ink">
-              {topCategoryEntry?.[0] || '--'}
-            </p>
-            <p className="mt-1.5 text-[0.82rem] leading-5 text-muted">
-              {topCategoryEntry ? `已加载 ${topCategoryEntry[1]} 次` : '暂无'}
-            </p>
-          </div>
-        </div>
-      </Card>
-
-      {myPostsQuery.isError ? (
-        <Card className="space-y-2">
-          <p className="text-base font-semibold text-ink">我的发布加载失败</p>
-          <p className="text-sm leading-6 text-muted">
-            {myPostsQuery.error instanceof Error ? myPostsQuery.error.message : '请求失败'}
-          </p>
-        </Card>
-      ) : null}
+      {myPostsQuery.isError ? <p className="text-sm text-error">加载失败，请重试</p> : null}
 
       <MyPostsPanel
         hasMore={Boolean(myPostsQuery.hasNextPage)}
         loading={myPostsQuery.isLoading}
         loadingMore={myPostsQuery.isFetchingNextPage}
         posts={myPosts}
-        totalCount={totalPosts}
-        refreshing={myPostsQuery.isRefetching}
         onLoadMore={() => void myPostsQuery.fetchNextPage()}
         onOpenPost={(postId) => navigate(`${appRoutes.discover}?postId=${postId}`)}
-        onRefresh={() => void myPostsQuery.refetch()}
       />
     </div>
   );

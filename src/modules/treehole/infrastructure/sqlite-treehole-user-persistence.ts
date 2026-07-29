@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Drizzle db/schema、Treehole domain DTO 与模块内 SQLite 支撑函数
- * [OUTPUT]: 对 SQLiteTreeholePersistence 提供用户侧查询及点赞、评论、通知、删除完整事务
+ * [OUTPUT]: 对 SQLiteTreeholePersistence 提供社区资料、用户侧查询及点赞、评论、通知、删除完整事务
  * [POS]: modules/treehole/infrastructure 的用户侧 SQLite adapter，保持原 SQL 顺序与事务边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -12,6 +12,7 @@ import {
   toCommentResponse,
   toPostResponse,
   type PersistTreeholeCommentInput,
+  type CommunityProfileResponse,
   type TreeholeCommentListResponse,
   type TreeholeCommentRow,
   type TreeholeAvatarResponse,
@@ -26,7 +27,7 @@ import {
   commentSelect,
   findPublicPost,
   getLikedMap,
-  getTreeholeAvatarMap,
+  getCommunityProfileMap,
   postSelect,
   refreshPostCommentCount,
   refreshPostLikeCount,
@@ -48,10 +49,39 @@ export class SQLiteTreeholeUserPersistence {
     };
   }
 
+  async getCommunityProfile(userId: number): Promise<CommunityProfileResponse> {
+    const db = getDb();
+    const rows = await db.select({
+      avatarUrl: schema.users.treeholeAvatarUrl,
+      nickname: schema.users.communityNickname,
+    })
+      .from(schema.users)
+      .where(eq(schema.users.id, userId))
+      .limit(1);
+
+    return {
+      avatarUrl: rows[0]?.avatarUrl || null,
+      nickname: rows[0]?.nickname?.trim() || null,
+    };
+  }
+
   async setAvatarUrl(userId: number, avatarUrl: string | null): Promise<void> {
     const db = getDb();
     await db.update(schema.users)
       .set({ treeholeAvatarUrl: avatarUrl })
+      .where(eq(schema.users.id, userId));
+  }
+
+  async setCommunityProfile(
+    userId: number,
+    profile: { nickname: string | null; avatarUrl?: string },
+  ): Promise<void> {
+    const db = getDb();
+    await db.update(schema.users)
+      .set({
+        communityNickname: profile.nickname,
+        ...(profile.avatarUrl === undefined ? {} : { treeholeAvatarUrl: profile.avatarUrl }),
+      })
       .where(eq(schema.users.id, userId));
   }
 
@@ -150,8 +180,13 @@ export class SQLiteTreeholeUserPersistence {
     if (!row) return null;
 
     const likedMap = await getLikedMap(userId, [postId]);
-    const avatarMap = await getTreeholeAvatarMap([row.userId]);
-    return toPostResponse(row, userId, likedMap.has(postId), avatarMap.get(row.userId) || null);
+    const profileMap = await getCommunityProfileMap([row.userId]);
+    return toPostResponse(
+      row,
+      userId,
+      likedMap.has(postId),
+      profileMap.get(row.userId) ?? { avatarUrl: null, nickname: null },
+    );
   }
 
   async likePost(userId: number, postId: number): Promise<TreeholePostResponse | null> {
@@ -234,10 +269,14 @@ export class SQLiteTreeholeUserPersistence {
       .limit(pageSize)
       .offset((page - 1) * pageSize);
     const typedRows = rows as TreeholeCommentRow[];
-    const avatarMap = await getTreeholeAvatarMap(typedRows.map((row) => row.userId));
+    const profileMap = await getCommunityProfileMap(typedRows.map((row) => row.userId));
 
     return {
-      items: typedRows.map((row) => toCommentResponse(row, userId, avatarMap.get(row.userId) || null)),
+      items: typedRows.map((row) => toCommentResponse(
+        row,
+        userId,
+        profileMap.get(row.userId) ?? { avatarUrl: null, nickname: null },
+      )),
       page,
       pageSize,
       total,
@@ -323,8 +362,12 @@ export class SQLiteTreeholeUserPersistence {
     });
 
     if (!created) return null;
-    const avatarMap = await getTreeholeAvatarMap([created.userId]);
-    return toCommentResponse(created, input.userId, avatarMap.get(created.userId) || null);
+    const profileMap = await getCommunityProfileMap([created.userId]);
+    return toCommentResponse(
+      created,
+      input.userId,
+      profileMap.get(created.userId) ?? { avatarUrl: null, nickname: null },
+    );
   }
 
   async deletePost(postId: number, userId: number) {

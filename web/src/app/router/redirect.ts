@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖应用基路径与用户路由常量，接收登录来源中的路径、查询和 history state
+ * [OUTPUT]: 对外提供站内跳转规范化、登录后树洞兜底跳转与登录地址构造函数
+ * [POS]: app/router 的重定向安全边界，拒绝站外地址并收敛认证前后的导航语义
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { appRoutes } from '@/app/router/paths';
 import { APP_BASENAME, buildAppPath } from '@/shared/config/env';
 
@@ -35,7 +42,7 @@ export function normalizeRedirectPath(raw: unknown) {
     }
 
     if (pathname === appRoutes.login) {
-      return appRoutes.discover;
+      return appRoutes.treehole;
     }
 
     return `${pathname}${url.search}${url.hash}`;
@@ -46,7 +53,7 @@ export function normalizeRedirectPath(raw: unknown) {
 
 export function resolveRedirectPath(
   locationLike: { search?: string; state?: unknown },
-  fallback = appRoutes.discover
+  fallback = appRoutes.treehole
 ) {
   const fromState = normalizeRedirectPath(
     (locationLike.state as { from?: unknown } | null)?.from

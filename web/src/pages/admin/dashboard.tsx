@@ -22,8 +22,8 @@ type Period = 7 | 30 | 90;
 type Point = Record<string, string | number>;
 
 const PLATFORM_CONFIG = {
-  'active.miniprogram': { label: '小程序', color: 'blue' },
-  'active.web': { label: 'Web', color: 'purple' },
+  'active.miniprogram': { label: '小程序', color: 'grey' },
+  'active.web': { label: 'Web', color: 'green' },
 } as const;
 
 const FEATURE_CONFIG = {
@@ -33,8 +33,8 @@ const FEATURE_CONFIG = {
   ecard: { label: '一卡通', color: 'green' },
   classrooms: { label: '空教室', color: 'orange' },
   calendar: { label: '日历订阅', color: 'grey' },
-  discover: { label: 'Discover', color: 'pink' },
-  treehole: { label: 'Treehole', color: 'red' },
+  discover: { label: '好饭', color: 'pink' },
+  treehole: { label: '树洞', color: 'red' },
 } as const;
 
 const PLATFORMS = ['miniprogram', 'web'] as const;
@@ -69,7 +69,7 @@ function formatDuration(seconds: number) {
 
 function MetricCard({ label, value, note }: { label: string; value: string; note: string }) {
   return (
-    <article className="rounded-[1.35rem] border border-black/[0.06] bg-white px-4 py-4 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+    <article className="rounded-[0.75rem] border border-line bg-white px-4 py-4 shadow-card">
       <p className="text-[0.72rem] font-medium tracking-[0.04em] text-muted">{label}</p>
       <p className="mt-2 text-[1.75rem] font-semibold tracking-[-0.045em] text-ink tabular-nums">{value}</p>
       <p className="mt-1 text-xs text-muted">{note}</p>
@@ -84,7 +84,7 @@ function ChartCard({ title, meta, children, className = '' }: {
   className?: string;
 }) {
   return (
-    <section className={`rounded-[1.6rem] border border-black/[0.06] bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.04)] sm:p-5 ${className}`}>
+    <section className={`rounded-[0.75rem] border border-line bg-white p-4 shadow-card sm:p-5 ${className}`}>
       <div className="mb-4 flex items-start justify-between gap-4">
         <div>
           <h2 className="text-[1.05rem] font-semibold tracking-[-0.02em] text-ink">{title}</h2>
@@ -97,7 +97,7 @@ function ChartCard({ title, meta, children, className = '' }: {
 }
 
 function EmptyChart({ note }: { note: string }) {
-  return <div className="grid h-full place-items-center rounded-xl bg-black/[0.018] text-center"><div><p className="text-sm font-medium text-[#6e6e73]">暂无数据</p><p className="mt-1 text-xs text-[#8e8e93]">{note}</p></div></div>;
+  return <div className="grid h-full place-items-center rounded-[0.625rem] bg-tint-soft text-center"><div><p className="text-sm font-medium text-muted">暂无数据</p><p className="mt-1 text-xs text-muted">{note}</p></div></div>;
 }
 
 export function AdminDashboardPage() {
@@ -136,13 +136,9 @@ export function AdminDashboardPage() {
 
   return (
     <div className="space-y-4 sm:space-y-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="text-xs font-medium tracking-[0.08em] text-[#6e6e73]">全部渠道</p>
-          <h1 className="mt-1 text-[1.8rem] font-semibold tracking-[-0.045em] text-ink sm:text-[2.15rem]">业务总览</h1>
-          <p className="mt-1 text-sm text-muted">小程序统计校园服务，Web 统计分享美食与神秘角落。</p>
-        </div>
-        <div className="inline-flex w-fit rounded-xl bg-black/[0.055] p-1" aria-label="时间范围">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h1 className="text-2xl font-semibold tracking-[-0.025em]">概览</h1>
+        <div className="inline-flex w-fit rounded-[0.75rem] bg-tint-soft p-1" aria-label="时间范围">
           {([7, 30, 90] as const).map((value) => (
             <button
               key={value}
@@ -207,22 +203,22 @@ export function AdminDashboardPage() {
               <Grid />
               <XAxis dataKey="day" tickFormatter={formatDay} maxTicks={period === 90 ? 6 : 8} />
               <YAxis />
-              <Area dataKey="active.miniprogram" variant="gradient" />
+              <Area dataKey="active.miniprogram" variant="solid" />
               <Area dataKey="active.web" variant="dotted" />
               <Legend isClickable />
-              <Tooltip labelKey="day" variant="frosted-glass" />
+              <Tooltip labelKey="day" />
             </AreaChart>}
           </div>
         </ChartCard>
 
         <ChartCard title="专业分布" meta="当前用户数 · 前 10 项" className="xl:col-span-4">
           <div className="h-[20rem] sm:h-[23rem]">
-            {majorSeries.length === 0 ? <EmptyChart note="当前没有用户分布记录" /> : <BarChart data={majorSeries} config={{ users: { label: '用户', color: 'blue' } }} bloom="low" bloomOnHover>
+            {majorSeries.length === 0 ? <EmptyChart note="当前没有用户分布记录" /> : <BarChart data={majorSeries} config={{ users: { label: '用户', color: 'grey' } }} bloom="low" bloomOnHover>
               <Grid />
               <XAxis dataKey="label" tickFormatter={(value) => String(value).slice(0, 4)} maxTicks={5} />
               <YAxis />
-              <Bar dataKey="users" variant="gradient" />
-              <Tooltip labelKey="label" variant="frosted-glass" />
+              <Bar dataKey="users" variant="solid" />
+              <Tooltip labelKey="label" />
             </BarChart>}
           </div>
         </ChartCard>
@@ -235,17 +231,15 @@ export function AdminDashboardPage() {
             <XAxis dataKey="day" tickFormatter={formatDay} maxTicks={period === 90 ? 6 : 10} />
             <YAxis />
             {FEATURES.map((feature, index) => (
-              <Bar key={feature} dataKey={feature} variant={index % 3 === 0 ? 'gradient' : index % 3 === 1 ? 'dotted' : 'hatched'} />
+              <Bar key={feature} dataKey={feature} variant={index % 3 === 0 ? 'solid' : index % 3 === 1 ? 'dotted' : 'hatched'} />
             ))}
             <Legend isClickable align="left" />
-            <Tooltip labelKey="day" variant="frosted-glass" />
+            <Tooltip labelKey="day" />
           </BarChart>}
         </div>
       </ChartCard>
 
-      {analyticsQuery.isError || dashboardQuery.isError ? (
-        <p className="rounded-xl bg-[#fff1f0] px-4 py-3 text-sm text-[#a12b25]">部分数据暂时无法加载。</p>
-      ) : null}
+      {analyticsQuery.isError || dashboardQuery.isError ? <p className="text-sm text-error">部分数据加载失败</p> : null}
     </div>
   );
 }

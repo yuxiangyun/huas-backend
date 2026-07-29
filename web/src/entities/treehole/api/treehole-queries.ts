@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 Treehole API、Discover/Treehole 查询键与 TanStack Query
+ * [OUTPUT]: 对外提供社区资料、帖子、评论、点赞和通知查询/写入 hooks
+ * [POS]: entities/treehole 的缓存编排层，资料更新后同步失效两个社区的作者投影
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { InfiniteData } from '@tanstack/react-query';
 import {
@@ -16,11 +23,13 @@ import {
   likeTreeholePost,
   readAllTreeholeNotifications,
   unlikeTreeholePost,
+  updateCommunityProfile,
   uploadTreeholeAvatar,
   type TreeholeCommentListParams,
   type TreeholeListParams,
 } from '@/entities/treehole/api/treehole-api';
 import { treeholeQueryKeys } from '@/entities/treehole/model/treehole-query-keys';
+import { discoverQueryKeys } from '@/entities/discover/model/discover-query-keys';
 import type { TreeholePost } from '@/entities/treehole/model/treehole-types';
 
 export function useTreeholeMetaQuery() {
@@ -32,7 +41,7 @@ export function useTreeholeMetaQuery() {
 
 export function useTreeholeAvatarQuery(options?: { enabled?: boolean }) {
   return useQuery({
-    queryKey: treeholeQueryKeys.avatar(),
+    queryKey: treeholeQueryKeys.profile(),
     queryFn: ({ signal }) => getTreeholeAvatar({ signal }),
     enabled: options?.enabled ?? true,
   });
@@ -50,6 +59,23 @@ function invalidateTreeholeContentQueries(queryClient: ReturnType<typeof useQuer
   queryClient.invalidateQueries({ queryKey: treeholeQueryKeys.mines() });
   queryClient.invalidateQueries({ queryKey: [...treeholeQueryKeys.all, 'detail'] });
   queryClient.invalidateQueries({ queryKey: [...treeholeQueryKeys.all, 'comments'] });
+}
+
+function invalidateCommunityContentQueries(queryClient: ReturnType<typeof useQueryClient>) {
+  invalidateTreeholeContentQueries(queryClient);
+  queryClient.invalidateQueries({ queryKey: discoverQueryKeys.all });
+}
+
+export function useUpdateCommunityProfileMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: updateCommunityProfile,
+    onSuccess: (profile) => {
+      queryClient.setQueryData(treeholeQueryKeys.profile(), profile);
+      invalidateCommunityContentQueries(queryClient);
+    },
+  });
 }
 
 export function useTreeholeInfinitePostsQuery(params: Omit<TreeholeListParams, 'page'>) {
@@ -136,9 +162,9 @@ export function useUploadTreeholeAvatarMutation() {
 
   return useMutation({
     mutationFn: ({ file }: { file: File }) => uploadTreeholeAvatar(file),
-    onSuccess: (avatar) => {
-      queryClient.setQueryData(treeholeQueryKeys.avatar(), avatar);
-      invalidateTreeholeContentQueries(queryClient);
+    onSuccess: (profile) => {
+      queryClient.setQueryData(treeholeQueryKeys.profile(), profile);
+      invalidateCommunityContentQueries(queryClient);
     },
   });
 }
@@ -148,9 +174,9 @@ export function useDeleteTreeholeAvatarMutation() {
 
   return useMutation({
     mutationFn: deleteTreeholeAvatar,
-    onSuccess: (avatar) => {
-      queryClient.setQueryData(treeholeQueryKeys.avatar(), avatar);
-      invalidateTreeholeContentQueries(queryClient);
+    onSuccess: (profile) => {
+      queryClient.setQueryData(treeholeQueryKeys.profile(), profile);
+      invalidateCommunityContentQueries(queryClient);
     },
   });
 }

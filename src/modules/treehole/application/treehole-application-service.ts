@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Treehole 纯领域规则与构造注入的 persistence/avatar ports
- * [OUTPUT]: 对外提供 TreeholeApplicationService，编排前台匿名社区、管理视图与头像用例
+ * [OUTPUT]: 对外提供 TreeholeApplicationService，编排前台社区、管理视图与共享昵称/头像用例
  * [POS]: modules/treehole/application 的唯一用例服务，不知道 Hono、Drizzle、Bun 或文件系统实现
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -11,6 +11,7 @@ import {
   clampPage,
   clampPageSize,
   getTreeholeMeta,
+  normalizeCommunityNickname,
   normalizeCommentContent,
   normalizePostContent,
   type AdminTreeholeCommentListOptions,
@@ -37,16 +38,27 @@ export class TreeholeApplicationService {
     return this.persistence.getAvatar(userId);
   }
 
+  getCommunityProfile(userId: number) {
+    return this.persistence.getCommunityProfile(userId);
+  }
+
+  async updateCommunityProfile(userId: number, nicknameValue: unknown, avatar?: File) {
+    const nickname = normalizeCommunityNickname(nicknameValue);
+    const avatarUrl = avatar ? await this.avatarStorage.uploadAvatar(userId, avatar) : undefined;
+    await this.persistence.setCommunityProfile(userId, { nickname, avatarUrl });
+    return this.persistence.getCommunityProfile(userId);
+  }
+
   async updateAvatar(userId: number, file: File) {
     const avatarUrl = await this.avatarStorage.uploadAvatar(userId, file);
     await this.persistence.setAvatarUrl(userId, avatarUrl);
-    return { avatarUrl };
+    return this.persistence.getCommunityProfile(userId);
   }
 
   async clearAvatar(userId: number) {
     await this.avatarStorage.removeAvatar(userId);
     await this.persistence.setAvatarUrl(userId, null);
-    return { avatarUrl: null };
+    return this.persistence.getCommunityProfile(userId);
   }
 
   getUnreadNotificationCount(userId: number) {

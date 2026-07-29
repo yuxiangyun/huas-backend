@@ -35,10 +35,10 @@ runtime-health-metrics.test.ts: live/ready 状态矩阵、轻量指标、校园 
 schedule-parser.test.ts: JW 真实结构、非教学周、登录页与嵌套课程节点去重回归测试
 schedule-source-policy.test.ts: 课表来源热策略、请求快照、current/stale 固定顺序、legacy 错误优先级、持久化锁接管与管理鉴权回归测试
 setup.ts: 单元与业务流测试数据库、环境变量初始化
-treehole.test.ts: Treehole 薄聚合入口，在单进程内装配 treehole/ 帖子头像、交互、管理与合规用例
-treehole/: Treehole HTTP/事务/头像共享支架及按业务能力细分的回归用例
+treehole.test.ts: Treehole 薄聚合入口，在单进程内装配 treehole/ 社区资料、交互、管理与合规用例
+treehole/: Treehole HTTP/事务/社区资料共享支架及按业务能力细分的回归用例
 treehole-compat.test.ts: Treehole canonical composition/http 与旧 routes/services/media Facade 引用及依赖方向测试
-upstream-retry.test.ts: 上游重试、CAS HTTP/维护页、Portal 换票瞬态网络错误与凭证恢复链回归测试
+upstream-retry.test.ts: 上游请求/凭证恢复的次数与 deadline、成绩临时错误分类、非重试错误、CAS HTTP/维护页及 Portal 换票瞬态网络语义回归测试
 
 架构决策
 测试默认隔离学校真实网络，以 mock 边界验证业务编排；e2e.live.test.ts 是唯一真实上游入口。

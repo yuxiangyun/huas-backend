@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 db/schema、HttpClient、AuthEngine、TicketExchanger、CryptoHelper、config 与 Logger
- * [OUTPUT]: 对外提供 CredentialManager 类与 CredentialSystem 类型，管理学校凭证生命周期和持久化交互登录恢复状态
- * [POS]: campus-integrations/credential-recovery 的学校子凭证唯一收敛层，管理三类凭证并守住验证码恢复边界
+ * [INPUT]: 依赖 db/schema、HttpClient、AuthEngine、TicketExchanger、CryptoHelper、config、可选恢复截止时间与 Logger
+ * [OUTPUT]: 对外提供 CredentialManager 类与 CredentialSystem 类型，管理受总预算约束的学校凭证生命周期和持久化交互登录恢复状态
+ * [POS]: campus-integrations/credential-recovery 的学校子凭证唯一收敛层，管理三类凭证并守住验证码与瞬态故障边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -22,6 +22,12 @@ const INTERACTIVE_LOGIN_REQUIRED_SYSTEM = 'interactive_login_required';
 const reAuthState = new Map<number, { failCount: number; lastAttempt: number }>();
 const REAUTH_MAX_ATTEMPTS = 3;
 const REAUTH_COOLDOWN_MS = 60 * 1000; // 1 minute cooldown after max failures
+
+function isTransientRecoveryError(error: unknown): boolean {
+  const message = String((error as any)?.message || '');
+  if (message === 'REQUEST_TIMEOUT') return true;
+  return /ECONNRESET|EAI_AGAIN|ETIMEDOUT|ENOTFOUND|fetch failed|network|_HTTP_(?:502|503|504)$/i.test(message);
+}
 
 export class CredentialManager {
   static async requiresInteractiveLogin(userId: number): Promise<boolean> {
@@ -114,7 +120,7 @@ export class CredentialManager {
    *   2. Expired → try refresh via TGC
    *   3. TGC also expired → silent re-auth with stored password
    */
-  static async getOrRefreshCredential(userId: number, system: CredentialSystem): Promise<{
+  static async getOrRefreshCredential(userId: number, system: CredentialSystem, deadlineAt?: number): Promise<{
     value: string | null;
     cookieJar: string | null;
   } | null> {
@@ -128,20 +134,20 @@ export class CredentialManager {
 
     if (system === 'cas_tgc') {
       // TGC expired — only way to get a new one is full CAS login
-      await this.silentReAuth(userId);
+      await this.silentReAuth(userId, deadlineAt, 'cas_tgc');
       return this.getCredential(userId, 'cas_tgc');
     }
 
     // Try refresh from TGC first
     const tgc = await this.getCredential(userId, 'cas_tgc');
     if (tgc?.cookieJar) {
-      const refreshed = await this.refreshFromTGC(userId, system, tgc.cookieJar);
+      const refreshed = await this.refreshFromTGC(userId, system, tgc.cookieJar, deadlineAt);
       if (refreshed) return refreshed;
     }
 
     // TGC missing or refresh failed — silent re-auth
     Logger.warn('CredentialManager', `${system} 刷新失败, 尝试静默重认证`, undefined, String(userId));
-    await this.silentReAuth(userId);
+    await this.silentReAuth(userId, deadlineAt, system);
     return this.getCredential(userId, system);
   }
 
@@ -151,9 +157,10 @@ export class CredentialManager {
   private static async refreshFromTGC(
     userId: number,
     system: CredentialSystem,
-    tgcJar: string
+    tgcJar: string,
+    deadlineAt?: number
   ): Promise<{ value: string | null; cookieJar: string | null } | null> {
-    const client = HttpClient.fromSerializedJar(tgcJar);
+    const client = HttpClient.fromSerializedJar(tgcJar, deadlineAt);
     const start = Date.now();
 
     if (system === 'portal_jwt') {
@@ -199,7 +206,11 @@ export class CredentialManager {
    * User is completely unaware this is happening.
    * Max 3 attempts with 1-minute cooldown after exhaustion.
    */
-  static async silentReAuth(userId: number): Promise<boolean> {
+  static async silentReAuth(
+    userId: number,
+    deadlineAt?: number,
+    requiredSystem?: CredentialSystem,
+  ): Promise<boolean> {
     if (await this.requiresInteractiveLogin(userId)) {
       Logger.warn('SilentReAuth', '等待验证码登录，跳过静默重认证', undefined, String(userId));
       return false;
@@ -244,6 +255,7 @@ export class CredentialManager {
     const steps: import('../../../utils/logger').LoginStep[] = [];
 
     const client = new HttpClient(undefined, config.timeout.cas);
+    client.setDeadline(deadlineAt);
     const engine = new AuthEngine(client);
 
     try {
@@ -298,6 +310,9 @@ export class CredentialManager {
       const jwResult = await TicketExchanger.exchangeJwSession(client);
       if (!jwResult.success) {
         steps.push({ label: 'JW 激活', ok: false });
+        if (jwResult.upstreamUnavailable && requiredSystem === 'jw_session') {
+          throw new Error('REQUEST_TIMEOUT');
+        }
         this.recordReAuthFailure(userId);
         Logger.auth(user.studentId, '静默重认证失败', 0, Date.now() - start, user.name || undefined, steps);
         return false;
@@ -313,8 +328,9 @@ export class CredentialManager {
       return true;
     } catch (e: any) {
       steps.push({ label: '异常', ok: false, detail: e.message });
-      this.recordReAuthFailure(userId);
       Logger.auth(user.studentId, '静默重认证异常', 0, Date.now() - start, user.name || undefined, steps);
+      if (isTransientRecoveryError(e)) throw e;
+      this.recordReAuthFailure(userId);
       return false;
     }
   }
@@ -329,23 +345,25 @@ export class CredentialManager {
   /**
    * Build an HttpClient from stored credential's cookie jar
    */
-  static async buildHttpClient(userId: number, system: CredentialSystem): Promise<HttpClient | null> {
-    const cred = await this.getOrRefreshCredential(userId, system);
+  static async buildHttpClient(userId: number, system: CredentialSystem, deadlineAt?: number): Promise<HttpClient | null> {
+    const cred = await this.getOrRefreshCredential(userId, system, deadlineAt);
     if (!cred) return null;
 
     if (cred.cookieJar) {
-      return HttpClient.fromSerializedJar(cred.cookieJar);
+      return HttpClient.fromSerializedJar(cred.cookieJar, deadlineAt);
     }
 
     // For portal_jwt, we need the TGC's cookie jar
     if (system === 'portal_jwt') {
       const tgc = await this.getCredential(userId, 'cas_tgc');
       if (tgc?.cookieJar) {
-        return HttpClient.fromSerializedJar(tgc.cookieJar);
+        return HttpClient.fromSerializedJar(tgc.cookieJar, deadlineAt);
       }
     }
 
-    return new HttpClient();
+    const client = new HttpClient();
+    client.setDeadline(deadlineAt);
+    return client;
   }
 
   /**

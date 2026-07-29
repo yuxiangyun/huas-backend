@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 appRoutes、用户/后台页面与保护壳，将历史合规路径映射到设置页 canonical
- * [OUTPUT]: 提供 BrowserRouter，包含 `/admin/system/settings` 与旧 `/admin/system/compliance` replace 重定向
+ * [OUTPUT]: 提供 BrowserRouter，以树洞为普通用户默认页，并包含后台设置 canonical 与旧路径 replace 重定向
  * [POS]: app/router 的顶层组装点，统一 basename、页面边界与路径兼容性
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -85,7 +85,7 @@ export const router = createBrowserRouter(
       children: [
         {
           index: true,
-          element: <Navigate to={appRoutes.discover} replace />,
+          element: <Navigate to={appRoutes.treehole} replace />,
         },
         {
           path: appRoutes.discover.slice(1),

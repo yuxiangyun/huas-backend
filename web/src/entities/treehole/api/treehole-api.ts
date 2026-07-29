@@ -1,6 +1,13 @@
+/**
+ * [INPUT]: 依赖共享 apiRequest 与 Treehole 类型契约
+ * [OUTPUT]: 对外提供社区资料、帖子、评论、点赞和通知 HTTP 请求函数
+ * [POS]: entities/treehole 的传输边界，集中维护 /api/treehole 协议与查询参数序列化
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { apiRequest } from '@/shared/api/http-client';
 import type {
-  TreeholeAvatar,
+  CommunityProfile,
   TreeholeComment,
   TreeholeCommentListResponse,
   TreeholeListResponse,
@@ -41,20 +48,30 @@ export async function getTreeholeMeta(options?: RequestOptions) {
 }
 
 export async function getTreeholeAvatar(options?: RequestOptions) {
-  return apiRequest<TreeholeAvatar>('/api/treehole/avatar', {}, { signal: options?.signal });
+  return apiRequest<CommunityProfile>('/api/treehole/profile', {}, { signal: options?.signal });
+}
+
+export async function updateCommunityProfile(payload: { nickname: string; avatar?: File }) {
+  const form = new FormData();
+  form.set('nickname', payload.nickname.trim());
+  if (payload.avatar) form.set('avatar', payload.avatar);
+  return apiRequest<CommunityProfile>('/api/treehole/profile', {
+    method: 'PUT',
+    body: form,
+  });
 }
 
 export async function uploadTreeholeAvatar(file: File) {
   const form = new FormData();
   form.set('avatar', file);
-  return apiRequest<TreeholeAvatar>('/api/treehole/avatar', {
+  return apiRequest<CommunityProfile>('/api/treehole/avatar', {
     method: 'POST',
     body: form,
   });
 }
 
 export async function deleteTreeholeAvatar() {
-  return apiRequest<TreeholeAvatar>('/api/treehole/avatar', {
+  return apiRequest<CommunityProfile>('/api/treehole/avatar', {
     method: 'DELETE',
   });
 }

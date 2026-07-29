@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 drizzle-orm/sqlite-core 的表、列、唯一键构造器
- * [OUTPUT]: 对外提供 users、credentials、cache、discover、treehole 与 analytics 全部 SQLite 表定义
+ * [OUTPUT]: 对外提供含社区资料字段的 users、credentials、cache、discover、treehole 与 analytics 全部 SQLite 表定义
  * [POS]: db 的类型相与查询相，和 index.ts 的运行期建表/轻迁移相保持同构
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -14,6 +14,7 @@ export const users = sqliteTable('users', {
   name: text('name'),
   className: text('class_name'),
   treeholeAvatarUrl: text('treehole_avatar_url'),
+  communityNickname: text('community_nickname'),
   encryptedPassword: text('encrypted_password'), // AES-GCM encrypted, for silent re-auth
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
   lastLoginAt: integer('last_login_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),

@@ -2,7 +2,7 @@
 > L2 | 父级: /Users/xiangyun/workspace/huas-wechat-app/huas-server/src/modules/treehole/AGENTS.md
 
 成员清单
-treehole.routes.ts: Treehole canonical Hono 路由，映射 meta、头像、通知、帖子、点赞、评论和删除协议
+treehole.routes.ts: Treehole canonical Hono 路由，映射 meta、社区资料、通知、帖子、点赞、评论和删除协议
 
 架构决策
 HTTP 层只解析 ID、分页、JSON/multipart 输入并包装响应与日志；业务规则通过 composition 进入 application。

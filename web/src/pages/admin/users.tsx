@@ -11,7 +11,7 @@ import { useAdminDashboardQuery } from '@/entities/admin/api/admin-queries';
 import { useAdminOutletContext } from '@/pages/admin/layout';
 import { Button } from '@/shared/ui/button';
 
-const fieldClass = 'h-10 rounded-xl border border-black/[0.08] bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-[#007aff]/20';
+const fieldClass = 'field-control h-10 min-h-10 py-1.5 text-sm';
 
 function dateTime(value: string | null) {
   if (!value) return '-';
@@ -37,13 +37,12 @@ export function AdminUsersPage() {
 
   return (
     <div className="space-y-4">
-      <header>
-        <p className="text-xs font-medium tracking-[0.08em] text-muted">用户洞察</p>
-        <h1 className="mt-1 text-[1.8rem] font-semibold tracking-[-0.045em] text-ink">用户</h1>
-        <p className="mt-1 text-sm text-muted">当前共 {users?.total ?? 0} 名用户。</p>
+      <header className="flex items-end justify-between gap-3">
+        <h1 className="text-2xl font-semibold tracking-[-0.025em]">用户</h1>
+        <p className="text-sm text-muted">{users?.total ?? 0} 人</p>
       </header>
 
-      <section className="grid gap-2 rounded-[1.4rem] border border-black/[0.06] bg-white p-3 md:grid-cols-[2fr_1fr_1fr_auto]">
+      <section className="grid gap-2 rounded-[0.75rem] border border-line bg-white p-3 md:grid-cols-[2fr_1fr_1fr_auto]">
         <input className={fieldClass} value={input} placeholder="学号或姓名" onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && update({ search: input.trim(), page: '' })} />
         <select className={fieldClass} value={major} onChange={(event) => update({ major: event.target.value, page: '' })}>
           <option value="">全部专业</option>
@@ -56,17 +55,17 @@ export function AdminUsersPage() {
         <Button size="sm" type="button" onClick={() => update({ search: input.trim(), page: '' })}>查询</Button>
       </section>
 
-      <section className="overflow-hidden rounded-[1.4rem] border border-black/[0.06] bg-white">
+      <section className="overflow-hidden rounded-[0.75rem] border border-line bg-white">
         <div className="hidden overflow-auto md:block">
           <table className="min-w-full text-left text-sm">
             <thead className="bg-black/[0.025] text-muted"><tr><th className="px-4 py-3 font-medium">学号</th><th className="px-4 py-3 font-medium">姓名</th><th className="px-4 py-3 font-medium">专业</th><th className="px-4 py-3 font-medium">年级</th><th className="px-4 py-3 font-medium">最后登录</th></tr></thead>
-            <tbody>{(users?.items ?? []).map((user) => <tr key={user.studentId} className="border-t border-black/[0.055]"><td className="px-4 py-3 font-mono">{user.studentId}</td><td className="px-4 py-3">{user.name || '-'}</td><td className="px-4 py-3 text-muted">{user.className}</td><td className="px-4 py-3 text-muted">{user.grade || '-'}</td><td className="px-4 py-3 text-muted">{dateTime(user.lastLoginAt)}</td></tr>)}</tbody>
+            <tbody>{(users?.items ?? []).map((user) => <tr key={user.studentId} className="border-t border-line"><td className="px-4 py-3 font-mono">{user.studentId}</td><td className="px-4 py-3">{user.name || '-'}</td><td className="px-4 py-3 text-muted">{user.className}</td><td className="px-4 py-3 text-muted">{user.grade || '-'}</td><td className="px-4 py-3 text-muted">{dateTime(user.lastLoginAt)}</td></tr>)}</tbody>
           </table>
         </div>
-        <div className="divide-y divide-black/[0.06] md:hidden">
+        <div className="divide-y divide-line md:hidden">
           {(users?.items ?? []).map((user) => <article key={user.studentId} className="p-4"><div className="flex justify-between gap-3"><p className="font-medium text-ink">{user.name || '未填写姓名'}</p><p className="font-mono text-xs text-muted">{user.studentId}</p></div><p className="mt-2 text-sm text-muted">{user.className} · {user.grade || '年级未知'}</p><p className="mt-1 text-xs text-muted">最后登录 {dateTime(user.lastLoginAt)}</p></article>)}
         </div>
-        <footer className="flex items-center justify-between border-t border-black/[0.06] px-4 py-3 text-sm text-muted">
+        <footer className="flex items-center justify-between border-t border-line px-4 py-3 text-sm text-muted">
           <Button size="sm" variant="subtle" disabled={!users || users.page <= 1} onClick={() => update({ page: String(page - 1) })}>上一页</Button>
           <span>{users ? `${users.page} / ${users.totalPages}` : '-'}</span>
           <Button size="sm" variant="subtle" disabled={!users || users.page >= users.totalPages} onClick={() => update({ page: String(page + 1) })}>下一页</Button>

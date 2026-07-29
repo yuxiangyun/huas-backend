@@ -1,56 +1,34 @@
 /**
- * [INPUT]: 依赖用户、树洞查询与认证状态，通过 React Router 连接个人内容路由
- * [OUTPUT]: 对外提供 MePage，展示拍好饭、树洞、日历订阅与账号操作入口
- * [POS]: pages/me 的页面编排器，只组合查询、导航与用户动作，不持有底层 HTTP 协议
+ * [INPUT]: 依赖校园用户资料、社区资料弹层、个人内容路由、日历订阅与认证状态
+ * [OUTPUT]: 对外提供 MePage，以统一资料入口、个人内容列表和独立退出行组成账户页
+ * [POS]: pages/me 的页面编排器，不使用宣传卡片，不持有底层 HTTP 协议
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { useEffect } from 'react';
+import { CalendarDays, ChevronRight, LogOut, MessageCircle, Pencil, Utensils } from 'lucide-react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { BowlChopsticks20Filled } from '@fluentui/react-icons/svg/bowl-chopsticks';
-import { Chat20Filled } from '@fluentui/react-icons/svg/chat';
 import { appRoutes } from '@/app/router/paths';
 import { useToastStore } from '@/app/state/toast-store';
 import { useUiStore } from '@/app/state/ui-store';
 import { useAuthStore } from '@/entities/auth/model/auth-store';
-import {
-  useTreeholeAvatarQuery,
-  useTreeholeUnreadNotificationCountQuery,
-} from '@/entities/treehole/api/treehole-queries';
+import { useTreeholeUnreadNotificationCountQuery } from '@/entities/treehole/api/treehole-queries';
 import { useCalendarSubscriptionLinkMutation, useUserInfoQuery } from '@/entities/user/api/user-queries';
-import { ApiError } from '@/shared/api/http-client';
-import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
-import { PageHeader } from '@/shared/ui/page-header';
-import { IconBubble } from '@/shared/ui/page-ornament';
-import { TreeholeAvatar } from '@/shared/ui/treehole-avatar';
+
+const loadProfileSheet = () => import('@/widgets/treehole-avatar-sheet/treehole-avatar-sheet');
+const LazyProfileSheet = lazy(async () => {
+  const module = await loadProfileSheet();
+  return { default: module.TreeholeAvatarSheet };
+});
 
 async function copyText(text: string) {
-  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+  if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(text);
     return;
   }
-
-  if (typeof document === 'undefined') {
-    throw new Error('当前环境不支持复制链接');
-  }
-
-  const textarea = document.createElement('textarea');
-  textarea.value = text;
-  textarea.setAttribute('readonly', 'true');
-  textarea.style.position = 'fixed';
-  textarea.style.opacity = '0';
-  textarea.style.pointerEvents = 'none';
-  document.body.appendChild(textarea);
-  textarea.select();
-
-  const copied = document.execCommand('copy');
-  document.body.removeChild(textarea);
-
-  if (!copied) {
-    throw new Error('复制失败，请手动复制');
-  }
+  window.prompt('复制日历订阅链接', text);
 }
 
 export function MePage() {
@@ -58,175 +36,112 @@ export function MePage() {
   const queryClient = useQueryClient();
   const pushToast = useToastStore((state) => state.pushToast);
   const setActiveTab = useUiStore((state) => state.setActiveTab);
+  const avatarSheetOpen = useUiStore((state) => state.treeholeAvatarSheetOpen);
+  const openAvatarSheet = useUiStore((state) => state.openTreeholeAvatarSheet);
   const logout = useAuthStore((state) => state.logout);
   const profileQuery = useUserInfoQuery();
   const calendarLinkMutation = useCalendarSubscriptionLinkMutation();
-  const treeholeAvatarQuery = useTreeholeAvatarQuery();
   const treeholeUnreadQuery = useTreeholeUnreadNotificationCountQuery();
-  const profile = profileQuery.data ?? null;
-  const treeholeAvatarUrl = treeholeAvatarQuery.data?.avatarUrl ?? null;
+  const [profileSheetRequested, setProfileSheetRequested] = useState(false);
   const treeholeUnreadCount = treeholeUnreadQuery.data?.unreadCount ?? 0;
 
+  useEffect(() => setActiveTab('me'), [setActiveTab]);
+
   useEffect(() => {
-    setActiveTab('me');
-  }, [setActiveTab]);
+    if (!avatarSheetOpen) return;
+    setProfileSheetRequested(true);
+    void loadProfileSheet();
+  }, [avatarSheetOpen]);
+
+  const handleOpenProfile = () => {
+    setProfileSheetRequested(true);
+    void loadProfileSheet();
+    openAvatarSheet();
+  };
 
   const handleCopyCalendarLink = async () => {
     try {
       const result = await calendarLinkMutation.mutateAsync();
-
-      try {
-        await copyText(result.url);
-      } catch (error) {
-        if (typeof window !== 'undefined') {
-          window.prompt('复制下面的日历订阅链接', result.url);
-        }
-
-        throw error;
-      }
-
-      pushToast({
-        title: '订阅链接已复制',
-        message: '打开系统日历后可直接粘贴订阅',
-        variant: 'success',
-      });
-    } catch (error) {
-      const message = error instanceof ApiError ? error.message : '获取订阅链接失败，请稍后重试';
-      pushToast({
-        title: '无法复制日历订阅链接',
-        message,
-        variant: 'error',
-      });
+      await copyText(result.url);
+      pushToast({ title: '已复制', variant: 'success' });
+    } catch {
+      pushToast({ title: '复制失败，请重试', variant: 'error' });
     }
   };
 
-  const quickActions = [
-    {
-      id: 'discover',
-      buttonLabel: '进入',
-      description: '查看我的发布和评分趋势',
-      glowClass: 'bg-[#f0cf95]/62',
-      icon: <BowlChopsticks20Filled aria-hidden="true" className="size-5" />,
-      onClick: () => navigate(appRoutes.meDiscover),
-      unreadCount: 0,
-      title: '拍好饭',
-      tone: 'amber' as const,
-      variant: 'secondary' as const,
-    },
-    {
-      id: 'treehole',
-      buttonLabel: '进入',
-      description: '查看我的匿名发言和互动',
-      glowClass: 'bg-[#c4d7fb]/62',
-      icon: <Chat20Filled aria-hidden="true" className="size-5" />,
-      onClick: () => navigate(appRoutes.meTreehole),
-      unreadCount: treeholeUnreadCount,
-      title: '树洞',
-      tone: 'blue' as const,
-      variant: 'secondary' as const,
-    },
-    {
-      id: 'calendar',
-      buttonLabel: calendarLinkMutation.isPending ? '获取中' : '复制链接',
-      description: '获取本周课程的日历订阅地址',
-      glowClass: 'bg-[#b9e6d4]/70',
-      icon: <span className="text-[0.82rem] font-semibold tracking-[0.08em]">ICS</span>,
-      onClick: () => {
-        void handleCopyCalendarLink();
-      },
-      unreadCount: 0,
-      title: '日历订阅',
-      tone: 'mint' as const,
-      variant: 'secondary' as const,
-    },
-    {
-      id: 'account',
-      buttonLabel: '退出',
-      description: '管理当前登录状态',
-      glowClass: 'bg-[#d9e1e9]/72',
-      icon: (
-        <TreeholeAvatar
-          alt="我的头像"
-          className="size-full rounded-[0.9rem] ring-0"
-          src={treeholeAvatarUrl}
-        />
-      ),
-      onClick: () => {
-        queryClient.clear();
-        logout();
-        pushToast({
-          title: '已退出登录',
-          variant: 'info',
-        });
-        navigate(appRoutes.login, { replace: true });
-      },
-      unreadCount: 0,
-      title: '账号',
-      tone: 'slate' as const,
-      variant: 'subtle' as const,
-    },
-  ];
+  const handleLogout = () => {
+    queryClient.clear();
+    logout();
+    navigate(appRoutes.login, { replace: true });
+  };
 
   return (
     <div className="page-stack-mobile">
-      <PageHeader
-        compact
-        description="常用入口"
-        title="我的"
-      />
-
-      {profileQuery.isError ? (
-        <Card className="space-y-2 bg-card-strong">
-          <p className="text-base font-semibold text-ink">资料同步失败</p>
-          <p className="text-sm leading-6 text-muted">
-            {profileQuery.error instanceof Error ? profileQuery.error.message : '用户信息加载失败'}
-          </p>
-        </Card>
-      ) : null}
-
-      {quickActions.map((action) => (
-        <Card key={action.id} className="relative overflow-hidden bg-card-strong p-4 sm:p-5">
-          <div className="pointer-events-none absolute inset-y-0 right-0 hidden w-[42%] bg-[linear-gradient(90deg,rgba(255,255,255,0),rgba(255,255,255,0.4))] sm:block" />
-          <div className={`pointer-events-none absolute -right-10 top-1/2 hidden size-28 -translate-y-1/2 rounded-full blur-3xl sm:block ${action.glowClass}`} />
-
-          <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex min-w-0 items-start gap-3.5">
-              <IconBubble
-                icon={action.icon}
-                size="lg"
-                tone={action.tone}
-              />
-
-              <div className="min-w-0 space-y-1.5">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-base font-semibold text-ink">{action.title}</p>
-                  {action.unreadCount > 0 ? (
-                    <span className="rounded-pill bg-error px-2.5 py-1 text-[0.72rem] font-medium text-white">
-                      {action.unreadCount > 99 ? '99+' : action.unreadCount}
-                    </span>
-                  ) : null}
-                </div>
-                <p className="text-sm leading-6 text-muted">
-                  {action.description}
-                </p>
-              </div>
-            </div>
-
-            <div className="w-full sm:w-auto sm:self-auto">
-              <Button
-                className="w-full sm:w-auto sm:min-w-[6.75rem]"
-                disabled={calendarLinkMutation.isPending && action.id === 'calendar'}
-                size="sm"
-                type="button"
-                variant={action.variant}
-                onClick={action.onClick}
-              >
-                {action.buttonLabel}
-              </Button>
-            </div>
+      <Card className="overflow-hidden p-0">
+        {profileQuery.isLoading ? (
+          <div className="space-y-2 px-4 py-4" aria-hidden="true">
+            <div className="h-5 w-24 animate-pulse rounded bg-shell-strong" />
+            <div className="h-4 w-40 animate-pulse rounded bg-shell-strong" />
           </div>
-        </Card>
-      ))}
+        ) : profileQuery.isError ? (
+          <p className="px-4 py-4 text-sm text-error">资料加载失败，请重试</p>
+        ) : (
+          <button
+            aria-label="编辑资料"
+            className="flex min-h-20 w-full items-center gap-4 px-4 py-4 text-left transition-colors hover:bg-tint-soft"
+            type="button"
+            onClick={handleOpenProfile}
+          >
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-base font-semibold">{profileQuery.data?.name}</p>
+              <p className="mt-1 truncate text-sm text-muted">{[profileQuery.data?.studentId, profileQuery.data?.className].filter(Boolean).join(' · ')}</p>
+            </div>
+            <span className="inline-flex shrink-0 items-center gap-2 text-sm font-medium text-muted">
+              <Pencil aria-hidden="true" className="size-4" />
+              编辑资料
+            </span>
+          </button>
+        )}
+      </Card>
+
+      <Card className="divide-y divide-line p-0">
+        <button className="flex min-h-12 w-full items-center gap-3 px-4 py-3 text-left hover:bg-tint-soft" type="button" onClick={() => navigate(appRoutes.meDiscover)}>
+          <Utensils aria-hidden="true" className="size-[1.125rem] text-muted" />
+          <span className="flex-1 text-sm font-medium">我的好饭</span>
+          <ChevronRight aria-hidden="true" className="size-4 text-muted" />
+        </button>
+        <button className="flex min-h-12 w-full items-center gap-3 px-4 py-3 text-left hover:bg-tint-soft" type="button" onClick={() => navigate(appRoutes.meTreehole)}>
+          <MessageCircle aria-hidden="true" className="size-[1.125rem] text-muted" />
+          <span className="flex-1 text-sm font-medium">我的树洞</span>
+          {treeholeUnreadCount > 0 ? (
+            <span className="min-w-5 rounded-full bg-error px-1.5 py-0.5 text-center text-[0.6875rem] font-medium text-white">{treeholeUnreadCount > 99 ? '99+' : treeholeUnreadCount}</span>
+          ) : null}
+          <ChevronRight aria-hidden="true" className="size-4 text-muted" />
+        </button>
+        <button
+          className="flex min-h-12 w-full items-center gap-3 px-4 py-3 text-left hover:bg-tint-soft disabled:opacity-50"
+          disabled={calendarLinkMutation.isPending}
+          type="button"
+          onClick={() => void handleCopyCalendarLink()}
+        >
+          <CalendarDays aria-hidden="true" className="size-[1.125rem] text-muted" />
+          <span className="flex-1 text-sm font-medium">日历订阅</span>
+          <span className="text-xs text-muted">{calendarLinkMutation.isPending ? '处理中…' : '复制链接'}</span>
+        </button>
+      </Card>
+
+      <Card className="overflow-hidden p-0">
+        <button
+          className="flex min-h-12 w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium text-error transition-colors hover:bg-error-soft"
+          type="button"
+          onClick={handleLogout}
+        >
+          <LogOut aria-hidden="true" className="size-[1.125rem]" />
+          退出登录
+        </button>
+      </Card>
+
+      {profileSheetRequested ? <Suspense fallback={null}><LazyProfileSheet /></Suspense> : null}
     </div>
   );
 }

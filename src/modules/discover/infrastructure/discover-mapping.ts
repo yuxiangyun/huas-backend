@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Drizzle schema、运行时 DiscoverPolicy 配置与 domain 的 canonical 规则/DTO
- * [OUTPUT]: 对外提供 SQLite selector/join，并以旧签名适配需要 policy 的领域函数
+ * [OUTPUT]: 对外提供含社区资料投影的 SQLite selector/join，并以旧签名适配领域函数
  * [POS]: modules/discover/infrastructure 的 SQLite 行映射边界，不保存业务规则副本
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -108,6 +108,8 @@ export function postSelect() {
     updatedAt: schema.discoverPosts.updatedAt,
     publishedAt: schema.discoverPosts.publishedAt,
     deletedAt: schema.discoverPosts.deletedAt,
+    avatarUrl: schema.users.treeholeAvatarUrl,
+    authorNickname: schema.users.communityNickname,
     authorClassName: schema.users.className,
   };
 }
@@ -120,6 +122,7 @@ export function commentSelect() {
     parentCommentId: schema.discoverComments.parentCommentId,
     content: schema.discoverComments.content,
     avatarUrl: schema.users.treeholeAvatarUrl,
+    authorNickname: schema.users.communityNickname,
     authorClassName: schema.users.className,
     createdAt: schema.discoverComments.createdAt,
     updatedAt: schema.discoverComments.updatedAt,

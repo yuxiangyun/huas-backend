@@ -9,7 +9,7 @@ compliance.cases.ts: 合规读模型用例，覆盖 ASN/端口来源命中、空
 harness.ts: Treehole 共享支架，装配路由、SQLite、JWT、头像夹具、后台会话与 UGC 配置重置
 interactions.cases.ts: 社交交互用例，覆盖幂等点赞、个人列表、评论回复、计数同步与通知已读
 management.cases.ts: 生命周期管理用例，覆盖作者软删除、真实作者后台视图、管理删除与参数边界
-posts-avatar.cases.ts: 帖子头像用例，覆盖匿名读模型、头像上传删除、跨读模型同步与文件格式校验
+posts-avatar.cases.ts: 社区资料用例，覆盖化名读模型、昵称规则、头像上传删除、跨读模型同步与文件格式校验
 
 ## 架构决策
 

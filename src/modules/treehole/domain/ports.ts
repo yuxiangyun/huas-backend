@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 Treehole 领域 DTO，不依赖具体数据库、图片库或文件系统
  * [OUTPUT]: 对外提供 TreeholePersistence 与 TreeholeAvatarStorage 两个真实外部边界端口
- * [POS]: modules/treehole/domain 的依赖倒置契约，约束 application 仅通过端口访问 SQLite 与头像媒体
+ * [POS]: modules/treehole/domain 的依赖倒置契约，约束 application 仅通过端口访问社区资料、SQLite 与头像媒体
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -11,6 +11,7 @@ import type {
   AdminTreeholePostListOptions,
   AdminTreeholePostListResponse,
   PersistTreeholeCommentInput,
+  CommunityProfileResponse,
   TreeholeAvatarResponse,
   TreeholeCommentListResponse,
   TreeholeCommentResponse,
@@ -22,7 +23,12 @@ import type {
 
 export interface TreeholePersistence {
   getAvatar(userId: number): Promise<TreeholeAvatarResponse>;
+  getCommunityProfile(userId: number): Promise<CommunityProfileResponse>;
   setAvatarUrl(userId: number, avatarUrl: string | null): Promise<void>;
+  setCommunityProfile(
+    userId: number,
+    profile: { nickname: string | null; avatarUrl?: string },
+  ): Promise<void>;
   getUnreadNotificationCount(userId: number): Promise<TreeholeUnreadNotificationCountResponse>;
   markAllNotificationsRead(userId: number): Promise<TreeholeReadAllNotificationsResponse>;
   listPosts(options: { userId: number; page: number; pageSize: number }): Promise<TreeholeListResponse>;

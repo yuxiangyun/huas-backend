@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 composition 的 TreeholeService、config.treehole、errors/http-log/logger/response 工具
- * [OUTPUT]: 对外默认导出 treehole Hono 路由，提供 /api/treehole 帖子、评论、点赞、通知与头像接口
+ * [OUTPUT]: 对外默认导出 treehole Hono 路由，提供 /api/treehole 帖子、评论、点赞、通知与社区资料接口
  * [POS]: modules/treehole/http 的 canonical 协议适配器，只解析请求与包装响应，业务规则下沉到 application
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -40,6 +40,47 @@ treehole.get('/avatar', async (c) => {
   const data = await TreeholeService.getAvatar(c.get('userId'));
   appendHttpLogDetail(c, formatHttpLogDetail({
     hasAvatar: Boolean(data.avatarUrl),
+  }));
+  return success(c, data);
+});
+
+treehole.get('/profile', async (c) => {
+  const data = await TreeholeService.getCommunityProfile(c.get('userId'));
+  appendHttpLogDetail(c, formatHttpLogDetail({
+    hasAvatar: Boolean(data.avatarUrl),
+    hasNickname: Boolean(data.nickname),
+  }));
+  return success(c, data);
+});
+
+treehole.put('/profile', async (c) => {
+  let form: FormData;
+  try {
+    form = await c.req.formData();
+  } catch {
+    return error(c, ErrorCode.PARAM_ERROR, '请求必须是 multipart/form-data', 400);
+  }
+
+  const nickname = form.get('nickname');
+  if (typeof nickname !== 'string') {
+    return error(c, ErrorCode.PARAM_ERROR, '昵称字段不能为空', 400);
+  }
+
+  const avatarEntry = form.get('avatar');
+  if (avatarEntry !== null && (!(avatarEntry instanceof File) || avatarEntry.size <= 0)) {
+    return error(c, ErrorCode.PARAM_ERROR, '头像文件不合法', 400);
+  }
+  const avatar = avatarEntry instanceof File ? avatarEntry : undefined;
+
+  appendHttpLogDetail(c, formatHttpLogDetail({
+    nicknameLength: Array.from(nickname.trim()).length,
+    avatarBytes: avatar?.size ?? 0,
+  }));
+
+  const data = await TreeholeService.updateCommunityProfile(c.get('userId'), nickname, avatar);
+  appendHttpLogDetail(c, formatHttpLogDetail({
+    hasAvatar: Boolean(data.avatarUrl),
+    hasNickname: Boolean(data.nickname),
   }));
   return success(c, data);
 });

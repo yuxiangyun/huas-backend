@@ -1,4 +1,12 @@
-import { FilterChip } from '@/shared/ui/filter-chip';
+/**
+ * [INPUT]: 依赖 Lucide 星标图标与调用方评分状态
+ * [OUTPUT]: 对外提供 RatingStrip，以五个可访问按钮提交 1–5 分评分
+ * [POS]: features/discover-rate-post 的评分输入原语，不展示默认教学文案
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
+import { Star } from 'lucide-react';
+import { cn } from '@/shared/lib/cn';
 
 interface RatingStripProps {
   disabled?: boolean;
@@ -8,33 +16,29 @@ interface RatingStripProps {
 }
 
 export function RatingStrip({ disabled = false, pendingScore = null, value, onRate }: RatingStripProps) {
-  const currentValue = pendingScore ?? value;
+  const currentValue = pendingScore ?? value ?? 0;
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-medium text-ink">我的评分</p>
-        <span className="text-sm text-muted">
-          {currentValue ? `已打 ${currentValue} / 5 分` : '还没评分'}
-        </span>
-      </div>
-      <div className="grid grid-cols-5 gap-2">
-        {Array.from({ length: 5 }, (_, index) => {
-          const score = index + 1;
-          return (
-            <FilterChip
-              key={score}
-              className="w-full justify-center rounded-[1rem] disabled:cursor-not-allowed disabled:opacity-55"
-              selected={currentValue ? score <= currentValue : false}
-              size="sm"
-              disabled={disabled}
-              onClick={() => onRate?.(score)}
-            >
-              {score}
-            </FilterChip>
-          );
-        })}
-      </div>
+    <div className="flex items-center gap-1" aria-label="评分">
+      {Array.from({ length: 5 }, (_, index) => {
+        const score = index + 1;
+        const selected = score <= currentValue;
+        return (
+          <button
+            key={score}
+            aria-label={`${score} 分`}
+            className={cn(
+              'inline-flex size-9 items-center justify-center rounded-[0.5rem] transition-colors hover:bg-tint-soft disabled:pointer-events-none disabled:opacity-45',
+              selected ? 'text-ink' : 'text-[#a3a3a3]'
+            )}
+            disabled={disabled}
+            type="button"
+            onClick={() => onRate?.(score)}
+          >
+            <Star aria-hidden="true" className="size-5" fill={selected ? 'currentColor' : 'none'} />
+          </button>
+        );
+      })}
     </div>
   );
 }

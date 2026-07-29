@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 Runtime readiness/metrics/shutdown hooks、Operations health/metrics 路由与隔离 SQLite
+ * [INPUT]: 依赖 Runtime readiness/metrics/shutdown hooks、Operations health/metrics 路由、迁移注册表与隔离 SQLite
  * [OUTPUT]: 验证 live/ready 故障矩阵、既有 health 兼容响应、指标序列化与 flush 失败隔离
  * [POS]: tests 的 Runtime Engineering 定向回归套件；共享测试地图由总控统一回环
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -8,6 +8,7 @@
 import { afterEach, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { Hono } from 'hono';
 import { initDatabase } from '../src/db';
+import { MIGRATIONS } from '../src/db/migrations';
 import healthRoutes from '../src/modules/operations/http/health.routes';
 import metricsRoutes from '../src/modules/operations/http/metrics.routes';
 import { createReadinessProbe } from '../src/runtime/readiness';
@@ -15,6 +16,8 @@ import { createRuntimeMetrics, runtimeMetrics } from '../src/runtime/runtime-met
 import { serverState } from '../src/runtime/server-state';
 import { flushShutdownHooks, registerShutdownFlushHook } from '../src/runtime/shutdown-hooks';
 import { configureHttpClientObservers, HttpClient } from '../src/modules/campus-integrations/http/http-client';
+
+const LATEST_MIGRATION_VERSION = MIGRATIONS.at(-1)?.version ?? 0;
 
 beforeAll(() => initDatabase());
 afterEach(() => serverState.markStarting());
@@ -91,8 +94,8 @@ describe('runtime HTTP probes', () => {
     expect(ready.status).toBe(200);
     expect((await ready.json() as any).data.checks.migration).toEqual({
       ok: true,
-      currentVersion: 1,
-      expectedVersion: 1,
+      currentVersion: LATEST_MIGRATION_VERSION,
+      expectedVersion: LATEST_MIGRATION_VERSION,
     });
 
     serverState.beginShutdown('SIGTERM');

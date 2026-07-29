@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Treehole 测试支架、帖子查询与头像媒体能力
- * [OUTPUT]: 验证匿名帖子读模型、头像上传删除、同步展示与文件校验
+ * [OUTPUT]: 验证化名帖子读模型、社区资料同步展示、头像上传删除与文件/昵称校验
  * [POS]: tests/treehole 的 Treehole 帖子与头像细分用例，失败时直接定位该业务能力
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -37,6 +37,7 @@ describe('Treehole 帖子与头像', () => {
     expect(detailBody.data.viewer.isMine).toBe(true);
     expect(detailBody.data.viewer.liked).toBe(false);
     expect(detailBody.data.avatarUrl).toBeNull();
+    expect(detailBody.data.nickname).toBeNull();
     expect(detailBody.data.author).toBeUndefined();
     expect(detailBody.data.userId).toBeUndefined();
 
@@ -49,6 +50,7 @@ describe('Treehole 帖子与头像', () => {
     expect(listBody.data.items[0].id).toBe(postId);
     expect(listBody.data.items[0].viewer.isMine).toBe(false);
     expect(listBody.data.items[0].avatarUrl).toBeNull();
+    expect(listBody.data.items[0].nickname).toBeNull();
   });
 
   it('头像支持上传删除，并在帖子和评论返回中同步', async () => {
@@ -68,12 +70,24 @@ describe('Treehole 帖子与头像', () => {
     const avatarUrl = uploadBody.data.avatarUrl as string;
     const avatarPath = avatarUrl.split('?')[0];
 
-    const avatarInfoRes = await app.request('http://localhost/api/treehole/avatar', {
+    const profileForm = new FormData();
+    profileForm.set('nickname', '山风_7');
+    const profileUpdateRes = await app.request('http://localhost/api/treehole/profile', {
+      method: 'PUT',
+      headers: await authHeaderFor(authorId, '2023002001'),
+      body: profileForm,
+    });
+    expect(profileUpdateRes.status).toBe(200);
+    const profileUpdateBody = await profileUpdateRes.json() as any;
+    expect(profileUpdateBody.data).toEqual({ avatarUrl, nickname: '山风_7' });
+
+    const avatarInfoRes = await app.request('http://localhost/api/treehole/profile', {
       headers: await authHeaderFor(authorId, '2023002001'),
     });
     expect(avatarInfoRes.status).toBe(200);
     const avatarInfoBody = await avatarInfoRes.json() as any;
     expect(avatarInfoBody.data.avatarUrl).toBe(avatarUrl);
+    expect(avatarInfoBody.data.nickname).toBe('山风_7');
 
     const avatarFileRes = await app.request(`http://localhost${avatarPath}`);
     expect(avatarFileRes.status).toBe(200);
@@ -87,6 +101,7 @@ describe('Treehole 帖子与头像', () => {
     expect(listRes.status).toBe(200);
     const listBody = await listRes.json() as any;
     expect(listBody.data.items[0].avatarUrl).toBe(avatarUrl);
+    expect(listBody.data.items[0].nickname).toBe('山风_7');
 
     const commentsRes = await app.request(`http://localhost/api/treehole/posts/${postId}/comments`, {
       headers: await authHeaderFor(otherUserId, '2023002002'),
@@ -94,6 +109,7 @@ describe('Treehole 帖子与头像', () => {
     expect(commentsRes.status).toBe(200);
     const commentsBody = await commentsRes.json() as any;
     expect(commentsBody.data.items[0].avatarUrl).toBe(avatarUrl);
+    expect(commentsBody.data.items[0].nickname).toBe('山风_7');
 
     const deleteAvatarRes = await app.request('http://localhost/api/treehole/avatar', {
       method: 'DELETE',
@@ -102,16 +118,18 @@ describe('Treehole 帖子与头像', () => {
     expect(deleteAvatarRes.status).toBe(200);
     const deleteAvatarBody = await deleteAvatarRes.json() as any;
     expect(deleteAvatarBody.data.avatarUrl).toBeNull();
+    expect(deleteAvatarBody.data.nickname).toBe('山风_7');
 
     const avatarMissingRes = await app.request(`http://localhost${avatarPath}`);
     expect(avatarMissingRes.status).toBe(404);
 
-    const avatarInfoAfterDeleteRes = await app.request('http://localhost/api/treehole/avatar', {
+    const avatarInfoAfterDeleteRes = await app.request('http://localhost/api/treehole/profile', {
       headers: await authHeaderFor(authorId, '2023002001'),
     });
     expect(avatarInfoAfterDeleteRes.status).toBe(200);
     const avatarInfoAfterDeleteBody = await avatarInfoAfterDeleteRes.json() as any;
     expect(avatarInfoAfterDeleteBody.data.avatarUrl).toBeNull();
+    expect(avatarInfoAfterDeleteBody.data.nickname).toBe('山风_7');
 
     const listAfterDeleteRes = await app.request('http://localhost/api/treehole/posts', {
       headers: await authHeaderFor(otherUserId, '2023002002'),
@@ -119,6 +137,7 @@ describe('Treehole 帖子与头像', () => {
     expect(listAfterDeleteRes.status).toBe(200);
     const listAfterDeleteBody = await listAfterDeleteRes.json() as any;
     expect(listAfterDeleteBody.data.items[0].avatarUrl).toBeNull();
+    expect(listAfterDeleteBody.data.items[0].nickname).toBe('山风_7');
   });
 
   it('头像上传会拒绝缺失文件和非图片文件', async () => {
@@ -140,5 +159,31 @@ describe('Treehole 帖子与头像', () => {
       body: invalidForm,
     });
     expect(invalidRes.status).toBe(400);
+  });
+
+  it('昵称允许清空并拒绝短值、特殊字符和保留名称', async () => {
+    const app = createApp();
+
+    for (const nickname of ['a', '坏-名字', '管理员']) {
+      const invalidForm = new FormData();
+      invalidForm.set('nickname', nickname);
+      const invalidRes = await app.request('http://localhost/api/treehole/profile', {
+        method: 'PUT',
+        headers: await authHeaderFor(authorId, '2023002001'),
+        body: invalidForm,
+      });
+      expect(invalidRes.status).toBe(400);
+    }
+
+    const clearForm = new FormData();
+    clearForm.set('nickname', '  ');
+    const clearRes = await app.request('http://localhost/api/treehole/profile', {
+      method: 'PUT',
+      headers: await authHeaderFor(authorId, '2023002001'),
+      body: clearForm,
+    });
+    expect(clearRes.status).toBe(200);
+    const clearBody = await clearRes.json() as any;
+    expect(clearBody.data.nickname).toBeNull();
   });
 });

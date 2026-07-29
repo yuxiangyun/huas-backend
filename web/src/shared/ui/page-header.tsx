@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 ReactNode 组合能力与 shared/lib/cn 样式合并能力
- * [OUTPUT]: 对外提供 PageHeader，统一页面标题、描述、操作区与可选视觉区的响应式排布
- * [POS]: shared/ui 的页级标题原语，在窄屏为标题保留可读宽度并将过宽操作区换行
+ * [OUTPUT]: 对外提供 PageHeader，统一可组合页面标题、描述、操作区与可选标题样式的响应式排布
+ * [POS]: shared/ui 的页级标题原语，统一标题与操作的垂直中线并在窄屏保留换行能力
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -10,12 +10,13 @@ import { cn } from '@/shared/lib/cn';
 
 export interface PageHeaderProps {
   eyebrow?: string;
-  title: string;
+  title: ReactNode;
   description?: string;
   action?: ReactNode;
   visual?: ReactNode;
   compact?: boolean;
   className?: string;
+  titleClassName?: string;
 }
 
 export function PageHeader({
@@ -26,12 +27,13 @@ export function PageHeader({
   visual,
   compact = false,
   className,
+  titleClassName,
 }: PageHeaderProps) {
   const content = (
-    <div className={cn('min-w-[7rem] flex-1', compact ? 'space-y-1.5' : 'space-y-2')}>
+    <div className={cn('min-w-[7rem] flex-1', compact ? 'space-y-1' : 'space-y-1.5')}>
       {eyebrow ? (
         <p
-          className="text-[0.8rem] font-medium text-muted"
+          className="text-xs font-medium text-muted"
           style={{ letterSpacing: 'var(--tracking-eyebrow)' }}
         >
           {eyebrow}
@@ -39,14 +41,15 @@ export function PageHeader({
       ) : null}
       <h1
         className={cn(
-          'max-w-[13ch] font-semibold leading-[0.94] tracking-[-0.05em] text-ink sm:max-w-none sm:text-4xl',
-          compact ? 'text-[var(--font-title-section)]' : 'text-[var(--font-title-page)]'
+          'font-semibold leading-tight tracking-[-0.025em] text-ink',
+          compact ? 'text-[var(--font-title-section)]' : 'text-[var(--font-title-page)]',
+          titleClassName
         )}
       >
         {title}
       </h1>
       {description ? (
-        <p className="max-w-[28rem] text-sm leading-6 text-muted sm:text-[0.95rem] sm:leading-7">
+        <p className="max-w-[34rem] text-sm leading-5 text-muted">
           {description}
         </p>
       ) : null}
@@ -54,21 +57,21 @@ export function PageHeader({
   );
 
   return (
-    <header className={cn('page-header-mobile px-1', className)}>
+    <header className={cn('page-header-mobile', className)}>
       {visual ? (
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex min-w-0 flex-wrap items-start justify-between gap-3 sm:gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 sm:gap-4">
             {content}
-            {action ? <div className="ml-auto shrink-0 pt-1">{action}</div> : null}
+            {action ? <div className="ml-auto shrink-0">{action}</div> : null}
           </div>
-          <div className="w-full self-stretch sm:w-auto sm:self-auto sm:pt-1">
+          <div className="w-full self-stretch sm:w-auto sm:self-auto">
             {visual}
           </div>
         </div>
       ) : (
-        <div className="flex flex-wrap items-start justify-between gap-3 sm:gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 sm:gap-4">
           {content}
-          {action ? <div className="ml-auto shrink-0 pt-1">{action}</div> : null}
+          {action ? <div className="ml-auto shrink-0">{action}</div> : null}
         </div>
       )}
     </header>

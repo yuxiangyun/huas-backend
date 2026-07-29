@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖共享 CacheMeta 描述缓存观测结果，依赖 Web Request/Response 基础契约描述校园 HTTP
- * [OUTPUT]: 对外提供 Academic 上游执行、缓存读写/singleflight 与 refresh fallback 三个真实 I/O 端口
- * [POS]: academic/domain 的外部边界契约，application 依赖此抽象而不感知凭证、SQLite 或重试实现
+ * [OUTPUT]: 对外提供带可选总预算/重试策略的 Academic 上游执行、缓存读写/singleflight 与 refresh fallback 三个真实 I/O 端口
+ * [POS]: academic/domain 的外部边界契约，application 只声明恢复意图而不感知凭证、SQLite 或重试实现
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -16,10 +16,18 @@ export interface AcademicUpstreamContext {
   portalToken?: string;
 }
 
+export interface AcademicUpstreamOptions {
+  totalTimeoutMs?: number;
+  credentialMaxAttempts?: number;
+  requestMaxAttempts?: number;
+  isRetryableError?: (error: unknown) => boolean;
+}
+
 export type AcademicUpstream = <T>(
   userId: number,
   mode: 'jw' | 'portal',
   operation: (context: AcademicUpstreamContext) => Promise<T>,
+  options?: AcademicUpstreamOptions,
 ) => Promise<T>;
 
 export interface AcademicCache {

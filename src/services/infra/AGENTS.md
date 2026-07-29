@@ -4,7 +4,7 @@
 成员清单
 cache-service.ts: modules/cache canonical CacheService 的兼容再导出，保留旧导入路径一个版本
 refresh-fallback.ts: 非凭证型 refresh 失败缓存兜底工具，选择 stale 缓存、发出可注入观测事件并标记响应元信息，3003 必须穿透
-upstream.ts: upstream/UpstreamContext 兼容再导出，canonical 执行边界位于 campus-integrations/upstream
+upstream.ts: upstream/UpstreamContext/UpstreamExecutionOptions 兼容再导出，canonical 执行边界位于 campus-integrations/upstream
 
 架构决策
 infra 是服务层基础设施，不承载具体业务事实；缓存是性能层，不是权威数据源。

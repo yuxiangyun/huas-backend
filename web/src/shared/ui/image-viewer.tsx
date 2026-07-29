@@ -1,16 +1,14 @@
-import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { useEffect } from 'react';
-import { Button } from '@/shared/ui/button';
-import { Card } from '@/shared/ui/card';
-import { IconButton } from '@/shared/ui/icon-button';
+/**
+ * [INPUT]: 依赖 motion 动效、Lucide 图标、图片集合与键盘导航动作
+ * [OUTPUT]: 对外提供 ImageViewer，以全屏查看器呈现媒体并支持键盘、缩略图和前后切换
+ * [POS]: shared/ui 的媒体查看原语，不展示文件名或业务说明
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
 
-function CloseIcon() {
-  return (
-    <svg aria-hidden="true" className="h-4 w-4" viewBox="0 0 20 20" fill="none">
-      <path d="M5 5L15 15M15 5L5 15" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
-    </svg>
-  );
-}
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import { ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { useEffect } from 'react';
+import { IconButton } from '@/shared/ui/icon-button';
 
 export interface ImageViewerItem {
   src: string;
@@ -93,7 +91,7 @@ export function ImageViewer({
         <div className="fixed inset-0 z-[90]">
           <motion.button
             aria-label="关闭图片预览"
-            className="absolute inset-0 bg-black/55 sm:backdrop-blur-md max-sm:bg-black/64"
+            className="absolute inset-0 bg-black/90"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -103,21 +101,21 @@ export function ImageViewer({
           />
 
           <motion.div
-            className="absolute inset-0 mx-auto flex w-full max-w-[min(100%,72rem)] transform-gpu flex-col justify-center px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] sm:px-6"
+            className="absolute inset-0 mx-auto flex w-full max-w-[72rem] transform-gpu flex-col px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-6"
             initial={panelMotion.initial}
             animate={{ y: 0, opacity: 1 }}
             exit={panelMotion.exit}
             style={{ willChange: 'transform, opacity' }}
             transition={panelTransition}
           >
-            <Card className="space-y-3 rounded-[1.45rem] border-white/15 bg-[#101317]/92 p-4 text-white shadow-[0_24px_80px_rgba(0,0,0,0.45)] sm:space-y-4 sm:rounded-[2rem] sm:p-5">
-              <div className="flex items-center justify-between gap-3">
-                <span className="rounded-pill bg-white/10 px-3 py-1 text-xs font-medium text-white/80">
+            <div className="flex min-h-0 flex-1 flex-col gap-3 text-white">
+              <div className="flex h-10 shrink-0 items-center justify-between gap-3">
+                <span className="text-xs font-medium text-white/70">
                   {activeIndex + 1} / {items.length}
                 </span>
                 <IconButton
-                  className="border-white/10 bg-white/12 text-white sm:hover:bg-white/18"
-                  icon={<CloseIcon />}
+                  className="text-white hover:bg-white/10 hover:text-white"
+                  icon={<X aria-hidden="true" className="size-5" />}
                   label="关闭图片预览"
                   size="sm"
                   variant="secondary"
@@ -125,38 +123,29 @@ export function ImageViewer({
                 />
               </div>
 
-              <div className="overflow-hidden rounded-[1.2rem] bg-black/30 sm:rounded-[1.6rem]">
+              <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden">
                 <img
                   alt={activeItem.alt}
-                  className="max-h-[70vh] w-full object-contain"
+                  className="max-h-full max-w-full object-contain"
                   src={activeItem.src}
                 />
               </div>
 
               <div className="flex items-center justify-between gap-3">
-                <Button
-                  className="text-white/85 sm:hover:bg-white/10 sm:hover:text-white disabled:text-white/35"
-                  size="sm"
-                  type="button"
-                  variant="ghost"
+                <IconButton
+                  className="text-white hover:bg-white/10 hover:text-white disabled:text-white/30"
                   disabled={activeIndex === 0}
+                  icon={<ChevronLeft aria-hidden="true" className="size-5" />}
+                  label="上一张"
                   onClick={() => onIndexChange(activeIndex - 1)}
-                >
-                  上一张
-                </Button>
-                <p className="min-w-0 flex-1 truncate text-center text-sm text-white/72">
-                  {activeItem.alt}
-                </p>
-                <Button
-                  className="text-white/85 sm:hover:bg-white/10 sm:hover:text-white disabled:text-white/35"
-                  size="sm"
-                  type="button"
-                  variant="ghost"
+                />
+                <IconButton
+                  className="text-white hover:bg-white/10 hover:text-white disabled:text-white/30"
                   disabled={activeIndex >= items.length - 1}
+                  icon={<ChevronRight aria-hidden="true" className="size-5" />}
+                  label="下一张"
                   onClick={() => onIndexChange(activeIndex + 1)}
-                >
-                  下一张
-                </Button>
+                />
               </div>
 
               {items.length > 1 ? (
@@ -166,8 +155,8 @@ export function ImageViewer({
                       key={item.key ?? `${item.src}-${itemIndex}`}
                       aria-label={`查看第 ${itemIndex + 1} 张图片`}
                       className={itemIndex === activeIndex
-                        ? 'overflow-hidden rounded-[1rem] ring-2 ring-white/80'
-                        : 'overflow-hidden rounded-[1rem] opacity-70 transition motion-reduce:transition-none sm:hover:opacity-100'}
+                        ? 'overflow-hidden rounded-[0.5rem] ring-2 ring-white/80'
+                        : 'overflow-hidden rounded-[0.5rem] opacity-55 transition-opacity motion-reduce:transition-none sm:hover:opacity-100'}
                       type="button"
                       onClick={() => onIndexChange(itemIndex)}
                     >
@@ -180,7 +169,7 @@ export function ImageViewer({
                   ))}
                 </div>
               ) : null}
-            </Card>
+            </div>
           </motion.div>
         </div>
       ) : null}

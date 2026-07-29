@@ -1,10 +1,11 @@
 /**
- * [INPUT]: 依赖调用方提供的 Treehole 帖子、分页状态和打开/刷新动作
- * [OUTPUT]: 对外提供 MyTreeholePostsPanel，展示当前用户的树洞列表与分页状态
- * [POS]: widgets/my-treehole-posts-panel 的无请求展示组件，由个人树洞页持有数据获取和路由语义
+ * [INPUT]: 依赖调用方提供的 Treehole 帖子、分页状态与打开动作
+ * [OUTPUT]: 对外提供 MyTreeholePostsPanel，展示当前用户的树洞动态列表
+ * [POS]: widgets/my-treehole-posts-panel 的无请求展示组件，不重复页面标题与统计摘要
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
+import { Heart, MessageCircle } from 'lucide-react';
 import type { TreeholePost } from '@/entities/treehole/model/treehole-types';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
@@ -15,145 +16,36 @@ interface MyTreeholePostsPanelProps {
   loadingMore?: boolean;
   loading?: boolean;
   posts: TreeholePost[];
-  totalCount?: number;
   onLoadMore?: () => void;
   onOpenPost?: (postId: number) => void;
-  onRefresh?: () => void;
-  refreshing?: boolean;
 }
 
 function formatPublishedAt(value: string) {
-  return new Date(value).toLocaleString('zh-CN', {
-    month: 'numeric',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return new Date(value).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-export function MyTreeholePostsPanel({
-  hasMore = false,
-  loading = false,
-  loadingMore = false,
-  posts,
-  totalCount,
-  onLoadMore,
-  onOpenPost,
-  onRefresh,
-  refreshing = false,
-}: MyTreeholePostsPanelProps) {
-  const displayCount = totalCount ?? posts.length;
-
+export function MyTreeholePostsPanel({ hasMore = false, loading = false, loadingMore = false, posts, onLoadMore, onOpenPost }: MyTreeholePostsPanelProps) {
   if (loading) {
-    return (
-      <div className="space-y-3">
-        {Array.from({ length: 3 }, (_, index) => (
-          <Card key={index} className="space-y-3">
-            <div className="flex items-start gap-3">
-              <div className="size-10 animate-pulse rounded-[0.8rem] bg-shell-strong" />
-              <div className="min-w-0 flex-1 space-y-3">
-                <div className="h-5 w-24 animate-pulse rounded bg-shell-strong" />
-                <div className="h-24 animate-pulse rounded-[1.15rem] bg-shell-strong" />
-                <div className="h-4 w-32 animate-pulse rounded bg-shell-strong" />
-              </div>
-            </div>
-          </Card>
-        ))}
-      </div>
-    );
+    return <div className="space-y-3" aria-hidden="true">{Array.from({ length: 3 }, (_, index) => <Card key={index} className="space-y-3"><div className="h-4 w-24 animate-pulse rounded bg-shell-strong" /><div className="h-20 animate-pulse rounded bg-shell-strong" /></Card>)}</div>;
   }
+
+  if (posts.length === 0) return <Card><p className="text-sm text-muted">暂无发布</p></Card>;
 
   return (
     <div className="space-y-3">
-      <Card className="space-y-2 bg-card-strong">
-        <div className="flex items-start justify-between gap-3">
-          <div className="space-y-1.5">
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="text-base font-semibold text-ink">我的树洞</p>
-              <span className="rounded-pill bg-white/80 px-3 py-1 text-xs font-medium text-muted ring-1 ring-line">
-                {displayCount} 条
-              </span>
-            </div>
-            <p className="text-sm leading-6 text-muted">
-              查看自己发的内容
-            </p>
-          </div>
-          <Button
-            className="min-w-[5.75rem]"
-            size="xs"
-            type="button"
-            variant="subtle"
-            onClick={onRefresh}
-          >
-            {refreshing ? '刷新中...' : '刷新'}
-          </Button>
-        </div>
-      </Card>
-
-      {posts.length === 0 ? (
-        <Card className="space-y-2">
-          <p className="text-base font-semibold text-ink">还没有树洞</p>
-          <p className="text-sm leading-6 text-muted">
-            去发第一条
-          </p>
-        </Card>
-      ) : null}
-
       {posts.map((post) => (
-        <button
-          key={post.id}
-          className="feed-card-trigger active:scale-[0.995] motion-reduce:transform-none"
-          type="button"
-          onClick={() => onOpenPost?.(post.id)}
-        >
-          <Card className="space-y-4 shadow-none transition motion-reduce:transition-none sm:hover:-translate-y-0.5 sm:hover:bg-card-strong">
-            <div className="flex items-start gap-3">
-              <TreeholeAvatar src={post.avatarUrl} />
-              <div className="min-w-0 flex-1 space-y-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex flex-wrap gap-2">
-                    <span className="rounded-pill bg-tint-soft px-3 py-1 text-xs font-medium text-ink">
-                      匿名树洞
-                    </span>
-                    <span className="rounded-pill bg-white/80 px-3 py-1 text-xs text-muted ring-1 ring-line">
-                      我的
-                    </span>
-                  </div>
-                  <span className="shrink-0 text-xs text-muted">{formatPublishedAt(post.publishedAt)}</span>
-                </div>
-
-                <p className="text-clamp-4 break-words text-sm leading-7 whitespace-pre-wrap text-ink">
-                  {post.content}
-                </p>
-
-                <div className="flex flex-wrap items-center justify-between gap-2.5 text-sm text-muted">
-                  <span>{post.stats.likeCount} 个赞</span>
-                  <span>{post.stats.commentCount} 条评论</span>
-                </div>
-              </div>
+        <button key={post.id} className="feed-card-trigger" style={{ contentVisibility: 'auto', containIntrinsicSize: '190px' }} type="button" onClick={() => onOpenPost?.(post.id)}>
+          <Card className="space-y-4 transition-colors hover:border-[#d4d4d4]">
+            <div className="flex items-center justify-between gap-3">
+              <span className="flex min-w-0 items-center gap-2"><TreeholeAvatar className="size-7 rounded-full text-[0.65rem]" src={post.avatarUrl} /><span className="truncate text-sm font-medium">{post.nickname || '用户'}</span></span>
+              <span className="shrink-0 text-xs text-muted">{formatPublishedAt(post.publishedAt)}</span>
             </div>
+            <p className="text-clamp-4 break-words text-sm leading-7 whitespace-pre-wrap">{post.content}</p>
+            <div className="flex items-center gap-4 text-xs text-muted"><span className="inline-flex items-center gap-1"><Heart aria-hidden="true" className="size-4" />{post.stats.likeCount}</span><span className="inline-flex items-center gap-1"><MessageCircle aria-hidden="true" className="size-4" />{post.stats.commentCount}</span></div>
           </Card>
         </button>
       ))}
-
-      {posts.length > 0 ? (
-        <div className="flex items-center justify-between gap-3">
-          {hasMore ? (
-            <Button
-              className="min-w-[6rem]"
-              size="sm"
-              type="button"
-              variant="secondary"
-              disabled={loadingMore}
-              onClick={onLoadMore}
-            >
-              {loadingMore ? '加载中...' : '加载更多'}
-            </Button>
-          ) : (
-            <span className="text-sm text-muted">已经到底了</span>
-          )}
-        </div>
-      ) : null}
+      {hasMore ? <div className="flex justify-center"><Button disabled={loadingMore} size="sm" type="button" variant="secondary" onClick={onLoadMore}>{loadingMore ? '加载中…' : '加载更多'}</Button></div> : null}
     </div>
   );
 }

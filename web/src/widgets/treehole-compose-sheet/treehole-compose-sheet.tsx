@@ -1,104 +1,73 @@
+/**
+ * [INPUT]: 依赖 Treehole meta/create hooks、React Hook Form、Zod 与发布弹层状态
+ * [OUTPUT]: 对外提供 TreeholeComposeSheet，以简洁弹窗提交树洞内容
+ * [POS]: widgets/treehole-compose-sheet 的发布表单容器，不展示身份宣传或默认提示反馈
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
-import { useToastStore } from '@/app/state/toast-store';
 import { useUiStore } from '@/app/state/ui-store';
 import { useCreateTreeholePostMutation, useTreeholeMetaQuery } from '@/entities/treehole/api/treehole-queries';
-import {
-  createTreeholePostSchema,
-  type CreateTreeholePostFormValues,
-} from '@/features/treehole-create-post/model/create-treehole-post-schema';
-import { BottomSheet } from '@/shared/ui/bottom-sheet';
+import { createTreeholePostSchema, type CreateTreeholePostFormValues } from '@/features/treehole-create-post/model/create-treehole-post-schema';
 import { Button } from '@/shared/ui/button';
+import { TaskDialog } from '@/shared/ui/task-dialog';
+
+const FORM_ID = 'treehole-compose-form';
 
 export function TreeholeComposeSheet() {
   const composeSheetOpen = useUiStore((state) => state.treeholeComposeSheetOpen);
   const closeComposeSheet = useUiStore((state) => state.closeTreeholeComposeSheet);
-  const pushToast = useToastStore((state) => state.pushToast);
   const metaQuery = useTreeholeMetaQuery();
   const createMutation = useCreateTreeholePostMutation();
-  const {
-    register,
-    handleSubmit,
-    reset,
-    watch,
-    formState: { errors },
-  } = useForm<CreateTreeholePostFormValues>({
+  const { register, handleSubmit, reset, formState: { errors } } = useForm<CreateTreeholePostFormValues>({
     resolver: zodResolver(createTreeholePostSchema),
-    defaultValues: {
-      content: '',
-    },
+    defaultValues: { content: '' },
   });
-
-  const contentValue = watch('content');
   const maxPostLength = metaQuery.data?.limits.maxPostLength ?? 500;
 
   useEffect(() => {
-    if (!composeSheetOpen) return;
-    reset({ content: '' });
+    if (composeSheetOpen) reset({ content: '' });
   }, [composeSheetOpen, reset]);
 
   const onSubmit = handleSubmit(async (values) => {
-    await createMutation.mutateAsync({ content: values.content.trim() });
-    pushToast({
-      title: '发布成功',
-      variant: 'success',
-    });
-    closeComposeSheet();
+    try {
+      await createMutation.mutateAsync({ content: values.content.trim() });
+      closeComposeSheet();
+    } catch {
+      // mutation 状态在表单内提供可重试反馈。
+    }
   });
 
   return (
-    <BottomSheet
+    <TaskDialog
+      className="max-w-[36rem]"
       open={composeSheetOpen}
-      closeLabel="关闭树洞发布面板"
-      contentClassName="space-y-4"
+      presentation="modal"
+      title="发布动态"
       onClose={closeComposeSheet}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="space-y-1">
-          <p className="text-lg font-semibold text-ink">发一条树洞</p>
-          <p className="text-sm leading-6 text-muted">
-            默认匿名
-          </p>
-        </div>
-        <Button size="xs" type="button" variant="subtle" onClick={closeComposeSheet}>
-          关闭
+      footer={(
+        <Button disabled={createMutation.isPending || metaQuery.isError} form={FORM_ID} fullWidth size="lg" type="submit">
+          {createMutation.isPending ? '发布中…' : '发布'}
         </Button>
-      </div>
-
-      {metaQuery.isError ? (
-        <div className="rounded-[1.05rem] bg-error-soft p-4 text-sm leading-6 text-error">
-          {metaQuery.error instanceof Error ? metaQuery.error.message : '暂时无法加载树洞配置'}
-        </div>
-      ) : null}
-
-      <form className="space-y-4" onSubmit={onSubmit}>
+      )}
+    >
+      <form id={FORM_ID} onSubmit={onSubmit}>
         <label className="block space-y-2">
-          <span className="text-sm font-medium text-ink">内容</span>
+          <span className="sr-only">内容</span>
           <textarea
-            className="min-h-40 w-full rounded-[1.05rem] border border-line bg-white/80 px-3.5 py-3 text-ink outline-none focus:border-transparent focus:ring-2 focus:ring-tint/20"
+            autoFocus
+            className="field-control min-h-56 resize-y border-0 px-0 py-0 text-base leading-7 shadow-none focus:shadow-none sm:min-h-72"
             maxLength={maxPostLength}
             placeholder="写点什么"
             {...register('content')}
           />
-          <div className="flex items-center justify-between gap-3 text-xs text-muted">
-            <span>{errors.content?.message || '发后可删除'}</span>
-            <span>{contentValue.length} / {maxPostLength}</span>
-          </div>
+          {errors.content ? <p className="text-sm text-error">{errors.content.message}</p> : null}
+          {metaQuery.isError ? <p className="text-sm text-error">加载失败，请重试</p> : null}
+          {createMutation.isError ? <p className="text-sm text-error">发布失败，请重试</p> : null}
         </label>
-
-        <div className="flex justify-end">
-          <Button
-            className="min-w-[6rem]"
-            disabled={createMutation.isPending}
-            size="md"
-            type="submit"
-            variant="primary"
-          >
-            {createMutation.isPending ? '发布中...' : '发布'}
-          </Button>
-        </div>
       </form>
-    </BottomSheet>
+    </TaskDialog>
   );
 }

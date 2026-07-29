@@ -1,14 +1,21 @@
+/**
+ * [INPUT]: 依赖认证 API、表单校验、树洞元数据查询、站内重定向规则与本机密码记忆选项
+ * [OUTPUT]: 对外提供 LoginForm，处理验证码登录、认证状态提交与登录后导航
+ * [POS]: features/auth-login 的交互编排器，认证成功后预取默认树洞页元数据但不持有路由配置
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
+import { RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { resolveRedirectPath } from '@/app/router/redirect';
-import { appRoutes } from '@/app/router/paths';
-import { discoverQueryKeys } from '@/entities/discover/model/discover-query-keys';
-import { getDiscoverMeta } from '@/entities/discover/api/discover-api';
 import { loginWithPassword } from '@/entities/auth/api/auth-api';
 import { useAuthStore } from '@/entities/auth/model/auth-store';
+import { getTreeholeMeta } from '@/entities/treehole/api/treehole-api';
+import { treeholeQueryKeys } from '@/entities/treehole/model/treehole-query-keys';
 import { loginSchema, type LoginFormValues } from '@/features/auth-login/model/login-schema';
 import { ApiError } from '@/shared/api/http-client';
 import { Button } from '@/shared/ui/button';
@@ -19,12 +26,6 @@ function FieldMessage({ message }: { message?: string }) {
   return <p className="text-sm text-error">{message}</p>;
 }
 
-const fieldClassName =
-  'h-12 w-full rounded-[1.15rem] border border-line bg-white/86 px-3.5 text-ink outline-none transition focus:border-transparent focus:ring-2 focus:ring-black/10';
-
-const noteClassName =
-  'rounded-[1.1rem] bg-white/78 px-4 py-3 text-sm leading-6 text-muted ring-1 ring-line';
-
 const REMEMBERED_CREDENTIALS_STORAGE_KEY = 'huas-web.remembered-credentials';
 
 interface RememberedCredentials {
@@ -33,31 +34,22 @@ interface RememberedCredentials {
 }
 
 function readRememberedCredentials(): RememberedCredentials | null {
-  if (typeof window === 'undefined') return null;
-
   try {
     const raw = window.localStorage.getItem(REMEMBERED_CREDENTIALS_STORAGE_KEY);
     if (!raw) return null;
-
     const parsed = JSON.parse(raw) as Partial<RememberedCredentials>;
     if (!parsed.username || !parsed.password) return null;
-
-    return {
-      username: parsed.username,
-      password: parsed.password,
-    };
+    return { username: parsed.username, password: parsed.password };
   } catch {
     return null;
   }
 }
 
 function writeRememberedCredentials(credentials: RememberedCredentials) {
-  if (typeof window === 'undefined') return;
   window.localStorage.setItem(REMEMBERED_CREDENTIALS_STORAGE_KEY, JSON.stringify(credentials));
 }
 
 function clearRememberedCredentials() {
-  if (typeof window === 'undefined') return;
   window.localStorage.removeItem(REMEMBERED_CREDENTIALS_STORAGE_KEY);
 }
 
@@ -95,7 +87,7 @@ export function LoginForm() {
     mutationFn: loginWithPassword,
   });
 
-  const redirectPath = resolveRedirectPath(location, appRoutes.discover);
+  const redirectPath = resolveRedirectPath(location);
 
   const finalizeLogin = async (
     result: Awaited<ReturnType<typeof loginWithPassword>>,
@@ -105,7 +97,7 @@ export function LoginForm() {
       setCaptchaSessionId(result.sessionId);
       setCaptchaImage(result.captchaImage);
       setValue('captcha', '');
-      setStatusMessage(result.message);
+      setStatusMessage(null);
       return;
     }
 
@@ -125,8 +117,8 @@ export function LoginForm() {
     });
 
     void queryClient.prefetchQuery({
-      queryKey: discoverQueryKeys.meta(),
-      queryFn: getDiscoverMeta,
+      queryKey: treeholeQueryKeys.meta(),
+      queryFn: getTreeholeMeta,
     });
 
     navigate(redirectPath, { replace: true });
@@ -162,20 +154,14 @@ export function LoginForm() {
 
   return (
     <Card className="space-y-5 bg-card-strong sm:space-y-6">
-      <div className="space-y-1.5">
-        <h2 className="text-xl font-semibold tracking-[-0.03em] text-ink">登录</h2>
-        <p className="text-sm leading-6 text-muted">
-          输入学号和密码
-        </p>
-      </div>
+      <h2 className="text-xl font-semibold tracking-[-0.02em] text-ink">登录</h2>
 
       <form className="space-y-4 sm:space-y-[1.125rem]" onSubmit={onLogin}>
         <label className="block space-y-2">
           <span className="text-sm font-medium text-ink">学号</span>
           <input
             autoComplete="username"
-            className={fieldClassName}
-            placeholder="请输入学号"
+            className="field-control"
             {...register('username')}
           />
           <FieldMessage message={errors.username?.message} />
@@ -185,44 +171,31 @@ export function LoginForm() {
           <span className="text-sm font-medium text-ink">密码</span>
           <input
             autoComplete="current-password"
-            className={fieldClassName}
-            placeholder="请输入密码"
+            className="field-control"
             type="password"
             {...register('password')}
           />
           <FieldMessage message={errors.password?.message} />
         </label>
 
-        <div className="flex items-center justify-between gap-3">
-          <label className="inline-flex items-center gap-2.5 text-sm text-muted">
-            <input
-              checked={rememberPassword}
-              className="size-4 rounded border border-line accent-black"
-              type="checkbox"
-              onChange={(event) => {
-                const nextChecked = event.target.checked;
-                setRememberPassword(nextChecked);
-
-                if (!nextChecked) {
-                  clearRememberedCredentials();
-                }
-              }}
-            />
-            <span>记住密码</span>
-          </label>
-          <span className="text-xs text-muted">仅当前设备</span>
-        </div>
+        <label className="inline-flex min-h-9 items-center gap-2 text-sm text-muted">
+          <input
+            checked={rememberPassword}
+            className="size-4 rounded border border-line accent-black"
+            type="checkbox"
+            onChange={(event) => {
+              setRememberPassword(event.target.checked);
+              if (!event.target.checked) clearRememberedCredentials();
+            }}
+          />
+          记住密码
+        </label>
 
         {captchaSessionId ? (
-          <div className="space-y-3 rounded-[1.25rem] bg-tint-soft p-3.5 ring-1 ring-line sm:p-4">
-            <div className="space-y-1">
-              <p className="text-sm font-semibold text-ink">输入验证码</p>
-              <p className="text-sm leading-6 text-muted">
-                输入图中验证码
-              </p>
-            </div>
+          <div className="space-y-3 rounded-[0.75rem] border border-line bg-tint-soft p-3">
+            <p className="text-sm font-semibold text-ink">验证码</p>
             {captchaImage ? (
-              <div className="overflow-hidden rounded-[1.05rem] border border-line bg-white/90 p-3">
+              <div className="overflow-hidden rounded-[0.625rem] border border-line bg-white p-3">
                 <img
                   alt="验证码"
                   className="mx-auto h-24 w-auto"
@@ -233,8 +206,7 @@ export function LoginForm() {
             <label className="block space-y-2">
               <span className="text-sm font-medium text-ink">验证码</span>
               <input
-                className={fieldClassName}
-                placeholder="请输入图中验证码"
+                className="field-control"
                 {...register('captcha')}
               />
               <FieldMessage message={errors.captcha?.message} />
@@ -243,20 +215,17 @@ export function LoginForm() {
         ) : null}
 
         {statusMessage ? (
-          <div className={noteClassName}>
-            {statusMessage}
-          </div>
+          <p className="text-sm text-error">{statusMessage}</p>
         ) : null}
 
         <div className="flex flex-col gap-3">
           <Button
-            className={captchaSessionId ? 'min-w-[10rem]' : 'min-w-[7rem]'}
             fullWidth
             size="lg"
             type="submit"
             disabled={isSubmitting || loginMutation.isPending}
           >
-            {captchaSessionId ? '提交验证码并登录' : '登录'}
+            {loginMutation.isPending ? '登录中…' : '登录'}
           </Button>
           {captchaSessionId ? (
             <>
@@ -274,7 +243,7 @@ export function LoginForm() {
                   const values = getValues();
 
                   try {
-                    setStatusMessage('正在更新验证码...');
+                    setStatusMessage(null);
                     clearErrors('captcha');
                     resetField('captcha');
                     const result = await loginMutation.mutateAsync({
@@ -285,9 +254,6 @@ export function LoginForm() {
                       username: values.username.trim(),
                       password: values.password,
                     });
-                    if (result.type === 'captcha_required') {
-                      setStatusMessage('验证码已更新，请输入新的内容。');
-                    }
                   } catch (error) {
                     setStatusMessage(
                       error instanceof ApiError ? error.message : '验证码刷新失败，请稍后重试'
@@ -295,7 +261,8 @@ export function LoginForm() {
                   }
                 }}
               >
-                重新获取验证码
+                <RefreshCw aria-hidden="true" className="size-4" />
+                更换验证码
               </Button>
 
               <Button
@@ -312,7 +279,7 @@ export function LoginForm() {
                   clearErrors('captcha');
                 }}
               >
-                取消验证码流程
+                取消
               </Button>
             </>
           ) : null}

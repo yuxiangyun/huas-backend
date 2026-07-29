@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖共享 AppError/ErrorCode 与北京时间格式化能力，不依赖 HTTP、数据库或文件系统
- * [OUTPUT]: 对外提供 Discover 稳定类型、校验规则、分页规则与响应映射纯函数
+ * [OUTPUT]: 对外提供含社区资料投影的 Discover 稳定类型、校验规则、分页规则与响应映射纯函数
  * [POS]: modules/discover/domain 的领域内核，由 application 编排和 SQLite adapter 共同消费
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -90,6 +90,7 @@ export interface DiscoverPostResponse {
   storeName: string;
   priceText: string;
   content: string;
+  avatarUrl: string | null;
   category: string;
   tags: string[];
   images: DiscoverStoredImage[];
@@ -105,6 +106,7 @@ export interface DiscoverPostResponse {
   author: {
     id: number;
     label: string;
+    nickname: string | null;
   };
   isMine: boolean;
   publishedAt: string;
@@ -121,6 +123,7 @@ export interface DiscoverCommentResponse {
   author: {
     id: number;
     label: string;
+    nickname: string | null;
   };
   isMine: boolean;
   createdAt: string;
@@ -164,6 +167,8 @@ export interface DiscoverRow {
   publishedAt: Date;
   deletedAt: Date | null;
   storageKey: string;
+  avatarUrl: string | null;
+  authorNickname: string | null;
   authorClassName: string | null;
 }
 
@@ -174,6 +179,7 @@ export interface DiscoverCommentRow {
   parentCommentId: number | null;
   content: string;
   avatarUrl: string | null;
+  authorNickname: string | null;
   authorClassName: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -369,6 +375,7 @@ export function toPostResponse(row: DiscoverRow, userId: number, userScore: numb
     storeName: row.storeName || '',
     priceText: row.priceText || '',
     content: row.content || '',
+    avatarUrl: row.avatarUrl,
     category: row.category,
     tags: safeParseJsonArray<string>(row.tagsJson, []),
     images: safeParseJsonArray<DiscoverStoredImage>(row.imagesJson, []),
@@ -381,7 +388,11 @@ export function toPostResponse(row: DiscoverRow, userId: number, userScore: numb
       total: row.ratingSum,
       userScore,
     },
-    author: { id: row.userId, label: buildDiscoverAuthorLabel(row.authorClassName) },
+    author: {
+      id: row.userId,
+      label: buildDiscoverAuthorLabel(row.authorClassName),
+      nickname: row.authorNickname?.trim() || null,
+    },
     isMine: row.userId === userId,
     publishedAt: beijingIsoString(row.publishedAt),
     createdAt: beijingIsoString(row.createdAt),
@@ -396,7 +407,11 @@ export function toCommentResponse(row: DiscoverCommentRow, userId: number): Disc
     parentCommentId: row.parentCommentId,
     content: row.content,
     avatarUrl: row.avatarUrl,
-    author: { id: row.userId, label: buildDiscoverAuthorLabel(row.authorClassName) },
+    author: {
+      id: row.userId,
+      label: buildDiscoverAuthorLabel(row.authorClassName),
+      nickname: row.authorNickname?.trim() || null,
+    },
     isMine: row.userId === userId,
     createdAt: beijingIsoString(row.createdAt),
     updatedAt: beijingIsoString(row.updatedAt),

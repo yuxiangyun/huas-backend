@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 React 原生按钮属性与 shared/lib/cn 的样式合并能力
+ * [OUTPUT]: 对外提供 Button 组件与 ButtonProps，统一按钮语义、尺寸与焦点状态
+ * [POS]: shared/ui 的基础动作原语，被页面与业务组件共同消费
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import type { ButtonHTMLAttributes } from 'react';
 import { cn } from '@/shared/lib/cn';
 
@@ -5,11 +12,11 @@ type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'subtle' | 'danger';
 type ButtonSize = 'xs' | 'sm' | 'md' | 'lg';
 
 const variantClasses: Record<ButtonVariant, string> = {
-  primary: 'bg-ink text-white shadow-card hover:bg-black active:bg-[#05070a] max-sm:shadow-none',
-  secondary: 'bg-white/84 text-ink ring-1 ring-line hover:bg-white active:bg-[#f3f4f6] max-sm:bg-white/94',
-  ghost: 'bg-transparent text-muted hover:bg-white/60 hover:text-ink active:bg-white/72',
-  subtle: 'bg-white/72 text-ink ring-1 ring-line hover:bg-white active:bg-[#f4f5f6] max-sm:bg-white/90',
-  danger: 'bg-error text-white shadow-card hover:bg-[#7c2828] active:bg-[#672020] max-sm:shadow-none',
+  primary: 'bg-ink text-white hover:bg-black/85 active:bg-black',
+  secondary: 'border border-line bg-white text-ink shadow-card hover:bg-tint-soft active:bg-shell-strong',
+  ghost: 'bg-transparent text-muted hover:bg-tint-soft hover:text-ink active:bg-shell-strong',
+  subtle: 'bg-tint-soft text-ink hover:bg-shell-strong active:bg-[#dededf]',
+  danger: 'bg-error text-white hover:bg-[#b91c1c] active:bg-[#991b1b]',
 };
 
 const sizeClasses: Record<ButtonSize, string> = {
@@ -44,7 +51,7 @@ export function Button({
   return (
     <button
       className={cn(
-        'inline-flex shrink-0 items-center justify-center gap-2 rounded-pill font-medium leading-none whitespace-nowrap transition duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/15 disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.985] motion-reduce:transform-none motion-reduce:transition-none',
+        'inline-flex shrink-0 items-center justify-center gap-2 rounded-[0.625rem] font-medium leading-none whitespace-nowrap transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/45 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none',
         variantClasses[variant],
         sizeClasses[size],
         iconOnly && iconOnlyClasses[size],

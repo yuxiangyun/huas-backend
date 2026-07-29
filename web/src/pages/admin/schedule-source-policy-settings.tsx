@@ -88,16 +88,16 @@ export function ScheduleSourcePolicySettings({
 
   return (
     <section
-      className="rounded-[1.4rem] border border-black/[0.06] bg-white p-5"
+      className="rounded-[0.75rem] border border-line bg-white p-5"
       aria-busy={policyQuery.isFetching || mutation.isPending}
     >
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-base font-semibold text-ink">课表数据源</h2>
-          <p className="mt-1 text-sm leading-6 text-muted">设置课表请求的新数据来源尝试顺序。</p>
+          <p className="mt-1 text-sm leading-6 text-muted">课表请求的数据源顺序。</p>
         </div>
         {policy ? (
-          <p className="w-fit rounded-full bg-[#edf6ff] px-3 py-1 text-xs font-medium text-[#0066cc]" aria-live="polite">
+          <p className="w-fit rounded-[0.5rem] bg-tint-soft px-3 py-1 text-xs font-medium text-ink" aria-live="polite">
             当前：{MODE_CONTENT[policy.mode].label}
           </p>
         ) : null}
@@ -145,7 +145,7 @@ export function ScheduleSourcePolicySettings({
                 return (
                   <button
                     key={mode}
-                    className={`rounded-[0.65rem] px-3 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007aff]/35 ${selected ? 'bg-white text-ink shadow-sm' : 'text-muted hover:bg-white/60'}`}
+                    className={`rounded-[0.5rem] px-3 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/35 ${selected ? 'bg-white text-ink shadow-sm' : 'text-muted hover:bg-white/60'}`}
                     type="button"
                     aria-pressed={selected}
                     disabled={mutation.isPending || selected}
@@ -163,14 +163,12 @@ export function ScheduleSourcePolicySettings({
           </p>
 
           {mutation.isError ? (
-            <div className="rounded-xl bg-[#fff1f0] px-3 py-2.5 text-sm leading-6 text-[#a12b25]" role="alert">
-              切换失败：{getErrorMessage(mutation.error, '请稍后重试')}
-            </div>
+            <p className="text-sm text-error" role="alert">切换失败，请重试</p>
           ) : null}
 
           {policyQuery.isError ? (
-            <div className="flex flex-col gap-2 rounded-xl bg-[#fff8e8] px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-sm leading-6 text-[#805d16]">策略刷新失败，当前显示上一次成功加载的数据。</p>
+            <div className="flex flex-col gap-2 rounded-[0.625rem] bg-tint-soft px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm leading-6 text-muted">刷新失败，当前显示上次数据。</p>
               <Button
                 size="xs"
                 type="button"
@@ -184,11 +182,8 @@ export function ScheduleSourcePolicySettings({
           ) : null}
         </div>
       ) : (
-        <div className="mt-5 rounded-xl bg-[#fff1f0] px-4 py-4" role="alert">
-          <p className="text-sm font-medium text-[#a12b25]">课表数据源策略加载失败</p>
-          <p className="mt-1 text-sm leading-6 text-[#a12b25]">
-            {getErrorMessage(policyQuery.error, '请稍后重试')}
-          </p>
+        <div className="mt-5 rounded-[0.625rem] bg-error-soft px-4 py-4" role="alert">
+          <p className="text-sm text-error">加载失败，请重试</p>
           <Button
             className="mt-3"
             size="sm"

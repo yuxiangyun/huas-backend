@@ -2,7 +2,7 @@
 > L2 | 父级: /Users/xiangyun/workspace/huas-wechat-app/huas-server/src/modules/discover/AGENTS.md
 
 成员清单
-discover.ts: Discover DTO、分类/标签常量、校验/分页规则与响应映射纯函数
+discover.ts: Discover DTO、社区资料投影、分类/标签常量、校验/分页规则与响应映射纯函数
 ports.ts: 持久化与媒体存储两个真实外部边界契约
 operations-query.ts: 面向 Operations 的帖子/评分汇总与最新管理列表只读契约
 

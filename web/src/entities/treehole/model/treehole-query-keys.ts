@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 Treehole 查询维度与实体 ID
+ * [OUTPUT]: 对外提供 Treehole 资料、列表、详情、评论与通知缓存键工厂
+ * [POS]: entities/treehole 的缓存身份协议，保证跨 mutation 精准刷新社区内容
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 export const treeholeQueryKeys = {
   all: ['treehole'] as const,
   meta: () => [...treeholeQueryKeys.all, 'meta'] as const,
@@ -11,5 +18,6 @@ export const treeholeQueryKeys = {
     [...treeholeQueryKeys.comments(postId), params] as const,
   notifications: () => [...treeholeQueryKeys.all, 'notifications'] as const,
   unreadCount: () => [...treeholeQueryKeys.notifications(), 'unreadCount'] as const,
-  avatar: () => [...treeholeQueryKeys.all, 'avatar'] as const,
+  profile: () => [...treeholeQueryKeys.all, 'profile'] as const,
+  avatar: () => treeholeQueryKeys.profile(),
 };

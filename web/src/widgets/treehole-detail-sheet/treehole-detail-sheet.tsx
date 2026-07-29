@@ -1,12 +1,12 @@
 /**
- * [INPUT]: 依赖 Treehole 查询/写入 hooks、共享评论线程、BottomSheet、ConfirmSheet 与 TreeholeAvatar
+ * [INPUT]: 依赖 Treehole 查询/写入 hooks、可折叠评论线程、BottomSheet、ConfirmSheet 与社区头像
  * [OUTPUT]: 对外提供 TreeholeDetailSheet，展示树洞详情并编排点赞、评论与删除
- * [POS]: widgets/treehole-detail-sheet 的业务容器，保留匿名社区数据与 mutation 语义，复用无请求评论 UI
+ * [POS]: widgets/treehole-detail-sheet 的业务容器，保留社区数据与 mutation 语义，复用无请求评论 UI
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { useEffect, useState } from 'react';
-import { useToastStore } from '@/app/state/toast-store';
+import { Heart } from 'lucide-react';
 import {
   useCreateTreeholeCommentMutation,
   useDeleteTreeholeCommentMutation,
@@ -18,6 +18,7 @@ import {
   useUnlikeTreeholePostMutation,
 } from '@/entities/treehole/api/treehole-queries';
 import { BottomSheet } from '@/shared/ui/bottom-sheet';
+import { ActionMenu } from '@/shared/ui/action-menu';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
 import { ConfirmSheet } from '@/shared/ui/confirm-sheet';
@@ -51,11 +52,11 @@ export function TreeholeDetailSheet({ postId, onClose }: TreeholeDetailSheetProp
   const createCommentMutation = useCreateTreeholeCommentMutation();
   const deleteCommentMutation = useDeleteTreeholeCommentMutation();
   const deletePostMutation = useDeleteTreeholePostMutation();
-  const pushToast = useToastStore((state) => state.pushToast);
   const [commentDraft, setCommentDraft] = useState('');
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [replyTarget, setReplyTarget] = useState<CommentReplyTarget | null>(null);
+  const [composerExpanded, setComposerExpanded] = useState(false);
   const post = postQuery.data;
   const comments = commentsQuery.data?.pages.flatMap((page) => page.items) ?? [];
   const maxCommentLength = metaQuery.data?.limits.maxCommentLength ?? 200;
@@ -66,6 +67,7 @@ export function TreeholeDetailSheet({ postId, onClose }: TreeholeDetailSheetProp
     setActionMessage(null);
     setDeleteConfirmOpen(false);
     setReplyTarget(null);
+    setComposerExpanded(false);
   }, [postId]);
 
   const submitComment = async () => {
@@ -90,10 +92,7 @@ export function TreeholeDetailSheet({ postId, onClose }: TreeholeDetailSheetProp
       });
       setCommentDraft('');
       setReplyTarget(null);
-      pushToast({
-        title: '评论已发送',
-        variant: 'success',
-      });
+      setComposerExpanded(false);
     } catch (error) {
       setActionMessage(error instanceof Error ? error.message : '评论发送失败，请稍后重试');
     }
@@ -120,10 +119,6 @@ export function TreeholeDetailSheet({ postId, onClose }: TreeholeDetailSheetProp
     try {
       setActionMessage(null);
       await deletePostMutation.mutateAsync({ postId });
-      pushToast({
-        title: '树洞已删除',
-        variant: 'success',
-      });
       setDeleteConfirmOpen(false);
       onClose();
     } catch (error) {
@@ -145,10 +140,7 @@ export function TreeholeDetailSheet({ postId, onClose }: TreeholeDetailSheetProp
       {postQuery.isError ? (
         <div className="space-y-4">
           <div className="space-y-1">
-            <p className="text-lg font-semibold text-ink">树洞加载失败</p>
-            <p className="text-sm leading-6 text-muted">
-              {postQuery.error instanceof Error ? postQuery.error.message : '请求失败'}
-            </p>
+            <p className="text-sm text-error">加载失败，请重试</p>
           </div>
           <Button size="xs" type="button" variant="subtle" onClick={onClose}>
             关闭
@@ -159,18 +151,14 @@ export function TreeholeDetailSheet({ postId, onClose }: TreeholeDetailSheetProp
       {post ? (
         <>
           <div className="flex items-start justify-between gap-4">
-            <div className="space-y-2">
-              <div className="flex flex-wrap gap-2">
-                <span className="rounded-pill bg-tint-soft px-3 py-1 text-xs font-medium text-ink">
-                  匿名树洞
+            <div className="min-w-0 space-y-2">
+              <div className="flex items-center gap-2">
+                <TreeholeAvatar className="size-7 rounded-full text-[0.65rem]" src={post.avatarUrl} />
+                <span className="max-w-full truncate text-sm font-medium">
+                  {post.nickname || '用户'}
                 </span>
-                {post.viewer.isMine ? (
-                  <span className="rounded-pill bg-white px-3 py-1 text-xs text-muted ring-1 ring-line">
-                    我的
-                  </span>
-                ) : null}
               </div>
-              <p className="text-sm text-muted">发布于 {formatPublishedAt(post.publishedAt)}</p>
+              <p className="text-xs text-muted">{formatPublishedAt(post.publishedAt)}</p>
             </div>
 
             <Button size="xs" type="button" variant="subtle" onClick={onClose}>
@@ -178,59 +166,34 @@ export function TreeholeDetailSheet({ postId, onClose }: TreeholeDetailSheetProp
             </Button>
           </div>
 
-          <Card className="space-y-4 rounded-[1.3rem] bg-white/78 shadow-none">
-            <div className="flex items-start gap-3">
-              <TreeholeAvatar src={post.avatarUrl} />
-              <div className="min-w-0 flex-1 space-y-4">
-                <p className="break-words text-sm leading-7 whitespace-pre-wrap text-ink [overflow-wrap:anywhere]">{post.content}</p>
-                <div className="flex flex-wrap items-center gap-3 text-sm text-muted">
-                  <span>{post.stats.likeCount} 个赞</span>
-                  <span>{post.stats.commentCount} 条评论</span>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    className="min-w-[6rem]"
-                    disabled={likeBusy}
-                    size="sm"
-                    type="button"
-                    variant={post.viewer.liked ? 'subtle' : 'secondary'}
-                    onClick={() => void handleToggleLike()}
-                  >
-                    {likeBusy ? '处理中...' : post.viewer.liked ? '取消点赞' : '点赞'}
-                  </Button>
-                  {post.viewer.isMine ? (
-                    <Button
-                      className="min-w-[6rem]"
-                      disabled={deletePostMutation.isPending}
-                      size="sm"
-                      type="button"
-                      variant="danger"
-                      onClick={() => setDeleteConfirmOpen(true)}
-                    >
-                      {deletePostMutation.isPending ? '删除中...' : '删除'}
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
+          <Card className="space-y-4">
+            <p className="break-words text-sm leading-7 whitespace-pre-wrap text-ink [overflow-wrap:anywhere]">{post.content}</p>
+            <div className="flex flex-wrap items-center gap-3 text-sm text-muted">
+              <span>{post.stats.likeCount} 个赞</span>
+              <span>{post.stats.commentCount} 条评论</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                className="min-w-[6rem]"
+                disabled={likeBusy}
+                size="sm"
+                type="button"
+                variant={post.viewer.liked ? 'subtle' : 'secondary'}
+                onClick={() => void handleToggleLike()}
+              >
+                <Heart aria-hidden="true" className="size-4" fill={post.viewer.liked ? 'currentColor' : 'none'} />
+                {likeBusy ? '处理中…' : post.viewer.liked ? '已赞' : '点赞'}
+              </Button>
+              {post.viewer.isMine ? (
+                <ActionMenu items={[{
+                  label: '删除',
+                  disabled: deletePostMutation.isPending,
+                  tone: 'danger',
+                  onSelect: () => setDeleteConfirmOpen(true),
+                }]} />
+              ) : null}
             </div>
           </Card>
-
-          <CommentComposer
-            description="默认匿名"
-            draft={commentDraft}
-            maxLength={maxCommentLength}
-            pending={createCommentMutation.isPending}
-            replyTarget={replyTarget}
-            onCancelReply={() => setReplyTarget(null)}
-            onDraftChange={setCommentDraft}
-            onSubmit={() => void submitComment()}
-          />
-
-          {actionMessage ? (
-            <div className="rounded-[1.05rem] bg-error-soft px-4 py-3 text-sm leading-6 text-error">
-              {actionMessage}
-            </div>
-          ) : null}
 
           <CommentThread
             deletingCommentId={
@@ -249,9 +212,10 @@ export function TreeholeDetailSheet({ postId, onClose }: TreeholeDetailSheetProp
               content: comment.content,
               avatarUrl: comment.avatarUrl,
               isMine: comment.isMine,
-              authorLabel: comment.isMine ? '我的评论' : '匿名评论',
+              authorLabel: comment.nickname || '用户',
               createdAtLabel: formatPublishedAt(comment.createdAt),
             }))}
+            endMessage={null}
             onDelete={(commentId) => {
               setActionMessage(null);
               deleteCommentMutation.mutate(
@@ -264,8 +228,44 @@ export function TreeholeDetailSheet({ postId, onClose }: TreeholeDetailSheetProp
               );
             }}
             onLoadMore={() => void commentsQuery.fetchNextPage()}
-            onReply={setReplyTarget}
+            onReply={(target) => {
+              setReplyTarget(target);
+              setComposerExpanded(true);
+            }}
           />
+
+          {actionMessage ? (
+            <div className="rounded-[1.05rem] bg-error-soft px-4 py-3 text-sm leading-6 text-error">
+              {actionMessage}
+            </div>
+          ) : null}
+
+          {composerExpanded ? (
+            <CommentComposer
+              autoFocus
+              draft={commentDraft}
+              maxLength={maxCommentLength}
+              pending={createCommentMutation.isPending}
+              replyTarget={replyTarget}
+              onCancelReply={() => setReplyTarget(null)}
+              onCollapse={() => {
+                setComposerExpanded(false);
+                setReplyTarget(null);
+              }}
+              onDraftChange={setCommentDraft}
+              onSubmit={() => void submitComment()}
+            />
+          ) : (
+            <Button
+              className="w-full"
+              size="sm"
+              type="button"
+              variant="secondary"
+              onClick={() => setComposerExpanded(true)}
+            >
+              写评论
+            </Button>
+          )}
         </>
       ) : null}
 
@@ -275,8 +275,8 @@ export function TreeholeDetailSheet({ postId, onClose }: TreeholeDetailSheetProp
         open={deleteConfirmOpen}
         busy={deletePostMutation.isPending}
         description="删除后不可恢复。"
-        title="确认删除这条树洞？"
-        confirmLabel="确认删除"
+        title="删除动态？"
+        confirmLabel="删除"
         tone="danger"
         onClose={() => setDeleteConfirmOpen(false)}
         onConfirm={() => void handleDeletePost()}

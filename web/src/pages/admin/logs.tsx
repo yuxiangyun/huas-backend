@@ -14,7 +14,7 @@ import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
 
 const fieldClassName =
-  'h-11 w-full rounded-[1rem] border border-line bg-white/86 px-3 text-sm text-ink outline-none transition focus:border-transparent focus:ring-2 focus:ring-black/10';
+  'field-control h-11 min-h-11 py-2 text-sm';
 
 function parsePositiveParam(value: string | null, fallback: number, min: number, max: number) {
   const parsed = Number(value);
@@ -38,13 +38,6 @@ function parseLogLine(line: string) {
     time: tsMatch?.[1] || '-',
     level,
   };
-}
-
-function getErrorMessage(error: unknown, fallback: string) {
-  if (error instanceof Error && error.message) {
-    return error.message;
-  }
-  return fallback;
 }
 
 export function AdminLogsPage() {
@@ -103,16 +96,12 @@ export function AdminLogsPage() {
 
   return (
     <div className="space-y-4">
+      <h1 className="text-2xl font-semibold tracking-[-0.025em]">日志</h1>
       <Card className="space-y-4 bg-card-strong">
-        <div>
-          <p className="text-base font-semibold text-ink">终端日志</p>
-          <p className="text-sm leading-6 text-muted">支持关键字过滤，默认每 10 秒自动刷新。</p>
-        </div>
-
         <div className="grid gap-2 lg:grid-cols-[minmax(0,2fr)_7rem_auto_auto]">
           <input
             className={fieldClassName}
-            placeholder="输入关键字（如 Treehole / Discover / ERROR）"
+            placeholder="关键字"
             value={keywordInput}
             onChange={(event) => setKeywordInput(event.target.value)}
             onKeyDown={(event) => {
@@ -153,7 +142,7 @@ export function AdminLogsPage() {
               });
             }}
           >
-            应用
+            查询
           </Button>
 
           <Button
@@ -174,17 +163,15 @@ export function AdminLogsPage() {
         </div>
 
         {logsQuery.isError ? (
-          <div className="rounded-[1rem] bg-[#fde9e5] px-4 py-3 text-sm leading-6 text-[#8a342c] ring-1 ring-[#efc9c0]">
-            {getErrorMessage(logsQuery.error, '日志加载失败')}
-          </div>
+          <p className="text-sm text-error">加载失败，请重试</p>
         ) : null}
       </Card>
 
       <Card className="overflow-hidden bg-card-strong p-0">
         <div className="flex items-center justify-between border-b border-line/70 px-4 py-3">
-          <p className="text-base font-semibold text-ink">日志列表</p>
+          <p className="text-base font-semibold text-ink">记录</p>
           <p className="text-sm text-muted">
-            {logsQuery.isFetching ? '同步中...' : `共 ${rows.length} 条`}
+            {logsQuery.isFetching ? '同步中…' : `${rows.length} 条`}
           </p>
         </div>
 

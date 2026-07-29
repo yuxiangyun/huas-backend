@@ -19,12 +19,14 @@ schedule-route-log.ts: 双源课表共享日志适配器，记录 policy/primary
 /api/public 与 /api/admin 在路由总装配器内显式放行，其余 /api 路由统一经过 Bearer authMiddleware。
 `/api/admin/session` 负责建立后台会话，其余管理接口在 admin 子路由内统一经过 adminSessionMiddleware。
 UGC 合规守卫位于 app 层以避开 Hono 子应用路径歧义，但必须显式复用 authMiddleware，不能把受保护 GET 变成公共接口；normal 模式放行真实业务，compliance 模式按模块返回后台配置的纯文本 mock 或空分页，不再输出显式 meta；命中 UGC_COMPLIANCE_ASNS 与端口时不读真实 UGC，强制返回空分页/空对象。
+Treehole 社区资料接口在合规模式下只返回空昵称/头像，不读取或写入真实社区资料。
 
 开发规范
 新增路由文件必须有 L3 头部；新增路由子目录必须创建 L2 AGENTS.md 并声明挂载路径。
 不要跨路由抽象参数 helper，除非错误消息、默认值和兼容行为完全一致。
 
 变更日志
+2026-07-29: UGC 合规守卫覆盖 Treehole 社区资料空对象，并为 Discover/Treehole mock 补齐资料字段。
 2026-07-27: 管理、公共公告与健康 HTTP 实现迁入 modules/operations/http，旧路径保留单向 Facade。
 2026-07-27: Treehole 路由实现迁入 modules/treehole/http，旧路径保留单向 Facade。
 2026-07-27: Discover 路由实现迁入 modules/discover/http，旧路径保留单向 Facade。

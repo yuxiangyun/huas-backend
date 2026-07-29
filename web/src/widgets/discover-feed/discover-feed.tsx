@@ -1,28 +1,19 @@
 /**
- * [INPUT]: 依赖 Discover 无限列表查询、筛选控件、媒体 URL 与共享卡片原语
- * [OUTPUT]: 对外提供 DiscoverFeed，呈现分类排序、帖子列表、状态反馈与分页操作
- * [POS]: widgets/discover-feed 的只读信息流容器，保留 Discover 查询语义并将发布、筛选和详情导航交给页面
+ * [INPUT]: 依赖 Discover 无限列表、筛选控件、媒体 URL 与社区资料投影
+ * [OUTPUT]: 对外提供 DiscoverFeed，以图片优先的信息层级呈现好饭推荐
+ * [POS]: widgets/discover-feed 的只读信息流容器，负责状态与分页，不承载发布和路由状态
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { Add20Filled } from '@fluentui/react-icons/svg/add';
-import { Apps20Filled } from '@fluentui/react-icons/svg/apps';
-import { ArrowTrendingSparkle20Filled } from '@fluentui/react-icons/svg/arrow-trending-sparkle';
-import { BowlChopsticks20Filled } from '@fluentui/react-icons/svg/bowl-chopsticks';
-import { BowlSalad24Filled } from '@fluentui/react-icons/svg/bowl-salad';
-import { Comment20Filled } from '@fluentui/react-icons/svg/comment';
-import { Star20Filled } from '@fluentui/react-icons/svg/star';
-import type {
-  DiscoverCategory,
-  DiscoverSort,
-} from '@/entities/discover/model/discover-types';
+import { Image, MessageCircle, Plus, Star } from 'lucide-react';
+import type { DiscoverCategory, DiscoverSort } from '@/entities/discover/model/discover-types';
 import { useDiscoverInfinitePostsQuery } from '@/entities/discover/api/discover-queries';
 import { DiscoverControls } from '@/features/discover-filter/ui/discover-controls';
 import { buildMediaUrl } from '@/shared/api/media';
-import { buildClassmateLabel } from '@/shared/lib/student';
+import { buildCommunityAuthorLabel } from '@/shared/lib/student';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
-import { IconBubble } from '@/shared/ui/page-ornament';
+import { TreeholeAvatar } from '@/shared/ui/treehole-avatar';
 
 interface DiscoverFeedProps {
   categories: readonly DiscoverCategory[];
@@ -37,12 +28,23 @@ interface DiscoverFeedProps {
 }
 
 function formatPublishedAt(value: string) {
-  return new Date(value).toLocaleString('zh-CN', {
-    month: 'numeric',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return new Date(value).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function DiscoverSkeleton() {
+  return (
+    <div className="space-y-3" aria-hidden="true">
+      {Array.from({ length: 3 }, (_, index) => (
+        <Card key={index} className="overflow-hidden p-0">
+          <div className="aspect-[4/3] animate-pulse bg-shell-strong sm:aspect-[16/10]" />
+          <div className="space-y-3 p-4">
+            <div className="h-5 w-2/3 animate-pulse rounded bg-shell-strong" />
+            <div className="h-4 w-full animate-pulse rounded bg-shell-strong" />
+          </div>
+        </Card>
+      ))}
+    </div>
+  );
 }
 
 export function DiscoverFeed({
@@ -62,235 +64,98 @@ export function DiscoverFeed({
     pageSize: 12,
   });
   const posts = postsQuery.data?.pages.flatMap((page) => page.items) ?? [];
-  const total = postsQuery.data?.pages[0]?.total ?? 0;
 
   return (
     <div className="space-y-4">
       <DiscoverControls
         categories={categories}
         category={category}
-        sort={sort}
-        onComposeClick={onComposeClick}
-        onCategoryChange={onCategoryChange}
-        onRefreshClick={onRefreshClick}
         refreshing={refreshing}
+        sort={sort}
+        onCategoryChange={onCategoryChange}
+        onComposeClick={onComposeClick}
+        onRefreshClick={onRefreshClick}
         onSortChange={onSortChange}
       />
 
-      {postsQuery.isLoading ? (
-        <div className="space-y-3">
-          {Array.from({ length: 3 }, (_, index) => (
-            <Card key={index} className="space-y-3">
-              <div className="aspect-[16/10] animate-pulse rounded-[1.15rem] bg-shell-strong" />
-              <div className="h-5 w-2/3 animate-pulse rounded bg-shell-strong" />
-              <div className="h-4 w-full animate-pulse rounded bg-shell-strong" />
-              <div className="h-4 w-5/6 animate-pulse rounded bg-shell-strong" />
-            </Card>
-          ))}
-        </div>
-      ) : null}
+      {postsQuery.isLoading ? <DiscoverSkeleton /> : null}
 
       {postsQuery.isError ? (
-        <Card className="space-y-3 overflow-hidden bg-card-strong">
-          <div className="flex items-start gap-3.5">
-            <IconBubble
-              icon={<Apps20Filled aria-hidden="true" className="size-5" />}
-              tone="blue"
-            />
-            <div className="space-y-1">
-              <p className="text-base font-semibold text-ink">加载失败</p>
-              <p className="text-sm leading-6 text-muted">
-                {postsQuery.error instanceof Error ? postsQuery.error.message : '列表请求失败'}
-              </p>
-            </div>
-          </div>
+        <Card className="space-y-3">
+          <p className="text-sm text-error">加载失败，请重试</p>
+          <Button size="sm" type="button" variant="secondary" onClick={() => void postsQuery.refetch()}>重试</Button>
         </Card>
       ) : null}
 
       {!postsQuery.isLoading && !postsQuery.isError && posts.length === 0 ? (
-        <Card className="relative overflow-hidden bg-card-strong p-5">
-          <div className="pointer-events-none absolute -right-10 top-1/2 hidden size-28 -translate-y-1/2 rounded-full bg-[#f4d49b]/64 blur-3xl sm:block" />
-          <div className="pointer-events-none absolute inset-y-0 right-0 hidden w-[38%] bg-[linear-gradient(90deg,rgba(255,255,255,0),rgba(255,255,255,0.36))] sm:block" />
-
-          <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="space-y-3">
-              <div className="flex items-start gap-3.5">
-                <IconBubble
-                  icon={<BowlChopsticks20Filled aria-hidden="true" className="size-5" />}
-                  size="lg"
-                  tone="amber"
-                />
-                <div className="space-y-1.5">
-                  <p className="text-base font-semibold text-ink">还没有内容</p>
-                  <p className="max-w-[18rem] text-sm leading-6 text-muted">
-                    先发一条，把今天吃到的告诉大家。
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                <span className="inline-flex items-center gap-1.5 rounded-pill bg-white/78 px-3 py-1.5 text-[0.78rem] font-medium text-muted ring-1 ring-line">
-                  <ArrowTrendingSparkle20Filled aria-hidden="true" className="size-4" />
-                  推荐
-                </span>
-                <span className="inline-flex items-center gap-1.5 rounded-pill bg-white/78 px-3 py-1.5 text-[0.78rem] font-medium text-muted ring-1 ring-line">
-                  <Apps20Filled aria-hidden="true" className="size-4" />
-                  分类
-                </span>
-              </div>
-            </div>
-
-            <Button
-              className="w-full sm:min-w-[7rem] sm:w-auto"
-              size="sm"
-              type="button"
-              variant="secondary"
-              onClick={onComposeClick}
-            >
-              <Add20Filled aria-hidden="true" className="size-4" />
-              发第一条
-            </Button>
-          </div>
+        <Card className="flex items-center justify-between gap-3">
+          <p className="text-sm text-muted">暂无推荐</p>
+          <Button size="sm" type="button" onClick={onComposeClick}>
+            <Plus aria-hidden="true" className="size-4" />
+            发布
+          </Button>
         </Card>
       ) : null}
 
-      {!postsQuery.isLoading && !postsQuery.isError ? (
+      {!postsQuery.isLoading && !postsQuery.isError && posts.length > 0 ? (
         <div className="space-y-3">
           {posts.map((post) => (
             <button
               key={post.id}
-              className="feed-card-trigger active:scale-[0.995] motion-reduce:transform-none"
+              className="feed-card-trigger"
+              style={{ contentVisibility: 'auto', containIntrinsicSize: '420px' }}
               type="button"
               onClick={() => onOpenPost(post.id)}
             >
-              <Card className="overflow-hidden p-0 shadow-none transition motion-reduce:transition-none sm:hover:-translate-y-0.5 sm:hover:bg-card-strong">
-                <div className="grid min-w-0 gap-0 sm:grid-cols-[15rem_minmax(0,1fr)]">
-                  <div className="relative min-w-0 overflow-hidden sm:min-h-full">
-                    {post.coverUrl ? (
-                      <img
-                        alt={post.title || '帖子封面'}
-                        className="aspect-[16/10] h-full w-full object-cover sm:aspect-[4/3]"
-                        loading="lazy"
-                        src={buildMediaUrl(post.coverUrl)}
-                      />
-                    ) : (
-                      <div className="flex aspect-[16/10] items-center justify-center bg-[linear-gradient(145deg,#f4f6f8,#dfe5eb)] sm:aspect-[4/3]">
-                        <IconBubble
-                          icon={<BowlSalad24Filled aria-hidden="true" className="size-7" />}
-                          size="lg"
-                          tone="amber"
-                        />
-                      </div>
-                    )}
-                    <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/40 to-transparent p-3 text-white sm:hidden">
-                      <div className="flex flex-wrap gap-2">
-                        <span className="rounded-pill bg-white/18 px-3 py-1 text-xs font-medium sm:backdrop-blur-md">
-                          {post.category}
-                        </span>
-                        {post.isMine ? (
-                          <span className="rounded-pill bg-white/18 px-3 py-1 text-xs font-medium sm:backdrop-blur-md">
-                            我的
-                          </span>
-                        ) : null}
-                      </div>
-                    </div>
+              <Card className="overflow-hidden p-0 transition-colors hover:border-[#d4d4d4]">
+                {post.coverUrl ? (
+                  <img
+                    alt={post.title || '推荐图片'}
+                    className="aspect-[4/3] w-full object-cover sm:aspect-[16/10]"
+                    loading="lazy"
+                    src={buildMediaUrl(post.coverUrl)}
+                  />
+                ) : (
+                  <div className="flex aspect-[4/3] items-center justify-center bg-tint-soft text-muted sm:aspect-[16/10]">
+                    <Image aria-hidden="true" className="size-6" />
                   </div>
+                )}
 
-                  <div className="min-w-0 space-y-3 p-4 sm:p-5">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="hidden rounded-pill bg-tint-soft px-3 py-1 text-xs font-medium text-ink sm:inline-flex">
-                        {post.category}
-                      </span>
-                      {post.storeName ? (
-                        <span className="max-w-full truncate rounded-pill bg-white/85 px-3 py-1 text-xs text-muted ring-1 ring-line sm:max-w-[18rem]">
-                          {post.storeName}
-                        </span>
-                      ) : null}
-                      {post.priceText ? (
-                        <span className="max-w-full truncate rounded-pill bg-white/85 px-3 py-1 text-xs text-muted ring-1 ring-line">
-                          {post.priceText}
-                        </span>
-                      ) : null}
-                      {post.isMine ? (
-                        <span className="rounded-pill bg-white/85 px-3 py-1 text-xs text-muted ring-1 ring-line">
-                          我的
-                        </span>
-                      ) : null}
-                    </div>
-
-                    <div className="space-y-2">
-                      <h3 className="text-clamp-2 break-words text-[1.08rem] font-semibold tracking-[-0.04em] text-ink sm:text-xl">
-                        {post.title || `${post.category} · 同学推荐`}
-                      </h3>
-                      <p className="text-clamp-3 text-sm leading-6 text-muted sm:leading-7">
-                        {post.content || '未填写'}
+                <div className="space-y-3 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h2 className="text-clamp-2 break-words text-base font-semibold leading-6">{post.title || post.category}</h2>
+                      <p className="mt-1 truncate text-sm text-muted">
+                        {[post.category, post.storeName].filter(Boolean).join(' · ')}
                       </p>
                     </div>
+                    {post.priceText ? <span className="shrink-0 text-sm font-medium">{post.priceText}</span> : null}
+                  </div>
 
-                    {post.tags.length > 0 ? (
-                      <div className="flex flex-wrap gap-2">
-                        {post.tags.map((tag) => (
-                          <span
-                            key={tag}
-                            className="max-w-full truncate rounded-pill bg-white/80 px-3 py-1 text-xs text-muted ring-1 ring-line"
-                          >
-                            #{tag}
-                          </span>
-                        ))}
-                      </div>
-                    ) : null}
+                  <p className="text-clamp-2 break-words text-sm leading-6 text-muted">{post.content}</p>
 
-                    <div className="flex flex-col items-start gap-1.5 text-[0.82rem] text-muted sm:flex-row sm:items-center sm:justify-between sm:text-sm">
-                      <span>{buildClassmateLabel(post.author.label)} · {formatPublishedAt(post.publishedAt)}</span>
-                      <span className="inline-flex items-center gap-1.5">
-                        <Star20Filled aria-hidden="true" className="size-4" />
-                        {post.rating.average.toFixed(1)} 分 · {post.rating.count} 人
-                      </span>
-                      <span className="inline-flex items-center gap-1.5">
-                        <Comment20Filled aria-hidden="true" className="size-4" />
-                        {post.commentCount} 条评论 · {post.imageCount} 张图
-                      </span>
-                    </div>
+                  <div className="flex items-center justify-between gap-3 text-xs text-muted">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <TreeholeAvatar className="size-5 rounded-full text-[0.6rem]" fallbackLabel={null} src={post.avatarUrl} />
+                      <span className="truncate">{buildCommunityAuthorLabel(post.author.nickname, post.author.label)} · {formatPublishedAt(post.publishedAt)}</span>
+                    </span>
+                    <span className="flex shrink-0 items-center gap-3">
+                      <span className="inline-flex items-center gap-1"><Star aria-hidden="true" className="size-3.5" />{post.rating.average.toFixed(1)}</span>
+                      <span className="inline-flex items-center gap-1"><MessageCircle aria-hidden="true" className="size-3.5" />{post.commentCount}</span>
+                    </span>
                   </div>
                 </div>
               </Card>
             </button>
           ))}
 
-          <div className="glass-panel flex flex-col gap-3 rounded-[1.5rem] px-4 py-3 sm:flex-row sm:items-center">
-            <IconBubble
-              icon={<Apps20Filled aria-hidden="true" className="size-4" />}
-              size="sm"
-              tone="slate"
-            />
-            <div className="min-w-0 space-y-1">
-              <p className="text-[0.8rem] font-medium tracking-[0.12em] text-muted">
-                列表
-              </p>
-              <p className="text-sm text-muted">
-                {total > 0 ? `已展示 ${posts.length} / ${total}` : '暂无内容'}
-              </p>
+          {postsQuery.hasNextPage ? (
+            <div className="flex justify-center pt-1">
+              <Button disabled={postsQuery.isFetchingNextPage} size="sm" type="button" variant="secondary" onClick={() => void postsQuery.fetchNextPage()}>
+                {postsQuery.isFetchingNextPage ? '加载中…' : '加载更多'}
+              </Button>
             </div>
-
-            <div className="flex w-full flex-col gap-2 sm:ml-auto sm:w-auto sm:flex-row sm:items-center">
-              {postsQuery.hasNextPage ? (
-                <Button
-                  className="w-full sm:min-w-[6.25rem] sm:w-auto"
-                  size="sm"
-                  type="button"
-                  variant="secondary"
-                  disabled={postsQuery.isFetchingNextPage}
-                  onClick={() => void postsQuery.fetchNextPage()}
-                >
-                  {postsQuery.isFetchingNextPage ? '加载中...' : '继续看'}
-                </Button>
-              ) : posts.length > 0 ? (
-                <span className="rounded-pill bg-white/82 px-3 py-2 text-xs font-medium text-muted ring-1 ring-line">
-                  已经到底了
-                </span>
-              ) : null}
-            </div>
-          </div>
+          ) : null}
         </div>
       ) : null}
     </div>

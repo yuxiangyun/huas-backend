@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 React 原生按钮属性与 shared/lib/cn 的样式合并能力
+ * [OUTPUT]: 对外提供 FilterChip，以 aria-pressed 暴露筛选项的选中语义
+ * [POS]: shared/ui 的轻量筛选原语，不持有筛选状态
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import type { ButtonHTMLAttributes } from 'react';
 import { cn } from '@/shared/lib/cn';
 
@@ -22,11 +29,11 @@ export function FilterChip({
     <button
       aria-pressed={selected}
       className={cn(
-        'inline-flex shrink-0 items-center justify-center rounded-pill font-medium leading-none whitespace-nowrap transition duration-150 active:scale-[0.985] motion-reduce:transform-none motion-reduce:transition-none',
+        'inline-flex shrink-0 items-center justify-center rounded-[0.625rem] border font-medium leading-none whitespace-nowrap transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/45 focus-visible:ring-offset-2 motion-reduce:transition-none',
         sizeClasses[size],
         selected
-          ? 'bg-ink text-white shadow-card max-sm:shadow-none'
-          : 'bg-white/78 text-muted ring-1 ring-line hover:bg-white hover:text-ink active:bg-[#f4f5f6] max-sm:bg-white/92',
+          ? 'border-ink bg-ink text-white'
+          : 'border-line bg-white text-muted hover:bg-tint-soft hover:text-ink active:bg-shell-strong',
         className
       )}
       type={type}

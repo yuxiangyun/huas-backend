@@ -28,7 +28,7 @@ src 是应用机器相核心；新业务按 modules 纵向切片，旧 routes �
 2026-07-27: Runtime 增加 live/ready/metrics、Analytics 有界关闭 flush 与本地/CI 单链质量门。
 2026-07-27: 新增 Cache 纵向切片，显式固化 TTL=0 永久语义、版本 envelope 与同意图 singleflight，旧缓存服务退化为 Facade。
 2026-07-27: 新增 Operations 纵向切片，后台管理、批量 analytics、公告、日志、UGC 策略、会话与健康检查迁入 canonical 模块。
-2026-07-27: 新增 Treehole 纵向切片，匿名社区、管理视图、SQLite 事务与头像媒体迁入 modules/treehole。
+2026-07-27: 新增 Treehole 纵向切片，化名社区、管理视图、SQLite 事务与头像媒体迁入 modules/treehole。
 2026-07-27: 新增 Discover 纵向切片，帖子、评论、评分、推荐与媒体职责迁入 modules/discover。
 2026-07-27: 新增 Calendar 纵向切片，签名、周快照与 ICS 统一迁入 modules/calendar。
 2026-07-27: 新增 Academic 纵向切片，课表、成绩、评教与空教室旧服务退化为单向兼容 Facade。

@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Treehole application、SQLite persistence、头像媒体 adapter 与运行时配置
- * [OUTPUT]: 对外提供 canonical application 实例及旧静态类名兼容出口
+ * [OUTPUT]: 对外提供含社区资料用例的 canonical application 实例及旧静态类名兼容出口
  * [POS]: modules/treehole 的唯一 composition root，集中连接 ports 与 infrastructure adapters
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -38,6 +38,10 @@ export const treeholeApplicationService = new TreeholeApplicationService(
 export class TreeholeUserService {
   static getMeta() { return treeholeApplicationService.getMeta(); }
   static getAvatar(userId: number) { return treeholeApplicationService.getAvatar(userId); }
+  static getCommunityProfile(userId: number) { return treeholeApplicationService.getCommunityProfile(userId); }
+  static updateCommunityProfile(userId: number, nickname: unknown, avatar?: File) {
+    return treeholeApplicationService.updateCommunityProfile(userId, nickname, avatar);
+  }
   static updateAvatar(userId: number, file: File) { return treeholeApplicationService.updateAvatar(userId, file); }
   static clearAvatar(userId: number) { return treeholeApplicationService.clearAvatar(userId); }
   static getUnreadNotificationCount(userId: number) {

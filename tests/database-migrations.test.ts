@@ -37,9 +37,10 @@ describe('database migrations', () => {
   test('initializes an empty database and records its version', () => {
     const database = openMemory();
     const result = migrateDatabase(database);
-    expect(result).toEqual({ version: 1, applied: [1], adopted: false });
-    expect(getCurrentSchemaVersion(database)).toBe(1);
+    expect(result).toEqual({ version: 2, applied: [1, 2], adopted: false });
+    expect(getCurrentSchemaVersion(database)).toBe(2);
     expect((database.query("SELECT count(*) AS count FROM sqlite_master WHERE type='table' AND name='users'").get() as any).count).toBe(1);
+    expect((database.query("SELECT count(*) AS count FROM pragma_table_info('users') WHERE name='community_nickname'").get() as any).count).toBe(1);
     database.close();
   });
 
@@ -47,8 +48,8 @@ describe('database migrations', () => {
     const database = openMemory();
     database.exec(baselineSql.replaceAll('CREATE TABLE ', 'CREATE TABLE IF NOT EXISTS ').replaceAll('CREATE INDEX ', 'CREATE INDEX IF NOT EXISTS ').replaceAll('CREATE UNIQUE INDEX ', 'CREATE UNIQUE INDEX IF NOT EXISTS '));
     const result = migrateDatabase(database);
-    expect(result.adopted).toBe(true);
-    expect(getCurrentSchemaVersion(database)).toBe(1);
+    expect(result).toEqual({ version: 2, applied: [2], adopted: true });
+    expect(getCurrentSchemaVersion(database)).toBe(2);
     database.close();
   });
 
@@ -68,9 +69,9 @@ describe('database migrations', () => {
   test('is repeatable without applying a migration twice', () => {
     const database = openMemory();
     migrateDatabase(database);
-    expect(migrateDatabase(database)).toEqual({ version: 1, applied: [], adopted: false });
+    expect(migrateDatabase(database)).toEqual({ version: 2, applied: [], adopted: false });
     const row = database.query('SELECT count(*) AS count FROM huas_schema_migrations').get() as { count: number };
-    expect(row.count).toBe(1);
+    expect(row.count).toBe(2);
     database.close();
   });
 
@@ -174,7 +175,7 @@ describe('database snapshots', () => {
       release: 'release/phase-1',
       now: new Date('2026-07-27T01:02:03.000Z'),
     });
-    expect(snapshot).toEndWith('source-20260727T010203Z-schema-v1-release-release-phase-1.db');
+    expect(snapshot).toEndWith('source-20260727T010203Z-schema-v2-release-release-phase-1.db');
     const copy = new Database(snapshot, { readonly: true });
     expect((copy.query('SELECT count(*) AS count FROM users').get() as any).count).toBe(1);
     copy.close();

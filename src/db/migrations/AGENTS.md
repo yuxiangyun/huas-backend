@@ -4,6 +4,7 @@
 成员清单
 
 0001_baseline.ts: 当前生产 SQLite 结构的不可变 baseline，供空库初始化与严格指纹 adoption 使用
+0002_community_nickname.ts: expand-only 增加 Web 社区可空昵称列，保留历史用户、头像与内容数据
 index.ts: 编号 migration 注册表，固定版本顺序并向执行器暴露迁移元数据
 
 架构决策

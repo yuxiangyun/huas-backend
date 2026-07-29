@@ -23,7 +23,7 @@ import { Card } from '@/shared/ui/card';
 import { ConfirmSheet } from '@/shared/ui/confirm-sheet';
 
 const fieldClassName =
-  'h-11 w-full rounded-[1rem] border border-line bg-white/86 px-3 text-sm text-ink outline-none transition focus:border-transparent focus:ring-2 focus:ring-black/10';
+  'field-control h-11 min-h-11 py-2 text-sm';
 
 function beijingDate() {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -157,12 +157,11 @@ export function AdminAnnouncementsPage() {
   const pending = createMutation.isPending || updateMutation.isPending;
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)]">
+    <div className="space-y-4">
+      <h1 className="text-2xl font-semibold tracking-[-0.025em]">公告</h1>
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)]">
       <Card className="space-y-4 bg-card-strong">
-        <div>
-          <p className="text-base font-semibold text-ink">公告编辑器</p>
-          <p className="text-sm leading-6 text-muted">支持新增、编辑和删除公告，保存后会立即生效。</p>
-        </div>
+        <p className="text-base font-semibold text-ink">{editingId ? '编辑公告' : '新增公告'}</p>
 
         <form className="space-y-3" onSubmit={handleSubmit}>
           <input
@@ -173,7 +172,7 @@ export function AdminAnnouncementsPage() {
           />
 
           <textarea
-            className="min-h-[9rem] w-full rounded-[1rem] border border-line bg-white/86 px-3 py-3 text-sm leading-6 text-ink outline-none transition focus:border-transparent focus:ring-2 focus:ring-black/10"
+            className="field-control min-h-[9rem] resize-y text-sm leading-6"
             placeholder="公告内容"
             value={content}
             onChange={(event) => setContent(event.target.value)}
@@ -199,9 +198,7 @@ export function AdminAnnouncementsPage() {
           </div>
 
           {errorMessage ? (
-            <div className="rounded-[1rem] bg-[#fde9e5] px-4 py-3 text-sm leading-6 text-[#8a342c] ring-1 ring-[#efc9c0]">
-              {errorMessage}
-            </div>
+            <p className="text-sm text-error">{errorMessage}</p>
           ) : null}
 
           <div className="flex flex-wrap items-center gap-2">
@@ -210,7 +207,7 @@ export function AdminAnnouncementsPage() {
               type="submit"
               disabled={pending}
             >
-              {pending ? '保存中...' : editingId ? '保存修改' : '新增公告'}
+              {pending ? '保存中…' : editingId ? '保存' : '新增'}
             </Button>
             <Button
               size="md"
@@ -221,7 +218,7 @@ export function AdminAnnouncementsPage() {
                 setErrorMessage(null);
               }}
             >
-              {editingId ? '取消编辑' : '重置表单'}
+              {editingId ? '取消' : '重置'}
             </Button>
           </div>
         </form>
@@ -229,10 +226,7 @@ export function AdminAnnouncementsPage() {
 
       <Card className="overflow-hidden bg-card-strong p-0">
         <div className="flex items-center justify-between border-b border-line/70 px-4 py-3">
-          <div>
-            <p className="text-base font-semibold text-ink">公告列表</p>
-            <p className="text-sm leading-6 text-muted">共 {sortedItems.length} 条</p>
-          </div>
+          <div className="flex items-baseline gap-2"><p className="text-base font-semibold text-ink">公告</p><span className="text-xs text-muted">{sortedItems.length} 条</span></div>
           <Button
             size="sm"
             type="button"
@@ -275,7 +269,8 @@ export function AdminAnnouncementsPage() {
                       <Button
                         size="xs"
                         type="button"
-                        variant="danger"
+                        className="text-error hover:text-error"
+                        variant="ghost"
                         disabled={deleteMutation.isPending}
                         onClick={() => setPendingDeleteId(item.id)}
                       >
@@ -298,9 +293,9 @@ export function AdminAnnouncementsPage() {
       <ConfirmSheet
         open={pendingDeleteId !== null}
         busy={deleteMutation.isPending}
-        title={pendingDeleteId ? `确认删除公告 ${pendingDeleteId}？` : '确认删除该公告？'}
+        title={pendingDeleteId ? `删除公告 ${pendingDeleteId}？` : '删除公告？'}
         description="删除后不可恢复。"
-        confirmLabel="确认删除"
+        confirmLabel="删除"
         tone="danger"
         onClose={() => setPendingDeleteId(null)}
         onConfirm={() => {
@@ -308,6 +303,7 @@ export function AdminAnnouncementsPage() {
           void handleDelete(pendingDeleteId);
         }}
       />
+      </div>
     </div>
   );
 }

@@ -30,6 +30,7 @@ import calendarPublicRoutes from './calendar/calendar-public.routes';
 const DISCOVER_DEFAULT_PAGE_SIZE = 20;
 const DISCOVER_MAX_PAGE_SIZE = 50;
 const EMPTY_TREEHOLE_AVATAR = { avatarUrl: null } as const;
+const EMPTY_COMMUNITY_PROFILE = { avatarUrl: null, nickname: null } as const;
 const EMPTY_TREEHOLE_UNREAD_COUNT = { unreadCount: 0 } as const;
 const MOCK_POST_ID = 0;
 
@@ -65,6 +66,7 @@ function mockDiscoverPost(state: UgcComplianceStatus) {
     storeName: '',
     priceText: '',
     content: state.discoverMockText,
+    avatarUrl: null,
     category: '其他',
     tags: [],
     images: [],
@@ -80,6 +82,7 @@ function mockDiscoverPost(state: UgcComplianceStatus) {
     author: {
       id: 0,
       label: '',
+      nickname: null,
     },
     isMine: false,
     publishedAt: state.updatedAt,
@@ -93,6 +96,7 @@ function mockTreeholePost(state: UgcComplianceStatus) {
     id: MOCK_POST_ID,
     content: state.treeholeMockText,
     avatarUrl: null,
+    nickname: null,
     stats: {
       likeCount: 0,
       commentCount: 0,
@@ -139,6 +143,7 @@ function treeholeCompliancePayload(c: Context, state: UgcComplianceStatus) {
     return mockTreeholePost(state);
   }
   if (path.endsWith('/avatar')) return EMPTY_TREEHOLE_AVATAR;
+  if (path.endsWith('/profile')) return EMPTY_COMMUNITY_PROFILE;
   if (path.endsWith('/notifications/unread-count')) return EMPTY_TREEHOLE_UNREAD_COUNT;
   return null;
 }

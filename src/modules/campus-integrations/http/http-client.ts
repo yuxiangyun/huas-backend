@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 tough-cookie CookieJar、config.timeout、USER_AGENT 与外层注入的低基数请求结果 observer
- * [OUTPUT]: 对外提供 HttpClient 与 configureHttpClientObservers，封装会话 HTTP 及最终 success/failure/timeout 观测
- * [POS]: campus-integrations/http 的学校上游 HTTP 客户端，是 CAS、Portal、JW 会话通信的唯一实现
+ * [INPUT]: 依赖 tough-cookie CookieJar、config.timeout、USER_AGENT、可选绝对截止时间与外层注入的低基数请求结果 observer
+ * [OUTPUT]: 对外提供 HttpClient 与 configureHttpClientObservers，封装受单次超时和总预算共同约束的会话 HTTP 及结果观测
+ * [POS]: campus-integrations/http 的学校上游 HTTP 客户端，是 CAS、Portal、JW 会话通信与截止时间落实的唯一实现
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -35,6 +35,7 @@ function recordOutcome(outcome: HttpClientOutcome) {
 export class HttpClient {
   public jar: CookieJar;
   private defaultTimeout: number;
+  private deadlineAt?: number;
 
   constructor(jar?: CookieJar, timeout?: number) {
     this.jar = jar || new CookieJar();
@@ -45,9 +46,20 @@ export class HttpClient {
     this.defaultTimeout = ms;
   }
 
-  static fromSerializedJar(jarJson: string): HttpClient {
+  setDeadline(deadlineAt?: number): void {
+    this.deadlineAt = deadlineAt;
+  }
+
+  getRemainingTimeMs(): number {
+    if (this.deadlineAt === undefined) return Number.POSITIVE_INFINITY;
+    return Math.max(0, this.deadlineAt - Date.now());
+  }
+
+  static fromSerializedJar(jarJson: string, deadlineAt?: number): HttpClient {
     const jar = CookieJar.fromJSON(jarJson);
-    return new HttpClient(jar);
+    const client = new HttpClient(jar);
+    client.setDeadline(deadlineAt);
+    return client;
   }
 
   serializeJar(): string {
@@ -62,7 +74,11 @@ export class HttpClient {
     if (cookieStr) headers.set('Cookie', cookieStr);
 
     const controller = new AbortController();
-    const timeout = options.timeout || this.defaultTimeout;
+    const timeout = Math.min(options.timeout || this.defaultTimeout, this.getRemainingTimeMs());
+    if (!Number.isFinite(timeout) || timeout <= 0) {
+      recordOutcome('timeout');
+      throw new Error('REQUEST_TIMEOUT');
+    }
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
     try {

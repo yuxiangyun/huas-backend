@@ -62,7 +62,7 @@ export function AdminDiscoverPage() {
     () =>
       (previewPost?.images ?? []).map((item, index) => ({
         src: buildMediaUrl(item.url),
-        alt: `Discover #${previewPost?.id ?? '-'} 第 ${index + 1} 张`,
+        alt: `好饭 #${previewPost?.id ?? '-'} 第 ${index + 1} 张`,
         key: `${previewPost?.id ?? 'unknown'}-${index}`,
       })),
     [previewPost]
@@ -90,7 +90,7 @@ export function AdminDiscoverPage() {
         return;
       }
       pushToast({
-        title: '删除 Discover 帖子失败',
+        title: '删除失败',
         message: getErrorMessage(error, '请稍后重试'),
         variant: 'error',
       });
@@ -99,15 +99,8 @@ export function AdminDiscoverPage() {
 
   return (
     <div className="space-y-4">
-      <Card className="flex flex-col gap-3 bg-card-strong sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-base font-semibold text-ink">Discover 管理</p>
-          <p className="text-sm leading-6 text-muted">
-            {discoverQuery.data
-              ? `当前未删除帖子 ${discoverQuery.data.totalPosts} 条，累计评分 ${discoverQuery.data.totalRatings} 条`
-              : '加载中...'}
-          </p>
-        </div>
+      <header className="flex items-center justify-between gap-3">
+        <div className="flex items-baseline gap-3"><h1 className="text-2xl font-semibold tracking-[-0.025em]">好饭内容</h1>{discoverQuery.data ? <span className="text-sm text-muted">{discoverQuery.data.totalPosts} 条</span> : null}</div>
 
         <Button
           size="sm"
@@ -117,12 +110,11 @@ export function AdminDiscoverPage() {
         >
           刷新
         </Button>
-      </Card>
+      </header>
 
       {discoverQuery.isError ? (
         <Card className="space-y-2 bg-card-strong">
-          <p className="text-base font-semibold text-ink">Discover 列表加载失败</p>
-          <p className="text-sm leading-6 text-muted">{getErrorMessage(discoverQuery.error, '请稍后重试')}</p>
+          <p className="text-sm text-error">加载失败，请重试</p>
         </Card>
       ) : null}
 
@@ -167,7 +159,8 @@ export function AdminDiscoverPage() {
                     <Button
                       size="xs"
                       type="button"
-                      variant="danger"
+                      className="text-error hover:text-error"
+                      variant="ghost"
                       disabled={deleteMutation.isPending}
                       onClick={() => setPendingDeletePostId(item.id)}
                     >
@@ -189,9 +182,9 @@ export function AdminDiscoverPage() {
       <ConfirmSheet
         open={pendingDeletePostId !== null}
         busy={deleteMutation.isPending}
-        title={pendingDeletePostId ? `确认删除 Discover 帖子 #${pendingDeletePostId}？` : '确认删除该帖子？'}
+        title={pendingDeletePostId ? `删除好饭 #${pendingDeletePostId}？` : '删除好饭？'}
         description="删除后不可恢复。"
-        confirmLabel="确认删除"
+        confirmLabel="删除"
         tone="danger"
         onClose={() => setPendingDeletePostId(null)}
         onConfirm={() => {

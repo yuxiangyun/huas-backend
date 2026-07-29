@@ -538,7 +538,7 @@ git push baidu HEAD:main
 发布完成后，建议立刻验证：
 
 ```bash
-ssh huas 'cat /www/wwwroot/huas-server/.deploy/active-slot && pm2 status --no-color'
+ssh baidu 'cat /www/wwwroot/huas-server/.deploy/active-slot && pm2 status --no-color'
 curl https://api.huas-api.top/health/ready
 ```
 
@@ -600,17 +600,26 @@ scripts/deploy-huas.sh
 
 ### 9.5 回滚到上一个稳定版本
 
-如果新版本已经切流，但你确认需要快速回退，可以把上一个稳定 commit 重新推到 `main`：
+先确认本次发布是否应用了新 migration。应用回滚与数据库回滚不是同一件事：旧 release 的 migration 注册表若不知道当前 schema version，重新启动时会 fail closed；即使本次 DDL 是 expand-only，也不能默认认为重新推送旧 commit 一定能启动。
+
+只有本次发布没有改变 schema，且你确认需要快速回退时，才可以把上一个稳定 commit 重新推到 `main`：
 
 ```bash
 git log --oneline
 git push --force baidu <stable_commit_sha>:main
 ```
 
+如果新 migration 已经应用：
+
+1. 优先修复 forward 并重新发布；
+2. 旧槽既有进程仍在线且已经证明兼容新 schema 时，它只能作为临时流量缓冲，不代表旧 commit 可以重新启动；
+3. 不兼容 migration 或 contract 变更必须进入事故恢复，不执行普通 Git 回滚；
+4. 快照恢复必须停止所有写入，核对明确快照与应用版本，并单独确认快照之后生产写入丢失的时间窗口。
+
 回滚后同样要做一次验证：
 
 ```bash
-ssh huas 'cat /www/wwwroot/huas-server/.deploy/active-slot && pm2 status --no-color'
+ssh baidu 'cat /www/wwwroot/huas-server/.deploy/active-slot && pm2 status --no-color'
 curl https://api.huas-api.top/health/ready
 ```
 

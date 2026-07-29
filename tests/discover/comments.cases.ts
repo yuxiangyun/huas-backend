@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Discover 测试支架、评论/回复/删除 API 与帖子夹具
- * [OUTPUT]: 验证评论分页、父评论约束、作者删除与帖子删除后的级联可见性
+ * [OUTPUT]: 验证社区资料投影、评论分页、父评论约束、作者删除与帖子删除后的级联可见性
  * [POS]: tests/discover 的 Discover 评论生命周期细分用例，失败时直接定位该业务能力
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -31,7 +31,16 @@ describe('Discover 评论生命周期', () => {
 
     const db = getDb();
     await db.update(schema.users)
-      .set({ treeholeAvatarUrl: '/media/treehole-avatar/test-commenter.webp' })
+      .set({
+        treeholeAvatarUrl: '/media/treehole-avatar/test-poster.webp',
+        communityNickname: '饭搭子',
+      })
+      .where(eq(schema.users.id, authorId));
+    await db.update(schema.users)
+      .set({
+        treeholeAvatarUrl: '/media/treehole-avatar/test-commenter.webp',
+        communityNickname: '评论员_2',
+      })
       .where(eq(schema.users.id, otherAuthorId));
 
     const firstComment = await createDiscoverComment(app, {
@@ -60,6 +69,7 @@ describe('Discover 评论生命周期', () => {
     expect(firstPageBody.data.items[0].avatarUrl).toBe('/media/treehole-avatar/test-commenter.webp');
     expect(firstPageBody.data.items[0].author.id).toBe(otherAuthorId);
     expect(firstPageBody.data.items[0].author.label.length).toBeGreaterThan(0);
+    expect(firstPageBody.data.items[0].author.nickname).toBe('评论员_2');
 
     const secondPageRes = await app.request(`http://localhost/api/discover/posts/${post.id}/comments?page=2&pageSize=1`, {
       headers: await authHeaderFor(authorId, '2023001001'),
@@ -82,6 +92,8 @@ describe('Discover 评论生命周期', () => {
     expect(listRes.status).toBe(200);
     const listBody = await listRes.json() as any;
     expect(listBody.data.items[0].commentCount).toBe(2);
+    expect(listBody.data.items[0].avatarUrl).toBe('/media/treehole-avatar/test-poster.webp');
+    expect(listBody.data.items[0].author.nickname).toBe('饭搭子');
   });
 
   it('评论会校验父评论合法性（跨帖/已删除/非法 ID）', async () => {

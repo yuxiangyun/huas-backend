@@ -1,23 +1,36 @@
 /**
- * [INPUT]: 依赖 Treehole 提醒写入、URL 查询参数与发布/详情/头像弹层加载器
- * [OUTPUT]: 对外提供 TreeholePage，编排树洞信息流、发布、头像与详情路由状态
+ * [INPUT]: 依赖 Treehole 提醒写入、URL 查询参数与发布/详情/社区资料弹层加载器
+ * [OUTPUT]: 对外提供 TreeholePage，编排树洞信息流、发布、编辑资料与详情路由状态
  * [POS]: pages/treehole 的路由级组装器，统一弹层预加载与查询参数，不实现社区请求协议
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { lazy, startTransition, Suspense, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Add20Filled } from '@fluentui/react-icons/svg/add';
+import { Plus, UserPen } from 'lucide-react';
 import { useUiStore } from '@/app/state/ui-store';
-import { useToastStore } from '@/app/state/toast-store';
 import { useReadAllTreeholeNotificationsMutation } from '@/entities/treehole/api/treehole-queries';
-import { PageHeader } from '@/shared/ui/page-header';
 import { Button } from '@/shared/ui/button';
+import { PageHeader } from '@/shared/ui/page-header';
 import { TreeholeFeed } from '@/widgets/treehole-feed/treehole-feed';
 
 const loadTreeholeComposeSheet = () => import('@/widgets/treehole-compose-sheet/treehole-compose-sheet');
 const loadTreeholeDetailSheet = () => import('@/widgets/treehole-detail-sheet/treehole-detail-sheet');
 const loadTreeholeAvatarSheet = () => import('@/widgets/treehole-avatar-sheet/treehole-avatar-sheet');
+
+const TREEHOLE_WORDMARK = (
+  <span
+    className="relative inline-flex items-center pr-4"
+    style={{ fontFamily: '"Songti SC", "STSong", "Noto Serif CJK SC", serif' }}
+  >
+    <span className="text-[#15803d]">树</span>
+    <span className="-ml-[0.08em] text-[#22c55e]">洞</span>
+    <span
+      aria-hidden="true"
+      className="absolute right-0 top-0 h-3.5 w-2.5 rotate-[35deg] rounded-[100%_0_100%_0] bg-[#4ade80]"
+    />
+  </span>
+);
 
 const LazyTreeholeComposeSheet = lazy(async () => {
   const module = await loadTreeholeComposeSheet();
@@ -41,7 +54,6 @@ export function TreeholePage() {
   const avatarSheetOpen = useUiStore((state) => state.treeholeAvatarSheetOpen);
   const openComposeSheet = useUiStore((state) => state.openTreeholeComposeSheet);
   const openAvatarSheet = useUiStore((state) => state.openTreeholeAvatarSheet);
-  const pushToast = useToastStore((state) => state.pushToast);
   const readAllNotificationsMutation = useReadAllTreeholeNotificationsMutation();
   const notificationsReadTriggeredRef = useRef(false);
   const rawPostId = Number(searchParams.get('postId'));
@@ -57,15 +69,8 @@ export function TreeholePage() {
   useEffect(() => {
     if (notificationsReadTriggeredRef.current) return;
     notificationsReadTriggeredRef.current = true;
-    readAllNotificationsMutation.mutate(undefined, {
-      onError: (error) => {
-        pushToast({
-          title: error instanceof Error ? error.message : '提醒已读同步失败',
-          variant: 'error',
-        });
-      },
-    });
-  }, [pushToast, readAllNotificationsMutation]);
+    readAllNotificationsMutation.mutate();
+  }, [readAllNotificationsMutation]);
 
   useEffect(() => {
     if (!composeSheetOpen) return;
@@ -124,19 +129,20 @@ export function TreeholePage() {
     <div className="page-stack-mobile">
       <PageHeader
         action={(
-          <div className="flex items-center gap-1.5">
-            <Button className="min-w-[4.25rem]" size="sm" type="button" variant="subtle" onClick={handleOpenAvatarSheet}>
-              头像
+          <div className="flex items-center gap-2">
+            <Button size="sm" type="button" onClick={handleOpenComposeSheet}>
+              <Plus aria-hidden="true" className="size-4" />
+              发布
             </Button>
-            <Button className="min-w-[4.5rem]" size="sm" type="button" variant="subtle" onClick={handleOpenComposeSheet}>
-              <Add20Filled aria-hidden="true" className="size-4" />
-              发一条
+            <Button size="sm" variant="ghost" type="button" onClick={handleOpenAvatarSheet}>
+              <UserPen aria-hidden="true" className="size-4" />
+              编辑资料
             </Button>
           </div>
         )}
         compact
-        description="匿名发言"
-        title="树洞"
+        title={TREEHOLE_WORDMARK}
+        titleClassName="text-[2rem] font-black leading-none tracking-[-0.08em]"
       />
 
       <TreeholeFeed

@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 HttpClient、CryptoHelper、URLS、config 与 Logger 登录步骤记录
- * [OUTPUT]: 对外提供 TicketExchanger，执行 TGC 到 Portal JWT/JW Session 的交换并保留瞬态网络故障语义
- * [POS]: campus-integrations/cas 的学校子凭证交换器，被登录流程和凭证恢复链消费
+ * [INPUT]: 依赖带剩余预算的 HttpClient、CryptoHelper、URLS、config 与 Logger 登录步骤记录
+ * [OUTPUT]: 对外提供 TicketExchanger，在客户端 deadline 内执行 TGC 到 Portal JWT/JW Session 的交换并保留瞬态网络故障语义
+ * [POS]: campus-integrations/cas 的学校子凭证交换器，被登录流程和有界凭证恢复链消费
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -63,7 +63,15 @@ export class TicketExchanger {
     let upstreamUnavailable = false;
 
     for (let attempt = 0; attempt < config.retry.jwActivationMax && !activated; attempt++) {
+      if (client.getRemainingTimeMs() <= 0) {
+        upstreamUnavailable = true;
+        break;
+      }
       if (attempt > 0) {
+        if (client.getRemainingTimeMs() <= config.retry.jwActivationDelay) {
+          upstreamUnavailable = true;
+          break;
+        }
         await new Promise(r => setTimeout(r, config.retry.jwActivationDelay));
       }
 
