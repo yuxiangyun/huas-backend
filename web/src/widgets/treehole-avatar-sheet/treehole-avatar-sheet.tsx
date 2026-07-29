@@ -411,7 +411,7 @@ export function TreeholeAvatarSheet() {
 
           <div className="flex items-center gap-3">
             <TreeholeAvatar className="size-14 rounded-full text-base" src={currentAvatarUrl} />
-            <p className="min-w-0 truncate text-sm font-medium">{currentNickname || '用户'}</p>
+            <p className="min-w-0 truncate text-sm font-medium">{currentNickname || '匿名用户'}</p>
           </div>
 
           <div className="space-y-2">

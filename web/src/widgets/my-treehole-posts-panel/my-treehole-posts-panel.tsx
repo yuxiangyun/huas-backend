@@ -37,7 +37,7 @@ export function MyTreeholePostsPanel({ hasMore = false, loading = false, loading
         <button key={post.id} className="feed-card-trigger" style={{ contentVisibility: 'auto', containIntrinsicSize: '190px' }} type="button" onClick={() => onOpenPost?.(post.id)}>
           <Card className="space-y-4 transition-colors hover:border-[#d4d4d4]">
             <div className="flex items-center justify-between gap-3">
-              <span className="flex min-w-0 items-center gap-2"><TreeholeAvatar className="size-7 rounded-full text-[0.65rem]" src={post.avatarUrl} /><span className="truncate text-sm font-medium">{post.nickname || '用户'}</span></span>
+              <span className="flex min-w-0 items-center gap-2"><TreeholeAvatar className="size-7 rounded-full text-[0.65rem]" src={post.avatarUrl} /><span className="truncate text-sm font-medium">{post.nickname || '匿名用户'}</span></span>
               <span className="shrink-0 text-xs text-muted">{formatPublishedAt(post.publishedAt)}</span>
             </div>
             <p className="text-clamp-4 break-words text-sm leading-7 whitespace-pre-wrap">{post.content}</p>

@@ -70,7 +70,7 @@ export function TreeholeFeed({ onComposeClick, onOpenPost }: TreeholeFeedProps) 
             <div className="flex items-center justify-between gap-3">
               <span className="flex min-w-0 items-center gap-2">
                 <TreeholeAvatar className="size-8 rounded-full text-[0.65rem]" src={post.avatarUrl} />
-                <span className="truncate text-sm font-medium">{post.nickname || '用户'}</span>
+                <span className="truncate text-sm font-medium">{post.nickname || '匿名用户'}</span>
               </span>
               <span className="shrink-0 text-xs text-muted">{formatPublishedAt(post.publishedAt)}</span>
             </div>

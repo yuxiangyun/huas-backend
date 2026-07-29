@@ -155,7 +155,7 @@ export function TreeholeDetailSheet({ postId, onClose }: TreeholeDetailSheetProp
               <div className="flex items-center gap-2">
                 <TreeholeAvatar className="size-7 rounded-full text-[0.65rem]" src={post.avatarUrl} />
                 <span className="max-w-full truncate text-sm font-medium">
-                  {post.nickname || '用户'}
+                  {post.nickname || '匿名用户'}
                 </span>
               </div>
               <p className="text-xs text-muted">{formatPublishedAt(post.publishedAt)}</p>
@@ -212,7 +212,7 @@ export function TreeholeDetailSheet({ postId, onClose }: TreeholeDetailSheetProp
               content: comment.content,
               avatarUrl: comment.avatarUrl,
               isMine: comment.isMine,
-              authorLabel: comment.nickname || '用户',
+              authorLabel: comment.nickname || '匿名用户',
               createdAtLabel: formatPublishedAt(comment.createdAt),
             }))}
             endMessage={null}
