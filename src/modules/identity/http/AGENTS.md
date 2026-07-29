@@ -3,7 +3,7 @@
 
 成员清单
 login.dto.ts: `/auth/login` 请求 DTO 与最小结构校验，固定旧字段兼容面
-auth.routes.ts: Identity 登录 Hono 适配器，负责 JSON/限流/日志与应用结果到旧 HTTP 契约的映射
+auth.routes.ts: Identity 登录 Hono 适配器，负责 JSON/限流/日志，并将应用层验证码原因原样映射到旧 HTTP 契约
 login-analytics.ts: 登录结果观测端口，由 Operations composition 注入同步 analytics recorder，避免 Identity 反向依赖管理模块
 
 架构决策

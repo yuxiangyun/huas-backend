@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖认证 API、表单校验、树洞元数据查询、站内重定向规则与本机密码记忆选项
- * [OUTPUT]: 对外提供 LoginForm，处理验证码登录、认证状态提交与登录后导航
- * [POS]: features/auth-login 的交互编排器，认证成功后预取默认树洞页元数据但不持有路由配置
+ * [INPUT]: 依赖认证 API/错误码、表单校验、树洞元数据查询、站内重定向规则与本机密码记忆选项
+ * [OUTPUT]: 对外提供 LoginForm，处理验证码原因提示、已消费挑战清理、认证状态提交与登录后导航
+ * [POS]: features/auth-login 的交互编排器，保持密码失败与验证码失败的用户动作可恢复并在成功后预取树洞元数据
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -12,7 +12,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { resolveRedirectPath } from '@/app/router/redirect';
-import { loginWithPassword } from '@/entities/auth/api/auth-api';
+import { AUTH_ERROR_CODES, loginWithPassword } from '@/entities/auth/api/auth-api';
 import { useAuthStore } from '@/entities/auth/model/auth-store';
 import { getTreeholeMeta } from '@/entities/treehole/api/treehole-api';
 import { treeholeQueryKeys } from '@/entities/treehole/model/treehole-query-keys';
@@ -70,6 +70,7 @@ export function LoginForm() {
     register,
     handleSubmit,
     setError,
+    setFocus,
     setValue,
     resetField,
     trigger,
@@ -89,6 +90,13 @@ export function LoginForm() {
 
   const redirectPath = resolveRedirectPath(location);
 
+  const clearCaptchaChallenge = () => {
+    setCaptchaSessionId(null);
+    setCaptchaImage(null);
+    resetField('captcha');
+    clearErrors('captcha');
+  };
+
   const finalizeLogin = async (
     result: Awaited<ReturnType<typeof loginWithPassword>>,
     credentials: RememberedCredentials
@@ -97,7 +105,7 @@ export function LoginForm() {
       setCaptchaSessionId(result.sessionId);
       setCaptchaImage(result.captchaImage);
       setValue('captcha', '');
-      setStatusMessage(null);
+      setStatusMessage(result.message);
       return;
     }
 
@@ -107,10 +115,7 @@ export function LoginForm() {
       clearRememberedCredentials();
     }
 
-    setCaptchaSessionId(null);
-    setCaptchaImage(null);
-    resetField('captcha');
-    clearErrors('captcha');
+    clearCaptchaChallenge();
     login({
       token: result.token,
       userBrief: result.user,
@@ -132,7 +137,7 @@ export function LoginForm() {
 
     try {
       setStatusMessage(null);
-      clearErrors('captcha');
+      clearErrors(['password', 'captcha']);
       const result = await loginMutation.mutateAsync({
         username: values.username.trim(),
         password: values.password,
@@ -145,8 +150,19 @@ export function LoginForm() {
       });
     } catch (error) {
       const message = error instanceof ApiError ? error.message : '登录失败，请稍后重试';
-      setStatusMessage(message);
-      if (captchaSessionId) {
+      const passwordRejected = error instanceof ApiError
+        && error.errorCode === AUTH_ERROR_CODES.LOGIN_FAILED
+        && /账号|密码/.test(error.message);
+      if (passwordRejected) {
+        clearCaptchaChallenge();
+        clearRememberedCredentials();
+        setError('password', { type: 'server', message });
+        setFocus('password');
+        setStatusMessage(null);
+      } else {
+        setStatusMessage(message);
+      }
+      if (captchaSessionId && !passwordRejected) {
         setValue('captcha', '');
       }
     }
@@ -272,11 +288,8 @@ export function LoginForm() {
                 type="button"
                 variant="subtle"
                 onClick={() => {
-                  setCaptchaSessionId(null);
-                  setCaptchaImage(null);
+                  clearCaptchaChallenge();
                   setStatusMessage(null);
-                  resetField('captcha');
-                  clearErrors('captcha');
                 }}
               >
                 取消

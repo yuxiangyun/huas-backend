@@ -291,6 +291,7 @@ describe('登录流程', () => {
     const firstBody = await first.json() as any;
     expect(firstBody.success).toBe(false);
     expect(firstBody.needCaptcha).toBe(true);
+    expect(firstBody.error_message).toBe('验证码错误');
     expect(typeof firstBody.sessionId).toBe('string');
     expect(typeof firstBody.captchaImage).toBe('string');
     expect(firstBody.captchaImage.length).toBeGreaterThan(0);

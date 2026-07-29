@@ -1,5 +1,16 @@
+/**
+ * [INPUT]: 依赖 shared HTTP envelope 与认证实体类型，消费 `/auth/login` 的成功、验证码挑战和业务错误响应
+ * [OUTPUT]: 对外提供 loginWithPassword、登录请求/结果类型与稳定认证错误码
+ * [POS]: entities/auth 的服务端协议适配器，将传输 envelope 收敛为登录 feature 可判别的结果
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { ApiError, requestEnvelope } from '@/shared/api/http-client';
 import type { UserBrief } from '@/entities/auth/model/auth-types';
+
+export const AUTH_ERROR_CODES = {
+  LOGIN_FAILED: 3001,
+} as const;
 
 interface LoginSuccessData {
   token: string;

@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Hono、LoginApplicationService 生产装配、登录 DTO、登录限流与注入的登录 analytics 观测端口
- * [OUTPUT]: 对外默认提供 `/login` Hono 路由，保持旧登录、验证码与错误响应契约
+ * [OUTPUT]: 对外默认提供 `/login` Hono 路由，保持登录契约并透传可操作的验证码失败原因
  * [POS]: identity/http 的薄适配器，只解析/校验 HTTP、挂载限流与观测，并映射应用结果
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -93,11 +93,11 @@ function respondWithFailure(c: Context, username: string, rateLimitKey: string, 
       return error(c, ErrorCode.CAPTCHA_ERROR, outcome.message, 400);
     case 'captcha-required':
       appendHttpLogDetail(c, 'result=captcha-required');
-      Logger.auth(username, '需要验证码', 400, outcome.durationMs, undefined, outcome.steps);
+      Logger.auth(username, outcome.message, 400, outcome.durationMs, undefined, outcome.steps);
       return c.json({
         success: false,
         error_code: ErrorCode.CAPTCHA_ERROR,
-        error_message: '需要验证码',
+        error_message: outcome.message,
         needCaptcha: true,
         sessionId: outcome.challenge!.sessionId,
         captchaImage: outcome.challenge!.captchaImage,

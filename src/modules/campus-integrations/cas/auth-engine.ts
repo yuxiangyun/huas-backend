@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 HttpClient、CryptoHelper、URLS、config 与 LoginStep 类型
- * [OUTPUT]: 对外提供 AuthEngine，封装带 HTTP/维护页校验的 CAS 验证码、execution 与登录提交
- * [POS]: campus-integrations/cas 的原始登录执行器，防止上游故障被解释为密码错误
+ * [OUTPUT]: 对外提供 AuthEngine，封装 CAS 验证码、execution、登录提交及结构化失败原因识别
+ * [POS]: campus-integrations/cas 的原始登录执行器，区分验证码错误、登录凭证拒绝与真实上游故障
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -21,6 +21,49 @@ function assertNotCasErrorPage(text: string) {
   if (/Whitelabel Error Page|Internal Server Error|HTTP Status 5\d\d|系统维护|系统异常|服务暂不可用/.test(text)) {
     throw new Error('CAS_MAINTENANCE');
   }
+}
+
+function decodeHtmlText(value: string): string {
+  return value
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&amp;/gi, '&')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extractCasLoginError(html: string): string | null {
+  const passwordLoginBlock = html.match(
+    /var\s+currentMenu\s*=\s*["']1["'][\s\S]{0,5000}?var\s+errors\s*=\s*(\[[\s\S]*?\])\s*;/i,
+  );
+  if (passwordLoginBlock?.[1]) {
+    try {
+      const errors = JSON.parse(passwordLoginBlock[1]);
+      if (Array.isArray(errors) && typeof errors[0] === 'string') {
+        const message = decodeHtmlText(errors[0]);
+        if (message) return message;
+      }
+    } catch {
+      // 非标准脚本继续尝试服务端渲染的错误容器。
+    }
+  }
+
+  const errorContainer = html.match(/<[^>]+id=["']loginError1["'][^>]*>([\s\S]*?)<\/[^>]+>/i);
+  return errorContainer?.[1] ? decodeHtmlText(errorContainer[1]) || null : null;
+}
+
+function isCaptchaFailure(message: string): boolean {
+  return /验证码[^，。；;]*(?:为空|不能为空|错误|有误|失效|过期|不正确|无效)|(?:请输入|填写)验证码/i.test(message);
+}
+
+function describeCaptchaFailure(message: string): string {
+  if (/失效|过期/.test(message)) return '验证码已失效，请重新输入';
+  if (/为空|不能为空|请输入|填写/.test(message)) return '请输入验证码';
+  return '验证码错误，请重新输入';
 }
 
 export class AuthEngine {
@@ -95,7 +138,10 @@ export class AuthEngine {
       timeout: config.timeout.cas,
       headers: { 'Referer': loginUrl },
     });
-    assertCasHttpResponse(res, 'CAS_LOGIN', true);
+
+    // CAS 以 401 表达凭证拒绝；这是登录结果，不是服务故障。
+    // 其他 4xx/5xx 仍需抛出，避免把网关或维护故障误报成密码错误。
+    if (res.status !== 401) assertCasHttpResponse(res, 'CAS_LOGIN', true);
 
     if (res.status === 302) {
       const loc = res.headers.get('location');
@@ -114,9 +160,19 @@ export class AuthEngine {
     // Login failed
     const text = await res.text();
     assertNotCasErrorPage(text);
-    const needCaptcha = /验证码(不能为空|错误|失效|不正确)/i.test(text);
-    if (needCaptcha) return { success: false, needCaptcha: true, message: '验证码错误', steps };
+    const casError = extractCasLoginError(text);
+    const captchaFailure = casError
+      ? isCaptchaFailure(casError)
+      : !captcha && /验证码(不能为空|错误|失效|不正确)/i.test(text);
+    if (captchaFailure) {
+      return {
+        success: false,
+        needCaptcha: true,
+        message: describeCaptchaFailure(casError || '验证码错误'),
+        steps,
+      };
+    }
 
-    return { success: false, needCaptcha: false, message: '密码错误', steps };
+    return { success: false, needCaptcha: false, message: '账号或密码错误', steps };
   }
 }

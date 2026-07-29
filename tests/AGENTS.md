@@ -38,7 +38,7 @@ setup.ts: 单元与业务流测试数据库、环境变量初始化
 treehole.test.ts: Treehole 薄聚合入口，在单进程内装配 treehole/ 社区资料、交互、管理与合规用例
 treehole/: Treehole HTTP/事务/社区资料共享支架及按业务能力细分的回归用例
 treehole-compat.test.ts: Treehole canonical composition/http 与旧 routes/services/media Facade 引用及依赖方向测试
-upstream-retry.test.ts: 上游请求/凭证恢复的次数与 deadline、成绩临时错误分类、非重试错误、CAS HTTP/维护页及 Portal 换票瞬态网络语义回归测试
+upstream-retry.test.ts: 上游请求/凭证恢复的次数与 deadline、成绩临时错误分类、非重试错误、CAS 结构化验证码/凭证拒绝、HTTP 维护页及 Portal 换票瞬态网络语义回归测试
 
 架构决策
 测试默认隔离学校真实网络，以 mock 边界验证业务编排；e2e.live.test.ts 是唯一真实上游入口。
@@ -50,6 +50,7 @@ upstream-retry.test.ts: 上游请求/凭证恢复的次数与 deadline、成绩�
 新增、删除或重命名测试文件时同步更新本地图。
 
 变更日志
+2026-07-29: 覆盖 CAS 登录提交的结构化错误提取，防止静态验证码文案吞掉真实密码错误。
 2026-07-29: 将 Business Flows、Discover 与 Treehole 超限套件拆为薄聚合入口、共享支架和 `.cases.ts` 能力用例，保留进程级 mock 与 SQLite 隔离语义。
 2026-07-27: 增加部署脚本 readiness、Web 构建选择和 nginx 原子切流静态回归。
 2026-07-27: 新增 Runtime live/ready、Prometheus 指标、上游观察、shutdown flush 与精简 CI 回归。

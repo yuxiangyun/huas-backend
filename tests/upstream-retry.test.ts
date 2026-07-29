@@ -1,11 +1,12 @@
 /**
  * [INPUT]: 依赖 upstream、CredentialManager、TicketExchanger、AuthEngine、HttpClient 测试替身与隔离数据库
- * [OUTPUT]: 验证凭证恢复/成绩临时错误的次数与 deadline 边界、非重试错误、Portal 换票及 CAS 故障语义
+ * [OUTPUT]: 验证凭证恢复/成绩临时错误的次数与 deadline 边界、非重试错误、Portal 换票及 CAS 401 拒绝/服务故障语义
  * [POS]: tests 的学校上游有界恢复回归套件，防止瞬态故障过早降级或无限等待并避免故障退化为凭证/密码错误
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+import { generateKeyPairSync } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { initDatabase, getDb, schema } from '../src/db';
 import { upstream } from '../src/services/infra/upstream';
@@ -255,5 +256,63 @@ describe('auth upstream failure semantics', () => {
 
     await expect(engine.login('2023001001', 'password', '', 'execution'))
       .rejects.toThrow('CAS_PUBKEY_HTTP_502');
+  });
+
+  it('CAS 登录提交以 HTTP 401 拒绝错误密码时忽略页面静态验证码文案', async () => {
+    const { publicKey } = generateKeyPairSync('rsa', { modulusLength: 1024 });
+    let requestCount = 0;
+    const engine = new AuthEngine({
+      request: async () => {
+        requestCount += 1;
+        if (requestCount === 1) {
+          return new Response(publicKey.export({ type: 'spki', format: 'pem' }), { status: 200 });
+        }
+        return new Response(`
+          <div id="loginError1">用户名或密码错误</div>
+          <script>
+            var currentMenu = "1";
+            var hasErrors = true;
+            var errors = ["用户名或密码错误"];
+            var unusedCaptchaMessage = "验证码错误";
+          </script>
+        `, {
+          status: 401,
+        });
+      },
+    } as unknown as HttpClient);
+
+    await expect(engine.login('2023001001', 'wrong-password', '', 'execution')).resolves.toEqual({
+      success: false,
+      needCaptcha: false,
+      message: '账号或密码错误',
+      steps: [],
+    });
+  });
+
+  it('CAS 登录提交只根据结构化错误区域识别验证码错误并给出可操作提示', async () => {
+    const { publicKey } = generateKeyPairSync('rsa', { modulusLength: 1024 });
+    let requestCount = 0;
+    const engine = new AuthEngine({
+      request: async () => {
+        requestCount += 1;
+        if (requestCount === 1) {
+          return new Response(publicKey.export({ type: 'spki', format: 'pem' }), { status: 200 });
+        }
+        return new Response(`
+          <script>
+            var currentMenu = "1";
+            var hasErrors = true;
+            var errors = ["验证码错误"];
+          </script>
+        `, { status: 401 });
+      },
+    } as unknown as HttpClient);
+
+    await expect(engine.login('2023001001', 'password', 'AB12', 'execution')).resolves.toEqual({
+      success: false,
+      needCaptcha: true,
+      message: '验证码错误，请重新输入',
+      steps: [],
+    });
   });
 });

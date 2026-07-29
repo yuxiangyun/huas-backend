@@ -5,7 +5,7 @@
 
 ## 成员清单
 
-auth-login.cases.ts: 登录能力用例，覆盖本地快捷、CAS、验证码、Portal-only、并发 upsert、限流与错误映射
+auth-login.cases.ts: 登录能力用例，覆盖本地快捷、CAS、验证码原因透传、Portal-only、并发 upsert、限流与错误映射
 calendar-subscription.cases.ts: 日历订阅用例，覆盖签名、双源课表缓存、fallback、ICS UID/折行与日期推导
 credential-recovery.cases.ts: 凭证恢复用例，覆盖 JW/Portal 静默刷新、验证码阻断、超时穿透与静默重认证
 harness.ts: 进程级共享支架，先注册 Campus Integrations、Academic 与 Portal 模块 mock，再延迟装载业务模块并重置逐用例状态

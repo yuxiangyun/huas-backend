@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖登录领域类型与 Campus/Recovery/IdentityStore/Cipher/Token/Profile/Runtime ports
- * [OUTPUT]: 对外提供 LoginApplicationService.execute 与固定周期调用的验证码过期清理入口
+ * [OUTPUT]: 对外提供 LoginApplicationService.execute、CAS 失败原因保真的验证码挑战与固定周期清理入口
  * [POS]: identity/application 的用例核心，把 HTTP 映射与旧学校/SQLite 实现隔离在端口之外
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -72,7 +72,12 @@ export class LoginApplicationService {
 
       if (!loginResult.success) {
         if (loginResult.needCaptcha) {
-          return this.createCaptchaChallenge(prepared.session, loginResult.steps || [], durationMs);
+          return this.createCaptchaChallenge(
+            prepared.session,
+            loginResult.steps || [],
+            durationMs,
+            loginResult.message || '需要验证码',
+          );
         }
         return this.failure('cas-failed', loginResult.message || '登录失败', durationMs, loginResult.steps || [], true);
       }
@@ -205,7 +210,12 @@ export class LoginApplicationService {
     }
   }
 
-  private async createCaptchaChallenge(session: Parameters<CampusLoginPort['snapshot']>[0], steps: LoginStep[], durationMs: number): Promise<LoginFailure> {
+  private async createCaptchaChallenge(
+    session: Parameters<CampusLoginPort['snapshot']>[0],
+    steps: LoginStep[],
+    durationMs: number,
+    message: string,
+  ): Promise<LoginFailure> {
     try {
       const buffer = await this.dependencies.campus.getCaptcha(session);
       const execution = await this.dependencies.campus.getExecution(session);
@@ -224,7 +234,7 @@ export class LoginApplicationService {
         createdAt: this.dependencies.runtime.now().getTime(),
       });
       return {
-        ...this.failure('captcha-required', '需要验证码', durationMs, steps, true),
+        ...this.failure('captcha-required', message, durationMs, steps, true),
         challenge: { sessionId, captchaImage: this.dependencies.runtime.encodeBase64(buffer) },
       };
     } catch {

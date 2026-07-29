@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 Zustand、认证类型与浏览器 localStorage
+ * [OUTPUT]: 对外提供 useAuthStore，完成普通用户 JWT 会话登录、注销与恢复
+ * [POS]: entities/auth 的客户端会话事实源，被 HTTP 客户端、路由守卫与页面共同消费
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { create } from 'zustand';
 import type { AuthSession, UserBrief } from '@/entities/auth/model/auth-types';
 
