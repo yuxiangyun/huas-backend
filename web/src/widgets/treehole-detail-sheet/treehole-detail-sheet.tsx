@@ -182,7 +182,7 @@ export function TreeholeDetailSheet({ postId, onClose }: TreeholeDetailSheetProp
             <div className="flex items-start gap-3">
               <TreeholeAvatar src={post.avatarUrl} />
               <div className="min-w-0 flex-1 space-y-4">
-                <p className="text-sm leading-7 whitespace-pre-wrap text-ink">{post.content}</p>
+                <p className="break-words text-sm leading-7 whitespace-pre-wrap text-ink [overflow-wrap:anywhere]">{post.content}</p>
                 <div className="flex flex-wrap items-center gap-3 text-sm text-muted">
                   <span>{post.stats.likeCount} 个赞</span>
                   <span>{post.stats.commentCount} 条评论</span>

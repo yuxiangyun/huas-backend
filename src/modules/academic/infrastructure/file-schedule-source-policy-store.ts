@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 node:fs/promises/path/crypto、北京时区时钟、Logger 与 domain 策略端口
- * [OUTPUT]: 对外提供 FileScheduleSourcePolicyStore，以原子状态文件和 owner 隔离锁目录持久化热切换快照
- * [POS]: academic/infrastructure 的课表来源策略存储，负责 env 回落、损坏保守降级与跨进程传播
+ * [OUTPUT]: 对外提供 FileScheduleSourcePolicyStore，以原子状态文件和存活 owner 隔离锁目录持久化热切换快照
+ * [POS]: academic/infrastructure 的课表来源策略存储，负责 env 回落、损坏保守降级、死进程/遗留 owner 接管与跨进程传播
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -197,6 +197,7 @@ export class FileScheduleSourcePolicyStore implements ScheduleSourcePolicyStore 
     const takeoverFile = join(lockDirectory, 'takeover');
     const owner = await this.findLockOwner(lockDirectory);
     if (!owner) {
+      if (Date.now() - lockStat.mtimeMs <= STALE_LOCK_MS) return null;
       const takeoverActive = await this.isActiveMarker(takeoverFile);
       if (!takeoverActive) {
         await unlink(takeoverFile).catch(() => {});
@@ -207,6 +208,7 @@ export class FileScheduleSourcePolicyStore implements ScheduleSourcePolicyStore 
       return null;
     }
     if (Date.now() - owner.mtimeMs <= STALE_LOCK_MS) return null;
+    if (await this.isLockOwnerProcessAlive(owner.path)) return null;
 
     let takeoverHandle;
     try {
@@ -265,6 +267,25 @@ export class FileScheduleSourcePolicyStore implements ScheduleSourcePolicyStore 
     } catch (cause: any) {
       if (cause?.code === 'ENOENT') return false;
       throw cause;
+    }
+  }
+
+  private async isLockOwnerProcessAlive(ownerFile: string): Promise<boolean> {
+    let ownerToken: string;
+    try {
+      ownerToken = (await readFile(ownerFile, 'utf8')).trim();
+    } catch (cause: any) {
+      if (cause?.code === 'ENOENT') return false;
+      throw cause;
+    }
+
+    const pid = Number(ownerToken.match(/^(\d+)-/)?.[1]);
+    if (!Number.isInteger(pid) || pid <= 0) return false;
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (cause: any) {
+      return cause?.code !== 'ESRCH';
     }
   }
 

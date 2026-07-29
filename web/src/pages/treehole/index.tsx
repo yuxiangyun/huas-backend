@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 Treehole 提醒写入、URL 查询参数与发布/详情/头像弹层加载器
+ * [OUTPUT]: 对外提供 TreeholePage，编排树洞信息流、发布、头像与详情路由状态
+ * [POS]: pages/treehole 的路由级组装器，统一弹层预加载与查询参数，不实现社区请求协议
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { lazy, startTransition, Suspense, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Add20Filled } from '@fluentui/react-icons/svg/add';

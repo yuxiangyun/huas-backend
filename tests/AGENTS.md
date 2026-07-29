@@ -8,14 +8,16 @@ admin-dashboard-activity.test.ts: 管理后台活跃度、显式渠道优先级�
 admin-session.test.ts: 后台 HttpOnly Cookie 会话建立、保护与撤销回归测试
 analytics-batch.test.ts: Analytics 内存聚合、active user 去重、单事务 flush、失败回并重试与 shutdown 回归测试
 auth-login-rate-limit.test.ts: 登录失败限流策略回归测试
-business-flows.test.ts: 登录凭证、课表/日历双源、成绩/一卡通缓存失败语义、ICS 序列化与核心编排总回归套件
+business-flows.test.ts: 核心业务流薄聚合入口，在独立 Bun 进程内装配 business-flows/ 能力用例并维持模块 mock 隔离
+business-flows/: 登录、凭证、课表/日历、缓存与持久化边界的共享支架和细分能力用例
 cache-modernization.test.ts: Cache 永久/限时新鲜度、版本 envelope、旧 payload、同意图 singleflight 与 observer 隔离回归测试
 calendar-compat.test.ts: Calendar canonical 实现与 routes/services/auth 旧 Facade 的引用、token 别名与 HMAC 语义兼容测试
 campus-integrations-compat.test.ts: Campus Integrations canonical 实现与 auth/core/parsers/services 旧 Facade 的引用一致性测试
 database-migrations.test.ts: SQLite 空库初始化、baseline adoption、漂移拒绝、中断恢复、repair 与部署快照回归测试
 deployment-scripts.test.ts: 维护中部署脚本的 Bash 语法、readiness、锁文件包管理器与 nginx 回滚回归测试
 classroom-free-parser.test.ts: 空教室解析器回归测试
-discover.test.ts: Discover 业务与媒体流程回归测试
+discover.test.ts: Discover 薄聚合入口，在单进程内装配 discover/ 媒体、推荐、评论与管理合规用例
+discover/: Discover HTTP/媒体共享支架及按业务能力细分的回归用例
 discover-application.test.ts: Discover application 媒体补偿与删除清理失败语义回归测试
 discover-compat.test.ts: Discover canonical composition 与旧 routes/services/media Facade 的运行时引用一致性测试
 e2e.live.test.ts: 真实上游端到端验证入口
@@ -31,9 +33,10 @@ public-announcements.test.ts: 公告公共接口回归测试
 runtime-check-ci.test.ts: 本地 check 脚本、单 job CI、触发器、并发取消与 observer 装配静态回归测试
 runtime-health-metrics.test.ts: live/ready 状态矩阵、轻量指标、校园 HTTP 结果观察与有界 shutdown hooks 回归测试
 schedule-parser.test.ts: JW 真实结构、非教学周、登录页与嵌套课程节点去重回归测试
-schedule-source-policy.test.ts: 课表来源热策略、请求快照、current/stale 固定顺序、持久化与管理鉴权回归测试
+schedule-source-policy.test.ts: 课表来源热策略、请求快照、current/stale 固定顺序、legacy 错误优先级、持久化锁接管与管理鉴权回归测试
 setup.ts: 单元与业务流测试数据库、环境变量初始化
-treehole.test.ts: 树洞业务与头像媒体回归测试
+treehole.test.ts: Treehole 薄聚合入口，在单进程内装配 treehole/ 帖子头像、交互、管理与合规用例
+treehole/: Treehole HTTP/事务/头像共享支架及按业务能力细分的回归用例
 treehole-compat.test.ts: Treehole canonical composition/http 与旧 routes/services/media Facade 引用及依赖方向测试
 upstream-retry.test.ts: 上游重试、CAS HTTP/维护页、Portal 换票瞬态网络错误与凭证恢复链回归测试
 
@@ -47,6 +50,7 @@ upstream-retry.test.ts: 上游重试、CAS HTTP/维护页、Portal 换票瞬态�
 新增、删除或重命名测试文件时同步更新本地图。
 
 变更日志
+2026-07-29: 将 Business Flows、Discover 与 Treehole 超限套件拆为薄聚合入口、共享支架和 `.cases.ts` 能力用例，保留进程级 mock 与 SQLite 隔离语义。
 2026-07-27: 增加部署脚本 readiness、Web 构建选择和 nginx 原子切流静态回归。
 2026-07-27: 新增 Runtime live/ready、Prometheus 指标、上游观察、shutdown flush 与精简 CI 回归。
 2026-07-27: 新增 Analytics 批量写、失败重试、observer 隔离与 shutdown flush 回归。

@@ -332,7 +332,7 @@ drizzle.config.ts - Drizzle 迁移与 SQLite 连接配置
 ecosystem.config.cjs - PM2 单实例运行参数
 nginx.conf - 反向代理样板
 .env / .env.example - 运行时配置与无密钥模板，包含数据库、缓存、上游与课表来源策略
-.gitignore - 排除依赖、数据库、日志与可变运行策略状态
+.gitignore - 排除依赖、构建缓存、数据库、日志与可变运行策略状态
 </config>
 
 <architecture_decisions>

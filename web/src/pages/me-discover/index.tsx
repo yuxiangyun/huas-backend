@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖当前用户 Discover 无限列表查询、个人内容面板与 React Router 导航
+ * [OUTPUT]: 对外提供 MeDiscoverPage，展示个人发布概览、列表与详情返回路径
+ * [POS]: pages/me-discover 的页面编排器，负责聚合已加载数据，不复制帖子卡片展示逻辑
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft20Filled } from '@fluentui/react-icons/svg/arrow-left';

@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖调用方提供的 Discover 帖子、分页状态和打开/刷新动作
+ * [OUTPUT]: 对外提供 MyPostsPanel，展示当前用户的 Discover 内容列表与分页状态
+ * [POS]: widgets/my-posts-panel 的无请求展示组件，由个人内容页持有数据获取和路由语义
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
 import type { DiscoverPost } from '@/entities/discover/model/discover-types';
@@ -91,12 +98,12 @@ export function MyPostsPanel({
       {posts.map((post) => (
         <button
           key={post.id}
-          className="block w-full text-left active:scale-[0.995]"
+          className="feed-card-trigger active:scale-[0.995] motion-reduce:transform-none"
           type="button"
           onClick={() => onOpenPost?.(post.id)}
         >
-          <Card className="overflow-hidden p-0 shadow-none transition hover:-translate-y-0.5 hover:bg-card-strong">
-            <div className="grid gap-0 sm:grid-cols-[12rem_minmax(0,1fr)]">
+          <Card className="overflow-hidden p-0 shadow-none transition motion-reduce:transition-none sm:hover:-translate-y-0.5 sm:hover:bg-card-strong">
+            <div className="grid min-w-0 gap-0 sm:grid-cols-[12rem_minmax(0,1fr)]">
               {post.coverUrl ? (
                 <img
                   alt={post.title || '帖子封面'}
@@ -108,25 +115,25 @@ export function MyPostsPanel({
                 <div className="aspect-[16/10] bg-shell-strong sm:aspect-[4/3]" />
               )}
 
-              <div className="space-y-3 p-4 sm:p-5">
+              <div className="min-w-0 space-y-3 p-4 sm:p-5">
                 <div className="flex flex-wrap gap-2">
                   <span className="rounded-pill bg-tint-soft px-3 py-1 text-xs font-medium text-ink">
                     {post.category}
                   </span>
                   {post.storeName ? (
-                    <span className="rounded-pill bg-white/80 px-3 py-1 text-xs text-muted ring-1 ring-line">
+                    <span className="max-w-full truncate rounded-pill bg-white/80 px-3 py-1 text-xs text-muted ring-1 ring-line sm:max-w-[18rem]">
                       {post.storeName}
                     </span>
                   ) : null}
                   {post.priceText ? (
-                    <span className="rounded-pill bg-white/80 px-3 py-1 text-xs text-muted ring-1 ring-line">
+                    <span className="max-w-full truncate rounded-pill bg-white/80 px-3 py-1 text-xs text-muted ring-1 ring-line">
                       {post.priceText}
                     </span>
                   ) : null}
                 </div>
 
                 <div className="space-y-2">
-                  <p className="text-base font-semibold text-ink sm:text-lg">
+                  <p className="text-clamp-2 break-words text-base font-semibold text-ink sm:text-lg">
                     {post.title || `${post.category} · 我的发布`}
                   </p>
                   <p className="text-clamp-2 text-sm leading-6 text-muted sm:leading-7">

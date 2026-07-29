@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Bun Test、Academic 策略 store/application facade、管理路由与隔离测试目录
- * [OUTPUT]: 验证热切换持久化、请求快照、current/stale 顺序、错误优先级与管理鉴权契约
+ * [OUTPUT]: 验证热切换持久化、请求快照、current/stale 顺序、legacy 错误优先级、锁接管与管理鉴权契约
  * [POS]: tests 的课表来源策略定向套件，不访问真实校园上游
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -175,6 +175,19 @@ describe('ScheduleFacade current/stale 状态机', () => {
     expect(result.data).toEqual({ week: '暂无', courses: [], message: '课表暂未公布' });
   });
 
+  it('legacy 入口的备用源未公布不能吞掉主源高优先级错误', async () => {
+    const calls: string[] = [];
+    const timeout = new AppError(ErrorCode.UPSTREAM_TIMEOUT, 'JW_TIMEOUT');
+    const facade = createFacade({
+      calls,
+      jw: { current: async () => { throw timeout; } },
+      portal: { current: async () => { throw new Error('SCHEDULE_NOT_AVAILABLE'); } },
+    });
+
+    await expect(facade.getJwFirstSchedule(request)).rejects.toBe(timeout);
+    expect(calls).toEqual(['jw:current', 'portal:current', 'jw:stale', 'portal:stale']);
+  });
+
   it('请求开始后切换策略不改变该请求 plan，下一请求读取新快照', async () => {
     const calls: string[] = [];
     let release!: () => void;
@@ -284,6 +297,41 @@ describe('FileScheduleSourcePolicyStore', () => {
 
       await (store as any).releaseLock(newLock);
       await expect(stat(lockDirectory)).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('owner 进程仍存活时不按固定时长接管目录锁', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'schedule-policy-live-lock-'));
+    const stateFile = join(root, 'policy.json');
+    const lockDirectory = `${stateFile}.lock`;
+    const ownerToken = `${process.pid}-live-owner`;
+    const ownerFile = join(lockDirectory, `owner-${ownerToken}`);
+    const staleAt = new Date(Date.now() - 60_000);
+    try {
+      const store = new FileScheduleSourcePolicyStore(stateFile, 'jw-first');
+      await mkdir(lockDirectory, { mode: 0o700 });
+      await writeFile(ownerFile, ownerToken, 'utf8');
+      await utimes(ownerFile, staleAt, staleAt);
+
+      expect(await (store as any).tryRecoverStaleLock(lockDirectory, 'contender')).toBeNull();
+      expect((await readdir(lockDirectory))).toContain(`owner-${ownerToken}`);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('新鲜空锁目录保留 owner 标记的建立窗口', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'schedule-policy-empty-lock-'));
+    const stateFile = join(root, 'policy.json');
+    const lockDirectory = `${stateFile}.lock`;
+    try {
+      const store = new FileScheduleSourcePolicyStore(stateFile, 'jw-first');
+      await mkdir(lockDirectory, { mode: 0o700 });
+
+      expect(await (store as any).tryRecoverStaleLock(lockDirectory, 'contender')).toBeNull();
+      expect((await stat(lockDirectory)).isDirectory()).toBe(true);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

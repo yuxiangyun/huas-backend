@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 JW/Portal current/stale readers、来源策略快照、fallback error 与日期/错误工具
  * [OUTPUT]: 对外提供 ScheduleFacadeApplicationService、单源 reader ports 与统一有序双源编排
- * [POS]: academic/application 的课表编排门面，按请求级策略快照先穷尽 current，再固定 JW→Portal 读取 stale
+ * [POS]: academic/application 的课表编排门面，按请求级策略快照先穷尽 current 再固定读 stale，并保留 legacy 主源未公布短路与错误优先级
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -329,7 +329,7 @@ export class ScheduleFacadeApplicationService {
       } catch (currentError) {
         if (isParamError(currentError)) throw currentError;
         errors.set(source, currentError);
-        if (options.stopOnUnavailable && isScheduleUnavailable(currentError)) {
+        if (options.stopOnUnavailable && source === primarySource && isScheduleUnavailable(currentError)) {
           const stale = await this.readStale(source, currentError, options);
           if (stale) return completeResult(stale, source, primarySource, 'stale', options.policy);
           return emptySchedule(source, primarySource, this.requestFor(source, options), options.policy);

@@ -203,13 +203,13 @@ export function DiscoverDetailSheet({ postId, onClose }: DiscoverDetailSheetProp
         {post ? (
           <>
             <div className="flex items-start justify-between gap-4">
-              <div className="space-y-3">
+              <div className="min-w-0 space-y-3">
                 <div className="flex flex-wrap gap-2">
                   <span className="rounded-pill bg-tint-soft px-3 py-1 text-xs font-medium text-ink">
                     {post.category}
                   </span>
                   {post.storeName ? (
-                    <span className="rounded-pill bg-white px-3 py-1 text-xs text-muted ring-1 ring-line">
+                    <span className="max-w-full break-words rounded-pill bg-white px-3 py-1 text-xs text-muted ring-1 ring-line [overflow-wrap:anywhere]">
                       {post.storeName}
                     </span>
                   ) : null}
@@ -221,7 +221,7 @@ export function DiscoverDetailSheet({ postId, onClose }: DiscoverDetailSheetProp
                 </div>
 
                 <div className="space-y-2">
-                  <h3 className="text-[var(--font-title-section)] font-semibold tracking-[-0.05em] text-ink">
+                  <h3 className="break-words text-[var(--font-title-section)] font-semibold tracking-[-0.05em] text-ink [overflow-wrap:anywhere]">
                     {post.title || `${post.category} · 同学推荐`}
                   </h3>
                   <p className="text-sm leading-6 text-muted">
@@ -235,25 +235,25 @@ export function DiscoverDetailSheet({ postId, onClose }: DiscoverDetailSheetProp
               </Button>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-[minmax(0,1.45fr)_minmax(16rem,1fr)]">
-              <Card className="space-y-3 rounded-[1.2rem] bg-white/78 p-3.5 shadow-none sm:rounded-[1.5rem] sm:p-4">
+            <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1.45fr)_minmax(16rem,1fr)]">
+              <Card className="min-w-0 space-y-3 rounded-[1.2rem] bg-white/78 p-3.5 shadow-none sm:rounded-[1.5rem] sm:p-4">
                 <div className="flex items-center justify-between gap-4">
                   <p className="text-sm font-semibold text-ink">内容</p>
                   <span className="text-sm text-muted">
                     {post.rating.average.toFixed(1)} 分 · {post.rating.count} 人 · {post.commentCount} 条评论
                   </span>
                 </div>
-                <p className="text-sm leading-7 whitespace-pre-wrap text-muted">
+                <p className="break-words text-sm leading-7 whitespace-pre-wrap text-muted [overflow-wrap:anywhere]">
                   {post.content || '未填写'}
                 </p>
               </Card>
 
-              <Card className="space-y-3 rounded-[1.2rem] bg-white/78 p-3.5 shadow-none sm:rounded-[1.5rem] sm:p-4">
+              <Card className="min-w-0 space-y-3 rounded-[1.2rem] bg-white/78 p-3.5 shadow-none sm:rounded-[1.5rem] sm:p-4">
                 <p className="text-sm font-semibold text-ink">信息</p>
                 <div className="grid grid-cols-2 gap-3 text-sm text-muted">
                   <div className="rounded-[1.1rem] bg-white/80 px-3 py-3 ring-1 ring-line">
                     <p className="text-xs uppercase tracking-[0.18em] text-muted">档口</p>
-                    <p className="mt-2 text-sm font-medium text-ink">{post.storeName || '未填写'}</p>
+                    <p className="mt-2 break-words text-sm font-medium text-ink [overflow-wrap:anywhere]">{post.storeName || '未填写'}</p>
                   </div>
                   <div className="rounded-[1.1rem] bg-white/80 px-3 py-3 ring-1 ring-line">
                     <p className="text-xs uppercase tracking-[0.18em] text-muted">价格</p>
@@ -276,7 +276,7 @@ export function DiscoverDetailSheet({ postId, onClose }: DiscoverDetailSheetProp
                 {post.tags.map((tag) => (
                   <span
                     key={tag}
-                    className="rounded-pill bg-white px-3 py-1.5 text-xs text-muted ring-1 ring-line"
+                    className="max-w-full break-words rounded-pill bg-white px-3 py-1.5 text-xs text-muted ring-1 ring-line [overflow-wrap:anywhere]"
                   >
                     #{tag}
                   </span>

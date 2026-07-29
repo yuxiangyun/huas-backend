@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 Discover 元数据/列表缓存、URL 查询参数与发布/详情弹层加载器
+ * [OUTPUT]: 对外提供 DiscoverPage，编排拍好饭排序、分类、刷新、发布与详情路由状态
+ * [POS]: pages/discover 的路由级组装器，将数据语义下沉至 entities/widgets，自身只协调页面状态
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { lazy, startTransition, Suspense, useEffect, useState } from 'react';
 import { useIsFetching, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';

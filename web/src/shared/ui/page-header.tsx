@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 ReactNode 组合能力与 shared/lib/cn 样式合并能力
+ * [OUTPUT]: 对外提供 PageHeader，统一页面标题、描述、操作区与可选视觉区的响应式排布
+ * [POS]: shared/ui 的页级标题原语，在窄屏为标题保留可读宽度并将过宽操作区换行
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import type { ReactNode } from 'react';
 import { cn } from '@/shared/lib/cn';
 
@@ -21,7 +28,7 @@ export function PageHeader({
   className,
 }: PageHeaderProps) {
   const content = (
-    <div className={cn('min-w-0', compact ? 'space-y-1.5' : 'space-y-2')}>
+    <div className={cn('min-w-[7rem] flex-1', compact ? 'space-y-1.5' : 'space-y-2')}>
       {eyebrow ? (
         <p
           className="text-[0.8rem] font-medium text-muted"
@@ -50,18 +57,18 @@ export function PageHeader({
     <header className={cn('page-header-mobile px-1', className)}>
       {visual ? (
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex min-w-0 items-start justify-between gap-3 sm:gap-4">
+          <div className="flex min-w-0 flex-wrap items-start justify-between gap-3 sm:gap-4">
             {content}
-            {action ? <div className="shrink-0 pt-1">{action}</div> : null}
+            {action ? <div className="ml-auto shrink-0 pt-1">{action}</div> : null}
           </div>
           <div className="w-full self-stretch sm:w-auto sm:self-auto sm:pt-1">
             {visual}
           </div>
         </div>
       ) : (
-        <div className="flex items-start justify-between gap-3 sm:gap-4">
+        <div className="flex flex-wrap items-start justify-between gap-3 sm:gap-4">
           {content}
-          {action ? <div className="shrink-0 pt-1">{action}</div> : null}
+          {action ? <div className="ml-auto shrink-0 pt-1">{action}</div> : null}
         </div>
       )}
     </header>

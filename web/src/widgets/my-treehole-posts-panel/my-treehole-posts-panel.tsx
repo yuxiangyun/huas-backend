@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖调用方提供的 Treehole 帖子、分页状态和打开/刷新动作
+ * [OUTPUT]: 对外提供 MyTreeholePostsPanel，展示当前用户的树洞列表与分页状态
+ * [POS]: widgets/my-treehole-posts-panel 的无请求展示组件，由个人树洞页持有数据获取和路由语义
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import type { TreeholePost } from '@/entities/treehole/model/treehole-types';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
@@ -95,11 +102,11 @@ export function MyTreeholePostsPanel({
       {posts.map((post) => (
         <button
           key={post.id}
-          className="block w-full text-left active:scale-[0.995]"
+          className="feed-card-trigger active:scale-[0.995] motion-reduce:transform-none"
           type="button"
           onClick={() => onOpenPost?.(post.id)}
         >
-          <Card className="space-y-4 shadow-none transition hover:-translate-y-0.5 hover:bg-card-strong">
+          <Card className="space-y-4 shadow-none transition motion-reduce:transition-none sm:hover:-translate-y-0.5 sm:hover:bg-card-strong">
             <div className="flex items-start gap-3">
               <TreeholeAvatar src={post.avatarUrl} />
               <div className="min-w-0 flex-1 space-y-4">
@@ -115,7 +122,7 @@ export function MyTreeholePostsPanel({
                   <span className="shrink-0 text-xs text-muted">{formatPublishedAt(post.publishedAt)}</span>
                 </div>
 
-                <p className="text-clamp-4 text-sm leading-7 whitespace-pre-wrap text-ink">
+                <p className="text-clamp-4 break-words text-sm leading-7 whitespace-pre-wrap text-ink">
                   {post.content}
                 </p>
 

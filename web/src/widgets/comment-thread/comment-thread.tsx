@@ -176,11 +176,11 @@ function CommentCard({
             </div>
           </div>
           {item.parentCommentId ? (
-            <div className="rounded-[0.9rem] bg-white/80 px-3 py-2 text-xs leading-5 text-muted ring-1 ring-line">
+            <div className="break-words rounded-[0.9rem] bg-white/80 px-3 py-2 text-xs leading-5 text-muted ring-1 ring-line [overflow-wrap:anywhere]">
               回复 #{item.parentCommentId}{parentContent ? `：${parentContent}` : ''}
             </div>
           ) : null}
-          <p className="text-sm leading-7 whitespace-pre-wrap text-ink">{item.content}</p>
+          <p className="break-words text-sm leading-7 whitespace-pre-wrap text-ink [overflow-wrap:anywhere]">{item.content}</p>
         </div>
       </div>
     </Card>

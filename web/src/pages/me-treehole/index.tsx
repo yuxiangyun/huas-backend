@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖当前用户 Treehole 列表/提醒查询、个人树洞面板与发布/头像/详情弹层
+ * [OUTPUT]: 对外提供 MeTreeholePage，展示个人树洞概览、列表与内容操作入口
+ * [POS]: pages/me-treehole 的页面编排器，统一个人数据聚合和弹层路由，不持有底层请求协议
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { startTransition, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft20Filled } from '@fluentui/react-icons/svg/arrow-left';

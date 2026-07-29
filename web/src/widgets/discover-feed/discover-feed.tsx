@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 Discover 无限列表查询、筛选控件、媒体 URL 与共享卡片原语
+ * [OUTPUT]: 对外提供 DiscoverFeed，呈现分类排序、帖子列表、状态反馈与分页操作
+ * [POS]: widgets/discover-feed 的只读信息流容器，保留 Discover 查询语义并将发布、筛选和详情导航交给页面
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { Add20Filled } from '@fluentui/react-icons/svg/add';
 import { Apps20Filled } from '@fluentui/react-icons/svg/apps';
 import { ArrowTrendingSparkle20Filled } from '@fluentui/react-icons/svg/arrow-trending-sparkle';
@@ -152,13 +159,13 @@ export function DiscoverFeed({
           {posts.map((post) => (
             <button
               key={post.id}
-              className="mobile-feed-item block w-full text-left active:scale-[0.995] motion-reduce:transform-none"
+              className="feed-card-trigger active:scale-[0.995] motion-reduce:transform-none"
               type="button"
               onClick={() => onOpenPost(post.id)}
             >
               <Card className="overflow-hidden p-0 shadow-none transition motion-reduce:transition-none sm:hover:-translate-y-0.5 sm:hover:bg-card-strong">
-                <div className="grid gap-0 sm:grid-cols-[15rem_minmax(0,1fr)]">
-                  <div className="relative overflow-hidden sm:min-h-full">
+                <div className="grid min-w-0 gap-0 sm:grid-cols-[15rem_minmax(0,1fr)]">
+                  <div className="relative min-w-0 overflow-hidden sm:min-h-full">
                     {post.coverUrl ? (
                       <img
                         alt={post.title || '帖子封面'}
@@ -189,18 +196,18 @@ export function DiscoverFeed({
                     </div>
                   </div>
 
-                  <div className="space-y-3 p-4 sm:p-5">
+                  <div className="min-w-0 space-y-3 p-4 sm:p-5">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="hidden rounded-pill bg-tint-soft px-3 py-1 text-xs font-medium text-ink sm:inline-flex">
                         {post.category}
                       </span>
                       {post.storeName ? (
-                        <span className="rounded-pill bg-white/85 px-3 py-1 text-xs text-muted ring-1 ring-line">
+                        <span className="max-w-full truncate rounded-pill bg-white/85 px-3 py-1 text-xs text-muted ring-1 ring-line sm:max-w-[18rem]">
                           {post.storeName}
                         </span>
                       ) : null}
                       {post.priceText ? (
-                        <span className="rounded-pill bg-white/85 px-3 py-1 text-xs text-muted ring-1 ring-line">
+                        <span className="max-w-full truncate rounded-pill bg-white/85 px-3 py-1 text-xs text-muted ring-1 ring-line">
                           {post.priceText}
                         </span>
                       ) : null}
@@ -212,7 +219,7 @@ export function DiscoverFeed({
                     </div>
 
                     <div className="space-y-2">
-                      <h3 className="text-[1.08rem] font-semibold tracking-[-0.04em] text-ink sm:text-xl">
+                      <h3 className="text-clamp-2 break-words text-[1.08rem] font-semibold tracking-[-0.04em] text-ink sm:text-xl">
                         {post.title || `${post.category} · 同学推荐`}
                       </h3>
                       <p className="text-clamp-3 text-sm leading-6 text-muted sm:leading-7">
@@ -225,7 +232,7 @@ export function DiscoverFeed({
                         {post.tags.map((tag) => (
                           <span
                             key={tag}
-                            className="rounded-pill bg-white/80 px-3 py-1 text-xs text-muted ring-1 ring-line"
+                            className="max-w-full truncate rounded-pill bg-white/80 px-3 py-1 text-xs text-muted ring-1 ring-line"
                           >
                             #{tag}
                           </span>

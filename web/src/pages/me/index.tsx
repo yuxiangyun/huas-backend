@@ -1,11 +1,15 @@
+/**
+ * [INPUT]: 依赖用户、树洞查询与认证状态，通过 React Router 连接个人内容路由
+ * [OUTPUT]: 对外提供 MePage，展示拍好饭、树洞、日历订阅与账号操作入口
+ * [POS]: pages/me 的页面编排器，只组合查询、导航与用户动作，不持有底层 HTTP 协议
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowTrendingSparkle20Filled } from '@fluentui/react-icons/svg/arrow-trending-sparkle';
 import { BowlChopsticks20Filled } from '@fluentui/react-icons/svg/bowl-chopsticks';
 import { Chat20Filled } from '@fluentui/react-icons/svg/chat';
-import { ContactCard20Filled } from '@fluentui/react-icons/svg/contact-card';
-import { DoorArrowRight20Filled } from '@fluentui/react-icons/svg/door-arrow-right';
 import { appRoutes } from '@/app/router/paths';
 import { useToastStore } from '@/app/state/toast-store';
 import { useUiStore } from '@/app/state/ui-store';
@@ -100,11 +104,9 @@ export function MePage() {
     {
       id: 'discover',
       buttonLabel: '进入',
-      chip: '内容',
       description: '查看我的发布和评分趋势',
       glowClass: 'bg-[#f0cf95]/62',
       icon: <BowlChopsticks20Filled aria-hidden="true" className="size-5" />,
-      accent: <ArrowTrendingSparkle20Filled aria-hidden="true" className="size-4" />,
       onClick: () => navigate(appRoutes.meDiscover),
       unreadCount: 0,
       title: '拍好饭',
@@ -114,11 +116,9 @@ export function MePage() {
     {
       id: 'treehole',
       buttonLabel: '进入',
-      chip: '匿名',
       description: '查看我的匿名发言和互动',
       glowClass: 'bg-[#c4d7fb]/62',
       icon: <Chat20Filled aria-hidden="true" className="size-5" />,
-      accent: <ContactCard20Filled aria-hidden="true" className="size-4" />,
       onClick: () => navigate(appRoutes.meTreehole),
       unreadCount: treeholeUnreadCount,
       title: '树洞',
@@ -128,11 +128,9 @@ export function MePage() {
     {
       id: 'calendar',
       buttonLabel: calendarLinkMutation.isPending ? '获取中' : '复制链接',
-      chip: '课表',
       description: '获取本周课程的日历订阅地址',
       glowClass: 'bg-[#b9e6d4]/70',
       icon: <span className="text-[0.82rem] font-semibold tracking-[0.08em]">ICS</span>,
-      accent: <span className="text-[0.72rem] font-semibold tracking-[0.08em]">URL</span>,
       onClick: () => {
         void handleCopyCalendarLink();
       },
@@ -144,7 +142,6 @@ export function MePage() {
     {
       id: 'account',
       buttonLabel: '退出',
-      chip: '账号',
       description: '管理当前登录状态',
       glowClass: 'bg-[#d9e1e9]/72',
       icon: (
@@ -154,7 +151,6 @@ export function MePage() {
           src={treeholeAvatarUrl}
         />
       ),
-      accent: <DoorArrowRight20Filled aria-hidden="true" className="size-4" />,
       onClick: () => {
         queryClient.clear();
         logout();
@@ -204,9 +200,6 @@ export function MePage() {
               <div className="min-w-0 space-y-1.5">
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="text-base font-semibold text-ink">{action.title}</p>
-                  <span className="rounded-pill bg-white/78 px-2.5 py-1 text-[0.72rem] font-medium text-muted ring-1 ring-line">
-                    {action.chip}
-                  </span>
                   {action.unreadCount > 0 ? (
                     <span className="rounded-pill bg-error px-2.5 py-1 text-[0.72rem] font-medium text-white">
                       {action.unreadCount > 99 ? '99+' : action.unreadCount}
@@ -219,15 +212,9 @@ export function MePage() {
               </div>
             </div>
 
-            <div className="flex w-full items-center gap-3 sm:w-auto sm:self-auto">
-              <IconBubble
-                className="hidden sm:inline-flex"
-                icon={action.accent}
-                size="sm"
-                tone={action.tone}
-              />
+            <div className="w-full sm:w-auto sm:self-auto">
               <Button
-                className="w-full sm:min-w-[6.75rem]"
+                className="w-full sm:w-auto sm:min-w-[6.75rem]"
                 disabled={calendarLinkMutation.isPending && action.id === 'calendar'}
                 size="sm"
                 type="button"

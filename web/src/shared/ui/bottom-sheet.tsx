@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 motion/react 的出入场动画、Card 容器与浏览器键盘/滚动能力
+ * [OUTPUT]: 对外提供 BottomSheet，统一遮罩、对话框语义、页面锁滚动与移动/桌面弹层布局
+ * [POS]: shared/ui 的模态容器原语，移动端使用不透明面板隔绝底部导航，桌面端保留玻璃层次
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import type { PropsWithChildren } from 'react';
 import { useEffect } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
@@ -102,7 +109,7 @@ export function BottomSheet({
           >
             <Card
               className={cn(
-                'max-h-[min(88dvh,56rem)] overflow-hidden rounded-[1.55rem] border-white/80 bg-card-strong p-0 max-sm:bg-white/98 max-sm:shadow-[0_14px_32px_rgba(15,23,42,0.14)] sm:rounded-[2rem]',
+                'max-h-[min(88dvh,56rem)] overflow-hidden rounded-[1.55rem] border-white/80 bg-card-strong p-0 max-sm:bg-white max-sm:shadow-[0_14px_32px_rgba(15,23,42,0.14)] sm:rounded-[2rem]',
                 sheetClassName
               )}
             >

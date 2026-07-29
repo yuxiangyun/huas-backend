@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 Treehole 无限列表查询、共享卡片与头像原语，接收发布和详情打开动作
+ * [OUTPUT]: 对外提供 TreeholeFeed，呈现树洞列表、空态、错误态与分页操作
+ * [POS]: widgets/treehole-feed 的只读信息流容器，保留 Treehole 查询语义并将路由交互交给页面
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { Add20Filled } from '@fluentui/react-icons/svg/add';
 import { Chat20Filled } from '@fluentui/react-icons/svg/chat';
 import { Comment20Filled } from '@fluentui/react-icons/svg/comment';
@@ -113,7 +120,7 @@ export function TreeholeFeed({ onComposeClick, onOpenPost }: TreeholeFeedProps) 
           {posts.map((post) => (
             <button
               key={post.id}
-              className="mobile-feed-item block w-full text-left active:scale-[0.995] motion-reduce:transform-none"
+              className="feed-card-trigger active:scale-[0.995] motion-reduce:transform-none"
               type="button"
               onClick={() => onOpenPost(post.id)}
             >
@@ -135,7 +142,7 @@ export function TreeholeFeed({ onComposeClick, onOpenPost }: TreeholeFeedProps) 
                       <span className="shrink-0 text-xs text-muted">{formatPublishedAt(post.publishedAt)}</span>
                     </div>
 
-                    <p className="text-clamp-4 text-sm leading-7 whitespace-pre-wrap text-ink">
+                    <p className="text-clamp-4 break-words text-sm leading-7 whitespace-pre-wrap text-ink">
                       {post.content}
                     </p>
 

@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 React Router Outlet/NavLink、全局响应式令牌与三个普通用户主路由
+ * [OUTPUT]: 对外提供 MobileTabShell，在桌面呈现侧边导航、移动端呈现安全区底部导航
+ * [POS]: widgets/mobile-tab-shell 的普通用户应用壳，统一页宽、背景、导航与 Outlet 边界
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { BowlChopsticks20Filled } from '@fluentui/react-icons/svg/bowl-chopsticks';
 import { Chat20Filled } from '@fluentui/react-icons/svg/chat';
 import { Person20Filled } from '@fluentui/react-icons/svg/person';

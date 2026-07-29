@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 Tailwind CSS 主题层与浏览器视口、安全区及动效偏好媒体查询
+ * [OUTPUT]: 提供 Web SPA 的设计令牌、响应式壳层、可点击卡片、文本截断与移动端表单基线
+ * [POS]: app/styles 的全局样式入口，只收敛跨页共性规则，业务局部外观仍由组件就近表达
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 @import "tailwindcss";
 
 @theme {
@@ -149,6 +156,7 @@ select {
 }
 
 button {
+  appearance: none;
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -210,6 +218,24 @@ button {
   padding: var(--space-card-tight);
 }
 
+.feed-card-trigger {
+  display: block;
+  width: 100%;
+  appearance: none;
+  border: 0;
+  border-radius: var(--radius-card);
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.feed-card-trigger:focus-visible {
+  outline: 2px solid rgba(17, 19, 21, 0.24);
+  outline-offset: 3px;
+}
+
 @media (max-width: 639px) {
   .mobile-dock-panel {
     border-color: rgba(17, 19, 21, 0.08);
@@ -217,17 +243,21 @@ button {
     box-shadow: 0 10px 20px rgba(15, 23, 42, 0.08);
   }
 
-  .mobile-feed-item {
-    content-visibility: auto;
-    contain-intrinsic-size: 28rem;
+  input,
+  textarea,
+  select {
+    font-size: 1rem;
   }
 }
 
+.text-clamp-1,
 .text-clamp-2,
-.text-clamp-3 {
+.text-clamp-3,
+.text-clamp-4 {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  overflow-wrap: anywhere;
 }
 
 .scrollbar-hidden {
@@ -239,12 +269,20 @@ button {
   display: none;
 }
 
+.text-clamp-1 {
+  -webkit-line-clamp: 1;
+}
+
 .text-clamp-2 {
   -webkit-line-clamp: 2;
 }
 
 .text-clamp-3 {
   -webkit-line-clamp: 3;
+}
+
+.text-clamp-4 {
+  -webkit-line-clamp: 4;
 }
 
 @media (prefers-reduced-motion: reduce) {
