@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 Treehole API、Discover/Treehole 查询键与 TanStack Query
- * [OUTPUT]: 对外提供社区资料、帖子、评论、点赞和通知查询/写入 hooks
- * [POS]: entities/treehole 的缓存编排层，资料更新后同步失效两个社区的作者投影
+ * [INPUT]: 依赖 Treehole HTTP adapter、查询键与 TanStack Query
+ * [OUTPUT]: 对外提供公开/本人/指定用户帖子、评论与写入缓存编排 hooks
+ * [POS]: entities/treehole 的客户端缓存层，保持详情和三类列表同构更新
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -10,71 +10,26 @@ import type { InfiniteData } from '@tanstack/react-query';
 import {
   createTreeholeComment,
   createTreeholePost,
-  deleteTreeholeAvatar,
   deleteTreeholeComment,
   deleteTreeholePost,
-  getTreeholeAvatar,
   getMyTreeholePosts,
   getTreeholeComments,
   getTreeholeMeta,
   getTreeholePostDetail,
   getTreeholePosts,
-  getTreeholeUnreadNotificationCount,
+  getUserTreeholePosts,
   likeTreeholePost,
-  readAllTreeholeNotifications,
   unlikeTreeholePost,
-  updateCommunityProfile,
-  uploadTreeholeAvatar,
   type TreeholeCommentListParams,
   type TreeholeListParams,
 } from '@/entities/treehole/api/treehole-api';
 import { treeholeQueryKeys } from '@/entities/treehole/model/treehole-query-keys';
-import { discoverQueryKeys } from '@/entities/discover/model/discover-query-keys';
 import type { TreeholePost } from '@/entities/treehole/model/treehole-types';
 
 export function useTreeholeMetaQuery() {
   return useQuery({
     queryKey: treeholeQueryKeys.meta(),
     queryFn: ({ signal }) => getTreeholeMeta({ signal }),
-  });
-}
-
-export function useTreeholeAvatarQuery(options?: { enabled?: boolean }) {
-  return useQuery({
-    queryKey: treeholeQueryKeys.profile(),
-    queryFn: ({ signal }) => getTreeholeAvatar({ signal }),
-    enabled: options?.enabled ?? true,
-  });
-}
-
-export function useTreeholeUnreadNotificationCountQuery() {
-  return useQuery({
-    queryKey: treeholeQueryKeys.unreadCount(),
-    queryFn: ({ signal }) => getTreeholeUnreadNotificationCount({ signal }),
-  });
-}
-
-function invalidateTreeholeContentQueries(queryClient: ReturnType<typeof useQueryClient>) {
-  queryClient.invalidateQueries({ queryKey: treeholeQueryKeys.lists() });
-  queryClient.invalidateQueries({ queryKey: treeholeQueryKeys.mines() });
-  queryClient.invalidateQueries({ queryKey: [...treeholeQueryKeys.all, 'detail'] });
-  queryClient.invalidateQueries({ queryKey: [...treeholeQueryKeys.all, 'comments'] });
-}
-
-function invalidateCommunityContentQueries(queryClient: ReturnType<typeof useQueryClient>) {
-  invalidateTreeholeContentQueries(queryClient);
-  queryClient.invalidateQueries({ queryKey: discoverQueryKeys.all });
-}
-
-export function useUpdateCommunityProfileMutation() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: updateCommunityProfile,
-    onSuccess: (profile) => {
-      queryClient.setQueryData(treeholeQueryKeys.profile(), profile);
-      invalidateCommunityContentQueries(queryClient);
-    },
   });
 }
 
@@ -101,6 +56,23 @@ export function useMyTreeholeInfinitePostsQuery(params: Omit<TreeholeListParams,
         page: pageParam,
       }, { signal }),
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
+  });
+}
+
+export function useUserTreeholeInfinitePostsQuery(
+  userId: number | null,
+  params: Omit<TreeholeListParams, 'page'>
+) {
+  return useInfiniteQuery({
+    initialPageParam: 1,
+    queryKey: treeholeQueryKeys.userPosts(userId ?? 0, params),
+    queryFn: ({ pageParam, signal }) => getUserTreeholePosts(
+      userId!,
+      { ...params, page: pageParam },
+      { signal }
+    ),
+    getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
+    enabled: userId !== null,
   });
 }
 
@@ -144,6 +116,27 @@ function replacePostInListCache(oldData: unknown, post: TreeholePost) {
   };
 }
 
+function applyLikeResult(post: TreeholePost | undefined, result: { liked: boolean; likeCount: number }) {
+  if (!post) return post;
+  return {
+    ...post,
+    stats: { ...post.stats, likeCount: result.likeCount },
+    viewer: { ...post.viewer, liked: result.liked },
+  };
+}
+
+function patchLikeInListCache(oldData: unknown, postId: number, result: { liked: boolean; likeCount: number }) {
+  if (!oldData || typeof oldData !== 'object' || !('pages' in oldData)) return oldData;
+  const typed = oldData as InfiniteData<{ items: TreeholePost[] }>;
+  return {
+    ...typed,
+    pages: typed.pages.map((page) => ({
+      ...page,
+      items: page.items.map((post) => post.id === postId ? applyLikeResult(post, result)! : post),
+    })),
+  };
+}
+
 export function useCreateTreeholePostMutation() {
   const queryClient = useQueryClient();
 
@@ -153,30 +146,7 @@ export function useCreateTreeholePostMutation() {
       queryClient.setQueryData(treeholeQueryKeys.detail(post.id), post);
       queryClient.invalidateQueries({ queryKey: treeholeQueryKeys.lists() });
       queryClient.invalidateQueries({ queryKey: treeholeQueryKeys.mines() });
-    },
-  });
-}
-
-export function useUploadTreeholeAvatarMutation() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: ({ file }: { file: File }) => uploadTreeholeAvatar(file),
-    onSuccess: (profile) => {
-      queryClient.setQueryData(treeholeQueryKeys.profile(), profile);
-      invalidateCommunityContentQueries(queryClient);
-    },
-  });
-}
-
-export function useDeleteTreeholeAvatarMutation() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: deleteTreeholeAvatar,
-    onSuccess: (profile) => {
-      queryClient.setQueryData(treeholeQueryKeys.profile(), profile);
-      invalidateCommunityContentQueries(queryClient);
+      queryClient.invalidateQueries({ queryKey: treeholeQueryKeys.userPostsAll() });
     },
   });
 }
@@ -186,13 +156,16 @@ export function useLikeTreeholePostMutation() {
 
   return useMutation({
     mutationFn: ({ postId }: { postId: number }) => likeTreeholePost(postId),
-    onSuccess: (post) => {
-      queryClient.setQueryData(treeholeQueryKeys.detail(post.id), post);
+    onSuccess: (result) => {
+      queryClient.setQueryData<TreeholePost>(treeholeQueryKeys.detail(result.postId), (post) => applyLikeResult(post, result));
       queryClient.setQueriesData({ queryKey: treeholeQueryKeys.lists() }, (oldData) =>
-        replacePostInListCache(oldData, post)
+        patchLikeInListCache(oldData, result.postId, result)
       );
       queryClient.setQueriesData({ queryKey: treeholeQueryKeys.mines() }, (oldData) =>
-        replacePostInListCache(oldData, post)
+        patchLikeInListCache(oldData, result.postId, result)
+      );
+      queryClient.setQueriesData({ queryKey: treeholeQueryKeys.userPostsAll() }, (oldData) =>
+        patchLikeInListCache(oldData, result.postId, result)
       );
     },
   });
@@ -203,13 +176,16 @@ export function useUnlikeTreeholePostMutation() {
 
   return useMutation({
     mutationFn: ({ postId }: { postId: number }) => unlikeTreeholePost(postId),
-    onSuccess: (post) => {
-      queryClient.setQueryData(treeholeQueryKeys.detail(post.id), post);
+    onSuccess: (result) => {
+      queryClient.setQueryData<TreeholePost>(treeholeQueryKeys.detail(result.postId), (post) => applyLikeResult(post, result));
       queryClient.setQueriesData({ queryKey: treeholeQueryKeys.lists() }, (oldData) =>
-        replacePostInListCache(oldData, post)
+        patchLikeInListCache(oldData, result.postId, result)
       );
       queryClient.setQueriesData({ queryKey: treeholeQueryKeys.mines() }, (oldData) =>
-        replacePostInListCache(oldData, post)
+        patchLikeInListCache(oldData, result.postId, result)
+      );
+      queryClient.setQueriesData({ queryKey: treeholeQueryKeys.userPostsAll() }, (oldData) =>
+        patchLikeInListCache(oldData, result.postId, result)
       );
     },
   });
@@ -226,18 +202,7 @@ export function useCreateTreeholeCommentMutation() {
       queryClient.invalidateQueries({ queryKey: treeholeQueryKeys.comments(comment.postId) });
       queryClient.invalidateQueries({ queryKey: treeholeQueryKeys.lists() });
       queryClient.invalidateQueries({ queryKey: treeholeQueryKeys.mines() });
-    },
-  });
-}
-
-export function useReadAllTreeholeNotificationsMutation() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: readAllTreeholeNotifications,
-    onSuccess: () => {
-      queryClient.setQueryData(treeholeQueryKeys.unreadCount(), { unreadCount: 0 });
-      queryClient.invalidateQueries({ queryKey: treeholeQueryKeys.unreadCount() });
+      queryClient.invalidateQueries({ queryKey: treeholeQueryKeys.userPostsAll() });
     },
   });
 }
@@ -252,6 +217,7 @@ export function useDeleteTreeholeCommentMutation() {
       queryClient.invalidateQueries({ queryKey: treeholeQueryKeys.comments(result.postId) });
       queryClient.invalidateQueries({ queryKey: treeholeQueryKeys.lists() });
       queryClient.invalidateQueries({ queryKey: treeholeQueryKeys.mines() });
+      queryClient.invalidateQueries({ queryKey: treeholeQueryKeys.userPostsAll() });
     },
   });
 }
@@ -266,6 +232,7 @@ export function useDeleteTreeholePostMutation() {
       queryClient.removeQueries({ queryKey: treeholeQueryKeys.comments(variables.postId) });
       queryClient.invalidateQueries({ queryKey: treeholeQueryKeys.lists() });
       queryClient.invalidateQueries({ queryKey: treeholeQueryKeys.mines() });
+      queryClient.invalidateQueries({ queryKey: treeholeQueryKeys.userPostsAll() });
     },
   });
 }

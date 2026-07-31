@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 Zustand、浏览器定时器与随机 ID 能力
+ * [OUTPUT]: 对外提供全局 Toast 类型和可自动过期的 useToastStore
+ * [POS]: app/state 的瞬时反馈事实源，不保存业务数据或跨会话状态
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { create } from 'zustand';
 
 export type ToastVariant = 'success' | 'error' | 'info';

@@ -18,6 +18,7 @@
     "db:migrate": "bun scripts/db-migrate.ts",
     "db:repair": "bun scripts/db-repair.ts",
     "db:snapshot": "bun scripts/db-snapshot.ts",
+    "seed:social-test": "bun scripts/seed-social-test-data.ts",
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {

@@ -17,7 +17,7 @@ export function AdminContentPage() {
   const metrics = query.data?.metrics;
   const entries = [
     { label: '好饭内容', value: metrics?.totalDiscoverPosts ?? 0, to: appRoutes.adminDiscover },
-    { label: '好饭评分', value: metrics?.totalDiscoverRatings ?? 0, to: appRoutes.adminDiscover },
+    { label: '好饭点赞', value: metrics?.totalDiscoverLikes ?? 0, to: appRoutes.adminDiscover },
     { label: '公告', value: query.data?.announcements.length ?? 0, to: appRoutes.adminAnnouncements },
   ];
 

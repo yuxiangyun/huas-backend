@@ -157,7 +157,7 @@ export function AdminDashboardPage() {
         <MetricCard label="近 7 天新增" value={(metrics?.newUsers7d ?? 0).toLocaleString()} note="首次登录用户" />
         <MetricCard label="登录成功率" value={`${loginSuccess + loginFailure ? Math.round(loginSuccess / (loginSuccess + loginFailure) * 1000) / 10 : 0}%`} note={`${loginSuccess + loginFailure} 次尝试`} />
         <MetricCard label="核心功能使用" value={featureTotal.toLocaleString()} note={`过去 ${period} 天`} />
-        <MetricCard label="内容与评分" value={((metrics?.totalDiscoverPosts ?? 0) + (metrics?.totalDiscoverRatings ?? 0)).toLocaleString()} note="当前有效总量" />
+        <MetricCard label="内容与点赞" value={((metrics?.totalDiscoverPosts ?? 0) + (metrics?.totalDiscoverLikes ?? 0)).toLocaleString()} note="当前有效总量" />
         <MetricCard label="服务端错误率" value={`${requests ? Math.round(serverErrors / requests * 10000) / 100 : 0}%`} note={`${serverErrors} / ${requests}`} />
       </section>
 

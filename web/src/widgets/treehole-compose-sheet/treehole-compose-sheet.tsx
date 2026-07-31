@@ -65,7 +65,7 @@ export function TreeholeComposeSheet() {
           />
           {errors.content ? <p className="text-sm text-error">{errors.content.message}</p> : null}
           {metaQuery.isError ? <p className="text-sm text-error">加载失败，请重试</p> : null}
-          {createMutation.isError ? <p className="text-sm text-error">发布失败，请重试</p> : null}
+          {createMutation.isError ? <p className="text-sm text-error">{createMutation.error instanceof Error ? createMutation.error.message : '发布失败，请重试'}</p> : null}
         </label>
       </form>
     </TaskDialog>

@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 shared/ui 的 Button、Card、TreeholeAvatar 与调用方提供的评论状态/动作
+ * [INPUT]: 依赖 shared/ui 的 Button、Card、CommunityAvatar 与调用方提供的评论状态/动作
  * [OUTPUT]: 对外提供可聚焦编辑器、默认折叠回复的嵌套评论树及分页尾部
  * [POS]: widgets 的跨社区评论交互组件，在客户端组织父子关系并复用回复、删除和分页动作
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -9,7 +9,7 @@ import { useState } from 'react';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
 import { ActionMenu } from '@/shared/ui/action-menu';
-import { TreeholeAvatar } from '@/shared/ui/treehole-avatar';
+import { CommunityAvatar } from '@/shared/ui/community-avatar';
 import { cn } from '@/shared/lib/cn';
 
 export interface CommentReplyTarget {
@@ -20,6 +20,7 @@ export interface CommentReplyTarget {
 
 export interface CommentThreadItem {
   id: number;
+  authorId: number;
   parentCommentId: number | null;
   content: string;
   avatarUrl: string | null;
@@ -110,6 +111,7 @@ interface CommentThreadProps {
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
   onDelete: (commentId: number) => void;
+  onAuthorClick: (userId: number) => void;
   onLoadMore: () => void;
   onReply: (target: CommentReplyTarget) => void;
   endMessage?: string | null;
@@ -202,26 +204,35 @@ function CommentHeader({
   item,
   deleting,
   onDelete,
+  onAuthorClick,
   onReply,
   compact = false,
 }: {
   item: CommentThreadItem;
   deleting: boolean;
   onDelete: (commentId: number) => void;
+  onAuthorClick: (userId: number) => void;
   onReply: (target: CommentReplyTarget) => void;
   compact?: boolean;
 }) {
   return (
     <div className="flex items-start justify-between gap-2">
       <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted">
-        <TreeholeAvatar
-          className={cn('rounded-full text-[0.65rem]', compact ? 'size-5' : 'size-6')}
-          fallbackLabel={item.avatarFallbackLabel}
-          src={item.avatarUrl}
-        />
-        <span className="max-w-full truncate font-medium text-ink">
-          {item.authorLabel}
-        </span>
+        <button
+          aria-label={`查看${item.authorLabel}的资料`}
+          className="inline-flex min-w-0 items-center gap-2 rounded-[0.375rem] text-left hover:opacity-70"
+          type="button"
+          onClick={() => onAuthorClick(item.authorId)}
+        >
+          <CommunityAvatar
+            className={cn('rounded-full text-[0.65rem]', compact ? 'size-5' : 'size-6')}
+            fallbackLabel={item.avatarFallbackLabel}
+            src={item.avatarUrl}
+          />
+          <span className="max-w-full truncate font-medium text-ink">
+            {item.authorLabel}
+          </span>
+        </button>
         {item.isMine ? <span>· 我</span> : null}
         <span>{item.createdAtLabel}</span>
       </div>
@@ -235,11 +246,12 @@ function CommentHeader({
   );
 }
 
-function ReplyBranch({ node, depth, deletingCommentId, onDelete, onReply }: {
+function ReplyBranch({ node, depth, deletingCommentId, onDelete, onAuthorClick, onReply }: {
   node: CommentNode;
   depth: number;
   deletingCommentId: number | null;
   onDelete: (commentId: number) => void;
+  onAuthorClick: (userId: number) => void;
   onReply: (target: CommentReplyTarget) => void;
 }) {
   return (
@@ -248,6 +260,7 @@ function ReplyBranch({ node, depth, deletingCommentId, onDelete, onReply }: {
         compact
         deleting={deletingCommentId === node.item.id}
         item={node.item}
+        onAuthorClick={onAuthorClick}
         onDelete={onDelete}
         onReply={onReply}
       />
@@ -260,6 +273,7 @@ function ReplyBranch({ node, depth, deletingCommentId, onDelete, onReply }: {
           deletingCommentId={deletingCommentId}
           depth={depth + 1}
           node={child}
+          onAuthorClick={onAuthorClick}
           onDelete={onDelete}
           onReply={onReply}
         />
@@ -273,6 +287,7 @@ function CommentCard({
   deletingCommentId,
   expanded,
   onDelete,
+  onAuthorClick,
   onReply,
   onToggleReplies,
 }: {
@@ -280,6 +295,7 @@ function CommentCard({
   deletingCommentId: number | null;
   expanded: boolean;
   onDelete: (commentId: number) => void;
+  onAuthorClick: (userId: number) => void;
   onReply: (target: CommentReplyTarget) => void;
   onToggleReplies: () => void;
 }) {
@@ -290,6 +306,7 @@ function CommentCard({
       <CommentHeader
         deleting={deletingCommentId === node.item.id}
         item={node.item}
+        onAuthorClick={onAuthorClick}
         onDelete={onDelete}
         onReply={onReply}
       />
@@ -316,6 +333,7 @@ function CommentCard({
               deletingCommentId={deletingCommentId}
               depth={1}
               node={child}
+              onAuthorClick={onAuthorClick}
               onDelete={onDelete}
               onReply={onReply}
             />
@@ -356,6 +374,7 @@ function CommentList({
   hasNextPage,
   isFetchingNextPage,
   onDelete,
+  onAuthorClick,
   onLoadMore,
   onReply,
   endMessage,
@@ -380,6 +399,7 @@ function CommentList({
           deletingCommentId={deletingCommentId}
           expanded={expandedRootIds.has(node.item.id)}
           node={node}
+          onAuthorClick={onAuthorClick}
           onDelete={onDelete}
           onReply={onReply}
           onToggleReplies={() => toggleReplies(node.item.id)}
@@ -403,6 +423,7 @@ export function CommentThread({
   hasNextPage,
   isFetchingNextPage,
   onDelete,
+  onAuthorClick,
   onLoadMore,
   onReply,
   endMessage = null,
@@ -421,6 +442,7 @@ export function CommentThread({
           hasNextPage={hasNextPage}
           isFetchingNextPage={isFetchingNextPage}
           items={items}
+          onAuthorClick={onAuthorClick}
           onDelete={onDelete}
           onLoadMore={onLoadMore}
           onReply={onReply}

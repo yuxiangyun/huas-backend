@@ -1,17 +1,15 @@
 /**
  * [INPUT]: 依赖好饭排序/分类状态、Lucide 图标与 shared 选择控件
- * [OUTPUT]: 对外提供 DiscoverControls，集中呈现排序、分类、刷新与发布动作
+ * [OUTPUT]: 对外提供 DiscoverControls，以胶囊工具栏集中呈现排序、分类与刷新动作
  * [POS]: features/discover-filter 的交互边界，不展示说明性或装饰性标签
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { ChevronDown, Plus, RefreshCw } from 'lucide-react';
+import { ChevronDown, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import type { DiscoverCategory, DiscoverSort } from '@/entities/discover/model/discover-types';
-import { Button } from '@/shared/ui/button';
 import { FilterChip } from '@/shared/ui/filter-chip';
 import { IconButton } from '@/shared/ui/icon-button';
-import { SegmentedControl } from '@/shared/ui/segmented-control';
 
 type DiscoverCategoryFilter = DiscoverCategory | 'all';
 
@@ -23,12 +21,11 @@ interface DiscoverControlsProps {
   onCategoryChange: (category: DiscoverCategoryFilter) => void;
   onRefreshClick: () => void;
   refreshing?: boolean;
-  onComposeClick: () => void;
 }
 
 const sortOptions: Array<{ value: DiscoverSort; label: string }> = [
   { value: 'latest', label: '最新' },
-  { value: 'score', label: '高分' },
+  { value: 'popular', label: '热门' },
   { value: 'recommended', label: '推荐' },
 ];
 
@@ -40,64 +37,74 @@ export function DiscoverControls({
   onCategoryChange,
   onRefreshClick,
   refreshing = false,
-  onComposeClick,
 }: DiscoverControlsProps) {
   const [categoriesExpanded, setCategoriesExpanded] = useState(false);
   const categoryOptions: Array<{ value: DiscoverCategoryFilter; label: string }> = [
     { value: 'all', label: '全部' },
     ...categories.map((value) => ({ value, label: value })),
   ];
-  const categoryLabel = categoryOptions.find((option) => option.value === category)?.label ?? '全部';
+  const categoryLabel = category === 'all'
+    ? '全部分类'
+    : categoryOptions.find((option) => option.value === category)?.label ?? '全部分类';
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2">
-        <SegmentedControl className="min-w-0 flex-1" items={sortOptions} layout="fill" size="sm" value={sort} onChange={onSortChange} />
+    <div className="relative z-20 flex items-center gap-1.5 border-y border-line bg-white px-3 py-2.5">
+      <div className="flex min-w-0 flex-1 items-center gap-1">
+        {sortOptions.map((option) => {
+          const active = option.value === sort;
+          return (
+            <button
+              key={option.value}
+              aria-pressed={active}
+              className={`h-9 min-w-0 flex-1 rounded-full px-2 text-xs font-semibold transition-colors ${active ? 'bg-ink text-white' : 'text-muted hover:bg-tint-soft hover:text-ink'}`}
+              type="button"
+              onClick={() => onSortChange(option.value)}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="relative shrink-0">
+        <button
+          aria-expanded={categoriesExpanded}
+          className="inline-flex h-9 max-w-28 items-center gap-1 rounded-full bg-tint-soft px-3 text-xs font-semibold text-ink"
+          type="button"
+          onClick={() => setCategoriesExpanded((current) => !current)}
+        >
+          <span className="truncate">{categoryLabel}</span>
+          <ChevronDown aria-hidden="true" className={`size-3 shrink-0 transition-transform ${categoriesExpanded ? 'rotate-180' : ''}`} />
+        </button>
+
+        {categoriesExpanded ? (
+          <div className="absolute right-0 top-11 grid w-48 grid-cols-2 gap-1.5 rounded-[0.875rem] border border-line bg-white p-2 shadow-[0_14px_42px_rgba(0,0,0,0.14)]">
+            {categoryOptions.map((option) => (
+              <FilterChip
+                key={option.value}
+                selected={option.value === category}
+                size="sm"
+                onClick={() => {
+                  onCategoryChange(option.value);
+                  setCategoriesExpanded(false);
+                }}
+              >
+                {option.value === 'all' ? '全部分类' : option.label}
+              </FilterChip>
+            ))}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="shrink-0">
         <IconButton
           icon={<RefreshCw aria-hidden="true" className={refreshing ? 'size-4 animate-spin' : 'size-4'} />}
           label="刷新"
           size="sm"
-          variant="secondary"
+          variant="ghost"
           onClick={onRefreshClick}
         />
-        <IconButton
-          icon={<Plus aria-hidden="true" className="size-4" />}
-          label="发布推荐"
-          size="sm"
-          variant="primary"
-          onClick={onComposeClick}
-        />
       </div>
-
-      <Button
-        aria-expanded={categoriesExpanded}
-        className="max-w-full"
-        size="xs"
-        type="button"
-        variant="ghost"
-        onClick={() => setCategoriesExpanded((current) => !current)}
-      >
-        {category === 'all' ? '分类' : categoryLabel}
-        <ChevronDown aria-hidden="true" className={categoriesExpanded ? 'size-3.5 rotate-180' : 'size-3.5'} />
-      </Button>
-
-      {categoriesExpanded ? (
-        <div className="flex flex-wrap gap-2 rounded-[0.75rem] border border-line bg-white p-2">
-          {categoryOptions.map((option) => (
-            <FilterChip
-              key={option.value}
-              selected={option.value === category}
-              size="sm"
-              onClick={() => {
-                onCategoryChange(option.value);
-                setCategoriesExpanded(false);
-              }}
-            >
-              {option.label}
-            </FilterChip>
-          ))}
-        </div>
-      ) : null}
     </div>
   );
 }

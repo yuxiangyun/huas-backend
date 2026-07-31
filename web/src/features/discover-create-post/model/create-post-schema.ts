@@ -12,7 +12,7 @@ export const createPostSchema = z.object({
   title: z.string().trim().min(1, '请输入名称').max(80, '名称不能超过 80 个字'),
   storeName: z.string().trim().max(32, '店名不能超过 32 个字'),
   priceText: z.string().trim().max(20, '价格不能超过 20 个字'),
-  content: z.string().trim().min(10, '至少输入 10 个字').max(400, '推荐理由不能超过 400 个字'),
+  content: z.string().trim().min(1, '请输入推荐理由').max(400, '推荐理由不能超过 400 个字'),
   customTags: z.string().optional(),
 });
 

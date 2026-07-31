@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 appRoutes、用户/后台页面与保护壳，装配普通用户与后台 canonical 路由
- * [OUTPUT]: 提供 BrowserRouter，以树洞为普通用户默认页，并包含后台设置 canonical
- * [POS]: app/router 的顶层组装点，统一 basename、页面边界与路径兼容性
+ * [INPUT]: 依赖 appRoutes、普通用户保护壳与路由级动态模块
+ * [OUTPUT]: 提供 BrowserRouter，以树洞为默认页并隔离 Social 与后台代码分块
+ * [POS]: app/router 的顶层组装点，只声明 canonical 路径和按路由加载边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -10,15 +10,6 @@ import { APP_BASENAME } from '@/shared/config/env';
 import { MobileTabShell } from '@/widgets/mobile-tab-shell/mobile-tab-shell';
 import { ProtectedRoute } from '@/app/router/guards/protected-route';
 import { appRoutes } from '@/app/router/paths';
-import { AdminAnnouncementsPage } from '@/pages/admin/announcements';
-import { AdminContentPage } from '@/pages/admin/content';
-import { AdminDashboardPage } from '@/pages/admin/dashboard';
-import { AdminDiscoverPage } from '@/pages/admin/discover';
-import { AdminLayout } from '@/pages/admin/layout';
-import { AdminLogsPage } from '@/pages/admin/logs';
-import { AdminSettingsPage } from '@/pages/admin/settings';
-import { AdminTreeholeSubPage } from '@/pages/admin/treehole';
-import { AdminUsersPage } from '@/pages/admin/users';
 
 export const router = createBrowserRouter(
   [
@@ -31,7 +22,10 @@ export const router = createBrowserRouter(
     },
     {
       path: appRoutes.adminRoot,
-      Component: AdminLayout,
+      lazy: async () => {
+        const module = await import('@/pages/admin/layout');
+        return { Component: module.AdminLayout };
+      },
       children: [
         {
           index: true,
@@ -39,35 +33,66 @@ export const router = createBrowserRouter(
         },
         {
           path: 'dashboard',
-          Component: AdminDashboardPage,
+          lazy: async () => {
+            const module = await import('@/pages/admin/dashboard');
+            return { Component: module.AdminDashboardPage };
+          },
         },
         {
           path: 'users',
-          Component: AdminUsersPage,
+          lazy: async () => {
+            const module = await import('@/pages/admin/users');
+            return { Component: module.AdminUsersPage };
+          },
         },
         {
           path: 'content',
-          Component: AdminContentPage,
+          lazy: async () => {
+            const module = await import('@/pages/admin/content');
+            return { Component: module.AdminContentPage };
+          },
         },
         {
           path: 'manage/announcements',
-          Component: AdminAnnouncementsPage,
+          lazy: async () => {
+            const module = await import('@/pages/admin/announcements');
+            return { Component: module.AdminAnnouncementsPage };
+          },
         },
         {
           path: 'manage/discover',
-          Component: AdminDiscoverPage,
+          lazy: async () => {
+            const module = await import('@/pages/admin/discover');
+            return { Component: module.AdminDiscoverPage };
+          },
         },
         {
           path: 'manage/treehole',
-          Component: AdminTreeholeSubPage,
+          lazy: async () => {
+            const module = await import('@/pages/admin/treehole');
+            return { Component: module.AdminTreeholeSubPage };
+          },
+        },
+        {
+          path: 'manage/messaging',
+          lazy: async () => {
+            const module = await import('@/pages/admin/messaging');
+            return { Component: module.AdminMessagingPage };
+          },
         },
         {
           path: 'system/settings',
-          Component: AdminSettingsPage,
+          lazy: async () => {
+            const module = await import('@/pages/admin/settings');
+            return { Component: module.AdminSettingsPage };
+          },
         },
         {
           path: 'system/logs',
-          Component: AdminLogsPage,
+          lazy: async () => {
+            const module = await import('@/pages/admin/logs');
+            return { Component: module.AdminLogsPage };
+          },
         },
       ],
     },
@@ -95,6 +120,13 @@ export const router = createBrowserRouter(
           lazy: async () => {
             const module = await import('@/pages/treehole');
             return { Component: module.TreeholePage };
+          },
+        },
+        {
+          path: appRoutes.messages.slice(1),
+          lazy: async () => {
+            const module = await import('@/pages/messages');
+            return { Component: module.MessagesPage };
           },
         },
         {

@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 Discover HTTP adapter、查询键与 TanStack Query
+ * [OUTPUT]: 对外提供公开/本人/指定用户帖子、评论与写入缓存编排 hooks
+ * [POS]: entities/discover 的客户端缓存层，保持详情和三类列表同构更新
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { InfiniteData } from '@tanstack/react-query';
 import {
@@ -10,7 +17,9 @@ import {
   getDiscoverPostDetail,
   getDiscoverPosts,
   getMyDiscoverPosts,
-  rateDiscoverPost,
+  getUserDiscoverPosts,
+  likeDiscoverPost,
+  unlikeDiscoverPost,
   type CreateDiscoverPostPayload,
   type DiscoverCommentListParams,
   type DiscoverListParams,
@@ -70,6 +79,23 @@ export function useMyDiscoverInfinitePostsQuery(params: Omit<DiscoverMyListParam
   });
 }
 
+export function useUserDiscoverInfinitePostsQuery(
+  userId: number | null,
+  params: Omit<DiscoverMyListParams, 'page'>
+) {
+  return useInfiniteQuery({
+    initialPageParam: 1,
+    queryKey: discoverQueryKeys.userPosts(userId ?? 0, params),
+    queryFn: ({ pageParam, signal }) => getUserDiscoverPosts(
+      userId!,
+      { ...params, page: pageParam },
+      { signal }
+    ),
+    getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
+    enabled: userId !== null,
+  });
+}
+
 export function useDiscoverPostDetailQuery(postId: number | null) {
   return useQuery({
     queryKey: discoverQueryKeys.detail(postId ?? 0),
@@ -93,34 +119,6 @@ export function useDiscoverInfiniteCommentsQuery(
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
     enabled: postId !== null,
   });
-}
-
-function replacePostInListCache(oldData: unknown, post: DiscoverPost) {
-  if (!oldData || typeof oldData !== 'object' || !('items' in oldData)) {
-    if (
-      oldData
-      && typeof oldData === 'object'
-      && 'pages' in oldData
-      && Array.isArray((oldData as InfiniteData<{ items: DiscoverPost[] }>).pages)
-    ) {
-      const typed = oldData as InfiniteData<{ items: DiscoverPost[] }>;
-      return {
-        ...typed,
-        pages: typed.pages.map((page) => ({
-          ...page,
-          items: page.items.map((item) => (item.id === post.id ? post : item)),
-        })),
-      };
-    }
-
-    return oldData;
-  }
-
-  const typed = oldData as { items: DiscoverPost[] };
-  return {
-    ...typed,
-    items: typed.items.map((item) => (item.id === post.id ? post : item)),
-  };
 }
 
 function appendCommentInListCache(oldData: unknown, comment: DiscoverComment) {
@@ -163,26 +161,54 @@ export function useCreateDiscoverPostMutation() {
       queryClient.setQueryData(discoverQueryKeys.detail(post.id), post);
       queryClient.invalidateQueries({ queryKey: discoverQueryKeys.lists() });
       queryClient.invalidateQueries({ queryKey: discoverQueryKeys.mines() });
+      queryClient.invalidateQueries({ queryKey: discoverQueryKeys.userPostsAll() });
     },
   });
 }
 
-export function useRateDiscoverPostMutation() {
+function applyLikeResult(post: DiscoverPost | undefined, result: { liked: boolean; likeCount: number }) {
+  return post ? { ...post, likedByMe: result.liked, likeCount: result.likeCount } : post;
+}
+
+function patchLikeInListCache(oldData: unknown, postId: number, result: { liked: boolean; likeCount: number }) {
+  if (!oldData || typeof oldData !== 'object' || !('pages' in oldData)) return oldData;
+  const typed = oldData as InfiniteData<{ items: DiscoverPost[] }>;
+  return {
+    ...typed,
+    pages: typed.pages.map((page) => ({
+      ...page,
+      items: page.items.map((post) => post.id === postId ? applyLikeResult(post, result)! : post),
+    })),
+  };
+}
+
+function useDiscoverLikeMutation(action: 'like' | 'unlike') {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ postId, score }: { postId: number; score: number }) =>
-      rateDiscoverPost(postId, score),
-    onSuccess: (post) => {
-      queryClient.setQueryData(discoverQueryKeys.detail(post.id), post);
+    mutationFn: ({ postId }: { postId: number }) =>
+      action === 'like' ? likeDiscoverPost(postId) : unlikeDiscoverPost(postId),
+    onSuccess: (result) => {
+      queryClient.setQueryData<DiscoverPost>(discoverQueryKeys.detail(result.postId), (post) => applyLikeResult(post, result));
       queryClient.setQueriesData({ queryKey: discoverQueryKeys.lists() }, (oldData) =>
-        replacePostInListCache(oldData, post)
+        patchLikeInListCache(oldData, result.postId, result)
       );
       queryClient.setQueriesData({ queryKey: discoverQueryKeys.mines() }, (oldData) =>
-        replacePostInListCache(oldData, post)
+        patchLikeInListCache(oldData, result.postId, result)
+      );
+      queryClient.setQueriesData({ queryKey: discoverQueryKeys.userPostsAll() }, (oldData) =>
+        patchLikeInListCache(oldData, result.postId, result)
       );
     },
   });
+}
+
+export function useLikeDiscoverPostMutation() {
+  return useDiscoverLikeMutation('like');
+}
+
+export function useUnlikeDiscoverPostMutation() {
+  return useDiscoverLikeMutation('unlike');
 }
 
 export function useDeleteDiscoverPostMutation() {
@@ -195,6 +221,7 @@ export function useDeleteDiscoverPostMutation() {
       queryClient.removeQueries({ queryKey: discoverQueryKeys.comments(variables.postId) });
       queryClient.invalidateQueries({ queryKey: discoverQueryKeys.lists() });
       queryClient.invalidateQueries({ queryKey: discoverQueryKeys.mines() });
+      queryClient.invalidateQueries({ queryKey: discoverQueryKeys.userPostsAll() });
     },
   });
 }
@@ -213,6 +240,7 @@ export function useCreateDiscoverCommentMutation() {
       queryClient.invalidateQueries({ queryKey: discoverQueryKeys.detail(comment.postId) });
       queryClient.invalidateQueries({ queryKey: discoverQueryKeys.lists() });
       queryClient.invalidateQueries({ queryKey: discoverQueryKeys.mines() });
+      queryClient.invalidateQueries({ queryKey: discoverQueryKeys.userPostsAll() });
     },
   });
 }
@@ -227,6 +255,7 @@ export function useDeleteDiscoverCommentMutation() {
       queryClient.invalidateQueries({ queryKey: discoverQueryKeys.comments(result.postId) });
       queryClient.invalidateQueries({ queryKey: discoverQueryKeys.lists() });
       queryClient.invalidateQueries({ queryKey: discoverQueryKeys.mines() });
+      queryClient.invalidateQueries({ queryKey: discoverQueryKeys.userPostsAll() });
     },
   });
 }

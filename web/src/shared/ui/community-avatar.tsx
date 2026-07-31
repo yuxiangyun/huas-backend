@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖媒体 URL 构造、cn 与 React 图片失败状态
- * [OUTPUT]: 对外提供 TreeholeAvatar，可显示社区头像、通用用户占位或按领域隐藏
+ * [OUTPUT]: 对外提供 CommunityAvatar，可显示社区头像、通用用户占位或按领域隐藏
  * [POS]: shared/ui 的社区头像视觉原语，不决定昵称或内容归属等业务语义
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -10,19 +10,19 @@ import { UserRound } from 'lucide-react';
 import { buildMediaUrl } from '@/shared/api/media';
 import { cn } from '@/shared/lib/cn';
 
-interface TreeholeAvatarProps {
+interface CommunityAvatarProps {
   src?: string | null;
   alt?: string;
   className?: string;
   fallbackLabel?: string | null;
 }
 
-export function TreeholeAvatar({
+export function CommunityAvatar({
   src = null,
   alt = '社区头像',
   className,
   fallbackLabel = '',
-}: TreeholeAvatarProps) {
+}: CommunityAvatarProps) {
   const [broken, setBroken] = useState(false);
 
   useEffect(() => {

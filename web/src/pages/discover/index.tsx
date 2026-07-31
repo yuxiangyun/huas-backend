@@ -7,7 +7,9 @@
 
 import { lazy, startTransition, Suspense, useEffect, useState } from 'react';
 import { useIsFetching, useQueryClient } from '@tanstack/react-query';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Plus } from 'lucide-react';
+import { appRoutes } from '@/app/router/paths';
 import { useUiStore } from '@/app/state/ui-store';
 import { useDiscoverMetaQuery } from '@/entities/discover/api/discover-queries';
 import { discoverQueryKeys } from '@/entities/discover/model/discover-query-keys';
@@ -17,9 +19,12 @@ import {
   type DiscoverSort,
 } from '@/entities/discover/model/discover-types';
 import { DiscoverFeed } from '@/widgets/discover-feed/discover-feed';
+import { IconButton } from '@/shared/ui/icon-button';
+import { PageHeader } from '@/shared/ui/page-header';
 
 const loadDiscoverComposeSheet = () => import('@/widgets/discover-compose-sheet/discover-compose-sheet');
 const loadDiscoverDetailSheet = () => import('@/widgets/discover-detail-sheet/discover-detail-sheet');
+const loadPublicProfileDialog = () => import('@/widgets/public-profile-dialog/public-profile-dialog');
 
 const LazyDiscoverComposeSheet = lazy(async () => {
   const module = await loadDiscoverComposeSheet();
@@ -31,8 +36,13 @@ const LazyDiscoverDetailSheet = lazy(async () => {
   return { default: module.DiscoverDetailSheet };
 });
 
+const LazyPublicProfileDialog = lazy(async () => {
+  const module = await loadPublicProfileDialog();
+  return { default: module.PublicProfileDialog };
+});
+
 function parseSort(value: string | null): DiscoverSort {
-  if (value === 'score' || value === 'recommended') return value;
+  if (value === 'popular' || value === 'recommended') return value;
   return 'latest';
 }
 
@@ -45,6 +55,7 @@ function parseCategory(value: string | null): DiscoverCategory | 'all' {
 }
 
 export function DiscoverPage() {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const setActiveTab = useUiStore((state) => state.setActiveTab);
@@ -53,6 +64,7 @@ export function DiscoverPage() {
   const metaQuery = useDiscoverMetaQuery();
   const [composeSheetRequested, setComposeSheetRequested] = useState(false);
   const [detailSheetRequested, setDetailSheetRequested] = useState(false);
+  const [profileDialogRequested, setProfileDialogRequested] = useState(false);
 
   useEffect(() => {
     setActiveTab('discover');
@@ -67,6 +79,8 @@ export function DiscoverPage() {
   });
   const rawPostId = Number(searchParams.get('postId'));
   const postId = Number.isInteger(rawPostId) && rawPostId > 0 ? rawPostId : null;
+  const rawProfileUserId = Number(searchParams.get('profileUserId'));
+  const profileUserId = Number.isInteger(rawProfileUserId) && rawProfileUserId > 0 ? rawProfileUserId : null;
   const discoverFetchingCount = useIsFetching({ queryKey: currentListQueryKey, exact: true });
 
   useEffect(() => {
@@ -80,6 +94,12 @@ export function DiscoverPage() {
     setDetailSheetRequested(true);
     void loadDiscoverDetailSheet();
   }, [postId]);
+
+  useEffect(() => {
+    if (profileUserId === null) return;
+    setProfileDialogRequested(true);
+    void loadPublicProfileDialog();
+  }, [profileUserId]);
 
   function patchSearchParams(
     patcher: (params: URLSearchParams) => void
@@ -98,6 +118,10 @@ export function DiscoverPage() {
 
       if (!nextParams.get('postId')) {
         nextParams.delete('postId');
+      }
+
+      if (!nextParams.get('profileUserId')) {
+        nextParams.delete('profileUserId');
       }
 
       setSearchParams(nextParams);
@@ -126,13 +150,31 @@ export function DiscoverPage() {
     });
   };
 
+  const handleOpenProfile = (userId: number) => {
+    setProfileDialogRequested(true);
+    void loadPublicProfileDialog();
+    patchSearchParams((params) => {
+      params.set('profileUserId', String(userId));
+      params.delete('postId');
+    });
+  };
+
   return (
-    <div className="page-stack-mobile">
+    <div className="-mx-4 space-y-0 bg-white sm:mx-0 sm:bg-transparent">
+      <PageHeader
+        action={<IconButton icon={<Plus aria-hidden="true" className="size-6" />} label="发布好饭" size="md" variant="ghost" onClick={handleOpenComposeSheet} />}
+        className="mx-auto w-full max-w-[34rem] px-4 pb-3 sm:px-0"
+        compact
+        title="好饭"
+        titleClassName="font-extrabold"
+      />
       <DiscoverFeed
         categories={metaQuery.data?.categories ?? DISCOVER_CATEGORIES}
         category={category}
         sort={sort}
         onComposeClick={handleOpenComposeSheet}
+        onMessageAuthor={(userId) => navigate(`${appRoutes.messages}?userId=${userId}`)}
+        onOpenProfile={handleOpenProfile}
         onRefreshClick={handleRefreshDiscover}
         refreshing={discoverFetchingCount > 0}
         onCategoryChange={(nextCategory) =>
@@ -168,11 +210,25 @@ export function DiscoverPage() {
         <Suspense fallback={null}>
           <LazyDiscoverDetailSheet
             postId={postId}
+            onMessageAuthor={(userId) => navigate(`${appRoutes.messages}?userId=${userId}`)}
+            onOpenProfile={handleOpenProfile}
             onClose={() =>
               patchSearchParams((params) => {
                 params.delete('postId');
               })
             }
+          />
+        </Suspense>
+      ) : null}
+
+      {profileDialogRequested ? (
+        <Suspense fallback={null}>
+          <LazyPublicProfileDialog
+            userId={profileUserId}
+            onClose={() => patchSearchParams((params) => params.delete('profileUserId'))}
+            onMessage={(userId) => navigate(`${appRoutes.messages}?userId=${userId}`)}
+            onOpenDiscoverPost={(nextPostId) => handleOpenPost(nextPostId)}
+            onOpenTreeholePost={(nextPostId) => navigate(`${appRoutes.treehole}?postId=${nextPostId}`)}
           />
         </Suspense>
       ) : null}

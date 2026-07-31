@@ -1,9 +1,12 @@
 /**
- * [INPUT]: 依赖后端管理接口的 dashboard、内容、日志与课表来源策略数据契约
- * [OUTPUT]: 提供后台页面与 API 共用的强类型响应、请求载荷和课表来源模式
+ * [INPUT]: 依赖后端管理接口与 Community/Messaging 公共 DTO
+ * [OUTPUT]: 提供 dashboard、内容、日志、课表策略与私信只读的强类型契约
  * [POS]: entities/admin 的协议模型边界，保证管理 UI 不重新解释后端字段
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
+
+import type { CommunityProfile } from '@/entities/community/model/community-types';
+import type { Message } from '@/entities/messaging/model/messaging-types';
 
 export interface AdminServiceStatus {
   status: string;
@@ -18,7 +21,7 @@ export interface AdminMetrics {
   cacheEntries: number;
   credentialEntries: number;
   totalDiscoverPosts: number;
-  totalDiscoverRatings: number;
+  totalDiscoverLikes: number;
   memory: {
     rssMb: number;
     heapUsedMb: number;
@@ -80,15 +83,14 @@ export interface AdminDiscoverPost {
   coverUrl: string;
   images: AdminDiscoverImage[];
   imageCount: number;
-  ratingAverage: number;
-  ratingCount: number;
-  authorLabel: string;
+  likeCount: number;
+  authorDisplayName: string;
   publishedAt: string | null;
 }
 
 export interface AdminDiscoverPanel {
   totalPosts: number;
-  totalRatings: number;
+  totalLikes: number;
   items: AdminDiscoverPost[];
 }
 
@@ -142,9 +144,8 @@ export interface AdminScheduleSourcePolicy {
 
 export interface AdminTreeholeAuthor {
   id: number;
-  studentId: string;
-  name: string;
-  className: string;
+  displayName: string;
+  avatarUrl: string | null;
 }
 
 export interface AdminTreeholePost {
@@ -204,4 +205,34 @@ export interface AdminAnnouncementUpdatePayload {
   content?: string;
   date?: string;
   type?: 'info' | 'warning' | 'error';
+}
+
+export interface AdminMessagingConversation {
+  id: number;
+  participants: [CommunityProfile, CommunityProfile];
+  lastMessage: Message | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminMessagingConversationListResponse {
+  items: AdminMessagingConversation[];
+  page: number;
+  pageSize: number;
+  total: number;
+  hasMore: boolean;
+}
+
+export interface AdminMessagingConversationChangesResponse {
+  items: AdminMessagingConversation[];
+  afterMessageId: number;
+  hasMore: boolean;
+}
+
+export interface AdminMessagingMessageListResponse {
+  conversationId: number;
+  items: Message[];
+  beforeMessageId: number | null;
+  afterMessageId: number | null;
+  hasMore: boolean;
 }

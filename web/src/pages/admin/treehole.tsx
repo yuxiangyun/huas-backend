@@ -225,7 +225,7 @@ export function AdminTreeholeSubPage() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <input
             className={fieldClassName}
-            placeholder="搜索树洞内容、学号、姓名或班级"
+            placeholder="搜索树洞内容或作者昵称"
             value={keywordInput}
             onChange={(event) => setKeywordInput(event.target.value)}
             onKeyDown={(event) => {
@@ -323,7 +323,7 @@ export function AdminTreeholeSubPage() {
                   <tr key={post.id} className="border-t border-line/70 align-top">
                     <td className="px-4 py-3 font-mono text-ink">#{post.id}</td>
                     <td className="px-4 py-3 text-muted">
-                      {[post.author.studentId, post.author.name, post.author.className].filter(Boolean).join(' · ')}
+                      {post.author.displayName}
                     </td>
                     <td className="px-4 py-3 text-ink">{post.content}</td>
                     <td className="px-4 py-3 text-muted">{post.stats.likeCount} / {post.stats.commentCount}</td>
@@ -416,7 +416,7 @@ export function AdminTreeholeSubPage() {
           ) : (
             <>
               <div className="border-b border-line/70 px-4 py-3 text-sm text-muted">
-                {[selectedPost.author.studentId, selectedPost.author.name, selectedPost.author.className].filter(Boolean).join(' · ')}
+                {selectedPost.author.displayName}
               </div>
 
               {commentsQuery.isError && !(commentsQuery.error instanceof ApiError && commentsQuery.error.httpStatus === 404) ? <div className="px-4 py-4 text-sm text-error">评论加载失败，请重试</div> : null}
@@ -437,7 +437,7 @@ export function AdminTreeholeSubPage() {
                       <tr key={comment.id} className="border-t border-line/70 align-top">
                         <td className="px-4 py-3 font-mono text-ink">#{comment.id}</td>
                         <td className="px-4 py-3 text-muted">
-                          {[comment.author.studentId, comment.author.name, comment.author.className].filter(Boolean).join(' · ')}
+                          {comment.author.displayName}
                         </td>
                         <td className="px-4 py-3 text-ink">{comment.content}</td>
                         <td className="px-4 py-3 text-muted">{formatDateTime(comment.createdAt)}</td>

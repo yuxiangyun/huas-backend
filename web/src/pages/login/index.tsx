@@ -23,7 +23,7 @@ export function LoginPage() {
     <div className="min-h-dvh bg-shell px-4 py-[calc(1rem+env(safe-area-inset-top))] sm:px-6">
       <div className="mx-auto flex min-h-[calc(100dvh-2rem-env(safe-area-inset-top))] max-w-[26rem] items-center justify-center py-8">
         <div className="w-full space-y-5">
-          <h1 className="text-center text-2xl font-semibold tracking-[-0.03em]">文理小助手</h1>
+          <h1 className="text-center text-2xl font-semibold tracking-[-0.03em]">文理社区</h1>
           <LoginForm />
         </div>
       </div>

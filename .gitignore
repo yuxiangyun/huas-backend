@@ -12,4 +12,7 @@ data/ugc-compliance-state.json
 data/schedule-source-policy.json
 data/schedule-source-policy.json.lock/
 data/schedule-source-policy.json.*.tmp
+data/discover/
+data/message-media/
+data/treehole-avatars/
 .DS_Store

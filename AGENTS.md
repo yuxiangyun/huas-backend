@@ -332,7 +332,7 @@ drizzle.config.ts - Drizzle 迁移与 SQLite 连接配置
 ecosystem.config.cjs - PM2 单实例运行参数
 nginx.conf - 反向代理样板
 .env / .env.example - 运行时配置与无密钥模板，包含数据库、缓存、上游与课表来源策略
-.gitignore - 排除依赖、构建缓存、数据库、日志与可变运行策略状态
+.gitignore - 排除依赖、构建缓存、数据库、日志、业务媒体与可变运行策略状态
 </config>
 
 <architecture_decisions>
@@ -349,6 +349,7 @@ Discover/Treehole 的六类有效互动与 activity_outbox 在同一 SQLite 短�
 Messaging 只建一对一唯一会话，首条消息事务内延迟建会话并以 UUID 严格图文幂等；会话轮询使用 lastMessageId 高水位，消息统一最新/before/after 三态，multipart 在解析前执行请求上限；私信图片仅参与者或管理员鉴权读取，管理员三类读取写最小隐私审计。
 应用启动只有 schema metadata/fingerprint 校验权，结构变更仅由部署阶段显式 migration 执行；进程级清理由统一 PeriodicTaskRegistry 管理并在关闭时等待停止。
 Web 入口为 /m，普通用户默认进入 Treehole；管理端使用独立 HttpOnly Cookie 会话，普通用户 JWT 与后台权限不互通。
+普通用户 Social Web 固定使用 Treehole、Discover、Messages、Me 四 Tab；Community 统一作者资料与用户内容入口，私信与活动通知保持独立未读和高水位增量协议，后台提供 Cookie 鉴权的私信只读审计页。
 Git push 始终把当前 HEAD 推到 baidu/main，由远端 hook 执行维护发布：release 准备后停流与停全部 writer，再快照、显式 destructive migration、新 Server/Web 本机冒烟并重新开放流量；migration 后失败不得恢复旧 upstream，只能保持停流并 forward-fix。
 </architecture_decisions>
 
@@ -378,6 +379,7 @@ Git push 始终把当前 HEAD 推到 baidu/main，由远端 hook 执行维护发
 前端类型检查与构建：bun run web:typecheck && bun run web:build
 端到端测试：bun run test:e2e
 数据库迁移：bun run db:migrate -- --db <sqlite-path> [--allow-destructive]
+Social 测试数据：bun run seed:social-test（仅非生产，默认 test / 123456）
 默认部署：git push baidu HEAD:main
 </development_rules>
 

@@ -27,6 +27,7 @@ const navGroups = [
     { to: appRoutes.adminAnnouncements, label: '公告' },
     { to: appRoutes.adminDiscover, label: '好饭内容' },
     { to: appRoutes.adminTreehole, label: '树洞内容' },
+    { to: appRoutes.adminMessaging, label: '私信审计' },
   ] },
   { label: '系统', items: [
     { to: appRoutes.adminSettings, label: '设置' },

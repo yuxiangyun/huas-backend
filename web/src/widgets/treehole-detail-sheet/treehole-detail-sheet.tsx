@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { Heart } from 'lucide-react';
+import { Heart, Send } from 'lucide-react';
 import {
   useCreateTreeholeCommentMutation,
   useDeleteTreeholeCommentMutation,
@@ -22,7 +22,7 @@ import { ActionMenu } from '@/shared/ui/action-menu';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
 import { ConfirmSheet } from '@/shared/ui/confirm-sheet';
-import { TreeholeAvatar } from '@/shared/ui/treehole-avatar';
+import { CommunityAvatar } from '@/shared/ui/community-avatar';
 import {
   CommentComposer,
   CommentThread,
@@ -32,6 +32,8 @@ import {
 interface TreeholeDetailSheetProps {
   postId: number | null;
   onClose: () => void;
+  onMessageAuthor: (userId: number) => void;
+  onOpenProfile: (userId: number) => void;
 }
 
 function formatPublishedAt(value: string) {
@@ -43,7 +45,7 @@ function formatPublishedAt(value: string) {
   });
 }
 
-export function TreeholeDetailSheet({ postId, onClose }: TreeholeDetailSheetProps) {
+export function TreeholeDetailSheet({ postId, onClose, onMessageAuthor, onOpenProfile }: TreeholeDetailSheetProps) {
   const postQuery = useTreeholePostDetailQuery(postId);
   const commentsQuery = useTreeholeInfiniteCommentsQuery(postId, { pageSize: 50 });
   const metaQuery = useTreeholeMetaQuery();
@@ -152,12 +154,12 @@ export function TreeholeDetailSheet({ postId, onClose }: TreeholeDetailSheetProp
         <>
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0 space-y-2">
-              <div className="flex items-center gap-2">
-                <TreeholeAvatar className="size-7 rounded-full text-[0.65rem]" src={post.avatarUrl} />
+              <button className="flex items-center gap-2 rounded-[0.375rem] text-left hover:opacity-70" type="button" onClick={() => onOpenProfile(post.author.id)}>
+                <CommunityAvatar className="size-7 rounded-full text-[0.65rem]" src={post.author.avatarUrl} />
                 <span className="max-w-full truncate text-sm font-medium">
-                  {post.nickname || '匿名用户'}
+                  {post.author.displayName}
                 </span>
-              </div>
+              </button>
               <p className="text-xs text-muted">{formatPublishedAt(post.publishedAt)}</p>
             </div>
 
@@ -184,6 +186,12 @@ export function TreeholeDetailSheet({ postId, onClose }: TreeholeDetailSheetProp
                 <Heart aria-hidden="true" className="size-4" fill={post.viewer.liked ? 'currentColor' : 'none'} />
                 {likeBusy ? '处理中…' : post.viewer.liked ? '已赞' : '点赞'}
               </Button>
+              {!post.viewer.isMine ? (
+                <Button size="sm" type="button" variant="secondary" onClick={() => onMessageAuthor(post.author.id)}>
+                  <Send aria-hidden="true" className="size-4" />
+                  私信
+                </Button>
+              ) : null}
               {post.viewer.isMine ? (
                 <ActionMenu items={[{
                   label: '删除',
@@ -208,13 +216,15 @@ export function TreeholeDetailSheet({ postId, onClose }: TreeholeDetailSheetProp
             isLoading={commentsQuery.isLoading}
             items={comments.map((comment) => ({
               id: comment.id,
+              authorId: comment.author.id,
               parentCommentId: comment.parentCommentId,
               content: comment.content,
-              avatarUrl: comment.avatarUrl,
+              avatarUrl: comment.author.avatarUrl,
               isMine: comment.isMine,
-              authorLabel: comment.nickname || '匿名用户',
+              authorLabel: comment.author.displayName,
               createdAtLabel: formatPublishedAt(comment.createdAt),
             }))}
+            onAuthorClick={onOpenProfile}
             endMessage={null}
             onDelete={(commentId) => {
               setActionMessage(null);

@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖共享 apiRequest、后台 Cookie 会话与 entities/admin 的强类型协议
- * [OUTPUT]: 提供 dashboard、内容、日志与课表来源策略的管理 HTTP 命令
+ * [OUTPUT]: 提供 dashboard、内容、日志、课表策略与私信只读的管理 HTTP 边界
  * [POS]: entities/admin 的唯一 HTTP 适配边界，向查询层屏蔽路径、方法与 AbortSignal 细节
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -15,6 +15,9 @@ import type {
   AdminScheduleSourceMode,
   AdminScheduleSourcePolicy,
   AdminTerminalLogResponse,
+  AdminMessagingConversationChangesResponse,
+  AdminMessagingConversationListResponse,
+  AdminMessagingMessageListResponse,
   AdminTreeholeCommentListResponse,
   AdminTreeholePostListResponse,
 } from '@/entities/admin/model/admin-types';
@@ -128,6 +131,41 @@ export async function deleteAdminDiscoverPost(postId: number) {
       method: 'DELETE',
     },
     { auth: false }
+  );
+}
+
+export async function getAdminMessagingConversations(
+  params: { page?: number; pageSize?: number },
+  options?: RequestOptions
+) {
+  return apiRequest<AdminMessagingConversationListResponse>(
+    `/api/admin/messaging/conversations${buildQueryString(params)}`,
+    {},
+    { auth: false, signal: options?.signal }
+  );
+}
+
+export async function getAdminMessagingConversationChanges(
+  afterMessageId: number,
+  limit = 100,
+  options?: RequestOptions
+) {
+  return apiRequest<AdminMessagingConversationChangesResponse>(
+    `/api/admin/messaging/conversations/changes${buildQueryString({ afterMessageId, limit })}`,
+    {},
+    { auth: false, signal: options?.signal }
+  );
+}
+
+export async function getAdminMessagingMessages(
+  conversationId: number,
+  params: { beforeMessageId?: number; afterMessageId?: number; limit?: number },
+  options?: RequestOptions
+) {
+  return apiRequest<AdminMessagingMessageListResponse>(
+    `/api/admin/messaging/conversations/${conversationId}/messages${buildQueryString(params)}`,
+    {},
+    { auth: false, signal: options?.signal }
   );
 }
 

@@ -1,8 +1,16 @@
+/**
+ * [INPUT]: 依赖共享 apiRequest 与 Discover 稳定 DTO
+ * [OUTPUT]: 对外提供公开/本人/指定用户帖子、评论、创建删除及幂等点赞请求
+ * [POS]: entities/discover 的 HTTP adapter，集中维护 `/api/discover` 图文内容协议
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { apiRequest } from '@/shared/api/http-client';
 import type {
   DiscoverComment,
   DiscoverCommentListResponse,
   DiscoverListResponse,
+  DiscoverLikeResult,
   DiscoverMeta,
   DiscoverPost,
   DiscoverSort,
@@ -81,6 +89,22 @@ export async function getMyDiscoverPosts(params: DiscoverMyListParams, options?:
   );
 }
 
+export async function getUserDiscoverPosts(
+  userId: number,
+  params: DiscoverMyListParams,
+  options?: RequestOptions
+) {
+  return apiRequest<DiscoverListResponse>(
+    `/api/discover/users/${userId}/posts${buildQueryString({
+      category: params.category,
+      page: params.page,
+      pageSize: params.pageSize,
+    })}`,
+    {},
+    { signal: options?.signal }
+  );
+}
+
 export async function getDiscoverPostDetail(postId: number, options?: RequestOptions) {
   return apiRequest<DiscoverPost>(
     `/api/discover/posts/${postId}`,
@@ -119,10 +143,15 @@ export async function createDiscoverPost(payload: CreateDiscoverPostPayload) {
   });
 }
 
-export async function rateDiscoverPost(postId: number, score: number) {
-  return apiRequest<DiscoverPost>(`/api/discover/posts/${postId}/rating`, {
-    method: 'POST',
-    body: JSON.stringify({ score }),
+export async function likeDiscoverPost(postId: number) {
+  return apiRequest<DiscoverLikeResult>(`/api/discover/posts/${postId}/like`, {
+    method: 'PUT',
+  });
+}
+
+export async function unlikeDiscoverPost(postId: number) {
+  return apiRequest<DiscoverLikeResult>(`/api/discover/posts/${postId}/like`, {
+    method: 'DELETE',
   });
 }
 

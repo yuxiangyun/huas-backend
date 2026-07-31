@@ -1,36 +1,22 @@
 /**
- * [INPUT]: 依赖 Treehole 提醒写入、URL 查询参数与发布/详情/社区资料弹层加载器
- * [OUTPUT]: 对外提供 TreeholePage，编排树洞信息流、发布、编辑资料与详情路由状态
+ * [INPUT]: 依赖 URL 查询参数、Social 路径与发布/详情/公共作者资料弹层加载器
+ * [OUTPUT]: 对外提供 TreeholePage，编排树洞信息流、发布、详情、作者资料与私信入口
  * [POS]: pages/treehole 的路由级组装器，统一弹层预加载与查询参数，不实现社区请求协议
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { lazy, startTransition, Suspense, useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { Plus, UserPen } from 'lucide-react';
+import { lazy, startTransition, Suspense, useEffect, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Plus } from 'lucide-react';
 import { useUiStore } from '@/app/state/ui-store';
-import { useReadAllTreeholeNotificationsMutation } from '@/entities/treehole/api/treehole-queries';
-import { Button } from '@/shared/ui/button';
+import { appRoutes } from '@/app/router/paths';
+import { IconButton } from '@/shared/ui/icon-button';
 import { PageHeader } from '@/shared/ui/page-header';
 import { TreeholeFeed } from '@/widgets/treehole-feed/treehole-feed';
 
 const loadTreeholeComposeSheet = () => import('@/widgets/treehole-compose-sheet/treehole-compose-sheet');
 const loadTreeholeDetailSheet = () => import('@/widgets/treehole-detail-sheet/treehole-detail-sheet');
-const loadTreeholeAvatarSheet = () => import('@/widgets/treehole-avatar-sheet/treehole-avatar-sheet');
-
-const TREEHOLE_WORDMARK = (
-  <span
-    className="relative inline-flex items-center pr-4"
-    style={{ fontFamily: '"Songti SC", "STSong", "Noto Serif CJK SC", serif' }}
-  >
-    <span className="text-[#15803d]">树</span>
-    <span className="-ml-[0.08em] text-[#22c55e]">洞</span>
-    <span
-      aria-hidden="true"
-      className="absolute right-0 top-0 h-3.5 w-2.5 rotate-[35deg] rounded-[100%_0_100%_0] bg-[#4ade80]"
-    />
-  </span>
-);
+const loadPublicProfileDialog = () => import('@/widgets/public-profile-dialog/public-profile-dialog');
 
 const LazyTreeholeComposeSheet = lazy(async () => {
   const module = await loadTreeholeComposeSheet();
@@ -42,35 +28,28 @@ const LazyTreeholeDetailSheet = lazy(async () => {
   return { default: module.TreeholeDetailSheet };
 });
 
-const LazyTreeholeAvatarSheet = lazy(async () => {
-  const module = await loadTreeholeAvatarSheet();
-  return { default: module.TreeholeAvatarSheet };
+const LazyPublicProfileDialog = lazy(async () => {
+  const module = await loadPublicProfileDialog();
+  return { default: module.PublicProfileDialog };
 });
 
 export function TreeholePage() {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const setActiveTab = useUiStore((state) => state.setActiveTab);
   const composeSheetOpen = useUiStore((state) => state.treeholeComposeSheetOpen);
-  const avatarSheetOpen = useUiStore((state) => state.treeholeAvatarSheetOpen);
   const openComposeSheet = useUiStore((state) => state.openTreeholeComposeSheet);
-  const openAvatarSheet = useUiStore((state) => state.openTreeholeAvatarSheet);
-  const readAllNotificationsMutation = useReadAllTreeholeNotificationsMutation();
-  const notificationsReadTriggeredRef = useRef(false);
   const rawPostId = Number(searchParams.get('postId'));
   const postId = Number.isInteger(rawPostId) && rawPostId > 0 ? rawPostId : null;
+  const rawProfileUserId = Number(searchParams.get('profileUserId'));
+  const profileUserId = Number.isInteger(rawProfileUserId) && rawProfileUserId > 0 ? rawProfileUserId : null;
   const [composeSheetRequested, setComposeSheetRequested] = useState(false);
   const [detailSheetRequested, setDetailSheetRequested] = useState(false);
-  const [avatarSheetRequested, setAvatarSheetRequested] = useState(false);
+  const [publicProfileRequested, setPublicProfileRequested] = useState(false);
 
   useEffect(() => {
     setActiveTab('treehole');
   }, [setActiveTab]);
-
-  useEffect(() => {
-    if (notificationsReadTriggeredRef.current) return;
-    notificationsReadTriggeredRef.current = true;
-    readAllNotificationsMutation.mutate();
-  }, [readAllNotificationsMutation]);
 
   useEffect(() => {
     if (!composeSheetOpen) return;
@@ -85,10 +64,10 @@ export function TreeholePage() {
   }, [postId]);
 
   useEffect(() => {
-    if (!avatarSheetOpen) return;
-    setAvatarSheetRequested(true);
-    void loadTreeholeAvatarSheet();
-  }, [avatarSheetOpen]);
+    if (profileUserId === null) return;
+    setPublicProfileRequested(true);
+    void loadPublicProfileDialog();
+  }, [profileUserId]);
 
   function patchSearchParams(
     patcher: (params: URLSearchParams) => void
@@ -101,6 +80,10 @@ export function TreeholePage() {
         nextParams.delete('postId');
       }
 
+      if (!nextParams.get('profileUserId')) {
+        nextParams.delete('profileUserId');
+      }
+
       setSearchParams(nextParams);
     });
   }
@@ -111,12 +94,6 @@ export function TreeholePage() {
     openComposeSheet();
   };
 
-  const handleOpenAvatarSheet = () => {
-    setAvatarSheetRequested(true);
-    void loadTreeholeAvatarSheet();
-    openAvatarSheet();
-  };
-
   const handleOpenPost = (nextPostId: number) => {
     setDetailSheetRequested(true);
     void loadTreeholeDetailSheet();
@@ -125,30 +102,40 @@ export function TreeholePage() {
     });
   };
 
+  const handleOpenPublicProfile = (userId: number) => {
+    setPublicProfileRequested(true);
+    void loadPublicProfileDialog();
+    patchSearchParams((params) => {
+      params.set('profileUserId', String(userId));
+      params.delete('postId');
+    });
+  };
+
   return (
     <div className="page-stack-mobile">
-      <PageHeader
-        action={(
-          <div className="flex items-center gap-2">
-            <Button size="sm" type="button" onClick={handleOpenComposeSheet}>
-              <Plus aria-hidden="true" className="size-4" />
-              发布
-            </Button>
-            <Button size="sm" variant="ghost" type="button" onClick={handleOpenAvatarSheet}>
-              <UserPen aria-hidden="true" className="size-4" />
-              编辑资料
-            </Button>
-          </div>
-        )}
-        compact
-        title={TREEHOLE_WORDMARK}
-        titleClassName="text-[2rem] font-black leading-none tracking-[-0.08em]"
-      />
+      <section className="overflow-hidden rounded-[0.5rem] border border-[#dbdbdb] bg-white">
+        <PageHeader
+          action={(
+            <IconButton
+              className="-mr-2 text-ink hover:bg-[#f2f2f2]"
+              icon={<Plus aria-hidden="true" className="size-7" strokeWidth={1.8} />}
+              label="发布树洞"
+              size="md"
+              variant="ghost"
+              onClick={handleOpenComposeSheet}
+            />
+          )}
+          className="px-4 py-4 sm:px-5"
+          compact
+          title="树洞"
+        />
 
-      <TreeholeFeed
-        onComposeClick={handleOpenComposeSheet}
-        onOpenPost={handleOpenPost}
-      />
+        <TreeholeFeed
+          onComposeClick={handleOpenComposeSheet}
+          onOpenPost={handleOpenPost}
+          onOpenProfile={handleOpenPublicProfile}
+        />
+      </section>
 
       {composeSheetRequested ? (
         <Suspense fallback={null}>
@@ -160,6 +147,8 @@ export function TreeholePage() {
         <Suspense fallback={null}>
           <LazyTreeholeDetailSheet
             postId={postId}
+            onMessageAuthor={(userId) => navigate(`${appRoutes.messages}?userId=${userId}`)}
+            onOpenProfile={handleOpenPublicProfile}
             onClose={() =>
               patchSearchParams((params) => {
                 params.delete('postId');
@@ -169,9 +158,15 @@ export function TreeholePage() {
         </Suspense>
       ) : null}
 
-      {avatarSheetRequested ? (
+      {publicProfileRequested ? (
         <Suspense fallback={null}>
-          <LazyTreeholeAvatarSheet />
+          <LazyPublicProfileDialog
+            userId={profileUserId}
+            onClose={() => patchSearchParams((params) => params.delete('profileUserId'))}
+            onMessage={(userId) => navigate(`${appRoutes.messages}?userId=${userId}`)}
+            onOpenDiscoverPost={(nextPostId) => navigate(`${appRoutes.discover}?postId=${nextPostId}`)}
+            onOpenTreeholePost={(nextPostId) => handleOpenPost(nextPostId)}
+          />
         </Suspense>
       ) : null}
     </div>

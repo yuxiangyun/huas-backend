@@ -10,6 +10,7 @@ export const appRoutes = {
   login: '/login',
   discover: '/discover',
   treehole: '/treehole',
+  messages: '/messages',
   me: '/me',
   meDiscover: '/me/discover',
   meTreehole: '/me/treehole',
@@ -20,6 +21,7 @@ export const appRoutes = {
   adminAnnouncements: '/admin/manage/announcements',
   adminDiscover: '/admin/manage/discover',
   adminTreehole: '/admin/manage/treehole',
+  adminMessaging: '/admin/manage/messaging',
   adminSettings: '/admin/system/settings',
   adminLogs: '/admin/system/logs',
 } as const;

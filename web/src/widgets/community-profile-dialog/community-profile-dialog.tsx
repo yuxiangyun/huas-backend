@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖社区资料查询/写入 hooks、头像裁切浏览器能力与 Treehole 弹层状态
- * [OUTPUT]: 对外提供 TreeholeAvatarSheet，统一编辑拍好饭/树洞共享昵称与头像
- * [POS]: widgets 的社区资料编辑容器，保留旧组件名以兼容现有弹层装配
+ * [OUTPUT]: 对外提供 CommunityProfileDialog，统一编辑 Social 公共昵称与头像
+ * [POS]: widgets/community-profile-dialog 的社区资料任务容器，由树洞与个人页共享装配
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -10,16 +10,16 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useToastStore } from '@/app/state/toast-store';
 import { useUiStore } from '@/app/state/ui-store';
 import {
-  useDeleteTreeholeAvatarMutation,
-  useTreeholeAvatarQuery,
+  useClearCommunityAvatarMutation,
+  useCommunityProfileQuery,
   useUpdateCommunityProfileMutation,
-} from '@/entities/treehole/api/treehole-queries';
+} from '@/entities/community/api/community-queries';
 import { BottomSheet } from '@/shared/ui/bottom-sheet';
 import { Button } from '@/shared/ui/button';
 import { ActionMenu } from '@/shared/ui/action-menu';
 import { ConfirmSheet } from '@/shared/ui/confirm-sheet';
 import { TaskDialog } from '@/shared/ui/task-dialog';
-import { TreeholeAvatar } from '@/shared/ui/treehole-avatar';
+import { CommunityAvatar } from '@/shared/ui/community-avatar';
 
 const AVATAR_FILE_ACCEPT =
   'image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,image/avif,image/tiff,.jpg,.jpeg,.png,.webp,.gif,.heic,.heif,.avif,.tif,.tiff';
@@ -30,7 +30,6 @@ const MAX_ZOOM = 3;
 const ZOOM_STEP = 0.01;
 const NICKNAME_MIN_LENGTH = 2;
 const NICKNAME_MAX_LENGTH = 12;
-const NICKNAME_PATTERN = /^[\p{Script=Han}A-Za-z0-9_]+$/u;
 const RESERVED_NICKNAMES = new Set(['管理员', '官方', '系统', '匿名用户']);
 
 interface Point {
@@ -125,9 +124,7 @@ function validateNickname(value: string) {
   if (length < NICKNAME_MIN_LENGTH || length > NICKNAME_MAX_LENGTH) {
     return `昵称长度必须为 ${NICKNAME_MIN_LENGTH}-${NICKNAME_MAX_LENGTH} 个字符`;
   }
-  if (!NICKNAME_PATTERN.test(nickname)) {
-    return '昵称只能包含中文、英文字母、数字和下划线';
-  }
+  if (/[\p{C}\p{Zl}\p{Zp}]/u.test(nickname)) return '昵称不能包含控制字符或换行';
   if (RESERVED_NICKNAMES.has(nickname)) return '该昵称不可使用';
   return null;
 }
@@ -162,18 +159,18 @@ async function buildCroppedAvatarFile(source: AvatarSource, zoom: number, offset
     throw new Error('头像生成失败，请重试');
   }
 
-  const baseName = source.name.replace(/\.[^/.]+$/, '') || 'treehole-avatar';
+  const baseName = source.name.replace(/\.[^/.]+$/, '') || 'community-avatar';
   const extension = blob.type === 'image/png' ? 'png' : 'webp';
   return new File([blob], `${baseName}.${extension}`, { type: blob.type });
 }
 
-export function TreeholeAvatarSheet() {
-  const avatarSheetOpen = useUiStore((state) => state.treeholeAvatarSheetOpen);
-  const closeAvatarSheet = useUiStore((state) => state.closeTreeholeAvatarSheet);
+export function CommunityProfileDialog() {
+  const profileDialogOpen = useUiStore((state) => state.communityProfileDialogOpen);
+  const closeProfileDialog = useUiStore((state) => state.closeCommunityProfileDialog);
   const pushToast = useToastStore((state) => state.pushToast);
-  const profileQuery = useTreeholeAvatarQuery({ enabled: avatarSheetOpen });
+  const profileQuery = useCommunityProfileQuery({ enabled: profileDialogOpen });
   const updateProfileMutation = useUpdateCommunityProfileMutation();
-  const deleteMutation = useDeleteTreeholeAvatarMutation();
+  const deleteMutation = useClearCommunityAvatarMutation();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
   const [source, setSource] = useState<AvatarSource | null>(null);
@@ -199,9 +196,9 @@ export function TreeholeAvatarSheet() {
   }, [source]);
 
   useEffect(() => {
-    if (!avatarSheetOpen) return;
+    if (!profileDialogOpen) return;
     setNicknameDraft(currentNickname ?? '');
-  }, [avatarSheetOpen, currentNickname]);
+  }, [profileDialogOpen, currentNickname]);
 
   const resetImageDraft = () => {
     setSource(null);
@@ -218,7 +215,7 @@ export function TreeholeAvatarSheet() {
     setNicknameDraft(currentNickname ?? '');
     setNicknameError(null);
     setDeleteConfirmOpen(false);
-    closeAvatarSheet();
+    closeProfileDialog();
   };
 
   const handleSelectFile = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -339,7 +336,7 @@ export function TreeholeAvatarSheet() {
       {source && cropFrame ? (
         <TaskDialog
           closeLabel="返回"
-          open={avatarSheetOpen}
+          open={profileDialogOpen}
           title="裁切头像"
           onClose={resetImageDraft}
           footer={(
@@ -387,7 +384,7 @@ export function TreeholeAvatarSheet() {
         </TaskDialog>
       ) : (
         <BottomSheet
-          open={avatarSheetOpen}
+          open={profileDialogOpen}
           closeLabel="编辑资料"
           contentClassName="space-y-5"
           onClose={closeSheet}
@@ -410,8 +407,8 @@ export function TreeholeAvatarSheet() {
           {profileQuery.isError ? <p className="text-sm text-error">资料加载失败，请重试</p> : null}
 
           <div className="flex items-center gap-3">
-            <TreeholeAvatar className="size-14 rounded-full text-base" src={currentAvatarUrl} />
-            <p className="min-w-0 truncate text-sm font-medium">{currentNickname || '匿名用户'}</p>
+            <CommunityAvatar className="size-14 rounded-full text-base" src={currentAvatarUrl} />
+            <p className="min-w-0 truncate text-sm font-medium">{profileQuery.data?.displayName ?? '社区用户'}</p>
           </div>
 
           <div className="space-y-2">
@@ -421,11 +418,12 @@ export function TreeholeAvatarSheet() {
                 <input
                   className="field-control"
                   disabled={busy}
-                  maxLength={NICKNAME_MAX_LENGTH}
                   type="text"
                   value={nicknameDraft}
                   onChange={(event) => {
-                    setNicknameDraft(event.target.value);
+                    if (Array.from(event.target.value.trim()).length <= NICKNAME_MAX_LENGTH) {
+                      setNicknameDraft(event.target.value);
+                    }
                     setNicknameError(null);
                   }}
                 />

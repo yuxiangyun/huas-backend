@@ -1,11 +1,11 @@
 /**
- * [INPUT]: 依赖 Discover 查询/写入 hooks、评分、评论、社区资料、媒体查看器与短任务弹层
- * [OUTPUT]: 对外提供 DiscoverDetailSheet，以单一阅读顺序展示好饭详情并编排评分、评论和删除
+ * [INPUT]: 依赖 Discover 查询/写入 hooks、点赞、评论、社区资料、媒体查看器与短任务弹层
+ * [OUTPUT]: 对外提供 DiscoverDetailSheet，以单一阅读顺序展示好饭详情并编排点赞、私信、评论和删除
  * [POS]: widgets/discover-detail-sheet 的业务容器，保留 Discover mutation 语义并复用无请求评论 UI
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { MessageCircle, Star } from 'lucide-react';
+import { Heart, MessageCircle, Send } from 'lucide-react';
 import { lazy, Suspense, useEffect, useState } from 'react';
 import {
   useCreateDiscoverCommentMutation,
@@ -14,17 +14,16 @@ import {
   useDiscoverInfiniteCommentsQuery,
   useDiscoverMetaQuery,
   useDiscoverPostDetailQuery,
-  useRateDiscoverPostMutation,
+  useLikeDiscoverPostMutation,
+  useUnlikeDiscoverPostMutation,
 } from '@/entities/discover/api/discover-queries';
-import { RatingStrip } from '@/features/discover-rate-post/ui/rating-strip';
 import { buildMediaUrl } from '@/shared/api/media';
 import { cn } from '@/shared/lib/cn';
-import { buildCommunityAuthorLabel } from '@/shared/lib/student';
 import { ActionMenu } from '@/shared/ui/action-menu';
 import { BottomSheet } from '@/shared/ui/bottom-sheet';
 import { Button } from '@/shared/ui/button';
 import { ConfirmSheet } from '@/shared/ui/confirm-sheet';
-import { TreeholeAvatar } from '@/shared/ui/treehole-avatar';
+import { CommunityAvatar } from '@/shared/ui/community-avatar';
 import { CommentComposer, CommentThread, type CommentReplyTarget } from '@/widgets/comment-thread/comment-thread';
 
 const loadImageViewer = () => import('@/shared/ui/image-viewer');
@@ -36,24 +35,28 @@ const LazyImageViewer = lazy(async () => {
 interface DiscoverDetailSheetProps {
   postId: number | null;
   onClose: () => void;
+  onMessageAuthor: (userId: number) => void;
+  onOpenProfile: (userId: number) => void;
 }
 
 function formatPublishedAt(value: string) {
   return new Date(value).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-export function DiscoverDetailSheet({ postId, onClose }: DiscoverDetailSheetProps) {
+export function DiscoverDetailSheet({ postId, onClose, onMessageAuthor, onOpenProfile }: DiscoverDetailSheetProps) {
   const postQuery = useDiscoverPostDetailQuery(postId);
   const metaQuery = useDiscoverMetaQuery();
   const commentPageSize = metaQuery.data?.pagination.defaultCommentPageSize ?? 50;
   const commentsQuery = useDiscoverInfiniteCommentsQuery(postId, { pageSize: commentPageSize });
-  const rateMutation = useRateDiscoverPostMutation();
+  const likeMutation = useLikeDiscoverPostMutation();
+  const unlikeMutation = useUnlikeDiscoverPostMutation();
   const createCommentMutation = useCreateDiscoverCommentMutation();
   const deleteCommentMutation = useDeleteDiscoverCommentMutation();
   const deleteMutation = useDeleteDiscoverPostMutation();
   const post = postQuery.data;
   const comments = commentsQuery.data?.pages.flatMap((page) => page.items) ?? [];
   const maxCommentLength = metaQuery.data?.limits.maxCommentLength ?? 200;
+  const likeBusy = likeMutation.isPending || unlikeMutation.isPending;
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [activeImageIndex, setActiveImageIndex] = useState<number | null>(null);
   const [imageViewerRequested, setImageViewerRequested] = useState(false);
@@ -105,6 +108,17 @@ export function DiscoverDetailSheet({ postId, onClose }: DiscoverDetailSheetProp
     }
   };
 
+  const toggleLike = async () => {
+    if (!post) return;
+    try {
+      setActionMessage(null);
+      if (post.likedByMe) await unlikeMutation.mutateAsync({ postId: post.id });
+      else await likeMutation.mutateAsync({ postId: post.id });
+    } catch {
+      setActionMessage('操作失败，请重试');
+    }
+  };
+
   const imageItems = post?.images.map((image, imageIndex) => ({
     src: buildMediaUrl(image.url),
     alt: `${post.title || post.category} · 第 ${imageIndex + 1} 张`,
@@ -148,14 +162,26 @@ export function DiscoverDetailSheet({ postId, onClose }: DiscoverDetailSheetProp
               </div>
 
               <div className="flex items-center justify-between gap-3 text-xs text-muted">
-                <span className="flex min-w-0 items-center gap-2">
-                  <TreeholeAvatar className="size-6 rounded-full text-[0.65rem]" fallbackLabel={null} src={post.avatarUrl} />
-                  <span className="truncate">{buildCommunityAuthorLabel(post.author.nickname, post.author.label)} · {formatPublishedAt(post.publishedAt)}</span>
-                </span>
+                <button className="flex min-w-0 items-center gap-2 rounded-[0.375rem] text-left hover:opacity-70" type="button" onClick={() => onOpenProfile(post.author.id)}>
+                  <CommunityAvatar className="size-6 rounded-full text-[0.65rem]" fallbackLabel={null} src={post.author.avatarUrl} />
+                  <span className="truncate">{post.author.displayName} · {formatPublishedAt(post.publishedAt)}</span>
+                </button>
                 <span className="flex shrink-0 items-center gap-3">
-                  <span className="inline-flex items-center gap-1"><Star aria-hidden="true" className="size-3.5" />{post.rating.average.toFixed(1)} ({post.rating.count})</span>
+                  <span className="inline-flex items-center gap-1"><Heart aria-hidden="true" className="size-3.5" fill={post.likedByMe ? 'currentColor' : 'none'} />{post.likeCount}</span>
                   <span className="inline-flex items-center gap-1"><MessageCircle aria-hidden="true" className="size-3.5" />{post.commentCount}</span>
                 </span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button disabled={likeBusy} size="xs" type="button" variant={post.likedByMe ? 'subtle' : 'secondary'} onClick={() => void toggleLike()}>
+                  <Heart aria-hidden="true" className="size-3.5" fill={post.likedByMe ? 'currentColor' : 'none'} />
+                  {post.likedByMe ? '已赞' : '点赞'}
+                </Button>
+                {!post.isMine ? (
+                  <Button size="xs" type="button" variant="secondary" onClick={() => onMessageAuthor(post.author.id)}>
+                    <Send aria-hidden="true" className="size-3.5" />
+                    私信作者
+                  </Button>
+                ) : null}
               </div>
             </header>
 
@@ -180,26 +206,6 @@ export function DiscoverDetailSheet({ postId, onClose }: DiscoverDetailSheetProp
               <p className="break-words text-sm text-muted">{post.tags.map((tag) => `#${tag}`).join('  ')}</p>
             ) : null}
 
-            {!post.isMine ? (
-              <section className="space-y-2 border-t border-line pt-4">
-                <p className="text-sm font-medium">评分</p>
-                <RatingStrip
-                  disabled={rateMutation.isPending}
-                  pendingScore={rateMutation.variables?.postId === post.id ? rateMutation.variables.score : null}
-                  value={post.rating.userScore}
-                  onRate={(score) => {
-                    setActionMessage(null);
-                    rateMutation.mutate(
-                      { postId: post.id, score },
-                      {
-                        onError: () => setActionMessage('评分失败，请重试'),
-                      }
-                    );
-                  }}
-                />
-              </section>
-            ) : null}
-
             <section className="space-y-3 border-t border-line pt-4">
               <h3 className="text-base font-semibold">评论</h3>
               <CommentThread
@@ -211,14 +217,16 @@ export function DiscoverDetailSheet({ postId, onClose }: DiscoverDetailSheetProp
                 isLoading={commentsQuery.isLoading}
                 items={comments.map((comment) => ({
                   id: comment.id,
+                  authorId: comment.author.id,
                   parentCommentId: comment.parentCommentId,
                   content: comment.content,
-                  avatarUrl: comment.avatarUrl,
+                  avatarUrl: comment.author.avatarUrl,
                   avatarFallbackLabel: null,
                   isMine: comment.isMine,
-                  authorLabel: buildCommunityAuthorLabel(comment.author.nickname, comment.author.label),
+                  authorLabel: comment.author.displayName,
                   createdAtLabel: formatPublishedAt(comment.createdAt),
                 }))}
+                onAuthorClick={onOpenProfile}
                 onDelete={(commentId) => {
                   setActionMessage(null);
                   deleteCommentMutation.mutate({ commentId }, { onError: () => setActionMessage('删除评论失败，请重试') });

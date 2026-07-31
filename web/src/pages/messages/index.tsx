@@ -1,0 +1,120 @@
+/**
+ * [INPUT]: 依赖消息中心、聊天弹层、活动通知逐条已读与 React Router 查询参数
+ * [OUTPUT]: 对外提供 MessagesPage，编排私信/互动分段、会话深链及原内容导航
+ * [POS]: pages/messages 的路由级组装器，只持有 URL 状态，不实现列表或发送协议
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
+import { lazy, startTransition, Suspense, useEffect, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { appRoutes } from '@/app/router/paths';
+import { useUiStore } from '@/app/state/ui-store';
+import type { Conversation } from '@/entities/messaging/model/messaging-types';
+import { useMarkNotificationReadMutation } from '@/entities/notifications/api/notification-queries';
+import type { ActivityNotification } from '@/entities/notifications/model/notification-types';
+import { ChatSheet } from '@/widgets/chat-sheet/chat-sheet';
+import { MessageCenter, type MessageSection } from '@/widgets/message-center/message-center';
+
+const loadPublicProfileDialog = () => import('@/widgets/public-profile-dialog/public-profile-dialog');
+const LazyPublicProfileDialog = lazy(async () => {
+  const module = await loadPublicProfileDialog();
+  return { default: module.PublicProfileDialog };
+});
+
+function positiveId(value: string | null) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+export function MessagesPage() {
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const setActiveTab = useUiStore((state) => state.setActiveTab);
+  const markReadMutation = useMarkNotificationReadMutation();
+  const section: MessageSection = searchParams.get('tab') === 'notifications' ? 'notifications' : 'conversations';
+  const conversationId = positiveId(searchParams.get('conversationId'));
+  const userId = positiveId(searchParams.get('userId'));
+  const profileUserId = positiveId(searchParams.get('profileUserId'));
+  const [profileDialogRequested, setProfileDialogRequested] = useState(false);
+
+  useEffect(() => setActiveTab('messages'), [setActiveTab]);
+
+  useEffect(() => {
+    if (profileUserId === null) return;
+    setProfileDialogRequested(true);
+    void loadPublicProfileDialog();
+  }, [profileUserId]);
+
+  function patchSearchParams(patcher: (params: URLSearchParams) => void) {
+    startTransition(() => {
+      const next = new URLSearchParams(searchParams);
+      patcher(next);
+      setSearchParams(next);
+    });
+  }
+
+  const openConversation = (conversation: Conversation) => {
+    patchSearchParams((params) => {
+      params.set('userId', String(conversation.otherUser.id));
+      params.set('conversationId', String(conversation.id));
+      params.delete('tab');
+    });
+  };
+
+  const openNotification = (notification: ActivityNotification) => {
+    if (!notification.readAt) {
+      markReadMutation.mutate({ notificationId: notification.id });
+    }
+    const route = notification.resourceType === 'discover_post' ? appRoutes.discover : appRoutes.treehole;
+    navigate(`${route}?postId=${notification.resourceId}`);
+  };
+
+  const openProfile = (nextUserId: number) => {
+    setProfileDialogRequested(true);
+    void loadPublicProfileDialog();
+    patchSearchParams((params) => params.set('profileUserId', String(nextUserId)));
+  };
+
+  return (
+    <>
+      <MessageCenter
+        section={section}
+        onOpenConversation={openConversation}
+        onOpenNotification={openNotification}
+        onOpenProfile={openProfile}
+        onSectionChange={(nextSection) => patchSearchParams((params) => {
+          if (nextSection === 'notifications') params.set('tab', 'notifications');
+          else params.delete('tab');
+        })}
+      />
+      <ChatSheet
+        conversationId={conversationId}
+        userId={userId}
+        onClose={() => patchSearchParams((params) => {
+          params.delete('conversationId');
+          params.delete('userId');
+        })}
+        onConversationCreated={(nextConversationId) => patchSearchParams((params) => {
+          params.set('conversationId', String(nextConversationId));
+        })}
+        onOpenProfile={openProfile}
+      />
+      {profileDialogRequested ? (
+        <Suspense fallback={null}>
+          <LazyPublicProfileDialog
+            userId={profileUserId}
+            onClose={() => patchSearchParams((params) => params.delete('profileUserId'))}
+            onMessage={(nextUserId) => patchSearchParams((params) => {
+              params.set('userId', String(nextUserId));
+              params.delete('conversationId');
+              params.delete('profileUserId');
+              params.delete('tab');
+            })}
+            onOpenDiscoverPost={(postId) => navigate(`${appRoutes.discover}?postId=${postId}`)}
+            onOpenTreeholePost={(postId) => navigate(`${appRoutes.treehole}?postId=${postId}`)}
+          />
+        </Suspense>
+      ) : null}
+    </>
+  );
+}

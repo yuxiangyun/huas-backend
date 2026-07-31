@@ -1,38 +1,38 @@
 /**
  * [INPUT]: 依赖 Zustand 创建普通用户界面状态，接收主 Tab 与各业务弹层的开关动作
- * [OUTPUT]: 对外提供 useUiStore，以树洞作为初始 Tab 并集中管理发布、头像弹层状态
+ * [OUTPUT]: 对外提供 useUiStore，以树洞为初始 Tab 并集中管理发布、Community 资料任务状态
  * [POS]: app/state 的瞬时 UI 状态容器，由各路由页面同步当前 Tab，不持久化业务数据
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { create } from 'zustand';
 
-export type AppTab = 'discover' | 'treehole' | 'me';
+export type AppTab = 'discover' | 'treehole' | 'messages' | 'me';
 
 interface UiStore {
   activeTab: AppTab;
   discoverComposeSheetOpen: boolean;
   treeholeComposeSheetOpen: boolean;
-  treeholeAvatarSheetOpen: boolean;
+  communityProfileDialogOpen: boolean;
   setActiveTab: (tab: AppTab) => void;
   openDiscoverComposeSheet: () => void;
   closeDiscoverComposeSheet: () => void;
   openTreeholeComposeSheet: () => void;
   closeTreeholeComposeSheet: () => void;
-  openTreeholeAvatarSheet: () => void;
-  closeTreeholeAvatarSheet: () => void;
+  openCommunityProfileDialog: () => void;
+  closeCommunityProfileDialog: () => void;
 }
 
 export const useUiStore = create<UiStore>((set) => ({
   activeTab: 'treehole',
   discoverComposeSheetOpen: false,
   treeholeComposeSheetOpen: false,
-  treeholeAvatarSheetOpen: false,
+  communityProfileDialogOpen: false,
   setActiveTab: (tab) => set({ activeTab: tab }),
   openDiscoverComposeSheet: () => set({ discoverComposeSheetOpen: true }),
   closeDiscoverComposeSheet: () => set({ discoverComposeSheetOpen: false }),
   openTreeholeComposeSheet: () => set({ treeholeComposeSheetOpen: true }),
   closeTreeholeComposeSheet: () => set({ treeholeComposeSheetOpen: false }),
-  openTreeholeAvatarSheet: () => set({ treeholeAvatarSheetOpen: true }),
-  closeTreeholeAvatarSheet: () => set({ treeholeAvatarSheetOpen: false }),
+  openCommunityProfileDialog: () => set({ communityProfileDialogOpen: true }),
+  closeCommunityProfileDialog: () => set({ communityProfileDialogOpen: false }),
 }));

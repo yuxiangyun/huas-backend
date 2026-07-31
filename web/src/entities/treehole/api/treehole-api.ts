@@ -1,20 +1,18 @@
 /**
  * [INPUT]: 依赖共享 apiRequest 与 Treehole 类型契约
- * [OUTPUT]: 对外提供社区资料、帖子、评论、点赞和通知 HTTP 请求函数
+ * [OUTPUT]: 对外提供公开/本人/指定用户 Treehole 帖子、评论、点赞与删除请求
  * [POS]: entities/treehole 的传输边界，集中维护 /api/treehole 协议与查询参数序列化
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { apiRequest } from '@/shared/api/http-client';
 import type {
-  CommunityProfile,
   TreeholeComment,
   TreeholeCommentListResponse,
   TreeholeListResponse,
   TreeholeMeta,
   TreeholePost,
-  TreeholeReadAllNotificationsResult,
-  TreeholeUnreadNotificationCount,
+  TreeholeLikeResult,
 } from '@/entities/treehole/model/treehole-types';
 
 interface RequestOptions {
@@ -47,49 +45,6 @@ export async function getTreeholeMeta(options?: RequestOptions) {
   return apiRequest<TreeholeMeta>('/api/treehole/meta', {}, { signal: options?.signal });
 }
 
-export async function getTreeholeAvatar(options?: RequestOptions) {
-  return apiRequest<CommunityProfile>('/api/treehole/profile', {}, { signal: options?.signal });
-}
-
-export async function updateCommunityProfile(payload: { nickname: string; avatar?: File }) {
-  const form = new FormData();
-  form.set('nickname', payload.nickname.trim());
-  if (payload.avatar) form.set('avatar', payload.avatar);
-  return apiRequest<CommunityProfile>('/api/treehole/profile', {
-    method: 'PUT',
-    body: form,
-  });
-}
-
-export async function uploadTreeholeAvatar(file: File) {
-  const form = new FormData();
-  form.set('avatar', file);
-  return apiRequest<CommunityProfile>('/api/treehole/avatar', {
-    method: 'POST',
-    body: form,
-  });
-}
-
-export async function deleteTreeholeAvatar() {
-  return apiRequest<CommunityProfile>('/api/treehole/avatar', {
-    method: 'DELETE',
-  });
-}
-
-export async function getTreeholeUnreadNotificationCount(options?: RequestOptions) {
-  return apiRequest<TreeholeUnreadNotificationCount>(
-    '/api/treehole/notifications/unread-count',
-    {},
-    { signal: options?.signal }
-  );
-}
-
-export async function readAllTreeholeNotifications() {
-  return apiRequest<TreeholeReadAllNotificationsResult>('/api/treehole/notifications/read-all', {
-    method: 'POST',
-  });
-}
-
 export async function getTreeholePosts(params: TreeholeListParams, options?: RequestOptions) {
   return apiRequest<TreeholeListResponse>(
     `/api/treehole/posts${buildQueryString({
@@ -104,6 +59,21 @@ export async function getTreeholePosts(params: TreeholeListParams, options?: Req
 export async function getMyTreeholePosts(params: TreeholeListParams, options?: RequestOptions) {
   return apiRequest<TreeholeListResponse>(
     `/api/treehole/posts/me${buildQueryString({
+      page: params.page,
+      pageSize: params.pageSize,
+    })}`,
+    {},
+    { signal: options?.signal }
+  );
+}
+
+export async function getUserTreeholePosts(
+  userId: number,
+  params: TreeholeListParams,
+  options?: RequestOptions
+) {
+  return apiRequest<TreeholeListResponse>(
+    `/api/treehole/users/${userId}/posts${buildQueryString({
       page: params.page,
       pageSize: params.pageSize,
     })}`,
@@ -128,13 +98,13 @@ export async function createTreeholePost(payload: { content: string }) {
 }
 
 export async function likeTreeholePost(postId: number) {
-  return apiRequest<TreeholePost>(`/api/treehole/posts/${postId}/like`, {
+  return apiRequest<TreeholeLikeResult>(`/api/treehole/posts/${postId}/like`, {
     method: 'PUT',
   });
 }
 
 export async function unlikeTreeholePost(postId: number) {
-  return apiRequest<TreeholePost>(`/api/treehole/posts/${postId}/like`, {
+  return apiRequest<TreeholeLikeResult>(`/api/treehole/posts/${postId}/like`, {
     method: 'DELETE',
   });
 }

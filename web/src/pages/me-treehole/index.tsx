@@ -1,16 +1,16 @@
 /**
- * [INPUT]: 依赖当前用户 Treehole 列表/提醒、个人树洞面板、发布与详情弹层
+ * [INPUT]: 依赖当前用户 Treehole 列表、个人树洞面板、发布、详情与 Social 导航
  * [OUTPUT]: 对外提供 MeTreeholePage，展示当前用户的树洞动态列表
  * [POS]: pages/me-treehole 的路由编排器，统一提醒已读与详情查询参数
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { ArrowLeft, Plus } from 'lucide-react';
-import { startTransition, useEffect, useRef } from 'react';
+import { startTransition, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { appRoutes } from '@/app/router/paths';
 import { useUiStore } from '@/app/state/ui-store';
-import { useMyTreeholeInfinitePostsQuery, useReadAllTreeholeNotificationsMutation } from '@/entities/treehole/api/treehole-queries';
+import { useMyTreeholeInfinitePostsQuery } from '@/entities/treehole/api/treehole-queries';
 import { Button } from '@/shared/ui/button';
 import { IconButton } from '@/shared/ui/icon-button';
 import { PageHeader } from '@/shared/ui/page-header';
@@ -23,20 +23,12 @@ export function MeTreeholePage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const setActiveTab = useUiStore((state) => state.setActiveTab);
   const openComposeSheet = useUiStore((state) => state.openTreeholeComposeSheet);
-  const readAllNotificationsMutation = useReadAllTreeholeNotificationsMutation();
-  const notificationsReadTriggeredRef = useRef(false);
   const myPostsQuery = useMyTreeholeInfinitePostsQuery({ pageSize: 12 });
   const myPosts = myPostsQuery.data?.pages.flatMap((page) => page.items) ?? [];
   const rawPostId = Number(searchParams.get('postId'));
   const postId = Number.isInteger(rawPostId) && rawPostId > 0 ? rawPostId : null;
 
   useEffect(() => setActiveTab('me'), [setActiveTab]);
-
-  useEffect(() => {
-    if (notificationsReadTriggeredRef.current) return;
-    notificationsReadTriggeredRef.current = true;
-    readAllNotificationsMutation.mutate();
-  }, [readAllNotificationsMutation]);
 
   function patchSearchParams(patcher: (params: URLSearchParams) => void) {
     startTransition(() => {
@@ -72,7 +64,12 @@ export function MeTreeholePage() {
       />
 
       <TreeholeComposeSheet />
-      <TreeholeDetailSheet postId={postId} onClose={() => patchSearchParams((params) => params.delete('postId'))} />
+      <TreeholeDetailSheet
+        postId={postId}
+        onClose={() => patchSearchParams((params) => params.delete('postId'))}
+        onMessageAuthor={(userId) => navigate(`${appRoutes.messages}?userId=${userId}`)}
+        onOpenProfile={(userId) => navigate(`${appRoutes.treehole}?profileUserId=${userId}`)}
+      />
     </div>
   );
 }

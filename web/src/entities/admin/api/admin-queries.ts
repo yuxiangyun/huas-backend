@@ -1,11 +1,11 @@
 /**
  * [INPUT]: 依赖 admin API、稳定 query keys、后台会话与 TanStack Query 缓存原语
- * [OUTPUT]: 提供后台资源查询/变更 hooks，包含课表来源策略查询与权威快照写回
+ * [OUTPUT]: 提供后台资源查询/变更 hooks，包含私信会话/消息三态读取与课表策略写回
  * [POS]: entities/admin 的服务器状态编排层，页面只组合查询结果和用户动作
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AdminSession } from '@/features/admin-treehole/model/admin-session';
 import {
   createAdminAnnouncement,
@@ -16,6 +16,9 @@ import {
   getAdminAnnouncements,
   getAdminAnalyticsOverview,
   getAdminDashboard,
+  getAdminMessagingConversationChanges,
+  getAdminMessagingConversations,
+  getAdminMessagingMessages,
   getAdminScheduleSourcePolicy,
   getAdminTerminalLogs,
   getAdminTreeholeComments,
@@ -120,6 +123,65 @@ export function useAdminTreeholePostsQuery(
     queryKey: adminQueryKeys.treeholePosts(params),
     queryFn: ({ signal }) => getAdminTreeholePosts(params, { signal }),
     enabled: session !== null,
+  });
+}
+
+export function useAdminMessagingConversationsQuery(
+  session: AdminSession | null,
+  params: { page?: number; pageSize?: number }
+) {
+  return useQuery({
+    queryKey: adminQueryKeys.messagingConversations(params),
+    queryFn: ({ signal }) => getAdminMessagingConversations(params, { signal }),
+    enabled: session !== null,
+  });
+}
+
+export function useAdminMessagingConversationChangesQuery(
+  session: AdminSession | null,
+  afterMessageId: number | null
+) {
+  return useQuery({
+    queryKey: adminQueryKeys.messagingConversationChanges(afterMessageId ?? 0),
+    queryFn: ({ signal }) => getAdminMessagingConversationChanges(afterMessageId ?? 0, 100, { signal }),
+    enabled: session !== null && afterMessageId !== null,
+    refetchInterval: 10_000,
+    staleTime: 0,
+  });
+}
+
+export function useAdminMessagingMessagesInfiniteQuery(
+  session: AdminSession | null,
+  conversationId: number | null
+) {
+  return useInfiniteQuery({
+    initialPageParam: null as number | null,
+    queryKey: adminQueryKeys.messagingMessages(conversationId ?? 0),
+    queryFn: ({ pageParam, signal }) => getAdminMessagingMessages(
+      conversationId!,
+      pageParam === null ? { limit: 50 } : { beforeMessageId: pageParam, limit: 50 },
+      { signal }
+    ),
+    getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.beforeMessageId ?? undefined : undefined),
+    enabled: session !== null && conversationId !== null,
+  });
+}
+
+export function useAdminMessagingMessageChangesQuery(
+  session: AdminSession | null,
+  conversationId: number | null,
+  afterMessageId: number | null
+) {
+  return useQuery({
+    queryKey: adminQueryKeys.messagingMessageChanges(conversationId ?? 0, afterMessageId ?? 0),
+    queryFn: ({ signal }) => getAdminMessagingMessages(
+      conversationId!,
+      { afterMessageId: afterMessageId!, limit: 100 },
+      { signal }
+    ),
+    enabled: session !== null && conversationId !== null && afterMessageId !== null,
+    refetchInterval: 5_000,
+    staleTime: 0,
   });
 }
 

@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Discover 元数据/创建 hooks、React Hook Form、图片预览与发布弹层状态
- * [OUTPUT]: 对外提供 DiscoverComposeSheet，以可滚动弹窗提交好饭推荐
+ * [OUTPUT]: 对外提供 DiscoverComposeSheet，以首张图片作为主图的可滚动弹窗提交好饭推荐
  * [POS]: widgets/discover-compose-sheet 的长表单容器，只显示必要校验与失败反馈
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -34,6 +34,7 @@ function parseCustomTags(raw: string | undefined) {
 
 const DISCOVER_IMAGE_ACCEPT =
   'image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,image/avif,image/tiff,.jpg,.jpeg,.png,.webp,.gif,.heic,.heif,.avif,.tif,.tiff';
+const MAX_DISCOVER_IMAGE_BYTES = 32 * 1024 * 1024;
 
 export function DiscoverComposeSheet() {
   const composeSheetOpen = useUiStore((state) => state.discoverComposeSheetOpen);
@@ -69,6 +70,7 @@ export function DiscoverComposeSheet() {
   const maxStoreNameLength = metaQuery.data?.limits.maxStoreNameLength ?? 32;
   const maxPriceTextLength = metaQuery.data?.limits.maxPriceTextLength ?? 20;
   const maxContentLength = metaQuery.data?.limits.maxContentLength ?? 400;
+  const maxTagLength = metaQuery.data?.limits.maxTagLength ?? 12;
 
   useEffect(() => {
     if (!composeSheetOpen || !metaQuery.data?.categories.length) return;
@@ -109,6 +111,10 @@ export function DiscoverComposeSheet() {
     }
     if (uniqueTags.length > maxTags) {
       setSelectionError(`标签不能超过 ${maxTags} 个`);
+      return;
+    }
+    if (uniqueTags.some((tag) => Array.from(tag).length > maxTagLength)) {
+      setSelectionError(`单个标签不能超过 ${maxTagLength} 个字`);
       return;
     }
     if (selectedFiles.length === 0) {
@@ -216,6 +222,7 @@ export function DiscoverComposeSheet() {
 
             <fieldset className="space-y-3 border-t border-line pt-5">
               <legend className="text-sm font-medium">图片</legend>
+              <p className="text-xs text-muted">上传顺序中的第一张图片将作为信息流主图。</p>
               <label className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-[0.625rem] border border-line bg-white px-3 text-sm font-medium shadow-card hover:bg-tint-soft">
                 <ImagePlus aria-hidden="true" className="size-4" />
                 添加图片
@@ -225,7 +232,16 @@ export function DiscoverComposeSheet() {
                   multiple
                   type="file"
                   onChange={(event) => {
-                    const nextFiles = Array.from(event.target.files || []).slice(0, maxImages);
+                    const nextFiles = Array.from(event.target.files || []);
+                    event.target.value = '';
+                    if (nextFiles.length > maxImages) {
+                      setSelectionError(`每条好饭最多添加 ${maxImages} 张图片`);
+                      return;
+                    }
+                    if (nextFiles.some((file) => file.size > MAX_DISCOVER_IMAGE_BYTES)) {
+                      setSelectionError('单张图片不能超过 32MB');
+                      return;
+                    }
                     setSelectedFiles(nextFiles);
                     setSelectionError(null);
                     setActivePreviewIndex(null);
@@ -237,6 +253,7 @@ export function DiscoverComposeSheet() {
                 <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
                   {previewUrls.map((item, itemIndex) => (
                     <div key={`${item.file.name}-${item.file.lastModified}`} className="relative overflow-hidden rounded-[0.625rem] border border-line bg-tint-soft">
+                      {itemIndex === 0 ? <span className="absolute left-1.5 top-1.5 z-10 rounded-full bg-black/70 px-2 py-1 text-[10px] font-medium text-white">主图</span> : null}
                       <button className="block w-full" type="button" onClick={() => setActivePreviewIndex(itemIndex)}>
                         <img alt={item.file.name} className="aspect-square w-full object-cover" src={item.url} />
                       </button>
@@ -254,7 +271,7 @@ export function DiscoverComposeSheet() {
             </fieldset>
 
             {selectionError ? <p className="text-sm text-error">{selectionError}</p> : null}
-            {createMutation.isError ? <p className="text-sm text-error">发布失败，请重试</p> : null}
+            {createMutation.isError ? <p className="text-sm text-error">{createMutation.error instanceof Error ? createMutation.error.message : '发布失败，请重试'}</p> : null}
           </form>
         ) : null}
       </TaskDialog>

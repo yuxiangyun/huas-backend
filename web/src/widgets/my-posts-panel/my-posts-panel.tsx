@@ -5,7 +5,7 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { MessageCircle, Star } from 'lucide-react';
+import { Heart, MessageCircle } from 'lucide-react';
 import type { DiscoverPost } from '@/entities/discover/model/discover-types';
 import { buildMediaUrl } from '@/shared/api/media';
 import { Button } from '@/shared/ui/button';
@@ -45,7 +45,7 @@ export function MyPostsPanel({ hasMore = false, loading = false, loadingMore = f
               <p className="text-clamp-2 text-sm leading-6 text-muted">{post.content}</p>
               <div className="flex items-center justify-between gap-3 text-xs text-muted">
                 <span>{formatPublishedAt(post.publishedAt)}</span>
-                <span className="flex items-center gap-3"><span className="inline-flex items-center gap-1"><Star aria-hidden="true" className="size-3.5" />{post.rating.average.toFixed(1)}</span><span className="inline-flex items-center gap-1"><MessageCircle aria-hidden="true" className="size-3.5" />{post.commentCount}</span></span>
+                <span className="flex items-center gap-3"><span className="inline-flex items-center gap-1"><Heart aria-hidden="true" className="size-3.5" />{post.likeCount}</span><span className="inline-flex items-center gap-1"><MessageCircle aria-hidden="true" className="size-3.5" />{post.commentCount}</span></span>
               </div>
             </div>
           </Card>

@@ -128,7 +128,7 @@ export function AdminDiscoverPage() {
                 <th className="w-[12rem] px-4 py-3 font-medium">标题</th>
                 <th className="w-[7rem] px-4 py-3 font-medium">分类</th>
                 <th className="w-[9rem] px-4 py-3 font-medium">作者</th>
-                <th className="w-[8rem] px-4 py-3 font-medium">评分</th>
+                <th className="w-[8rem] px-4 py-3 font-medium">点赞</th>
                 <th className="w-[10rem] px-4 py-3 font-medium">发布时间</th>
                 <th className="px-4 py-3 font-medium">操作</th>
               </tr>
@@ -152,8 +152,8 @@ export function AdminDiscoverPage() {
                   </td>
                   <td className="px-4 py-3 text-ink">{item.title || '-'}</td>
                   <td className="px-4 py-3 text-muted">{item.category}</td>
-                  <td className="px-4 py-3 text-muted">{item.authorLabel}</td>
-                  <td className="px-4 py-3 text-muted">{item.ratingAverage} / {item.ratingCount}</td>
+                  <td className="px-4 py-3 text-muted">{item.authorDisplayName}</td>
+                  <td className="px-4 py-3 text-muted">{item.likeCount}</td>
                   <td className="px-4 py-3 text-muted">{formatDateTime(item.publishedAt)}</td>
                   <td className="px-4 py-3">
                     <Button

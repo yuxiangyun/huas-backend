@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖本模块相邻类型、API 与应用基础设施
- * [OUTPUT]: 提供 http-client.ts 的公开前端契约与运行能力
- * [POS]: web 应用分层中的现有业务边界，被页面或上层模块消费
+ * [INPUT]: 依赖普通用户认证状态、站内登录重定向与 API 基地址
+ * [OUTPUT]: 对外提供 JSON envelope、ApiError、Bearer 与后台 Cookie 两类二进制请求
+ * [POS]: shared/api 的统一 HTTP 边界，业务实体和两类私有媒体不得绕过此处裸写 fetch
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -67,6 +67,37 @@ function handleUnauthorized(response: Response) {
     const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
     window.location.replace(buildLoginRedirectPath(currentPath));
   }
+}
+
+export async function authenticatedFetch(path: string, init: RequestInit = {}) {
+  const headers = new Headers(init.headers);
+  headers.set('X-Client-Platform', 'web');
+  const token = useAuthStore.getState().token;
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+
+  const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
+  handleUnauthorized(response);
+  if (!response.ok) {
+    throw new ApiError(response.status, null, '私有媒体加载失败');
+  }
+  return response;
+}
+
+export async function adminSessionFetch(path: string, init: RequestInit = {}) {
+  const headers = new Headers(init.headers);
+  headers.set('X-Client-Platform', 'web');
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    credentials: 'include',
+    headers,
+  });
+  if (response.status === 401 && typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('huas:admin-session-expired'));
+  }
+  if (!response.ok) {
+    throw new ApiError(response.status, null, '管理媒体加载失败');
+  }
+  return response;
 }
 
 export async function requestEnvelope<T>(
