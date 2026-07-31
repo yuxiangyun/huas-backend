@@ -70,6 +70,9 @@ describe('deployment scripts', () => {
     }
     expect(blueGreen).toContain('bun_bin="$(command -v bun)"');
     expect(blueGreen).toContain("args: 'run src/index.ts'");
+    expect(blueGreen).toContain('pm2 delete "$app_name"');
+    expect(blueGreen).toContain('pm2 start "$ecosystem_file" --only "$app_name" --update-env');
+    expect(blueGreen).not.toContain('pm2 startOrReload');
     expect(ecosystem).toContain("script: '/usr/bin/env'");
     expect(ecosystem).toContain("args: 'bun run src/index.ts'");
   });

@@ -363,7 +363,11 @@ module.exports = {
 };
 EOF
 
-  pm2 startOrReload "$ecosystem_file" --only "$app_name" --update-env
+  # PM2 的 startOrReload 不会收敛既有进程的 script path/interpreter；目标槽停写后重建元数据。
+  if pm2 describe "$app_name" >/dev/null 2>&1; then
+    pm2 delete "$app_name" >/dev/null
+  fi
+  pm2 start "$ecosystem_file" --only "$app_name" --update-env
 }
 
 wait_for_health() {
