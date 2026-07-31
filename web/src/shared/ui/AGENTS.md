@@ -18,7 +18,7 @@ segmented-control.tsx: 分段选择原语，支持等宽/内容宽排布与可�
 social-page-title.tsx: Social 四个主 Tab 的中文楷体字标原语，统一字号、字重与字距且不引入外部字体请求
 task-dialog.tsx: 表单与裁切任务容器，基于 Radix Dialog 提供居中/移动全屏展示及业务可替换头尾布局协议
 toast-viewport.tsx: 全局消息视口，消费 toast store 并在壳层安全区内呈现反馈
-unread-badge.tsx: 导航、分段控件与会话列表共享的紧凑未读数字徽标
+unread-badge.tsx: 导航、分段控件与会话列表共享的固定高度未读徽标，单数字保持正圆且多数字按内容扩展
 
 架构决策
 shared/ui 不调用业务 API 也不持有路由语义；组件只暴露可组合的视觉与交互协议，业务判断由 pages/features/widgets 上层完成。

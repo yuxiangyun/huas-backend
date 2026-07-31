@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Messaging 用户目标定位、历史/增量/发送/已读 hooks、TaskDialog、动作菜单与私有媒体原语
- * [OUTPUT]: 对外提供 ChatSheet，以 userId 定位唯一会话并支持空会话首发、分组图文气泡、历史分页和实时增量
+ * [OUTPUT]: 对外提供 ChatSheet，以纯白对话基底支持 userId 唯一定位、空会话首发、分组图文气泡、历史分页和实时增量
  * [POS]: widgets/chat-sheet 的私信任务容器，只持有目标用户范围内的编辑与消息状态，不接受独立会话事实
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -345,15 +345,15 @@ export function ChatSheet({ userId, onClose, onOpenProfile }: ChatSheetProps) {
       footer={target ? composer : undefined}
       footerClassName="border-t-0 px-[10px] pb-[max(10px,env(safe-area-inset-bottom))] pt-[9px] shadow-[0_-8px_26px_rgba(0,0,0,0.05)] sm:px-[10px] sm:pb-[10px] sm:pt-[9px]"
       header={chatHeader}
-      headerClassName="h-[calc(62px+env(safe-area-inset-top))] items-end justify-start border-0 bg-white/95 px-2 pb-[9px] pt-[env(safe-area-inset-top)] backdrop-blur-2xl sm:h-[62px] sm:items-end sm:px-2 sm:pb-[9px] sm:pt-0"
+      headerClassName="h-[calc(62px+env(safe-area-inset-top))] items-end justify-start border-0 bg-white px-2 pb-[9px] pt-[env(safe-area-inset-top)] sm:h-[62px] sm:items-end sm:px-2 sm:pb-[9px] sm:pt-0"
       open={userId !== null}
       title={target?.displayName ?? '私信'}
       onClose={onClose}
     >
-      <div className="flex h-full min-h-0 flex-col bg-[#f7f8fa]">
+      <div className="flex h-full min-h-0 flex-col bg-white">
         {targetQuery.isLoading ? <div className="h-1 w-full animate-pulse bg-line" aria-hidden="true" /> : null}
         {targetQuery.isError ? <EmptyState title="用户资料加载失败" /> : null}
-        <div className="scrollbar-hidden min-h-0 flex-1 overflow-y-auto bg-[#f7f8fa] px-[13px] pb-[22px] pt-[14px]">
+        <div className="scrollbar-hidden min-h-0 flex-1 overflow-y-auto bg-white px-[13px] pb-[22px] pt-[14px]">
           {effectiveConversationId && messagesQuery.hasNextPage ? (
             <div className="flex justify-center">
               <Button disabled={messagesQuery.isFetchingNextPage} size="xs" variant="ghost" onClick={() => void messagesQuery.fetchNextPage()}>

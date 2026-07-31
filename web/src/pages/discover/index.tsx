@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Discover 元数据/列表缓存、URL 查询参数与发布/详情弹层加载器
- * [OUTPUT]: 对外提供 DiscoverPage，以共享 Social 字标编排拍好饭排序、分类、刷新、发布与详情路由状态
+ * [OUTPUT]: 对外提供 DiscoverPage，以紧凑统一的 Social 顶栏编排拍好饭排序、分类、刷新、发布与详情路由状态
  * [POS]: pages/discover 的路由级组装器，原子维护帖子详情与公共资料互斥并将数据语义下沉至 entities/widgets
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -164,8 +164,17 @@ export function DiscoverPage() {
   return (
     <div className="-mx-4 space-y-0 bg-white sm:mx-0 sm:bg-transparent">
       <PageHeader
-        action={<IconButton icon={<Plus aria-hidden="true" className="size-6" />} label="发布好饭" size="md" variant="ghost" onClick={handleOpenComposeSheet} />}
-        className="mx-auto w-full max-w-[34rem] px-4 py-4 sm:px-0"
+        action={(
+          <IconButton
+            className="-mr-1 text-ink hover:bg-[#f2f2f2]"
+            icon={<Plus aria-hidden="true" className="size-6" strokeWidth={1.8} />}
+            label="发布好饭"
+            size="md"
+            variant="ghost"
+            onClick={handleOpenComposeSheet}
+          />
+        )}
+        className="mx-auto w-full max-w-[34rem] px-4 py-3 sm:px-0 sm:py-4"
         compact
         title={<SocialPageTitle>好饭</SocialPageTitle>}
       />
