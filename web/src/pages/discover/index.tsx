@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 Discover 元数据/列表缓存、URL 查询参数与发布/详情弹层加载器
- * [OUTPUT]: 对外提供 DiscoverPage，编排拍好饭排序、分类、刷新、发布与详情路由状态
- * [POS]: pages/discover 的路由级组装器，将数据语义下沉至 entities/widgets，自身只协调页面状态
+ * [OUTPUT]: 对外提供 DiscoverPage，以共享 Social 字标编排拍好饭排序、分类、刷新、发布与详情路由状态
+ * [POS]: pages/discover 的路由级组装器，原子维护帖子详情与公共资料互斥并将数据语义下沉至 entities/widgets
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -21,6 +21,8 @@ import {
 import { DiscoverFeed } from '@/widgets/discover-feed/discover-feed';
 import { IconButton } from '@/shared/ui/icon-button';
 import { PageHeader } from '@/shared/ui/page-header';
+import { SocialPageTitle } from '@/shared/ui/social-page-title';
+import { selectSocialPost } from '@/pages/social-route-state';
 
 const loadDiscoverComposeSheet = () => import('@/widgets/discover-compose-sheet/discover-compose-sheet');
 const loadDiscoverDetailSheet = () => import('@/widgets/discover-detail-sheet/discover-detail-sheet');
@@ -146,7 +148,7 @@ export function DiscoverPage() {
     setDetailSheetRequested(true);
     void loadDiscoverDetailSheet();
     patchSearchParams((params) => {
-      params.set('postId', String(nextPostId));
+      selectSocialPost(params, nextPostId);
     });
   };
 
@@ -163,10 +165,9 @@ export function DiscoverPage() {
     <div className="-mx-4 space-y-0 bg-white sm:mx-0 sm:bg-transparent">
       <PageHeader
         action={<IconButton icon={<Plus aria-hidden="true" className="size-6" />} label="发布好饭" size="md" variant="ghost" onClick={handleOpenComposeSheet} />}
-        className="mx-auto w-full max-w-[34rem] px-4 pb-3 sm:px-0"
+        className="mx-auto w-full max-w-[34rem] px-4 py-4 sm:px-0"
         compact
-        title="好饭"
-        titleClassName="font-extrabold"
+        title={<SocialPageTitle>好饭</SocialPageTitle>}
       />
       <DiscoverFeed
         categories={metaQuery.data?.categories ?? DISCOVER_CATEGORIES}

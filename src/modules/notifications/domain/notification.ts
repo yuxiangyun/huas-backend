@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 Community 公共资料 DTO 与共享北京时间格式化，不依赖 HTTP、SQLite 或进程调度
- * [OUTPUT]: 对外提供通知事实/响应、普通分页与增量游标 DTO、策略边界及公共 actor 映射纯函数
- * [POS]: modules/notifications/domain 的永久读模型内核，以通知 ID 为轮询高水位且不保存或返回互动正文
+ * [OUTPUT]: 对外提供通知事实/响应、普通分页、增量游标与未读摘要 DTO、策略边界及公共 actor 映射纯函数
+ * [POS]: modules/notifications/domain 的永久读模型内核，以通知 ID 发现新增、以摘要总量感知撤销且不返回互动正文
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -71,6 +71,11 @@ export interface NotificationChangesResponse {
   items: NotificationResponse[];
   afterNotificationId: number;
   hasMore: boolean;
+}
+
+export interface NotificationSummary {
+  unreadCount: number;
+  total: number;
 }
 
 export function clampNotificationPage(value: number | undefined): number {

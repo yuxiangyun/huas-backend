@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 package.json 与 GitHub Actions check workflow 文本
- * [OUTPUT]: 验证本地 check 的最小质量链路及 CI 单 job、触发器、并发取消配置
- * [POS]: tests 的 Runtime 工程静态验收套件；共享测试地图由总控统一回环
+ * [INPUT]: 依赖 package.json、bunfig.toml 与 GitHub Actions check workflow 文本
+ * [OUTPUT]: 验证测试数据库默认隔离、本地 check 最小质量链路及 CI 单 job、触发器、并发取消配置
+ * [POS]: tests 的 Runtime 工程静态验收套件，阻止直接 bun test 绕过临时 SQLite preload
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -10,6 +10,12 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 describe('runtime local and CI quality gate', () => {
+  it('preloads the isolated SQLite setup for every bun test invocation', async () => {
+    const bunfig = await readFile(join(process.cwd(), 'bunfig.toml'), 'utf8');
+    expect(bunfig).toContain('[test]');
+    expect(bunfig).toContain('preload = ["./tests/setup.ts"]');
+  });
+
   it('defines check as typecheck, stable full test and migration verification', async () => {
     const packageJson = JSON.parse(await readFile(join(process.cwd(), 'package.json'), 'utf8'));
     expect(packageJson.scripts.check).toBe('bun run typecheck && bun run test && bun run db:verify');

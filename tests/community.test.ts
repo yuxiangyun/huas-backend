@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 Community/Identity 构造注入 adapters、Hono 路由 factory、隔离 SQLite、sharp 与临时头像目录
- * [OUTPUT]: 覆盖默认 displayName、昵称后端校验、当前/公共 DTO 隔离及新旧头像媒体生命周期
- * [POS]: tests 的 Community 纵向切片专项回归，锁定本人编辑字段与公共身份最小披露边界
+ * [OUTPUT]: 覆盖默认 displayName、昵称校验、公共 DTO、并发字段 patch、头像引用保护与媒体生命周期
+ * [POS]: tests 的 Community 纵向切片专项回归，锁定本人编辑并发安全与公共身份最小披露边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -57,7 +57,9 @@ function createHttpApp() {
     c.set('userId', Number.isInteger(headerUserId) && headerUserId > 0 ? headerUserId : currentUserId);
     await next();
   });
-  app.route('/community', createCommunityRoutes(service));
+  app.route('/community', createCommunityRoutes(service, {
+    avatarMaxBytes: config.community.avatarMaxBytes,
+  }));
   return app;
 }
 
@@ -177,6 +179,71 @@ describe('Community public profile', () => {
 });
 
 describe('Community avatar media', () => {
+  test('preserves concurrent nickname and avatar field updates', async () => {
+    const oldAvatarUrl = '/media/treehole-avatar/old.webp';
+    const candidateAvatarUrl = '/media/treehole-avatar/candidate.webp';
+    await profiles.patch(currentUserId, {
+      nickname: '原昵称',
+      avatarUrl: oldAvatarUrl,
+    });
+
+    let releaseStore!: () => void;
+    let reportStoreStarted!: () => void;
+    const storeGate = new Promise<void>((resolve) => { releaseStore = resolve; });
+    const storeStarted = new Promise<void>((resolve) => { reportStoreStarted = resolve; });
+    const removed: string[] = [];
+    const concurrentService = new CommunityApplicationService(
+      new SQLiteCommunityIdentityReader(db),
+      profiles,
+      {
+        async storeAvatar() {
+          reportStoreStarted();
+          await storeGate;
+          return candidateAvatarUrl;
+        },
+        async removeAvatar(avatarUrl) { removed.push(avatarUrl); },
+      },
+    );
+
+    const avatarUpdate = concurrentService.updateProfile(currentUserId, {
+      avatar: new File(['candidate'], 'candidate.png'),
+    });
+    await storeStarted;
+    await concurrentService.updateProfile(currentUserId, { nickname: '并发新昵称' });
+    releaseStore();
+    await avatarUpdate;
+
+    expect((await profiles.getMany([currentUserId])).get(currentUserId)).toEqual({
+      userId: currentUserId,
+      nickname: '并发新昵称',
+      avatarUrl: candidateAvatarUrl,
+    });
+    expect(removed).toEqual([oldAvatarUrl]);
+  });
+
+  test('does not delete a replaced avatar URL while another profile still references it', async () => {
+    const sharedAvatarUrl = '/media/treehole-avatar/shared.webp';
+    const candidateAvatarUrl = '/media/treehole-avatar/candidate.webp';
+    await profiles.patch(currentUserId, { avatarUrl: sharedAvatarUrl });
+    await profiles.patch(otherUserId, { avatarUrl: `${sharedAvatarUrl}?v=legacy` });
+    const removed: string[] = [];
+    const guardedService = new CommunityApplicationService(
+      new SQLiteCommunityIdentityReader(db),
+      profiles,
+      {
+        async storeAvatar() { return candidateAvatarUrl; },
+        async removeAvatar(avatarUrl) { removed.push(avatarUrl); },
+      },
+    );
+
+    await guardedService.updateProfile(currentUserId, {
+      avatar: new File(['candidate'], 'candidate.png'),
+    });
+
+    expect(removed).toEqual([]);
+    expect(await profiles.isAvatarPublished(sharedAvatarUrl)).toBe(true);
+  });
+
   test('preserves the profile write error when candidate cleanup also fails', async () => {
     const writeError = new Error('profile write failed');
     const isolatedService = new CommunityApplicationService(
@@ -185,7 +252,7 @@ describe('Community avatar media', () => {
       },
       {
         getMany: async () => new Map(),
-        save: async () => { throw writeError; },
+        patch: async () => { throw writeError; },
         isAvatarPublished: async () => false,
       },
       {
@@ -239,8 +306,7 @@ describe('Community avatar media', () => {
       join(config.community.avatarStorageRoot, `${currentUserId}.webp`),
       await sharp({ create: { width: 16, height: 16, channels: 3, background: '#fff' } }).webp().toBuffer(),
     );
-    await profiles.save({
-      userId: currentUserId,
+    await profiles.patch(currentUserId, {
       nickname: null,
       avatarUrl: `${publicPath}?v=legacy`,
     });

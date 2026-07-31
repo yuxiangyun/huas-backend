@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 Messaging/Notifications 分页与高水位查询、共享头像/状态原语及上层导航动作
- * [OUTPUT]: 对外提供 MessageCenter，以私信和互动两个读模型呈现紧凑消息列表
- * [POS]: widgets/message-center 的聚合读容器，不持有路由查询参数或聊天发送状态
+ * [INPUT]: 依赖 Messaging/Notifications 分页、高水位与通知总量摘要、共享头像/状态原语及上层导航动作
+ * [OUTPUT]: 对外提供 MessageCenter，以服务端排序快照呈现私信和互动，并在新增或撤销时校准通知列表
+ * [POS]: widgets/message-center 的聚合读容器，不自行复制通知排序或只追加生命周期模型
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -19,12 +19,14 @@ import {
   useNotificationUnreadCountQuery,
 } from '@/entities/notifications/api/notification-queries';
 import type { ActivityNotification, NotificationType } from '@/entities/notifications/model/notification-types';
+import { shouldReconcileNotificationSnapshot } from '@/entities/notifications/model/notification-reconciliation';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
 import { EmptyState } from '@/shared/ui/empty-state';
 import { PageHeader } from '@/shared/ui/page-header';
 import { SegmentedControl } from '@/shared/ui/segmented-control';
 import { CommunityAvatar } from '@/shared/ui/community-avatar';
+import { SocialPageTitle } from '@/shared/ui/social-page-title';
 import { UnreadBadge } from '@/shared/ui/unread-badge';
 
 export type MessageSection = 'conversations' | 'notifications';
@@ -77,14 +79,6 @@ function mergeConversations(base: Conversation[], changes: ReadonlyMap<number, C
   });
 }
 
-function mergeNotifications(base: ActivityNotification[], changes: ReadonlyMap<number, ActivityNotification>) {
-  const merged = new Map(base.map((item) => [item.id, item]));
-  changes.forEach((item, id) => {
-    if (!merged.has(id)) merged.set(id, item);
-  });
-  return [...merged.values()].sort((left, right) => right.id - left.id);
-}
-
 function ListSkeleton() {
   return (
     <div className="divide-y divide-line" aria-hidden="true">
@@ -117,9 +111,9 @@ export function MessageCenter({ section, onSectionChange, onOpenConversation, on
   const [conversationWatermark, setConversationWatermark] = useState<number | null>(null);
   const [notificationWatermark, setNotificationWatermark] = useState<number | null>(null);
   const [conversationChanges, setConversationChanges] = useState<Map<number, Conversation>>(() => new Map());
-  const [notificationChanges, setNotificationChanges] = useState<Map<number, ActivityNotification>>(() => new Map());
   const conversationChangesQuery = useConversationChangesQuery(conversationWatermark);
   const notificationChangesQuery = useNotificationChangesQuery(notificationWatermark);
+  const refetchNotifications = notificationsQuery.refetch;
 
   useEffect(() => {
     if (!conversationsQuery.isSuccess || conversationWatermark !== null) return;
@@ -147,30 +141,29 @@ export function MessageCenter({ section, onSectionChange, onOpenConversation, on
   useEffect(() => {
     const data = notificationChangesQuery.data;
     if (!data) return;
-    if (data.items.length > 0) {
-      setNotificationChanges((current) => {
-        const next = new Map(current);
-        data.items.forEach((item) => next.set(item.id, item));
-        return next;
-      });
-    }
+    if (data.items.length > 0) void refetchNotifications();
     setNotificationWatermark((current) => Math.max(current ?? 0, data.afterNotificationId));
-  }, [notificationChangesQuery.data]);
+  }, [notificationChangesQuery.data, refetchNotifications]);
+
+  const notificationSnapshotTotal = notificationsQuery.data?.pages[0]?.total ?? null;
+  const notificationSummaryTotal = notificationUnreadQuery.data?.total ?? null;
+
+  useEffect(() => {
+    if (!shouldReconcileNotificationSnapshot(notificationSnapshotTotal, notificationSummaryTotal)) return;
+    void refetchNotifications();
+  }, [notificationSnapshotTotal, notificationSummaryTotal, refetchNotifications]);
 
   const conversations = useMemo(
     () => mergeConversations(baseConversations, conversationChanges),
     [baseConversations, conversationChanges]
   );
-  const notifications = useMemo(
-    () => mergeNotifications(baseNotifications, notificationChanges),
-    [baseNotifications, notificationChanges]
-  );
+  const notifications = baseNotifications;
   const messagingUnread = messagingUnreadQuery.data?.unreadCount ?? 0;
   const notificationUnread = notificationUnreadQuery.data?.unreadCount ?? 0;
 
   return (
     <div className="page-stack-mobile">
-      <PageHeader compact title="消息" />
+      <PageHeader className="py-4" compact title={<SocialPageTitle>消息</SocialPageTitle>} />
       <SegmentedControl
         items={[
           { value: 'conversations', label: <span className="inline-flex items-center gap-2">私信<UnreadBadge count={messagingUnread} /></span> },

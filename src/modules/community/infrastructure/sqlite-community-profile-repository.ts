@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖构造注入的 Drizzle db、community_profiles schema 与 Community 仓储端口
- * [OUTPUT]: 对外提供 SQLiteCommunityProfileRepository，批量读写昵称/头像并校验已发布媒体
- * [POS]: modules/community/infrastructure 的资料事实 adapter，只访问 community_profiles，不 JOIN users
+ * [OUTPUT]: 对外提供 SQLiteCommunityProfileRepository，批量读取、字段级原子 patch 并校验头像引用
+ * [POS]: modules/community/infrastructure 的资料事实 adapter，以 SQLite 短事务返回被替换头像且不覆盖并发字段
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -9,12 +9,23 @@ import { eq, inArray, like, or } from 'drizzle-orm';
 import { schema } from '../../../db';
 import type { getDb } from '../../../db';
 import type { StoredCommunityProfile } from '../domain/community';
-import type { CommunityProfileRepository } from '../domain/ports';
+import type {
+  CommunityProfilePatch,
+  CommunityProfileRepository,
+} from '../domain/ports';
 
 export type CommunityDatabase = ReturnType<typeof getDb>;
 
 function normalizeUserIds(userIds: readonly number[]) {
   return Array.from(new Set(userIds.filter((userId) => Number.isInteger(userId) && userId > 0)));
+}
+
+function toStoredProfile(row: StoredCommunityProfile): StoredCommunityProfile {
+  return {
+    userId: row.userId,
+    nickname: row.nickname?.trim() || null,
+    avatarUrl: row.avatarUrl || null,
+  };
 }
 
 export class SQLiteCommunityProfileRepository implements CommunityProfileRepository {
@@ -32,31 +43,58 @@ export class SQLiteCommunityProfileRepository implements CommunityProfileReposit
       .from(schema.communityProfiles)
       .where(inArray(schema.communityProfiles.userId, normalized));
 
-    return new Map(rows.map((row) => [row.userId, {
-      userId: row.userId,
-      nickname: row.nickname?.trim() || null,
-      avatarUrl: row.avatarUrl || null,
-    }]));
+    return new Map(rows.map((row) => [row.userId, toStoredProfile(row)]));
   }
 
-  async save(profile: StoredCommunityProfile): Promise<void> {
+  async patch(userId: number, patch: CommunityProfilePatch) {
+    const hasNickname = Object.prototype.hasOwnProperty.call(patch, 'nickname');
+    const hasAvatar = Object.prototype.hasOwnProperty.call(patch, 'avatarUrl');
+    if (!hasNickname && !hasAvatar) throw new Error('Community profile patch must not be empty.');
+
     const now = new Date();
-    await this.db.insert(schema.communityProfiles).values({
-      userId: profile.userId,
-      nickname: profile.nickname,
-      avatarUrl: profile.avatarUrl,
-      updatedAt: now,
-    }).onConflictDoUpdate({
-      target: schema.communityProfiles.userId,
-      set: {
-        nickname: profile.nickname,
-        avatarUrl: profile.avatarUrl,
+    return this.db.transaction((transaction) => {
+      const previous = hasAvatar
+        ? transaction.select({ avatarUrl: schema.communityProfiles.avatarUrl })
+          .from(schema.communityProfiles)
+          .where(eq(schema.communityProfiles.userId, userId))
+          .limit(1)
+          .all()[0]
+        : undefined;
+
+      transaction.insert(schema.communityProfiles).values({
+        userId,
+        nickname: hasNickname ? patch.nickname ?? null : null,
+        avatarUrl: hasAvatar ? patch.avatarUrl ?? null : null,
         updatedAt: now,
-      },
+      }).onConflictDoUpdate({
+        target: schema.communityProfiles.userId,
+        set: {
+          updatedAt: now,
+          ...(hasNickname ? { nickname: patch.nickname ?? null } : {}),
+          ...(hasAvatar ? { avatarUrl: patch.avatarUrl ?? null } : {}),
+        },
+      }).run();
+
+      const current = transaction.select({
+        userId: schema.communityProfiles.userId,
+        nickname: schema.communityProfiles.nickname,
+        avatarUrl: schema.communityProfiles.avatarUrl,
+      }).from(schema.communityProfiles)
+        .where(eq(schema.communityProfiles.userId, userId))
+        .limit(1)
+        .all()[0];
+      if (!current) throw new Error(`Community profile patch lost userId=${userId}`);
+
+      return {
+        profile: toStoredProfile(current),
+        replacedAvatarUrl: hasAvatar ? previous?.avatarUrl || null : null,
+      };
     });
   }
 
-  async isAvatarPublished(publicPath: string): Promise<boolean> {
+  async isAvatarPublished(avatarUrl: string): Promise<boolean> {
+    const publicPath = avatarUrl.split('?')[0] || '';
+    if (!publicPath) return false;
     const rows = await this.db.select({ avatarUrl: schema.communityProfiles.avatarUrl })
       .from(schema.communityProfiles)
       .where(or(

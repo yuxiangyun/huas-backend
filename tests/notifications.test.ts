@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 Notifications 纵向切片、注入式 CommunityProfileReader、Hono 与显式迁移的隔离 SQLite
- * [OUTPUT]: 覆盖回复差异类型、Outbox 幂等/撤销/退避、actor 投影、ID 增量轮询、逐条已读与永久保留
- * [POS]: tests 的 Notifications 专项回归，锁定 UGC 共用事件语义与 offset 翻页之外的稳定轮询边界
+ * [OUTPUT]: 覆盖回复差异、Outbox 幂等/撤销/退避/双层失败隔离、actor 投影、createdAt 排序、ID 增量与摘要校准
+ * [POS]: tests 的 Notifications 专项回归，锁定逐事件韧性、高水位发现新增、总量发现撤销且不轮询 offset 列表
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -218,6 +218,10 @@ describe('Notifications transactional outbox', () => {
     ));
     expect(await db.select().from(schema.activityOutbox)).toHaveLength(0);
     expect(await db.select().from(schema.notifications)).toHaveLength(0);
+    expect(await notifications.service.summarize(recipientUserId)).toEqual({
+      unreadCount: 0,
+      total: 0,
+    });
 
     await enqueue([event]);
     await db.transaction((transaction) => notifications.outboxWriter.removeLike(
@@ -229,6 +233,10 @@ describe('Notifications transactional outbox', () => {
     await enqueue([event]);
     await notifications.projector.runOnce();
     expect(await db.select().from(schema.notifications)).toHaveLength(1);
+    expect(await notifications.service.summarize(recipientUserId)).toEqual({
+      unreadCount: 1,
+      total: 1,
+    });
   });
 
   test('records exponential backoff and retries only after nextAttemptAt', async () => {
@@ -270,9 +278,60 @@ describe('Notifications transactional outbox', () => {
     expect(await projector.runOnce(new Date(now.getTime() + 1_000)))
       .toEqual({ selected: 1, projected: 1, failed: 0 });
   });
+
+  test('continues the batch when recording one projection failure also fails', async () => {
+    const first: PendingActivityEvent = {
+      ...createLikeEvent(),
+      outboxId: 21,
+      attemptCount: 0,
+    };
+    const second: PendingActivityEvent = {
+      ...createLikeEvent(secondActorUserId),
+      outboxId: 22,
+      attemptCount: 0,
+    };
+    const projectedEventIds: string[] = [];
+    const store: ActivityOutboxStore = {
+      async listPending() { return [first, second]; },
+      async project(event) {
+        projectedEventIds.push(event.eventId);
+        if (event.outboxId === first.outboxId) throw new Error('projection write failed');
+        return true;
+      },
+      async recordFailure() { throw new Error('failure state write failed'); },
+    };
+    const projector = new ActivityOutboxProjector(store, DEFAULT_NOTIFICATIONS_POLICY);
+
+    expect(await projector.runOnce()).toEqual({ selected: 2, projected: 1, failed: 1 });
+    expect(projectedEventIds).toEqual([first.eventId, second.eventId]);
+  });
 });
 
 describe('Notifications user read model', () => {
+  test('keeps createdAt ordering when an older event receives a larger projected ID', async () => {
+    const later = createActivityEvents({
+      actorUserId: secondActorUserId,
+      recipientUserIds: [recipientUserId],
+      type: 'treehole_comment',
+      resourceType: 'treehole_post',
+      resourceId: 202,
+      subresourceId: 303,
+      createdAt: new Date('2026-07-31T03:00:00.000Z'),
+    })[0]!;
+    await enqueue([later]);
+    await notifications.projector.runOnce();
+
+    await enqueue([createLikeEvent()]);
+    await notifications.projector.runOnce();
+
+    const list = await notifications.service.list(recipientUserId, { page: 1, pageSize: 20 });
+    expect(list.items.map((item) => item.actor.id)).toEqual([
+      secondActorUserId,
+      firstActorUserId,
+    ]);
+    expect(list.items[0]!.id).toBeLessThan(list.items[1]!.id);
+  });
+
   test('batch-projects actors, isolates recipients and marks exactly one notification read', async () => {
     const first = createLikeEvent(firstActorUserId);
     const second = createActivityEvents({
@@ -305,7 +364,7 @@ describe('Notifications user read model', () => {
     const unread = await app.request('http://localhost/notifications/unread-count', {
       headers: { 'x-test-user-id': String(recipientUserId) },
     });
-    expect((await unread.json() as any).data.unreadCount).toBe(2);
+    expect((await unread.json() as any).data).toEqual({ unreadCount: 2, total: 2 });
 
     const notificationId = listBody.data.items[0].id;
     const forbidden = await app.request(`http://localhost/notifications/${notificationId}/read`, {
@@ -323,6 +382,10 @@ describe('Notifications user read model', () => {
     }
     expect(await notifications.service.countUnread(recipientUserId)).toBe(1);
     expect(await notifications.service.countUnread(otherRecipientUserId)).toBe(0);
+    expect(await notifications.service.summarize(recipientUserId)).toEqual({
+      unreadCount: 1,
+      total: 2,
+    });
   });
 
   test('polls inserted notifications by stable ID high-water without deleting old read facts', async () => {

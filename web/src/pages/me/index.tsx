@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖校园/社区资料、Social 未读、个人内容路由、日历订阅与认证状态
- * [OUTPUT]: 对外提供 MePage，以公开社区身份、内容入口和账户动作组成个人页
+ * [OUTPUT]: 对外提供 MePage，以共享 Social 字标、公开社区身份、内容入口和账户动作组成个人页
  * [POS]: pages/me 的页面编排器，不使用宣传卡片，不持有底层 HTTP 协议
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -20,6 +20,7 @@ import { useCalendarSubscriptionLinkMutation, useUserInfoQuery } from '@/entitie
 import { Card } from '@/shared/ui/card';
 import { PageHeader } from '@/shared/ui/page-header';
 import { CommunityAvatar } from '@/shared/ui/community-avatar';
+import { SocialPageTitle } from '@/shared/ui/social-page-title';
 import { UnreadBadge } from '@/shared/ui/unread-badge';
 
 const loadCommunityProfileDialog = () => import('@/widgets/community-profile-dialog/community-profile-dialog');
@@ -85,7 +86,7 @@ export function MePage() {
 
   return (
     <div className="page-stack-mobile">
-      <PageHeader compact title="我的" />
+      <PageHeader className="py-4" compact title={<SocialPageTitle>我的</SocialPageTitle>} />
       <Card className="overflow-hidden p-0">
         {profileQuery.isLoading || communityProfileQuery.isLoading ? (
           <div className="space-y-2 px-4 py-4" aria-hidden="true">

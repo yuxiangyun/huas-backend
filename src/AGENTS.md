@@ -12,7 +12,7 @@ routes/: Hono 协议与认证边界，接收根组合注入的 Community/Discove
 runtime/: 进程运行态，承载就绪判定、轻量指标与有界关闭 hooks
 services/: 学校业务与 Operations 的迁移期兼容层；Discover/Treehole 旧 Facade 已物理删除
 types/: 第三方库声明补丁，隔离外部类型缺口
-utils/: 共享无状态工具，封装响应、错误、日志、时间、加密与跨媒体图片转换
+utils/: 共享无状态工具，封装响应、错误、日志、时间、加密、请求体门禁与跨媒体图片转换
 config.ts: 运行时配置入口，从环境变量生成强类型配置对象，包含课表来源策略默认模式与共享状态路径
 app.ts: 注入式 Hono 应用工厂，装配全局中间件、路由、静态 Web 与媒体端点但不监听端口
 composition.ts: 唯一跨模块组合根，用同一 DB 实例连接 Community、Discover、Treehole、Notifications、Messaging 与 Operations 公开 ports，并集中装配 HTTP、私有/公共媒体、观测器、周期任务与关闭钩子

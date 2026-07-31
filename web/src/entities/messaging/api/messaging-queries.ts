@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 Messaging HTTP adapter、查询键与 TanStack Query
- * [OUTPUT]: 对外提供会话分页/增量、目标、消息历史、未读、发送与已读 hooks
- * [POS]: entities/messaging 的缓存编排层，保持人工分页与高水位轮询职责分离
+ * [OUTPUT]: 对外提供会话分页/增量、目标、消息历史、未读、发送与已读 hooks，首发后回填目标会话
+ * [POS]: entities/messaging 的缓存编排层，以用户定位结果作为聊天会话唯一事实并保持人工分页与高水位轮询分离
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -17,6 +17,7 @@ import {
   type SendMessagePayload,
 } from '@/entities/messaging/api/messaging-api';
 import { messagingQueryKeys } from '@/entities/messaging/model/messaging-query-keys';
+import type { ConversationTarget } from '@/entities/messaging/model/messaging-types';
 
 export function useConversationsInfiniteQuery(pageSize = 30, enabled = true) {
   return useInfiniteQuery({
@@ -87,7 +88,11 @@ export function useSendMessageMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (payload: SendMessagePayload) => sendMessage(payload),
-    onSuccess: (message) => {
+    onSuccess: (message, variables) => {
+      queryClient.setQueryData<ConversationTarget>(
+        messagingQueryKeys.target(variables.userId),
+        (target) => target ? { ...target, conversationId: message.conversationId } : target
+      );
       queryClient.invalidateQueries({ queryKey: messagingQueryKeys.messages(message.conversationId) });
       queryClient.invalidateQueries({ queryKey: messagingQueryKeys.conversations() });
       queryClient.invalidateQueries({ queryKey: messagingQueryKeys.unreadCount() });

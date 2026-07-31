@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 Messaging 目标/历史/增量/发送/已读 hooks、TaskDialog、动作菜单与私有媒体原语
- * [OUTPUT]: 对外提供 ChatSheet，支持空会话首发、原型分组图文气泡、历史分页和实时增量
- * [POS]: widgets/chat-sheet 的私信任务容器，持有单会话编辑草稿但不拥有顶层路由
+ * [INPUT]: 依赖 Messaging 用户目标定位、历史/增量/发送/已读 hooks、TaskDialog、动作菜单与私有媒体原语
+ * [OUTPUT]: 对外提供 ChatSheet，以 userId 定位唯一会话并支持空会话首发、分组图文气泡、历史分页和实时增量
+ * [POS]: widgets/chat-sheet 的私信任务容器，只持有目标用户范围内的编辑与消息状态，不接受独立会话事实
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -41,10 +41,8 @@ interface SendAttempt {
 }
 
 interface ChatSheetProps {
-  conversationId: number | null;
   userId: number | null;
   onClose: () => void;
-  onConversationCreated: (conversationId: number) => void;
   onOpenProfile: (userId: number) => void;
 }
 
@@ -110,9 +108,9 @@ function mergeMessages(base: Message[], changes: ReadonlyMap<number, Message>) {
   return [...merged.values()].sort((left, right) => left.id - right.id);
 }
 
-export function ChatSheet({ conversationId, userId, onClose, onConversationCreated, onOpenProfile }: ChatSheetProps) {
+export function ChatSheet({ userId, onClose, onOpenProfile }: ChatSheetProps) {
   const targetQuery = useConversationTargetQuery(userId);
-  const effectiveConversationId = conversationId ?? targetQuery.data?.conversationId ?? null;
+  const effectiveConversationId = targetQuery.data?.conversationId ?? null;
   const messagesQuery = useMessagesInfiniteQuery(effectiveConversationId);
   const sendMutation = useSendMessageMutation();
   const markReadMutation = useMarkConversationReadMutation();
@@ -147,7 +145,7 @@ export function ChatSheet({ conversationId, userId, onClose, onConversationCreat
     setMessageWatermark(null);
     lastMarkedReadRef.current = 0;
     sendAttemptRef.current = null;
-  }, [effectiveConversationId, userId]);
+  }, [userId]);
 
   useEffect(() => {
     imagesRef.current = images;
@@ -257,7 +255,6 @@ export function ChatSheet({ conversationId, userId, onClose, onConversationCreat
         current.forEach((image) => URL.revokeObjectURL(image.previewUrl));
         return [];
       });
-      if (conversationId === null) onConversationCreated(message.conversationId);
     } catch (error) {
       setActionMessage(error instanceof Error ? error.message : '发送失败，请重试');
     }

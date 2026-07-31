@@ -1,10 +1,11 @@
 /**
- * [INPUT]: 依赖 ActivityOutboxStore 与 Notifications 重试/批量策略，不依赖具体 SQLite 或周期调度器
- * [OUTPUT]: 对外提供 ActivityOutboxProjector.runOnce()，逐事件隔离投影失败并写入指数退避状态
+ * [INPUT]: 依赖 ActivityOutboxStore、Notifications 重试/批量策略与统一 Logger，不依赖具体 SQLite 或周期调度器
+ * [OUTPUT]: 对外提供 ActivityOutboxProjector.runOnce()，分别隔离事件投影与失败状态写回异常
  * [POS]: modules/notifications/application 的 Outbox 消费用例，可被请求后即时尝试和 periodic task 共同调用
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
+import { Logger } from '../../../utils/logger';
 import type { NotificationsPolicy } from '../domain/notification';
 import type { ActivityOutboxStore, PendingActivityEvent } from '../domain/ports';
 
@@ -34,11 +35,19 @@ export class ActivityOutboxProjector {
         if (await this.store.project(event)) projected += 1;
       } catch (error) {
         failed += 1;
-        await this.store.recordFailure(
-          event,
-          errorMessage(error),
-          new Date(now.getTime() + this.retryDelay(event)),
-        );
+        try {
+          await this.store.recordFailure(
+            event,
+            errorMessage(error),
+            new Date(now.getTime() + this.retryDelay(event)),
+          );
+        } catch (recordError) {
+          Logger.warn(
+            'ActivityOutboxProjector',
+            `投影失败状态写回失败 eventId=${event.eventId}`,
+            `projection=${errorMessage(error)}; record=${errorMessage(recordError)}`,
+          );
+        }
       }
     }
 

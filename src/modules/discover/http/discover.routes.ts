@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 Hono、注入的 DiscoverApplicationService、response/errors/http-log 与领域输入解析工具
- * [OUTPUT]: 对外提供 createDiscoverRoutes(service)，映射帖子、评论及统一 `{postId, liked, likeCount}` 的 PUT/DELETE 点赞协议
- * [POS]: modules/discover/http 的注入式协议 adapter，只解析请求与包装响应，不持有 composition singleton
+ * [INPUT]: 依赖 Hono、注入的 DiscoverApplicationService/上传策略、共享请求体上限与领域输入解析工具
+ * [OUTPUT]: 对外提供 createDiscoverRoutes(service, uploadPolicy)，映射受限 multipart 发帖、评论及幂等点赞协议
+ * [POS]: modules/discover/http 的注入式协议 adapter，在 formData 前限制声明长度与流式请求体，不持有 composition singleton
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -10,6 +10,11 @@ import { parseStringArray, type DiscoverSort } from '../domain/discover';
 import { ErrorCode } from '../../../utils/errors';
 import { appendHttpLogDetail, formatHttpLogDetail } from '../../../utils/http-log';
 import { Logger } from '../../../utils/logger';
+import {
+  isBodyLimitError,
+  multipartRequestMaxBytes,
+  requestBodyLimit,
+} from '../../../utils/request-body-limit';
 import { error, success } from '../../../utils/response';
 import type { DiscoverApplicationService } from '../application/discover-application-service';
 
@@ -28,6 +33,11 @@ type DiscoverHttpService = Pick<
   | 'deleteComment'
   | 'deletePost'
 >;
+
+export interface DiscoverHttpUploadPolicy {
+  maxImagesPerPost: number;
+  imageMaxBytes: number;
+}
 
 function parsePositiveInt(value: string | undefined, fallback: number) {
   if (!value) return fallback;
@@ -50,7 +60,10 @@ function readImageFiles(form: FormData) {
     .filter((value): value is File => value instanceof File);
 }
 
-export function createDiscoverRoutes(service: DiscoverHttpService) {
+export function createDiscoverRoutes(
+  service: DiscoverHttpService,
+  uploadPolicy: DiscoverHttpUploadPolicy,
+) {
   const routes = new Hono();
 
   routes.get('/meta', (c) => {
@@ -62,54 +75,64 @@ export function createDiscoverRoutes(service: DiscoverHttpService) {
     return success(c, data);
   });
 
-  routes.post('/posts', async (c) => {
-    let form: FormData;
-    try {
-      form = await c.req.formData();
-    } catch {
-      return error(c, ErrorCode.PARAM_ERROR, '请求必须是 multipart/form-data', 400);
-    }
+  routes.post(
+    '/posts',
+    requestBodyLimit({
+      maxSize: multipartRequestMaxBytes(
+        uploadPolicy.maxImagesPerPost * uploadPolicy.imageMaxBytes,
+      ),
+      tooLargeMessage: '帖子上传请求体过大',
+    }),
+    async (c) => {
+      let form: FormData;
+      try {
+        form = await c.req.formData();
+      } catch (cause) {
+        if (isBodyLimitError(cause)) throw cause;
+        return error(c, ErrorCode.PARAM_ERROR, '请求必须是 multipart/form-data', 400);
+      }
 
-    const category = form.get('category');
-    if (typeof category !== 'string' || !category.trim()) {
-      return error(c, ErrorCode.PARAM_ERROR, '分类不能为空', 400);
-    }
+      const category = form.get('category');
+      if (typeof category !== 'string' || !category.trim()) {
+        return error(c, ErrorCode.PARAM_ERROR, '分类不能为空', 400);
+      }
 
-    const title = typeof form.get('title') === 'string' ? String(form.get('title')) : undefined;
-    const storeName = typeof form.get('storeName') === 'string' ? String(form.get('storeName')) : undefined;
-    const priceText = typeof form.get('priceText') === 'string' ? String(form.get('priceText')) : undefined;
-    const content = typeof form.get('content') === 'string' ? String(form.get('content')) : undefined;
-    const tags = readTagValues(form);
-    const images = readImageFiles(form);
+      const title = typeof form.get('title') === 'string' ? String(form.get('title')) : undefined;
+      const storeName = typeof form.get('storeName') === 'string' ? String(form.get('storeName')) : undefined;
+      const priceText = typeof form.get('priceText') === 'string' ? String(form.get('priceText')) : undefined;
+      const content = typeof form.get('content') === 'string' ? String(form.get('content')) : undefined;
+      const tags = readTagValues(form);
+      const images = readImageFiles(form);
 
-    appendHttpLogDetail(c, formatHttpLogDetail({
-      category,
-      titleLength: title?.trim().length || 0,
-      contentLength: content?.trim().length || 0,
-      tags: tags.length,
-      images: images.length,
-    }));
+      appendHttpLogDetail(c, formatHttpLogDetail({
+        category,
+        titleLength: title?.trim().length || 0,
+        contentLength: content?.trim().length || 0,
+        tags: tags.length,
+        images: images.length,
+      }));
 
-    const data = await service.createPost({
-      userId: c.get('userId'),
-      title,
-      storeName,
-      priceText,
-      content,
-      category,
-      tags,
-      images,
-    });
+      const data = await service.createPost({
+        userId: c.get('userId'),
+        title,
+        storeName,
+        priceText,
+        content,
+        category,
+        tags,
+        images,
+      });
 
-    Logger.operation(
-      'Discover',
-      `发布帖子 #${data?.id ?? '-'} (${data?.category || category})`,
-      c.get('studentId'),
-      c.get('name'),
-      `images=${data?.imageCount ?? 0}; tags=${data?.tags.length ?? 0}`,
-    );
-    return success(c, data, undefined, 201);
-  });
+      Logger.operation(
+        'Discover',
+        `发布帖子 #${data?.id ?? '-'} (${data?.category || category})`,
+        c.get('studentId'),
+        c.get('name'),
+        `images=${data?.imageCount ?? 0}; tags=${data?.tags.length ?? 0}`,
+      );
+      return success(c, data, undefined, 201);
+    },
+  );
 
   routes.get('/posts/me', async (c) => {
     const data = await service.listMyPosts({

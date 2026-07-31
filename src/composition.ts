@@ -115,7 +115,9 @@ export function createApplicationComposition(): ApplicationComposition {
       deleteComment: (commentId) => treehole.service.adminDeleteComment(commentId),
     },
   });
-  const communityRoutes = createCommunityRoutes(community);
+  const communityRoutes = createCommunityRoutes(community, {
+    avatarMaxBytes: config.community.avatarMaxBytes,
+  });
 
   const unregisterAnalyticsShutdown = registerShutdownFlushHook('analytics', async () => {
     const result = await AnalyticsService.shutdown();

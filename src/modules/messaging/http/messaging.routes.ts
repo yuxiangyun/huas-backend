@@ -1,15 +1,15 @@
 /**
- * [INPUT]: 依赖 Hono、注入的 MessagingApplicationService/策略、统一响应/错误/HTTP 日志工具与 Logger 操作日志
+ * [INPUT]: 依赖 Hono、注入的 MessagingApplicationService/策略、共享 multipart 请求上限、统一响应/HTTP 日志与 Logger
  * [OUTPUT]: 对外提供 createMessagingRoutes(service, policy)，映射会话翻页/增量、定位、三态历史、流式请求上限与私有媒体
  * [POS]: modules/messaging/http 的认证后协议 adapter，以 afterMessageId 高水位轮询并在 multipart 解析前统一执行 413 门禁
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { Hono } from 'hono';
-import { bodyLimit } from 'hono/body-limit';
 import { ErrorCode } from '../../../utils/errors';
 import { appendHttpLogDetail, formatHttpLogDetail } from '../../../utils/http-log';
 import { Logger } from '../../../utils/logger';
+import { isBodyLimitError, requestBodyLimit } from '../../../utils/request-body-limit';
 import { error, success } from '../../../utils/response';
 import type { MessagingApplicationService } from '../application/messaging-application-service';
 import { messagingRequestMaxBytes, type MessagingPolicy } from '../domain/messaging';
@@ -90,26 +90,18 @@ export function createMessagingRoutes(
 
   routes.post(
     '/users/:userId/messages',
-    bodyLimit({
+    requestBodyLimit({
       maxSize: messagingRequestMaxBytes(policy),
-      onError: (c) => error(c, ErrorCode.PARAM_ERROR, '私信上传请求体过大', 413),
+      tooLargeMessage: '私信上传请求体过大',
     }),
     async (c) => {
       const recipientUserId = parsePositiveId(c.req.param('userId'));
       if (!recipientUserId) return error(c, ErrorCode.PARAM_ERROR, '接收者 ID 不合法', 400);
-      const contentLength = parseContentLength(c.req.header('content-length'));
-      if (contentLength === null) {
-        return error(c, ErrorCode.PARAM_ERROR, 'Content-Length 不合法', 400);
-      }
-      if (contentLength !== undefined && contentLength > messagingRequestMaxBytes(policy)) {
-        return error(c, ErrorCode.PARAM_ERROR, '私信上传请求体过大', 413);
-      }
-
       let form: FormData;
       try {
         form = await c.req.formData();
       } catch (cause) {
-        if (cause instanceof Error && cause.name === 'BodyLimitError') throw cause;
+        if (isBodyLimitError(cause)) throw cause;
         return error(c, ErrorCode.PARAM_ERROR, '请求必须是 multipart/form-data', 400);
       }
       const textEntry = form.get('text');
@@ -205,11 +197,4 @@ function parseOptionalPositiveInt(value: string | undefined): number | null | un
   if (value === undefined) return undefined;
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
-}
-
-function parseContentLength(value: string | undefined): number | null | undefined {
-  if (value === undefined) return undefined;
-  if (!/^\d+$/u.test(value)) return null;
-  const parsed = Number(value);
-  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
 }

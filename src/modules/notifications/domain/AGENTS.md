@@ -3,8 +3,8 @@
 
 成员清单
 activity.ts: 六类 ActivityEvent、回复双方差异类型、逐 recipient 稳定 eventId 以及去重/自我互动过滤纯函数
-notification.ts: 永久通知事实/响应、普通分页/ID 增量 DTO、默认策略与北京时间映射
-ports.ts: 泛型同步事务内 ActivityOutboxWriter、提交后 ActivityProjectionTrigger、可重试投影 store 与 NotificationRepository 依赖倒置边界
+notification.ts: 通知事实/响应、普通分页、ID 增量、未读/总量摘要 DTO、默认策略与北京时间映射
+ports.ts: 泛型同步事务内 ActivityOutboxWriter、提交后 ActivityProjectionTrigger、可重试投影 store 与列表/摘要 NotificationRepository 边界
 
 架构决策
 事件只保存 actor、recipient、类型和内容稳定引用，不携带帖子、评论或消息正文；eventId 包含互动事实与 recipient，保证同一互动面向不同接收者独立幂等。

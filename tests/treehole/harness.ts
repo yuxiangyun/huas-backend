@@ -106,7 +106,7 @@ export async function setCommunityProfile(
   nickname: string | null,
   avatarUrl: string | null = null,
 ) {
-  await profileRepository.save({ userId, nickname, avatarUrl });
+  await profileRepository.patch(userId, { nickname, avatarUrl });
 }
 
 export async function authHeaderFor(userId: number, studentId: string) {

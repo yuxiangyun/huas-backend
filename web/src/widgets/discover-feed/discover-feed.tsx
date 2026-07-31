@@ -1,10 +1,11 @@
 /**
  * [INPUT]: 依赖 Discover 无限列表/点赞 hooks、筛选控件、媒体 URL 与社区资料投影
- * [OUTPUT]: 对外提供 DiscoverFeed，以首张图片原始比例主图、作者栏、互动栏和精简摘要呈现好饭信息流
+ * [OUTPUT]: 对外提供 DiscoverFeed，以首张图片真实比例主图、失效媒体兜底、作者栏、互动栏和精简摘要呈现好饭信息流
  * [POS]: widgets/discover-feed 的单列沉浸式信息流容器，拥有列表内互动但不持有发布和路由状态
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
+import { useEffect, useState } from 'react';
 import { Heart, Image, MessageCircle, Plus, Send } from 'lucide-react';
 import {
   useDiscoverInfinitePostsQuery,
@@ -45,9 +46,61 @@ function postMeta(post: DiscoverPost) {
   return [post.storeName, post.priceText, post.category].filter(Boolean).join(' · ');
 }
 
-function primaryImageDisplayWidth(image: DiscoverPost['images'][number] | undefined) {
-  if (!image?.width) return '100%';
-  return `${Math.min(720, Math.max(280, image.width))}px`;
+function primaryImageDisplayWidth(width: number | undefined) {
+  if (!width) return '100%';
+  return `${Math.min(720, Math.max(280, width))}px`;
+}
+
+interface PrimaryImageProps {
+  image: DiscoverPost['images'][number] | undefined;
+  imageUrl: string;
+  alt: string;
+  eager: boolean;
+}
+
+function PrimaryImage({ image, imageUrl, alt, eager }: PrimaryImageProps) {
+  const [failed, setFailed] = useState(false);
+  const [naturalSize, setNaturalSize] = useState<{ width: number; height: number } | null>(null);
+
+  useEffect(() => {
+    setFailed(false);
+    setNaturalSize(null);
+  }, [imageUrl]);
+
+  if (failed || !imageUrl) {
+    return (
+      <span className="grid h-48 w-full place-items-center text-muted sm:h-56" aria-label="图片加载失败">
+        <Image aria-hidden="true" className="size-8" />
+      </span>
+    );
+  }
+
+  const width = naturalSize?.width || image?.width;
+  const height = naturalSize?.height || image?.height;
+
+  return (
+    <img
+      alt={alt}
+      className="h-auto max-h-[min(72dvh,42rem)] max-w-full object-contain"
+      decoding="async"
+      fetchPriority={eager ? 'high' : 'auto'}
+      height={image?.height}
+      loading={eager ? 'eager' : 'lazy'}
+      src={buildMediaUrl(imageUrl)}
+      style={{
+        aspectRatio: width && height ? `${width} / ${height}` : undefined,
+        width: primaryImageDisplayWidth(width),
+      }}
+      width={image?.width}
+      onError={() => setFailed(true)}
+      onLoad={(event) => {
+        const { naturalHeight, naturalWidth } = event.currentTarget;
+        if (naturalWidth > 0 && naturalHeight > 0) {
+          setNaturalSize({ width: naturalWidth, height: naturalHeight });
+        }
+      }}
+    />
+  );
 }
 
 function DiscoverSkeleton() {
@@ -170,29 +223,13 @@ export function DiscoverFeed({
               <ActionMenu className="ml-auto" items={menuItems} />
             </header>
 
-            <button className="relative flex w-full justify-center overflow-hidden bg-[#f7f8fa]" type="button" onClick={() => onOpenPost(post.id)}>
-              {primaryImageUrl ? (
-                <img
-                  alt={post.title || '好饭主图'}
-                  className="h-auto max-h-[min(72dvh,42rem)] max-w-full object-contain"
-                  decoding="async"
-                  fetchPriority={postIndex === 0 ? 'high' : 'auto'}
-                  height={primaryImage?.height}
-                  loading={postIndex === 0 ? 'eager' : 'lazy'}
-                  src={buildMediaUrl(primaryImageUrl)}
-                  style={{
-                    aspectRatio: primaryImage?.width && primaryImage.height
-                      ? `${primaryImage.width} / ${primaryImage.height}`
-                      : undefined,
-                    width: primaryImageDisplayWidth(primaryImage),
-                  }}
-                  width={primaryImage?.width}
-                />
-              ) : (
-                <span className="grid aspect-[4/3] w-full place-items-center text-muted">
-                  <Image aria-hidden="true" className="size-8" />
-                </span>
-              )}
+            <button className="relative flex w-full justify-center overflow-hidden bg-white" type="button" onClick={() => onOpenPost(post.id)}>
+              <PrimaryImage
+                alt={post.title || '好饭主图'}
+                eager={postIndex === 0}
+                image={primaryImage}
+                imageUrl={primaryImageUrl}
+              />
               {post.imageCount > 1 ? (
                 <span className="absolute right-3 top-3 rounded-full bg-black/60 px-2 py-1 text-[11px] font-medium text-white">1/{post.imageCount}</span>
               ) : null}

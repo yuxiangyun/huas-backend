@@ -15,6 +15,7 @@ image-viewer.tsx: 媒体全屏查看器，提供键盘切换、缩略图导航�
 page-header.tsx: 页级标题原语，统一标题与操作区的垂直中线，允许页面传入组合字标并为窄屏保留换行能力
 private-media-image.tsx: Bearer/Cookie 私有媒体适配原语，按 URL 与认证模式复用请求及可回收 Blob URL
 segmented-control.tsx: 分段选择原语，支持等宽/内容宽排布与可选尾部操作
+social-page-title.tsx: Social 四个主 Tab 的中文楷体字标原语，统一字号、字重与字距且不引入外部字体请求
 task-dialog.tsx: 表单与裁切任务容器，基于 Radix Dialog 提供居中/移动全屏展示及业务可替换头尾布局协议
 toast-viewport.tsx: 全局消息视口，消费 toast store 并在壳层安全区内呈现反馈
 unread-badge.tsx: 导航、分段控件与会话列表共享的紧凑未读数字徽标

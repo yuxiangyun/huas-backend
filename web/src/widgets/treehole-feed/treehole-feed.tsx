@@ -142,9 +142,7 @@ export function TreeholeFeed({ onComposeClick, onOpenPost, onOpenProfile }: Tree
                   aria-label={post.viewer.liked ? '取消点赞' : '点赞'}
                   aria-pressed={post.viewer.liked}
                   aria-busy={pendingPostId === post.id}
-                  className={cn(
-                    'inline-flex min-h-9 items-center gap-2 rounded-[0.375rem] px-1 transition-opacity hover:opacity-65 disabled:cursor-wait disabled:opacity-50'
-                  )}
+                  className="inline-flex min-h-9 items-center gap-2 rounded-[0.375rem] px-1 transition-opacity hover:opacity-65 disabled:cursor-wait disabled:opacity-50"
                   disabled={likeBusy}
                   type="button"
                   onClick={() => void handleToggleLike(post)}

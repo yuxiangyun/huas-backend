@@ -25,11 +25,11 @@ src/widgets/: 跨页面组合组件与移动端交互容器。
 dither-kit 以源码组件落入 `src/components/dither-kit/`，业务页面只消费公开图表部件，不修改内部绘制协议。
 Discover 与 Treehole 保留各自数据和幂等点赞语义；同构的评论编辑、父子树组装、折叠回复与分页展示统一复用 `widgets/comment-thread` 无请求组件。
 Community 是 Social 公共资料唯一前端实体：昵称和头像统一作用于 Discover、Treehole、Messaging 与 Notifications，内容与活动实体只引用公共人物契约，不保存资料快照。
-Messaging 与 Notifications 是独立读模型：会话/消息按 lastMessageId 高水位增量刷新，活动通知按 notificationId 高水位增量刷新并只允许逐条已读；私信媒体按 URL/认证模式去重请求并转为引用计数 Blob URL。
+Messaging 与 Notifications 是独立读模型：聊天以 userId 定位会话，消息按 lastMessageId 增量；活动通知以 notificationId 发现新增、摘要 total 感知撤销并采用服务端排序快照；私信媒体按 URL/认证模式去重请求。
 Community 公共用户详情聚合指定用户的 Discover/Treehole 内容，并作为帖子、评论、通知 actor 进入私信的统一入口；后台另有 Cookie 会话保护的私信只读审计页。
 登录表单在用户选择“记住密码”时，将学号与密码写入 `localStorage`，下次登录从同一键恢复。
 登录表单区分 CAS 密码拒绝与验证码失败：挑战响应展示具体原因，密码错误时退出已消费的验证码会话、清除失效记忆值并聚焦密码字段。
-普通用户 UI 采用 shadcn new-york + neutral 语言：禁用蓝色默认强调、渐变、玻璃拟态与宣传文案；Treehole 使用 Instagram 式高对比白色单面板分隔信息流，好饭使用紧凑横向媒体卡，聊天气泡限制内容宽度。
+普通用户 UI 采用纯白页面基底与 shadcn new-york + neutral 语言：四个主 Tab 通过 shared/ui 的本地中文楷体字标统一标题与顶部节奏；Treehole 使用 Instagram 式高对比白色单面板分隔信息流，好饭使用首图沉浸式媒体流，聊天气泡限制内容宽度。
 
 开发规范
 新增页面先更新路由与本地图；业务文件维持 INPUT/OUTPUT/POS 头部契约。
@@ -37,6 +37,12 @@ Community 公共用户详情聚合指定用户的 Discover/Treehole 内容，并
 响应式不删除能力：窄屏重排图表，宽表转换为摘要卡片或详情视图。
 
 变更日志
+2026-08-01: Social 修复私信双事实、Discover 排序/评论分页缓存、通知撤销校准与资料/详情 URL 竞态，客户端不再复制服务端排序事实。
+2026-08-01: Discover 筛选栏移除内容侧底部分隔线，仅保留标题侧顶部边界，使首条好饭媒体与工具栏自然衔接。
+2026-08-01: Treehole、Discover、Messages、Me 收敛到共享 SocialPageTitle 中文楷体字标与统一顶部节奏，清除主 Tab 标题视觉分叉。
+2026-08-01: Treehole 顶部移除多余容器边线，标题采用本地中文楷体字标，在纯白单面板中保留克制的品牌识别。
+2026-08-01: Treehole 首页点赞与评论收敛为高对比图标加计数同行布局，点赞直接执行幂等切换并以红色实心状态反馈，帖子只保留有真实业务动作的入口。
+2026-08-01: 普通用户应用壳、移动导航、Treehole 单面板、Discover 媒体底板与聊天任务统一为连续纯白基底，移除页面灰底断层。
 2026-07-31: 按校园社区原型重建普通用户 Social 前端，新增私信、活动通知、聊天与四 Tab 壳，移除演示说明和超大气泡布局。
 2026-07-31: 删除 Discover 评分、Treehole 资料兼容组件与旧通知接口，统一 Community 作者、幂等点赞及服务端新契约。
 2026-07-31: 后台改为路由级动态加载并同步 Discover 点赞、Treehole 公共作者管理契约，Social 首屏不再包含图表包。

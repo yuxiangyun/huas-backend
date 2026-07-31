@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 Identity 只读端口、Community 资料仓储/头像端口与纯领域规则
- * [OUTPUT]: 对外提供 CommunityApplicationService，完成公共/当前资料投影、资料读写与头像补偿
- * [POS]: modules/community/application 的唯一用例服务，同时隔离社交公共作者读模型与本人编辑读模型
+ * [OUTPUT]: 对外提供 CommunityApplicationService，完成公共/当前资料投影、字段级资料更新与头像补偿
+ * [POS]: modules/community/application 的唯一用例服务，以资料 patch 隔离并发字段并在引用确认后清理旧头像
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -13,10 +13,11 @@ import {
   toCommunityProfile,
   toCurrentCommunityProfile,
   type CommunityProfile,
-  type StoredCommunityProfile,
 } from '../domain/community';
 import type {
   CommunityAvatarStorage,
+  CommunityProfilePatch,
+  CommunityProfilePatchResult,
   CommunityProfileReader,
   CommunityProfileRepository,
 } from '../domain/ports';
@@ -74,23 +75,26 @@ export class CommunityApplicationService implements CommunityProfileReader {
       throw new AppError(ErrorCode.PARAM_ERROR, '不能同时上传和删除头像');
     }
 
-    const existing = (await this.profiles.getMany([userId])).get(userId);
-    const nickname = input.nickname === undefined
-      ? existing?.nickname ?? null
-      : normalizeCommunityNickname(input.nickname);
-    let avatarUrl = existing?.avatarUrl ?? null;
+    const patch: CommunityProfilePatch = {};
+    if (input.nickname !== undefined) {
+      patch.nickname = normalizeCommunityNickname(input.nickname);
+    }
     let candidateAvatarUrl: string | null = null;
 
     if (input.avatar) {
       candidateAvatarUrl = await this.avatars.storeAvatar(userId, input.avatar);
-      avatarUrl = candidateAvatarUrl;
+      patch.avatarUrl = candidateAvatarUrl;
     } else if (input.clearAvatar) {
-      avatarUrl = null;
+      patch.avatarUrl = null;
+    }
+    if (!Object.prototype.hasOwnProperty.call(patch, 'nickname')
+      && !Object.prototype.hasOwnProperty.call(patch, 'avatarUrl')) {
+      throw new AppError(ErrorCode.PARAM_ERROR, '至少提交昵称或头像');
     }
 
-    const stored: StoredCommunityProfile = { userId, nickname, avatarUrl };
+    let result: CommunityProfilePatchResult;
     try {
-      await this.profiles.save(stored);
+      result = await this.profiles.patch(userId, patch);
     } catch (error) {
       if (candidateAvatarUrl) {
         try {
@@ -103,18 +107,23 @@ export class CommunityApplicationService implements CommunityProfileReader {
       throw error;
     }
 
-    if (existing?.avatarUrl && existing.avatarUrl !== avatarUrl) {
-      try {
-        await this.avatars.removeAvatar(existing.avatarUrl);
-      } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error);
-        Logger.warn('CommunityAvatar', `旧头像清理失败 userId=${userId}`, detail);
-      }
+    if (result.replacedAvatarUrl && result.replacedAvatarUrl !== result.profile.avatarUrl) {
+      await this.removeAvatarIfUnpublished(userId, result.replacedAvatarUrl);
     }
-    return toCurrentCommunityProfile(identity, stored);
+    return toCurrentCommunityProfile(identity, result.profile);
   }
 
   clearAvatar(userId: number) {
     return this.updateProfile(userId, { clearAvatar: true });
+  }
+
+  private async removeAvatarIfUnpublished(userId: number, avatarUrl: string) {
+    try {
+      if (await this.profiles.isAvatarPublished(avatarUrl)) return;
+      await this.avatars.removeAvatar(avatarUrl);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      Logger.warn('CommunityAvatar', `旧头像引用确认或清理失败 userId=${userId}`, detail);
+    }
   }
 }

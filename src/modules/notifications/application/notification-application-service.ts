@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 NotificationRepository、CommunityProfileReader 与 Notifications 纯映射/分页规则
- * [OUTPUT]: 对外提供 NotificationApplicationService 的普通列表、增量轮询、未读计数和逐条已读用例
- * [POS]: modules/notifications/application 的用户读模型编排器，以 ID 高水位隔离轮询和 offset 翻页并维持 recipient 权限边界
+ * [OUTPUT]: 对外提供 NotificationApplicationService 的普通列表、增量轮询、未读摘要和逐条已读用例
+ * [POS]: modules/notifications/application 的用户读模型编排器，以 ID 高水位发现新增并以摘要总量支持撤销校准
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -78,6 +78,10 @@ export class NotificationApplicationService {
 
   countUnread(recipientUserId: number): Promise<number> {
     return this.repository.countUnread(recipientUserId);
+  }
+
+  summarize(recipientUserId: number) {
+    return this.repository.summarize(recipientUserId);
   }
 
   markRead(recipientUserId: number, notificationId: number): Promise<boolean> {

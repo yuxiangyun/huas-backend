@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Tailwind CSS 主题层与浏览器视口、安全区、焦点及动效偏好
- * [OUTPUT]: 提供 shadcn neutral 设计令牌、响应式应用壳、表单与可访问交互基线
+ * [OUTPUT]: 提供白色应用基底的 shadcn neutral 设计令牌、响应式应用壳、表单与可访问交互基线
  * [POS]: app/styles 的全局规范入口，只定义跨页面视觉规则，不承载业务装饰
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -9,7 +9,7 @@
 
 @theme {
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-  --color-shell: #f7f7f8;
+  --color-shell: #ffffff;
   --color-shell-strong: #ededee;
   --color-ink: #171717;
   --color-muted: #737373;

@@ -57,7 +57,10 @@ export function createDiscoverModule(dependencies: DiscoverModuleDependencies) {
 
   return {
     service,
-    routes: createDiscoverRoutes(service),
+    routes: createDiscoverRoutes(service, {
+      maxImagesPerPost: policy.maxImagesPerPost,
+      imageMaxBytes: config.discover.imageMaxBytes,
+    }),
     media,
     operationsQuery: new SQLiteDiscoverOperationsQuery(dependencies.db, dependencies.profileReader),
   };

@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖共享 apiRequest 与 Notifications DTO
- * [OUTPUT]: 对外提供通知分页、ID 增量、未读计数与逐条已读请求
- * [POS]: entities/notifications 的 HTTP adapter，集中维护 `/api/notifications` 协议
+ * [OUTPUT]: 对外提供通知分页、ID 高水位增量、未读/总量摘要与逐条已读请求
+ * [POS]: entities/notifications 的 HTTP adapter，以摘要 total 支持撤销后的列表校准
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 

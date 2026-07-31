@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 React Router、Social 四个主路由、消息/通知未读读模型与共享徽标
- * [OUTPUT]: 对外提供 MobileTabShell，移动端呈现四项底部 Tab，桌面端呈现固定社交侧栏
+ * [OUTPUT]: 对外提供 MobileTabShell，以连续白色页面基底在移动端呈现四项底部 Tab、桌面端呈现固定社交侧栏
  * [POS]: widgets/mobile-tab-shell 的普通用户应用壳，只承载品牌、一级导航和聚合未读
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -26,7 +26,7 @@ export function MobileTabShell() {
   const socialUnreadCount = (messagingUnreadQuery.data?.unreadCount ?? 0) + (notificationUnreadQuery.data?.unreadCount ?? 0);
 
   return (
-    <div className="min-h-dvh bg-shell text-ink">
+    <div className="min-h-dvh bg-white text-ink">
       <div className="mx-auto min-h-dvh max-w-[var(--layout-shell-max)] px-[var(--space-shell-x)] pb-[var(--space-shell-bottom)] pt-[var(--space-shell-top)] sm:px-6 lg:grid lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-10 lg:pb-10 lg:pt-8">
         <aside className="hidden lg:block">
           <div className="sticky top-8">
@@ -62,7 +62,7 @@ export function MobileTabShell() {
 
       <nav
         aria-label="主导航"
-        className="fixed bottom-0 left-0 right-0 z-30 mx-auto grid grid-cols-4 border-t border-line bg-white/95 px-1 pb-[env(safe-area-inset-bottom)] pt-1 backdrop-blur-xl lg:hidden"
+        className="fixed bottom-0 left-0 right-0 z-30 mx-auto grid grid-cols-4 border-t border-line bg-white px-1 pb-[env(safe-area-inset-bottom)] pt-1 lg:hidden"
       >
         {tabs.map((tab) => {
           const Icon = tab.icon;

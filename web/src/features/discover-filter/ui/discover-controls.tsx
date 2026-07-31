@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖好饭排序/分类状态、Lucide 图标与 shared 选择控件
- * [OUTPUT]: 对外提供 DiscoverControls，以胶囊工具栏集中呈现排序、分类与刷新动作
+ * [OUTPUT]: 对外提供 DiscoverControls，以仅保留顶部边界的胶囊工具栏集中呈现排序、分类与刷新动作
  * [POS]: features/discover-filter 的交互边界，不展示说明性或装饰性标签
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -48,7 +48,7 @@ export function DiscoverControls({
     : categoryOptions.find((option) => option.value === category)?.label ?? '全部分类';
 
   return (
-    <div className="relative z-20 flex items-center gap-1.5 border-y border-line bg-white px-3 py-2.5">
+    <div className="relative z-20 flex items-center gap-1.5 border-t border-line bg-white px-3 py-2.5">
       <div className="flex min-w-0 flex-1 items-center gap-1">
         {sortOptions.map((option) => {
           const active = option.value === sort;

@@ -91,7 +91,9 @@ interface Page<T> {
 | `nickname` | string | trim 后保存；空字符串清除昵称并恢复默认 displayName |
 | `avatar` | File | 非空图片，默认最大 2MB |
 
-头像支持 JPG、PNG、WebP、GIF、HEIC/HEIF、AVIF、TIFF。服务端识别真实格式、自动旋转，按默认 `512 × 512` cover 和质量 `78` 输出 WebP；新文件使用不可变 `{userId}-{uuid}.webp` 名称。资料写入失败时会补偿删除候选头像。
+头像支持 JPG、PNG、WebP、GIF、HEIC/HEIF、AVIF、TIFF。服务端识别真实格式、自动旋转，按默认 `512 × 512` cover 和质量 `78` 输出 WebP；新文件使用不可变 `{userId}-{uuid}.webp` 名称。multipart 总请求在解析前按“头像上限 + 1MB 协议开销”限制，所有字段都计入，超限返回 `413 + 4002`。
+
+昵称与头像使用字段级原子 patch，互相并发更新不会覆盖另一字段。资料写入失败会补偿删除候选头像；切换成功后仅在数据库确认旧 URL 已无任何资料引用时清理旧文件。
 
 成功返回更新后的 `CurrentCommunityProfile`。示例：
 
@@ -215,7 +217,7 @@ interface DiscoverComment {
 | `tags` / `tags[]` | 是 | 至少一个；可重复字段、逗号/换行分隔或 JSON 数组字符串 |
 | `images` / `images[]` | 是 | 1–9 张 |
 
-单张原图默认最大 32MB；支持主流图片与 HEIC/HEIF，自动旋转，最长边 1280、质量 78，落盘只保留 WebP。成功返回 `201 + DiscoverPost`。
+单张原图默认最大 32MB；支持主流图片与 HEIC/HEIF，自动旋转，最长边 1280、质量 78，落盘只保留 WebP。multipart 总请求在解析前按“最大图片数 × 单图上限 + 1MB 协议开销”限制，图片和无关字段都计入，超限返回 `413 + 4002`。成功返回 `201 + DiscoverPost`。
 
 ### 4.4 帖子查询
 
@@ -358,10 +360,10 @@ interface Notification {
 |---|---|
 | `GET /api/notifications?page=&pageSize=` | `Page<Notification>`；默认 20、最大 50 |
 | `GET /api/notifications/changes?afterNotificationId=&limit=` | 稳定 ID 增量；默认 20、最大 50 |
-| `GET /api/notifications/unread-count` | `{ unreadCount }` |
+| `GET /api/notifications/unread-count` | `{ unreadCount, total }`；total 是当前 recipient 的通知快照总量 |
 | `PUT /api/notifications/:id/read` | `{ id, read: true }` |
 
-普通列表按 `createdAt DESC, id DESC`，offset 分页只用于人工翻页，不用于轮询。增量入口接收非负 `afterNotificationId`，按 `id ASC` 返回严格大于高水位的新通知；响应中的 `afterNotificationId` 是本页最后一个 ID（空页保持请求值），`hasMore=true` 表示本次 limit 之后仍有新通知。前端按通知 `id` 去重并继续传回新高水位。
+普通列表按 `createdAt DESC, id DESC`，offset 分页只用于人工翻页，不用于轮询。增量入口接收非负 `afterNotificationId`，按 `id ASC` 返回严格大于高水位的新通知；响应中的 `afterNotificationId` 是本页最后一个 ID（空页保持请求值），`hasMore=true` 表示本次 limit 之后仍有新通知。前端继续传回新高水位以发现新增；当轮询摘要的 `total` 与当前列表快照不同，再重取一次普通列表完成 unlike 删除校准，不在客户端复制服务端排序或永久追加模型。
 
 ```json
 {
@@ -584,7 +586,7 @@ X-Content-Type-Options: nosniff
 | 400 + `4002` | ID/分页/游标/昵称/图文/UUID 不合法、before/after 同传、自赞或给自己私信 |
 | 401 + `4001` | Bearer JWT 缺失、无效或过期；包括私信图片 fetch |
 | 404 + `4002` | 用户/帖子/评论/通知/会话/媒体不存在，或无权读取会话/媒体 |
-| 413 + `4002` | 私信 multipart 请求体在解析前超过应用上限 |
+| 413 + `4002` | Community、Discover 或 Messaging multipart 请求体在解析前超过各自应用上限 |
 
 ```json
 {

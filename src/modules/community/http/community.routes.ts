@@ -1,13 +1,18 @@
 /**
- * [INPUT]: 依赖 Hono、注入的 CommunityApplicationService 与统一响应/HTTP 日志工具
- * [OUTPUT]: 对外提供 createCommunityRoutes(service)，映射含 nickname 的当前资料与三字段公共用户详情
- * [POS]: modules/community/http 的认证后协议 adapter，在本人编辑契约与公共资料最小披露之间建立字段边界
+ * [INPUT]: 依赖 Hono、注入的 CommunityApplicationService/头像策略、共享请求体上限与统一响应工具
+ * [OUTPUT]: 对外提供 createCommunityRoutes(service, uploadPolicy)，映射受限 multipart 当前资料与公共用户详情
+ * [POS]: modules/community/http 的认证后协议 adapter，在 formData 前限制声明长度与流式请求体并维持字段披露边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { Hono } from 'hono';
 import { ErrorCode } from '../../../utils/errors';
 import { appendHttpLogDetail, formatHttpLogDetail } from '../../../utils/http-log';
+import {
+  isBodyLimitError,
+  multipartRequestMaxBytes,
+  requestBodyLimit,
+} from '../../../utils/request-body-limit';
 import { error, success } from '../../../utils/response';
 import type { CommunityApplicationService } from '../application/community-application-service';
 
@@ -15,6 +20,10 @@ type CommunityHttpService = Pick<
   CommunityApplicationService,
   'getProfile' | 'getCurrentProfile' | 'updateProfile' | 'clearAvatar'
 >;
+
+export interface CommunityHttpUploadPolicy {
+  avatarMaxBytes: number;
+}
 
 function parseUserId(value: string) {
   const userId = Number(value);
@@ -25,7 +34,10 @@ function profileNotFound(c: Parameters<typeof error>[0]) {
   return error(c, ErrorCode.PARAM_ERROR, '用户不存在', 404);
 }
 
-export function createCommunityRoutes(service: CommunityHttpService) {
+export function createCommunityRoutes(
+  service: CommunityHttpService,
+  uploadPolicy: CommunityHttpUploadPolicy,
+) {
   const routes = new Hono();
 
   routes.get('/profile', async (c) => {
@@ -33,38 +45,46 @@ export function createCommunityRoutes(service: CommunityHttpService) {
     return profile ? success(c, profile) : profileNotFound(c);
   });
 
-  routes.put('/profile', async (c) => {
-    let form: FormData;
-    try {
-      form = await c.req.formData();
-    } catch {
-      return error(c, ErrorCode.PARAM_ERROR, '请求必须是 multipart/form-data', 400);
-    }
+  routes.put(
+    '/profile',
+    requestBodyLimit({
+      maxSize: multipartRequestMaxBytes(uploadPolicy.avatarMaxBytes),
+      tooLargeMessage: '资料上传请求体过大',
+    }),
+    async (c) => {
+      let form: FormData;
+      try {
+        form = await c.req.formData();
+      } catch (cause) {
+        if (isBodyLimitError(cause)) throw cause;
+        return error(c, ErrorCode.PARAM_ERROR, '请求必须是 multipart/form-data', 400);
+      }
 
-    const hasNickname = form.has('nickname');
-    const nickname = form.get('nickname');
-    if (hasNickname && typeof nickname !== 'string') {
-      return error(c, ErrorCode.PARAM_ERROR, '昵称必须是字符串', 400);
-    }
-    const avatarEntry = form.get('avatar');
-    if (avatarEntry !== null && (!(avatarEntry instanceof File) || avatarEntry.size <= 0)) {
-      return error(c, ErrorCode.PARAM_ERROR, '头像文件不合法', 400);
-    }
-    const avatar = avatarEntry instanceof File ? avatarEntry : undefined;
-    if (!hasNickname && !avatar) {
-      return error(c, ErrorCode.PARAM_ERROR, '至少提交昵称或头像', 400);
-    }
+      const hasNickname = form.has('nickname');
+      const nickname = form.get('nickname');
+      if (hasNickname && typeof nickname !== 'string') {
+        return error(c, ErrorCode.PARAM_ERROR, '昵称必须是字符串', 400);
+      }
+      const avatarEntry = form.get('avatar');
+      if (avatarEntry !== null && (!(avatarEntry instanceof File) || avatarEntry.size <= 0)) {
+        return error(c, ErrorCode.PARAM_ERROR, '头像文件不合法', 400);
+      }
+      const avatar = avatarEntry instanceof File ? avatarEntry : undefined;
+      if (!hasNickname && !avatar) {
+        return error(c, ErrorCode.PARAM_ERROR, '至少提交昵称或头像', 400);
+      }
 
-    appendHttpLogDetail(c, formatHttpLogDetail({
-      nicknameLength: typeof nickname === 'string' ? Array.from(nickname.trim()).length : undefined,
-      avatarBytes: avatar?.size ?? 0,
-    }));
-    const profile = await service.updateProfile(c.get('userId'), {
-      nickname: hasNickname ? nickname : undefined,
-      avatar,
-    });
-    return success(c, profile);
-  });
+      appendHttpLogDetail(c, formatHttpLogDetail({
+        nicknameLength: typeof nickname === 'string' ? Array.from(nickname.trim()).length : undefined,
+        avatarBytes: avatar?.size ?? 0,
+      }));
+      const profile = await service.updateProfile(c.get('userId'), {
+        nickname: hasNickname ? nickname : undefined,
+        avatar,
+      });
+      return success(c, profile);
+    },
+  );
 
   routes.delete('/profile/avatar', async (c) => {
     return success(c, await service.clearAvatar(c.get('userId')));

@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖消息中心、聊天弹层、活动通知逐条已读与 React Router 查询参数
- * [OUTPUT]: 对外提供 MessagesPage，编排私信/互动分段、会话深链及原内容导航
- * [POS]: pages/messages 的路由级组装器，只持有 URL 状态，不实现列表或发送协议
+ * [OUTPUT]: 对外提供 MessagesPage，以 userId 唯一深链编排私信/互动分段及原内容导航
+ * [POS]: pages/messages 的路由级组装器，只持有目标用户 URL 状态，会话 ID 由 Messaging 定位结果拥有
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -12,6 +12,7 @@ import { useUiStore } from '@/app/state/ui-store';
 import type { Conversation } from '@/entities/messaging/model/messaging-types';
 import { useMarkNotificationReadMutation } from '@/entities/notifications/api/notification-queries';
 import type { ActivityNotification } from '@/entities/notifications/model/notification-types';
+import { selectMessageTarget } from '@/pages/social-route-state';
 import { ChatSheet } from '@/widgets/chat-sheet/chat-sheet';
 import { MessageCenter, type MessageSection } from '@/widgets/message-center/message-center';
 
@@ -32,7 +33,6 @@ export function MessagesPage() {
   const setActiveTab = useUiStore((state) => state.setActiveTab);
   const markReadMutation = useMarkNotificationReadMutation();
   const section: MessageSection = searchParams.get('tab') === 'notifications' ? 'notifications' : 'conversations';
-  const conversationId = positiveId(searchParams.get('conversationId'));
   const userId = positiveId(searchParams.get('userId'));
   const profileUserId = positiveId(searchParams.get('profileUserId'));
   const [profileDialogRequested, setProfileDialogRequested] = useState(false);
@@ -55,8 +55,7 @@ export function MessagesPage() {
 
   const openConversation = (conversation: Conversation) => {
     patchSearchParams((params) => {
-      params.set('userId', String(conversation.otherUser.id));
-      params.set('conversationId', String(conversation.id));
+      selectMessageTarget(params, conversation.otherUser.id);
       params.delete('tab');
     });
   };
@@ -88,14 +87,10 @@ export function MessagesPage() {
         })}
       />
       <ChatSheet
-        conversationId={conversationId}
         userId={userId}
         onClose={() => patchSearchParams((params) => {
           params.delete('conversationId');
           params.delete('userId');
-        })}
-        onConversationCreated={(nextConversationId) => patchSearchParams((params) => {
-          params.set('conversationId', String(nextConversationId));
         })}
         onOpenProfile={openProfile}
       />
@@ -105,8 +100,7 @@ export function MessagesPage() {
             userId={profileUserId}
             onClose={() => patchSearchParams((params) => params.delete('profileUserId'))}
             onMessage={(nextUserId) => patchSearchParams((params) => {
-              params.set('userId', String(nextUserId));
-              params.delete('conversationId');
+              selectMessageTarget(params, nextUserId);
               params.delete('profileUserId');
               params.delete('tab');
             })}

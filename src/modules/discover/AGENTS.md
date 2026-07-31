@@ -4,7 +4,7 @@
 成员清单
 application/: Discover 用例编排层，仅依赖 domain ports 与规则
 domain/: Discover 稳定 DTO、校验/分页规则、persistence/media ports 与 Operations 管理只读查询契约
-http/: Discover Hono 协议适配器，以 createDiscoverRoutes(service) 工厂暴露 /api/discover 路由
+http/: Discover Hono 协议适配器，以 createDiscoverRoutes(service, uploadPolicy) 工厂暴露受请求体上限保护的 /api/discover 路由
 infrastructure/: 构造注入的 SQLite 查询/事务、Operations 点赞快照与本地图片生命周期 adapters
 composition.ts: 局部模块组合根，接收 db/CommunityProfileReader/Notifications Outbox 与投影 ports，并返回 service、routes、media 与 Operations query 实例
 

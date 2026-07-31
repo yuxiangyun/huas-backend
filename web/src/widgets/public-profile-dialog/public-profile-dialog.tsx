@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 Community 公共资料、Discover/Treehole 指定用户帖子查询与上层导航动作
- * [OUTPUT]: 对外提供 PublicProfileDialog，展示用户资料、两类公开内容并进入私信或帖子详情
- * [POS]: widgets/public-profile-dialog 的跨领域只读任务容器，是作者头像、昵称与私信之间的统一入口
+ * [OUTPUT]: 对外提供 PublicProfileDialog，展示用户资料、两类公开内容并委托上层原子进入私信或帖子详情
+ * [POS]: widgets/public-profile-dialog 的跨领域只读任务容器，不组合关闭弹层与路由跳转两份状态写入
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -49,16 +49,6 @@ export function PublicProfileDialog({
   const isMine = profile?.id === currentProfileQuery.data?.id;
 
   useEffect(() => setSection('discover'), [userId]);
-
-  const openDiscoverPost = (postId: number) => {
-    onClose();
-    onOpenDiscoverPost(postId);
-  };
-
-  const openTreeholePost = (postId: number) => {
-    onClose();
-    onOpenTreeholePost(postId);
-  };
 
   return (
     <TaskDialog
@@ -114,7 +104,7 @@ export function PublicProfileDialog({
               ) : (
                 <div className="divide-y divide-line">
                   {discoverPosts.map((post) => (
-                    <button key={post.id} className="flex w-full gap-3 px-3.5 py-3 text-left hover:bg-tint-soft" type="button" onClick={() => openDiscoverPost(post.id)}>
+                    <button key={post.id} className="flex w-full gap-3 px-3.5 py-3 text-left hover:bg-tint-soft" type="button" onClick={() => onOpenDiscoverPost(post.id)}>
                       {post.coverUrl ? <img alt="" className="size-16 shrink-0 rounded-[0.5rem] object-cover" src={buildMediaUrl(post.coverUrl)} /> : null}
                       <span className="min-w-0 flex-1">
                         <strong className="text-clamp-1 block text-sm font-semibold">{post.title}</strong>
@@ -141,7 +131,7 @@ export function PublicProfileDialog({
             ) : (
               <div className="divide-y divide-line">
                 {treeholePosts.map((post) => (
-                  <button key={post.id} className="block w-full px-4 py-3.5 text-left hover:bg-tint-soft" type="button" onClick={() => openTreeholePost(post.id)}>
+                  <button key={post.id} className="block w-full px-4 py-3.5 text-left hover:bg-tint-soft" type="button" onClick={() => onOpenTreeholePost(post.id)}>
                     <span className="text-clamp-3 block break-words text-sm leading-6">{post.content}</span>
                     <span className="mt-2 flex items-center gap-3 text-xs text-muted">
                       <span>{formatPublishedAt(post.publishedAt)}</span>

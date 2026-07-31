@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 URL 查询参数、Social 路径与发布/详情/公共作者资料弹层加载器
- * [OUTPUT]: 对外提供 TreeholePage，编排树洞信息流、发布、详情、作者资料与私信入口
- * [POS]: pages/treehole 的路由级组装器，统一弹层预加载与查询参数，不实现社区请求协议
+ * [OUTPUT]: 对外提供 TreeholePage，以无顶边连续白色单面板与共享 Social 字标编排信息流、发布、详情、作者资料和私信入口
+ * [POS]: pages/treehole 的路由级组装器，原子维护帖子详情与公共资料互斥并统一弹层预加载
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -12,6 +12,8 @@ import { useUiStore } from '@/app/state/ui-store';
 import { appRoutes } from '@/app/router/paths';
 import { IconButton } from '@/shared/ui/icon-button';
 import { PageHeader } from '@/shared/ui/page-header';
+import { SocialPageTitle } from '@/shared/ui/social-page-title';
+import { selectSocialPost } from '@/pages/social-route-state';
 import { TreeholeFeed } from '@/widgets/treehole-feed/treehole-feed';
 
 const loadTreeholeComposeSheet = () => import('@/widgets/treehole-compose-sheet/treehole-compose-sheet');
@@ -98,7 +100,7 @@ export function TreeholePage() {
     setDetailSheetRequested(true);
     void loadTreeholeDetailSheet();
     patchSearchParams((params) => {
-      params.set('postId', String(nextPostId));
+      selectSocialPost(params, nextPostId);
     });
   };
 
@@ -110,10 +112,9 @@ export function TreeholePage() {
       params.delete('postId');
     });
   };
-
   return (
-    <div className="page-stack-mobile">
-      <section className="overflow-hidden rounded-[0.5rem] border border-[#dbdbdb] bg-white">
+    <div className="page-stack-mobile -mx-4 bg-white sm:mx-0">
+      <section className="overflow-hidden border-b border-[#dbdbdb] bg-white sm:rounded-[0.5rem] sm:border-x">
         <PageHeader
           action={(
             <IconButton
@@ -127,9 +128,8 @@ export function TreeholePage() {
           )}
           className="px-4 py-4 sm:px-5"
           compact
-          title="树洞"
+          title={<SocialPageTitle>树洞</SocialPageTitle>}
         />
-
         <TreeholeFeed
           onComposeClick={handleOpenComposeSheet}
           onOpenPost={handleOpenPost}
