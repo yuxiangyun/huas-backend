@@ -61,6 +61,19 @@ describe('deployment scripts', () => {
     expect(blueGreen).toContain('require_command "$web_package_manager"');
   });
 
+  it('starts the async Bun entry directly instead of using the PM2 require wrapper', async () => {
+    const blueGreen = await source('scripts/remote-blue-green-deploy.sh');
+    const ecosystem = await source('ecosystem.config.cjs');
+    for (const config of [blueGreen, ecosystem]) {
+      expect(config).toContain("interpreter: 'none'");
+      expect(config).not.toContain("interpreter: 'bun'");
+    }
+    expect(blueGreen).toContain('bun_bin="$(command -v bun)"');
+    expect(blueGreen).toContain("args: 'run src/index.ts'");
+    expect(ecosystem).toContain("script: '/usr/bin/env'");
+    expect(ecosystem).toContain("args: 'bun run src/index.ts'");
+  });
+
   it('keeps maintenance routing and stopped writers after a post-migration failure', async () => {
     const blueGreen = await source('scripts/remote-blue-green-deploy.sh');
     const failureHandler = blueGreen.slice(

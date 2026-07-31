@@ -570,6 +570,8 @@ git push baidu HEAD:main
 4. 快照成功后执行 `db:migrate --allow-destructive`
 5. 新 Server `/health/ready` 和 Web `/m` 本机冒烟通过后，nginx 才重新开放流量
 
+PM2 槽位配置以 `interpreter: none` 直接执行 `bun run src/index.ts`。不要改回 PM2 的 Bun interpreter；它会通过 CommonJS `require()` 装载入口，无法承载当前含顶层异步初始化的 ESM 进程入口。
+
 发布完成后，建议立刻验证：
 
 ```bash

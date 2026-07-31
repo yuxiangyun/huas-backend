@@ -330,7 +330,7 @@ bunfig.toml - Bun 测试默认 preload 隔离 SQLite 环境，CLI preload 可为
 bun.lock - 服务端依赖解析锁
 tsconfig.json - TypeScript 编译边界与路径别名
 drizzle.config.ts - Drizzle 迁移与 SQLite 连接配置
-ecosystem.config.cjs - PM2 单实例运行参数
+ecosystem.config.cjs - PM2 直接执行 Bun ESM 入口的单实例运行参数，绕开 require wrapper
 nginx.conf - 反向代理样板
 .env / .env.example - 运行时配置与无密钥模板，包含数据库、缓存、上游与课表来源策略
 .gitignore - 排除依赖、构建缓存、数据库、日志、业务媒体与可变运行策略状态

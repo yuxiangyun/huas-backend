@@ -324,8 +324,9 @@ ensure_pm2_app() {
   local release_link="$2"
   local runtime_env="$3"
   local port="$4"
-  local app_name
+  local app_name bun_bin
   app_name="$(slot_app_name "$slot")"
+  bun_bin="$(command -v bun)"
   local logs_path="$LOGS_DIR/$slot"
   local ecosystem_file="$ECOSYSTEM_DIR/$slot.config.cjs"
 
@@ -336,8 +337,9 @@ module.exports = {
   apps: [{
     name: '$app_name',
     cwd: '$release_link',
-    script: 'src/index.ts',
-    interpreter: 'bun',
+    script: '$bun_bin',
+    args: 'run src/index.ts',
+    interpreter: 'none',
     exec_mode: 'fork',
     instances: 1,
     autorestart: true,

@@ -2,8 +2,9 @@ module.exports = {
   apps: [{
     name: 'huas-server',
     cwd: __dirname,
-    script: 'src/index.ts',
-    interpreter: 'bun',
+    script: '/usr/bin/env',
+    args: 'bun run src/index.ts',
+    interpreter: 'none',
     exec_mode: 'fork',
     instances: 1,
     autorestart: true,

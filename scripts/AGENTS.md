@@ -18,6 +18,7 @@ Social 测试播种只能在非生产环境执行；账户不保存学校凭证�
 所有维护中的部署路径必须先将 nginx 切入 503 maintenance 并停止全部 PM2 writer，再对明确 DB_PATH 创建 SQLite 一致性快照并显式执行 `db:migrate --allow-destructive`。
 migration 后只能在新 Server `/health/ready` 与 Web `/m` 本机冒烟同时成功后开放流量；任一失败都必须保持停流与停 writer，不得恢复旧 upstream，只允许 forward-fix。
 active-slot 以同目录候选文件原子替换；Web 包管理器按锁文件确定且优先 package-lock。
+PM2 必须以 `interpreter: none` 直接执行 `bun run src/index.ts`，禁止经 Bun require wrapper 装载含顶层异步初始化的 ESM 入口。
 使用 `mock.module` 的套件必须独立进程执行；普通套件以单并发运行，共享 SQLite 的测试不得并行清理数据。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
