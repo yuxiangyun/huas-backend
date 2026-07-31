@@ -93,7 +93,7 @@ type CommunityProfile = {
 };
 ```
 
-昵称允许重复；空昵称先取 `className` 第一个数字之前的前缀，生成 `{前缀}同学{id}`，没有有效前缀时回退 `文理er {id}`。公共接口不暴露学号、真实姓名、完整班级、评论历史或点赞历史，也不提供用户搜索。
+昵称允许重复；空昵称先取 `className` 第一个数字之前的前缀，生成 `{前缀}同学{id}`，没有有效前缀时回退 `文理er {id}`。当前用户 `/api/community/profile` 在公共三字段之外额外返回可空 `nickname` 供编辑回填；公共详情和所有社交作者投影始终只有三字段。非空昵称由领域层按 2–12 Unicode code point、无控制字符/换行、非保留名校验，缺省 displayName 不写回 nickname。公共接口不暴露学号、真实姓名、完整班级、评论历史或点赞历史，也不提供用户搜索。
 
 头像由 Community 自有 adapter 管理。新文件使用不可变 UUID 名称，SQLite 更新失败时补偿删除；公开读取会验证路径仍绑定当前资料。
 
@@ -133,7 +133,7 @@ Discover/Treehole 在自己的 SQLite 短事务中同时写互动事实、派生
 
 `event_id` 包含互动类型、资源、子资源、actor 和 recipient，保证逐接收者幂等。自我互动不生成事件；回复同时面向父评论作者和不同的帖子作者，并自动去重。取消点赞在原互动事务内删除对应 Outbox/Notification，使再次点赞可以重新投影。
 
-Notifications 不保存正文，不与内容表建立跨领域外键，也不承载私信未读。只支持逐条已读；已读通知默认保留 90 天后由周期任务清理。
+Notifications 不保存正文，不与内容表建立跨领域外键，也不承载私信未读。只支持逐条已读，第一版永久保留且没有清理/归档任务。普通列表的 offset 只服务人工翻页，轮询通过通知 ID 高水位增量入口避免并发插入造成重复或漏项。
 
 ### 5.5 Messaging
 
@@ -143,11 +143,14 @@ Messaging 是一对一专用结构，不为群聊预留 participants：
 - 禁止给自己发送；
 - 会话只在第一条消息成功事务内延迟创建；
 - `UNIQUE(sender_user_id, client_message_id)` 保证 UUID 幂等；
+- 从用户入口只定位 CommunityProfile 与已有 conversationId，不创建空会话；
+- 会话变化轮询使用全局单调 `last_message_id` 高水位，普通 offset 只用于人工翻页；
+- 消息无游标取最新页，before 向旧、after 向新增，用户面与管理面共享同一 hasMore 方向语义；
 - 每用户按 `messages` 事实复验 30 条/分钟，不依赖进程内计数；
 - 服务端游标只单调前进，未读数由消息事实与当前用户游标实时计算；
 - 私信不写入活动通知，也不公开已读回执。
 
-消息文字最多 1000 Unicode code point；每条最多 9 张图，单张原图最多 32MB，合计最多 64MB，且至少有文字或图片。图片先在 SQLite 事务外识别真实格式、自动旋转、缩放至最长边 1280 并以质量 78 转为 WebP；短事务只写会话、消息、图片元数据和 `last_message_id`。任一步失败都会回滚数据库并补偿候选媒体。
+消息文字最多 1000 Unicode code point；每条最多 9 张图，单张原图最多 32MB，合计最多 64MB，且至少有文字或图片。HTTP adapter 在 formData 前以 Content-Length 和流式 body-limit 统一执行 413 请求上限；图片转换前按持久发送事实预限流。图片在 SQLite 事务外识别真实格式、自动旋转、缩放至最长边 1280 并以质量 78 转为 WebP；短事务只写会话、消息、图片元数据和 `last_message_id`。任一步失败都会回滚数据库并补偿候选媒体。
 
 Operations 只通过 `MessagingOperationsQueryPort` 读取全部会话、正文、历史和媒体，不接触 Messaging 表或磁盘路径，不暴露修改/删除命令。
 
@@ -169,7 +172,7 @@ Operations 只通过 `MessagingOperationsQueryPort` 读取全部会话、正文�
 
 - 动态保存并验证用户、凭证、缓存、Discover 与 Treehole 核心表行数；
 - 将旧用户昵称/头像迁入 `community_profiles` 后从 `users` 删除旧列；
-- 只有旧评分和旧 Treehole 通知表均为空才允许物理删除；
+- 按产品决策直接删除旧评分表/字段与旧 Treehole 通知表，即使其中已有数据也不阻断且不转换成新事实；
 - 建立 Discover 点赞、Outbox、Notifications 和 Messaging 最终结构；
 - 任一断言或 DDL/DML 失败时，整个版本事务回滚且不写版本记录。
 
@@ -200,12 +203,11 @@ bun run db:migrate -- --db <sqlite-path> --allow-destructive
 
 - credential、cache 与 captcha session 清理；
 - Activity Outbox 投影重试；
-- 已读通知历史清理；
 - 无主私信媒体清理。
 
 每个任务具名、可停止、错误隔离且同任务不重叠。优雅关闭顺序为：停止周期任务 → 停止 HTTP server → flush shutdown hooks → dispose composition → 关闭 SQLite。
 
-Notifications/Messaging 的成功只读轮询采用 quiet access log；4xx/5xx、写操作和 HTTP metrics 始终保留。日志只记录对象 ID、数量和字节数，禁止记录私信正文、原始文件名或二进制内容。
+Notifications/Messaging 的成功只读轮询采用 quiet access log；4xx/5xx、写操作和 HTTP metrics 始终保留。管理员私信会话列表、增量、消息和媒体读取分别写最小审计，只记录管理员、操作类型、必要 conversationId/稳定媒体键；所有日志禁止记录私信正文、原始文件名、二进制或身份隐私内容。
 
 ## 9. Operations 边界
 

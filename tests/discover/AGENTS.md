@@ -6,7 +6,7 @@ Discover 端到端业务回归按媒体、点赞推荐、评论和 Operations �
 ## 成员清单
 
 comments.cases.ts: 评论生命周期用例，覆盖统一作者投影、分页回复、父评论约束、作者删除、计数同步与帖子删除后的可见性
-feed.cases.ts: 点赞推荐用例，覆盖幂等/自赞拒绝、popular、偏好/退化、公共用户帖子与统一作者 DTO
+feed.cases.ts: PUT/DELETE 点赞推荐用例，覆盖幂等/自赞拒绝、popular、偏好/退化、公共用户帖子与统一作者 DTO
 harness.ts: Discover 共享支架，直接装配 canonical Discover/Notifications、Community 资料端口、SQLite、JWT 与图片夹具
 media.cases.ts: 媒体摄取用例，覆盖标准图片、HEIF/HEIC、旧限制以上大图与 animated WebP 规范化
 operations.cases.ts: Operations 端口用例，覆盖帖子/点赞快照、无跨域装配的管理删除与媒体失效

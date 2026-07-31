@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖注入的 Operations application 服务、会话边界、Academic 策略公开门面、自有 infrastructure 与统一响应/审计日志
- * [OUTPUT]: 对外提供 createAdminRoutes(dependencies)，生成会话、dashboard、内容、社区、私信只读与课表来源策略管理路由
- * [POS]: operations/http 的注入式管理面协议适配器，统一 Cookie、参数错误、跨领域公开命令与审计日志
+ * [OUTPUT]: 对外提供 createAdminRoutes(dependencies)，生成会话、dashboard、内容、社区、增量/三态私信只读与课表策略路由
+ * [POS]: operations/http 的注入式管理面协议适配器，三类私信读取均写入不含正文、文件名或用户隐私的审计日志
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -35,7 +35,7 @@ export interface AdminRouteDependencies {
   >;
   messagingAdmin: Pick<
     MessagingAdminApplicationService,
-    'listConversations' | 'listMessages' | 'getMedia'
+    'listConversations' | 'listConversationChanges' | 'listMessages' | 'getMedia'
   >;
 }
 
@@ -153,27 +153,59 @@ export function createAdminRoutes(dependencies: AdminRouteDependencies) {
       || (pageSize !== undefined && (!Number.isInteger(pageSize) || pageSize <= 0))) {
       return error(c, ErrorCode.PARAM_ERROR, '分页参数不合法', 400);
     }
-    return success(c, await dependencies.messagingAdmin.listConversations({ page, pageSize }));
+    const data = await dependencies.messagingAdmin.listConversations({ page, pageSize });
+    Logger.operation('AdminMessagingAudit', 'read_conversation_list', c.get('adminUser'), '管理员');
+    return success(c, data);
+  });
+
+  admin.get('/messaging/conversations/changes', async (c) => {
+    const afterValue = c.req.query('afterMessageId');
+    const afterMessageId = afterValue === undefined ? 0 : Number(afterValue);
+    const limit = c.req.query('limit') ? Number(c.req.query('limit')) : undefined;
+    if (!Number.isInteger(afterMessageId) || afterMessageId < 0
+      || (limit !== undefined && (!Number.isInteger(limit) || limit <= 0))) {
+      return error(c, ErrorCode.PARAM_ERROR, '会话增量参数不合法', 400);
+    }
+    const data = await dependencies.messagingAdmin.listConversationChanges({
+      afterMessageId,
+      limit,
+    });
+    Logger.operation('AdminMessagingAudit', 'read_conversation_changes', c.get('adminUser'), '管理员');
+    return success(c, data);
   });
 
   admin.get('/messaging/conversations/:id/messages', async (c) => {
     const conversationId = Number(c.req.param('id'));
-    const afterMessageId = c.req.query('afterMessageId')
-      ? Number(c.req.query('afterMessageId'))
-      : undefined;
+    const beforeValue = c.req.query('beforeMessageId');
+    const afterValue = c.req.query('afterMessageId');
+    const beforeMessageId = beforeValue === undefined ? undefined : Number(beforeValue);
+    const afterMessageId = afterValue === undefined ? undefined : Number(afterValue);
     const limit = c.req.query('limit') ? Number(c.req.query('limit')) : undefined;
     if (!Number.isInteger(conversationId) || conversationId <= 0) {
       return error(c, ErrorCode.PARAM_ERROR, '会话 ID 不合法', 400);
     }
-    if ((afterMessageId !== undefined && (!Number.isInteger(afterMessageId) || afterMessageId < 0))
+    if ((beforeMessageId !== undefined && (!Number.isInteger(beforeMessageId) || beforeMessageId <= 0))
+      || (afterMessageId !== undefined && (!Number.isInteger(afterMessageId) || afterMessageId <= 0))
       || (limit !== undefined && (!Number.isInteger(limit) || limit <= 0))) {
       return error(c, ErrorCode.PARAM_ERROR, '消息分页参数不合法', 400);
     }
+    if (beforeMessageId !== undefined && afterMessageId !== undefined) {
+      return error(c, ErrorCode.PARAM_ERROR, 'beforeMessageId 和 afterMessageId 不能同时提交', 400);
+    }
     const data = await dependencies.messagingAdmin.listMessages(conversationId, {
+      beforeMessageId,
       afterMessageId,
       limit,
     });
-    return data ? success(c, data) : error(c, ErrorCode.PARAM_ERROR, '会话不存在', 404);
+    if (!data) return error(c, ErrorCode.PARAM_ERROR, '会话不存在', 404);
+    Logger.operation(
+      'AdminMessagingAudit',
+      'read_conversation_messages',
+      c.get('adminUser'),
+      '管理员',
+      `conversationId=${conversationId}`,
+    );
+    return success(c, data);
   });
 
   admin.get('/messaging/media/:batchKey/:fileName', async (c) => {
@@ -183,10 +215,17 @@ export function createAdminRoutes(dependencies: AdminRouteDependencies) {
     const storageKey = `${batchKey}/${fileName}`;
     const media = await dependencies.messagingAdmin.getMedia(storageKey);
     if (!media) return error(c, ErrorCode.PARAM_ERROR, '媒体不存在', 404);
-    return new Response(media, {
+    Logger.operation(
+      'AdminMessagingAudit',
+      'read_message_media',
+      c.get('adminUser'),
+      '管理员',
+      `conversationId=${media.conversationId}; storageKey=${storageKey}`,
+    );
+    return new Response(media.data, {
       headers: {
         'Cache-Control': 'private, no-store',
-        'Content-Type': media.type || 'application/octet-stream',
+        'Content-Type': media.data.type || 'application/octet-stream',
         'X-Content-Type-Options': 'nosniff',
       },
     });

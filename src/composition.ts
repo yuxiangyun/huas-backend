@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖各 canonical 模块公开构造器/ports、唯一数据库实例、运行配置、观测器、媒体端口与周期任务注册器
- * [OUTPUT]: 对外提供 createApplicationComposition，集中生成 HTTP 依赖、社交模块实例、Operations 聚合、周期任务和关闭清理
- * [POS]: src 的唯一跨模块组合根；index.ts 只消费其结果，不直接知道社交或基础设施实现
+ * [OUTPUT]: 对外提供 createApplicationComposition，集中生成 HTTP/社交/Operations、Outbox 重试、媒体清理与关闭钩子
+ * [POS]: src 的唯一跨模块组合根；通知只注册投影重试，不注册已读清理或归档任务
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -159,13 +159,6 @@ export function createApplicationComposition(): ApplicationComposition {
     intervalMs: 5_000,
     async run() {
       await notifications.projector.runOnce();
-    },
-  });
-  periodicTasks.register({
-    name: 'read-notification-cleanup',
-    intervalMs: 24 * 60 * 60_000,
-    async run() {
-      await notifications.cleanup.run();
     },
   });
   periodicTasks.register({

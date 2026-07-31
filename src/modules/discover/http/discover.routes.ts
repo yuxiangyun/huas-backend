@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Hono、注入的 DiscoverApplicationService、response/errors/http-log 与领域输入解析工具
- * [OUTPUT]: 对外提供 createDiscoverRoutes(service)，映射帖子、用户帖子、点赞、评论、删除与 meta 接口
+ * [OUTPUT]: 对外提供 createDiscoverRoutes(service)，映射帖子、评论及统一 `{postId, liked, likeCount}` 的 PUT/DELETE 点赞协议
  * [POS]: modules/discover/http 的注入式协议 adapter，只解析请求与包装响应，不持有 composition singleton
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -154,14 +154,14 @@ export function createDiscoverRoutes(service: DiscoverHttpService) {
     return data ? success(c, data) : error(c, ErrorCode.PARAM_ERROR, '帖子不存在', 404);
   });
 
-  routes.post('/posts/:id/like', async (c) => {
+  routes.put('/posts/:id/like', async (c) => {
     const postId = parseId(c.req.param('id'));
     if (!postId) return error(c, ErrorCode.PARAM_ERROR, '帖子 ID 不合法', 400);
     const data = await service.likePost(c.get('userId'), postId);
     if (!data) return error(c, ErrorCode.PARAM_ERROR, '帖子不存在', 404);
 
     Logger.operation('Discover', `点赞帖子 #${postId}`, c.get('studentId'), c.get('name'));
-    return success(c, data);
+    return success(c, { postId: data.id, liked: data.likedByMe, likeCount: data.likeCount });
   });
 
   routes.delete('/posts/:id/like', async (c) => {
@@ -171,7 +171,7 @@ export function createDiscoverRoutes(service: DiscoverHttpService) {
     if (!data) return error(c, ErrorCode.PARAM_ERROR, '帖子不存在', 404);
 
     Logger.operation('Discover', `取消点赞帖子 #${postId}`, c.get('studentId'), c.get('name'));
-    return success(c, data);
+    return success(c, { postId: data.id, liked: data.likedByMe, likeCount: data.likeCount });
   });
 
   routes.get('/posts/:id/comments', async (c) => {

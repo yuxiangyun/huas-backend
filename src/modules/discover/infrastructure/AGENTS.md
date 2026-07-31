@@ -4,7 +4,7 @@
 成员清单
 discover-mapping.ts: Discover 自有事实的 Drizzle selector、数据库/事务类型与领域映射再导出，不含跨域 join
 discover-media-service.ts: 共享 image 转换器与本地文件系统媒体 adapter，按注入 db 校验帖子可见性
-sqlite-discover-comment-service.ts: 构造注入的评论创建/删除、Community 批量作者投影与评论/commentCount/Outbox 同事务实现
+sqlite-discover-comment-service.ts: 构造注入的评论创建/删除、Community 批量作者投影与父作者 reply/帖子作者 comment 差异 Outbox 事务实现
 sqlite-discover-persistence.ts: 持有帖子/评论/推荐实例图的 DiscoverPersistence 聚合 adapter
 sqlite-discover-operations-query.ts: 构造注入的帖子/点赞管理快照 adapter，经 CommunityProfileReader 批量投影作者
 sqlite-discover-post-service.ts: 帖子/用户帖子查询、popular 排序、点赞事实/计数/Outbox 原子写入与批量作者投影实现

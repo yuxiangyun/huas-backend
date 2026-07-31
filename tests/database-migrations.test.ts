@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 Bun SQLite/子进程、临时目录与 db migration CLI/repair/snapshot/只读校验内核
- * [OUTPUT]: 覆盖 destructive CLI 授权、0003 行数与业务值守恒、SQLite 完整性、旧事实拒绝、schema fail-closed、repair 与快照边界
- * [POS]: tests 的数据库 contract migration 回归，证明破坏性发布必须显式且运行期没有结构变更权
+ * [OUTPUT]: 覆盖 destructive 授权、0003 核心事实守恒、旧评分/通知直接丢弃、索引约束、schema fail-closed、repair 与快照
+ * [POS]: tests 的数据库 contract migration 回归，证明获授权的产品废弃事实不会阻断发布且运行期没有结构变更权
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -239,36 +239,37 @@ describe('database migrations', () => {
     expect(repeated.stdout.toString()).toMatch(/version=3 applied=none adopted=false/);
   });
 
-  test('refuses to discard a newly appeared legacy rating', () => {
+  test('drops populated legacy ratings and treehole notifications without converting them', () => {
     const database = openMemory();
     migrateLegacy(database);
     database.exec(`
-      INSERT INTO users (student_id) VALUES ('rating-user');
+      INSERT INTO users (student_id) VALUES ('author'), ('interactor');
       INSERT INTO discover_posts (user_id, category, storage_key, images_json, tags_json, cover_url)
       VALUES (1, '其他', 'rating-post', '[]', '[]', '');
-      INSERT INTO discover_post_ratings (post_id, user_id, score) VALUES (1, 1, 5);
-    `);
-    expect(() => migrateDatabase(database, { allowDestructive: true })).toThrow(/CHECK constraint failed/);
-    expect(getCurrentSchemaVersion(database)).toBe(2);
-    expect(count(database, 'discover_post_ratings')).toBe(1);
-    expect(objectExists(database, 'community_profiles')).toBe(false);
-    database.close();
-  });
-
-  test('refuses to discard a newly appeared legacy treehole notification', () => {
-    const database = openMemory();
-    migrateLegacy(database);
-    database.exec(`
-      INSERT INTO users (student_id) VALUES ('author'), ('recipient');
+      INSERT INTO discover_post_ratings (post_id, user_id, score) VALUES (1, 2, 5);
       INSERT INTO treehole_posts (user_id, content) VALUES (1, 'post');
-      INSERT INTO treehole_comments (post_id, user_id, content) VALUES (1, 1, 'comment');
+      INSERT INTO treehole_comments (post_id, user_id, content) VALUES (1, 2, 'comment');
       INSERT INTO treehole_comment_notifications
         (recipient_user_id, actor_user_id, post_id, comment_id, type)
-      VALUES (2, 1, 1, 1, 'post_comment');
+      VALUES (1, 2, 1, 1, 'post_comment');
     `);
-    expect(() => migrateDatabase(database, { allowDestructive: true })).toThrow(/CHECK constraint failed/);
-    expect(getCurrentSchemaVersion(database)).toBe(2);
-    expect(count(database, 'treehole_comment_notifications')).toBe(1);
+    const beforeCounts = coreCounts(database);
+    const beforeFacts = preservedBusinessFacts(database);
+
+    expect(migrateDatabase(database, { allowDestructive: true })).toEqual({
+      version: 3,
+      applied: [3],
+      adopted: false,
+    });
+    expect(coreCounts(database)).toEqual(beforeCounts);
+    expect(preservedBusinessFacts(database)).toEqual(beforeFacts);
+    expect(objectExists(database, 'discover_post_ratings')).toBe(false);
+    expect(objectExists(database, 'treehole_comment_notifications')).toBe(false);
+    expect(count(database, 'discover_post_likes')).toBe(0);
+    expect((database.query(
+      "SELECT count(*) AS count FROM pragma_table_info('discover_posts') WHERE name LIKE 'rating_%'",
+    ).get() as { count: number }).count).toBe(0);
+    expectSqliteIntegrity(database);
     database.close();
   });
 
@@ -312,6 +313,12 @@ describe('database migrations', () => {
       "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'messages' ORDER BY name",
     ).all() as Array<{ name: string }>;
     expect(messagingIndexes.map((row) => row.name)).toContain('idx_messages_sender_created');
+
+    const notificationIndexes = database.query(
+      "SELECT name, sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'notifications' ORDER BY name",
+    ).all() as Array<{ name: string; sql: string | null }>;
+    expect(notificationIndexes.find((row) => row.name === 'idx_notifications_recipient_created')?.sql)
+      .toContain('recipient_user_id, created_at DESC, id DESC');
 
     database.exec("INSERT INTO activity_outbox (event_id, recipient_user_id, actor_user_id, type, resource_type, resource_id) VALUES ('event-1', 2, 1, 'discover_like', 'discover_post', 9)");
     expect(() => database.exec(

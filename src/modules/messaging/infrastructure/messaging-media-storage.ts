@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖共享 image 转换器、构造注入的 Drizzle db、Node 文件系统与 Messaging 媒体策略
- * [OUTPUT]: 对外提供 MessagingMediaStorage，负责候选图片批次、补偿、URL、参与者/管理读取与无主目录清理
- * [POS]: modules/messaging/infrastructure 的私有媒体 adapter，仅通过 Messaging 自有事实授权且不挂公开静态路径
+ * [OUTPUT]: 对外提供 MessagingMediaStorage，负责候选图片、幂等比对、补偿、参与者读取及带 conversationId 的管理读取
+ * [POS]: modules/messaging/infrastructure 的私有媒体 adapter，以稳定存储键连接管理审计上下文且不挂公开静态路径
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -13,6 +13,7 @@ import { schema } from '../../../db';
 import { transformImageToWebp } from '../../../utils/image';
 import {
   validateMessageImages,
+  type MessageImageFact,
   type MessagingPolicy,
   type PreparedMessageMedia,
 } from '../domain/messaging';
@@ -80,6 +81,38 @@ export class MessagingMediaStorage implements MessageMediaStorage {
     }
   }
 
+  async isEquivalent(
+    prepared: PreparedMessageMedia | null,
+    existing: readonly MessageImageFact[],
+  ) {
+    const candidates = prepared?.images ?? [];
+    const persisted = [...existing].sort((left, right) => left.sortOrder - right.sortOrder);
+    if (candidates.length !== persisted.length) return false;
+
+    for (const [index, candidate] of candidates.entries()) {
+      const current = persisted[index]!;
+      if (candidate.sortOrder !== current.sortOrder
+        || candidate.width !== current.width
+        || candidate.height !== current.height
+        || candidate.sizeBytes !== current.sizeBytes
+        || candidate.mimeType !== current.mimeType) {
+        return false;
+      }
+      const candidatePath = this.resolveStorageKey(candidate.storageKey);
+      const currentPath = this.resolveStorageKey(current.storageKey);
+      if (!candidatePath || !currentPath) return false;
+      const candidateFile = Bun.file(candidatePath);
+      const currentFile = Bun.file(currentPath);
+      if (!await candidateFile.exists() || !await currentFile.exists()) return false;
+      const [candidateBytes, currentBytes] = await Promise.all([
+        candidateFile.arrayBuffer(),
+        currentFile.arrayBuffer(),
+      ]);
+      if (!Buffer.from(candidateBytes).equals(Buffer.from(currentBytes))) return false;
+    }
+    return true;
+  }
+
   async discard(media: PreparedMessageMedia | null) {
     if (!media || !BATCH_KEY_PATTERN.test(media.batchKey)) return;
     await rm(resolve(this.root, media.batchKey), { recursive: true, force: true });
@@ -117,11 +150,17 @@ export class MessagingMediaStorage implements MessageMediaStorage {
   async getForAdmin(storageKey: string) {
     const filePath = this.resolveStorageKey(storageKey);
     if (!filePath) return null;
-    const rows = await this.db.select({ id: schema.messageImages.id })
+    const rows = await this.db.select({
+      id: schema.messageImages.id,
+      conversationId: schema.messages.conversationId,
+    })
       .from(schema.messageImages)
+      .innerJoin(schema.messages, eq(schema.messageImages.messageId, schema.messages.id))
       .where(eq(schema.messageImages.storageKey, storageKey))
       .limit(1);
-    return rows.length === 0 ? null : this.openExistingFile(filePath);
+    if (!rows[0]) return null;
+    const data = await this.openExistingFile(filePath);
+    return data ? { data, conversationId: rows[0].conversationId } : null;
   }
 
   async cleanupOrphans(before: Date) {

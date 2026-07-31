@@ -2,7 +2,7 @@
 > L2 | 父级: /src/modules/treehole/AGENTS.md
 
 成员清单
-treehole.routes.ts: createTreeholeRoutes 注入式 Hono factory，映射 meta、帖子、公共用户帖子、点赞、评论和删除协议
+treehole.routes.ts: createTreeholeRoutes 注入式 Hono factory，映射帖子、评论及返回 `{postId, liked, likeCount}` 的 PUT/DELETE 幂等点赞
 
 架构决策
 HTTP 层只解析 ID、分页与 JSON 并包装响应/日志；Community 资料、头像和 Notifications 路由不属于本模块。

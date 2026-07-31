@@ -15,10 +15,10 @@ business-flows/: 登录、凭证、课表/日历、缓存与持久化边界的�
 cache-modernization.test.ts: Cache 永久/限时新鲜度、版本 envelope、旧 payload、同意图 singleflight 与 observer 隔离回归测试
 calendar-compat.test.ts: Calendar canonical 实现与 routes/services/auth 旧 Facade 的引用、token 别名与 HMAC 语义兼容测试
 campus-integrations-compat.test.ts: Campus Integrations canonical 实现与 auth/core/parsers/services 旧 Facade 的引用一致性测试
-database-migrations.test.ts: SQLite destructive API/CLI 授权、0003 行数与业务值守恒、完整性/旧事实拒绝、启动 schema fail-ready、repair 与快照回归测试
+database-migrations.test.ts: SQLite destructive 授权、0003 核心守恒、非空旧评分/通知直接丢弃、索引/完整性、schema fail-ready、repair 与快照测试
 deployment-scripts.test.ts: 维护发布脚本的 Bash 语法、停流/停 writer 顺序、destructive migration、本机冒烟与 forward-fix 回归测试
 classroom-free-parser.test.ts: 空教室解析器回归测试
-community.test.ts: Community 默认名称、批量公共资料、HTTP 字段隔离与头像媒体生命周期回归测试
+community.test.ts: Community 缺省名称、Unicode/保留昵称校验、当前/公共 DTO 字段隔离与头像生命周期回归测试
 discover.test.ts: Discover 薄聚合入口，在单进程内装配 discover/ 媒体、推荐、评论与管理用例
 discover/: Discover HTTP/媒体共享支架及按业务能力细分的回归用例
 discover-application.test.ts: Discover application 媒体补偿与删除清理失败语义回归测试
@@ -29,16 +29,17 @@ fixtures/: 测试二进制样本目录，包含 HEIC 图片
 grade-parser.test.ts: 成绩表结构、合法空表、错误页拒绝与评教门禁回归测试
 identity-login-application.test.ts: Identity/Login 应用编排、验证码固定周期清理、CAS 提交耗时、Portal/JW 分支与 SQLite 用户凭证原子回滚测试
 image.test.ts: 共享图片真实格式识别、输入边界、EXIF 旋转、缩放裁切、动画保留、HEIC fallback 与 WebP 输出回归测试
-notifications.test.ts: Notifications recipient 事件键、Outbox 幂等/撤销/退避、actor 投影、逐条已读权限、未读计数与已读清理回归测试
-messaging.test.ts: Messaging 一对一唯一/延迟会话、UUID 幂等、事实限流、图文原子性、输入边界、游标未读、私有媒体与管理只读 port 回归测试
-messaging-admin.test.ts: 根组合下管理员 Cookie 只读私信正文/图片、参与者 Bearer 媒体权限、禁止管理写命令与日志内容保密回归测试
+notifications.test.ts: Notifications 差异回复事件、Outbox 幂等/撤销/退避、ID 增量、逐条已读、未读计数与永久保留回归测试
+messaging.test.ts: Messaging 延迟会话/目标定位、会话高水位、严格 UUID 图文幂等、压缩前事实限流、三态消息、未读与私有媒体测试
+messaging-upload.test.ts: Messaging HTTP 上传边界，锁定 Content-Length/流式请求体的解析前 413 与坏 multipart 的稳定 400
+messaging-admin.test.ts: 管理员 Cookie 会话增量/三态消息/图片只读、三类隐私安全审计、禁止写命令与参与者媒体权限测试
 operations-application.test.ts: Operations Dashboard 构造注入与纯端口聚合隔离测试
 operations-compat.test.ts: Operations canonical 与旧 routes/services/runtime/middleware Facade 引用及依赖方向测试
 periodic-tasks.test.ts: Runtime 轻量周期任务注册、幂等启停、失败隔离与同任务防重叠回归测试
 portal-schedule-parser.test.ts: Portal 日期范围、课表解析及数字/字符串 code、一卡通余额边界回归测试
 public-announcements.test.ts: 公告公共接口回归测试
 runtime-check-ci.test.ts: 本地 check 脚本、单 job CI、触发器、并发取消与 observer 装配静态回归测试
-runtime-health-metrics.test.ts: live/ready 状态矩阵、轻量指标、校园 HTTP 结果观察与有界 shutdown hooks 回归测试
+runtime-health-metrics.test.ts: live/ready 状态矩阵、普通/增量轮询 quiet 日志、轻量指标、校园 HTTP 结果观察与有界 shutdown hooks 回归测试
 schedule-parser.test.ts: JW 真实结构、非教学周、登录页与嵌套课程节点去重回归测试
 schedule-source-policy.test.ts: 课表来源热策略、请求快照、current/stale 固定顺序、legacy 错误优先级、持久化锁接管与管理鉴权回归测试
 setup.ts: 单元与业务流测试环境初始化，并在模块装载前显式迁移隔离 SQLite

@@ -6,14 +6,14 @@ index.ts: SQLite 运行期连接入口，只打开已存在数据库、执行当
 migrator.ts: migration 事务执行与版本记录内核，以结构化 fingerprint、元数据校验和 destructive 预检控制发布
 migrations/: 不可变编号 migration 目录，保存 0001/0002 历史结构与 0003 社交 contract migration
 repair.ts: Discover/Treehole 派生计数显式修复内核，支持无写入 dry-run 与幂等事务更新
-schema.ts: 全局 Drizzle 类型相，声明 Identity、Community、Discover、Treehole、Notifications、Messaging 与分析事实表
+schema.ts: 全局 Drizzle 类型相，声明社交事实、通知直接列表索引与 Messaging 会话高水位索引
 snapshot.ts: 部署前 SQLite VACUUM INTO 快照内核，输出带时间、schema version 与 release 的一致性副本
 
 架构决策
 schema.ts 是类型相和查询相；migrations/ 是结构演进事实源；index.ts 只负责连接与只读校验，应用启动不得创建、补列或迁移数据库。
 既有数据库只有与 0001 baseline 结构指纹完全同构时才允许 adoption；未知对象、缺失对象或定义漂移一律 fail closed。
 昂贵派生计数校准属于显式 repair，数据库一致性副本属于部署前 snapshot，两者均不得隐藏在普通应用启动。
-SQLite 业务表是用户、凭证、课表缓存、Community、Discover、Treehole、通知与私信的唯一事实源；Messaging 表在数据库层约束 UUID 长度、九图序位与 WebP 元数据，并以 sender/created_at 索引支持事务内 30 条/分钟复验，跨表参与者/游标归属由同一应用事务校验，文件系统只保存领域自有媒体。
+SQLite 业务表是用户、Community、两条 UGC、通知与私信的唯一事实源；通知用 recipient/created_at/id 直接索引服务列表，Messaging 用 last_message_id 高水位索引服务会话增量并以 sender/created_at 支持限流复验。
 analytics_daily_metrics 与 analytics_daily_users 只保存渠道化聚合事实，不复制用户或内容业务实体。
 credentials 除三个学校凭证外，还承载无敏感值、无 TTL 的 `interactive_login_required` 内部交互登录恢复标记。
 

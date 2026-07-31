@@ -154,8 +154,10 @@ export const notifications = sqliteTable('notifications', {
   readAt: integer('read_at', { mode: 'timestamp_ms' }),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
 }, (table) => ({
+  recipientCreatedIndex: index('idx_notifications_recipient_created')
+    .on(table.recipientUserId, sql`${table.createdAt} DESC`, sql`${table.id} DESC`),
   recipientReadCreatedIndex: index('idx_notifications_recipient_read_created')
-    .on(table.recipientUserId, table.readAt, table.createdAt, table.id),
+    .on(table.recipientUserId, table.readAt, sql`${table.createdAt} DESC`, sql`${table.id} DESC`),
 }));
 
 export const conversations = sqliteTable('conversations', {
@@ -172,6 +174,11 @@ export const conversations = sqliteTable('conversations', {
 }, (table) => ({
   orderedPair: check('ck_conversations_ordered_pair', sql`${table.userLowId} < ${table.userHighId}`),
   pairUnique: unique('uq_conversations_user_pair').on(table.userLowId, table.userHighId),
+  lowLastMessageIndex: index('idx_conversations_low_last_message')
+    .on(table.userLowId, table.lastMessageId, table.id),
+  highLastMessageIndex: index('idx_conversations_high_last_message')
+    .on(table.userHighId, table.lastMessageId, table.id),
+  lastMessageIndex: index('idx_conversations_last_message').on(table.lastMessageId, table.id),
 }));
 
 export const messages = sqliteTable('messages', {

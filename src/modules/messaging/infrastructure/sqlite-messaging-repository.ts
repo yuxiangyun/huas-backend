@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖构造注入的 Drizzle db、Messaging 自有 schema 与领域事实/仓储契约
  * [OUTPUT]: 对外提供 SQLiteMessagingRepository 与 MessagingDatabase/MessagingTransaction 类型
- * [POS]: modules/messaging/infrastructure 的事实 adapter，以同步 SQLite 短事务复验幂等/事实限流，并保证首消息建会话、全图片元数据与 last_message 同提交
+ * [POS]: modules/messaging/infrastructure 的事实 adapter，以 lastMessageId 高水位补足 offset 会话翻页，并统一三态消息游标与事实限流
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -13,6 +13,7 @@ import {
   gte,
   gt,
   inArray,
+  lt,
   ne,
   or,
   sql,
@@ -27,6 +28,7 @@ import type {
   IdempotentMessageFact,
   MessageFact,
   MessageImageFact,
+  MessagePageQuery,
   MessagingPolicy,
 } from '../domain/messaging';
 import type { MessagingRepository } from '../domain/ports';
@@ -34,6 +36,11 @@ import type { MessagingRepository } from '../domain/ports';
 export type MessagingDatabase = ReturnType<typeof getDb>;
 export type MessagingTransaction = Parameters<Parameters<MessagingDatabase['transaction']>[0]>[0];
 type MessagingExecutor = MessagingDatabase | MessagingTransaction;
+type ConversationQueryRow = {
+  conversation: ConversationFact;
+  lastMessage: Omit<MessageFact, 'images'> | null;
+  unreadCount: number;
+};
 
 const conversationColumns = {
   id: schema.conversations.id,
@@ -109,6 +116,18 @@ export class SQLiteMessagingRepository implements MessagingRepository {
     };
   }
 
+  async assertCanSend(senderUserId: number, clientMessageId: string, at: Date) {
+    const idempotentRows = await this.db.select({ id: schema.messages.id })
+      .from(schema.messages)
+      .where(and(
+        eq(schema.messages.senderUserId, senderUserId),
+        eq(schema.messages.clientMessageId, clientMessageId),
+      ))
+      .limit(1);
+    if (idempotentRows.length > 0) return;
+    this.assertSendLimit(this.db, senderUserId, at);
+  }
+
   async commitMessage(input: CommitMessageInput): Promise<CommitMessageResult> {
     return this.db.transaction((transaction) => {
       const existingRows = transaction.select({
@@ -141,17 +160,7 @@ export class SQLiteMessagingRepository implements MessagingRepository {
         };
       }
 
-      const windowStart = new Date(input.createdAt.getTime() - this.policy.sendWindowMs);
-      const recentRows = transaction.select({ count: sql<number>`count(*)` })
-        .from(schema.messages)
-        .where(and(
-          eq(schema.messages.senderUserId, input.senderUserId),
-          gte(schema.messages.createdAt, windowStart),
-        ))
-        .all();
-      if (Number(recentRows[0]?.count ?? 0) >= this.policy.sendLimit) {
-        throw new AppError(ErrorCode.TOO_MANY_REQUESTS, '私信发送过于频繁，请稍后再试');
-      }
+      this.assertSendLimit(transaction, input.senderUserId, input.createdAt);
 
       const userLowId = Math.min(input.senderUserId, input.recipientUserId);
       const userHighId = Math.max(input.senderUserId, input.recipientUserId);
@@ -213,6 +222,19 @@ export class SQLiteMessagingRepository implements MessagingRepository {
     });
   }
 
+  async findConversationBetween(firstUserId: number, secondUserId: number) {
+    const userLowId = Math.min(firstUserId, secondUserId);
+    const userHighId = Math.max(firstUserId, secondUserId);
+    const rows = await this.db.select(conversationColumns)
+      .from(schema.conversations)
+      .where(and(
+        eq(schema.conversations.userLowId, userLowId),
+        eq(schema.conversations.userHighId, userHighId),
+      ))
+      .limit(1);
+    return rows[0] ? toConversationFact(rows[0]) : null;
+  }
+
   async getConversationForUser(userId: number, conversationId: number) {
     const rows = await this.db.select(conversationColumns)
       .from(schema.conversations)
@@ -228,14 +250,17 @@ export class SQLiteMessagingRepository implements MessagingRepository {
     return this.listConversationFacts(page, pageSize, userId);
   }
 
+  listConversationChanges(userId: number, afterMessageId: number, limit: number) {
+    return this.listConversationChangeFacts(afterMessageId, limit, userId);
+  }
+
   async listMessagesForUser(
     userId: number,
     conversationId: number,
-    afterMessageId: number,
-    limit: number,
+    query: MessagePageQuery,
   ) {
     if (!(await this.getConversationForUser(userId, conversationId))) return null;
-    return this.listMessages(conversationId, afterMessageId, limit);
+    return this.listMessages(conversationId, query);
   }
 
   async markRead(userId: number, conversationId: number, throughMessageId: number | null) {
@@ -320,12 +345,16 @@ export class SQLiteMessagingRepository implements MessagingRepository {
     return this.listConversationFacts(page, pageSize, null);
   }
 
-  async listAllMessages(conversationId: number, afterMessageId: number, limit: number) {
+  listAllConversationChanges(afterMessageId: number, limit: number) {
+    return this.listConversationChangeFacts(afterMessageId, limit, null);
+  }
+
+  async listAllMessages(conversationId: number, query: MessagePageQuery) {
     const exists = await this.db.select({ id: schema.conversations.id })
       .from(schema.conversations)
       .where(eq(schema.conversations.id, conversationId))
       .limit(1);
-    return exists.length === 0 ? null : this.listMessages(conversationId, afterMessageId, limit);
+    return exists.length === 0 ? null : this.listMessages(conversationId, query);
   }
 
   private async listConversationFacts(
@@ -371,29 +400,97 @@ export class SQLiteMessagingRepository implements MessagingRepository {
       .limit(pageSize)
       .offset((page - 1) * pageSize);
 
-    const lastMessageRows = rows.flatMap((row) => row.lastMessage?.id ? [row.lastMessage] : []);
-    const hydrated = await this.hydrateMessages(this.db, lastMessageRows);
-    const messagesById = new Map(hydrated.map((message) => [message.id, message]));
     return {
-      items: rows.map((row) => ({
-        conversation: toConversationFact(row.conversation),
-        lastMessage: row.lastMessage?.id ? messagesById.get(row.lastMessage.id) ?? null : null,
-        unreadCount: Number(row.unreadCount ?? 0),
-      })),
+      items: await this.hydrateConversationRows(rows as ConversationQueryRow[]),
       total: Number(countRows[0]?.count ?? 0),
     };
   }
 
-  private async listMessages(conversationId: number, afterMessageId: number, limit: number) {
+  private async listConversationChangeFacts(
+    afterMessageId: number,
+    limit: number,
+    userId: number | null,
+  ): Promise<ConversationListFact[]> {
+    const participantFilter = userId === null ? undefined : conversationFilter(userId);
+    const filter = participantFilter
+      ? and(participantFilter, gt(schema.conversations.lastMessageId, afterMessageId))
+      : gt(schema.conversations.lastMessageId, afterMessageId);
+    const unreadExpression = userId === null
+      ? sql<number>`0`
+      : sql<number>`(
+          select count(*) from messages unread_messages
+          where unread_messages.conversation_id = ${schema.conversations.id}
+            and unread_messages.sender_user_id <> ${userId}
+            and unread_messages.id > coalesce(
+              case when ${schema.conversations.userLowId} = ${userId}
+                then ${schema.conversations.lowLastReadMessageId}
+                else ${schema.conversations.highLastReadMessageId}
+              end,
+              0
+            )
+        )`;
+    const rows = await this.db.select({
+      conversation: conversationColumns,
+      lastMessage: {
+        id: schema.messages.id,
+        conversationId: schema.messages.conversationId,
+        senderUserId: schema.messages.senderUserId,
+        clientMessageId: schema.messages.clientMessageId,
+        text: schema.messages.text,
+        createdAt: schema.messages.createdAt,
+      },
+      unreadCount: unreadExpression,
+    }).from(schema.conversations)
+      .leftJoin(schema.messages, eq(schema.conversations.lastMessageId, schema.messages.id))
+      .where(filter)
+      .orderBy(asc(schema.conversations.lastMessageId), asc(schema.conversations.id))
+      .limit(limit);
+    return this.hydrateConversationRows(rows as ConversationQueryRow[]);
+  }
+
+  private async hydrateConversationRows(rows: ConversationQueryRow[]) {
+    const lastMessageRows = rows.flatMap((row) => row.lastMessage?.id ? [row.lastMessage] : []);
+    const hydrated = await this.hydrateMessages(this.db, lastMessageRows);
+    const messagesById = new Map(hydrated.map((message) => [message.id, message]));
+    return rows.map((row) => ({
+      conversation: toConversationFact(row.conversation),
+      lastMessage: row.lastMessage?.id ? messagesById.get(row.lastMessage.id) ?? null : null,
+      unreadCount: Number(row.unreadCount ?? 0),
+    }));
+  }
+
+  private async listMessages(conversationId: number, query: MessagePageQuery) {
+    const cursorFilter = query.mode === 'before'
+      ? lt(schema.messages.id, query.cursorMessageId!)
+      : query.mode === 'after'
+        ? gt(schema.messages.id, query.cursorMessageId!)
+        : undefined;
     const rows = await this.db.select(messageColumns)
       .from(schema.messages)
-      .where(and(
-        eq(schema.messages.conversationId, conversationId),
-        gt(schema.messages.id, afterMessageId),
-      ))
-      .orderBy(asc(schema.messages.id))
-      .limit(limit);
+      .where(cursorFilter
+        ? and(eq(schema.messages.conversationId, conversationId), cursorFilter)
+        : eq(schema.messages.conversationId, conversationId))
+      .orderBy(query.mode === 'after' ? asc(schema.messages.id) : desc(schema.messages.id))
+      .limit(query.limit);
     return this.hydrateMessages(this.db, rows);
+  }
+
+  private assertSendLimit(
+    executor: MessagingExecutor,
+    senderUserId: number,
+    at: Date,
+  ) {
+    const windowStart = new Date(at.getTime() - this.policy.sendWindowMs);
+    const recentRows = executor.select({ count: sql<number>`count(*)` })
+      .from(schema.messages)
+      .where(and(
+        eq(schema.messages.senderUserId, senderUserId),
+        gte(schema.messages.createdAt, windowStart),
+      ))
+      .all();
+    if (Number(recentRows[0]?.count ?? 0) >= this.policy.sendLimit) {
+      throw new AppError(ErrorCode.TOO_MANY_REQUESTS, '私信发送过于频繁，请稍后再试');
+    }
   }
 
   private async hydrateMessages(

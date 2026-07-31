@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖构造注入的 Drizzle db、CommunityProfileReader、ActivityOutboxWriter、Treehole schema 与模块内 SQL helpers
- * [OUTPUT]: 对 SQLiteTreeholePersistence 提供帖子、用户帖子、事实/Outbox 原子点赞评论与作者删除事务
- * [POS]: modules/treehole/infrastructure 的用户侧事实 adapter，不读取 users/community_profiles，仅经 Notifications 窄端口写活动事件
+ * [OUTPUT]: 对 SQLiteTreeholePersistence 提供帖子、用户帖子、幂等点赞、差异回复通知与作者删除事务
+ * [POS]: modules/treehole/infrastructure 的用户侧事实 adapter，共享父作者 reply/帖子作者 comment 规则并原子写入 Outbox
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -9,7 +9,7 @@ import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
 import { schema } from '../../../db';
 import { AppError, ErrorCode } from '../../../utils/errors';
 import type { CommunityProfileReader } from '../../community/domain/ports';
-import { createActivityEvents } from '../../notifications/domain/activity';
+import { createActivityEvents, createCommentActivityEvents } from '../../notifications/domain/activity';
 import type { ActivityOutboxWriter } from '../../notifications/domain/ports';
 import {
   toCommentResponse,
@@ -300,15 +300,13 @@ export class SQLiteTreeholeUserPersistence {
       }).returning(commentSelect()).all();
       const created = inserted[0] as TreeholeCommentRow | undefined;
       if (!created) throw new Error('Treehole comment insert returned no row.');
-      this.outbox.enqueue(tx, createActivityEvents({
+      this.outbox.enqueue(tx, createCommentActivityEvents({
         actorUserId: input.userId,
-        recipientUserIds: parentAuthorUserId === null
-          ? [postRows[0].authorUserId]
-          : [parentAuthorUserId, postRows[0].authorUserId],
-        type: parentAuthorUserId === null ? 'treehole_comment' : 'treehole_comment_reply',
+        postAuthorUserId: postRows[0].authorUserId,
+        parentCommentAuthorUserId: parentAuthorUserId,
         resourceType: 'treehole_post',
         resourceId: input.postId,
-        subresourceId: created.id,
+        commentId: created.id,
         createdAt: now,
       }));
       refreshPostCommentCount(tx, input.postId, now);

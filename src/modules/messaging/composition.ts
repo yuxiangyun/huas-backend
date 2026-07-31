@@ -51,7 +51,7 @@ export function createMessagingModule(dependencies: MessagingModuleDependencies)
 
   return {
     service,
-    routes: createMessagingRoutes(service),
+    routes: createMessagingRoutes(service, policy),
     operationsQuery,
     orphanMediaCleanup: new OrphanMessageMediaCleanupService(media, policy),
     media,

@@ -6,7 +6,7 @@ Treehole HTTP、事务与公共作者回归按帖子、社交交互和生命周�
 ## 成员清单
 
 harness.ts: Treehole 共享支架，构造注入 canonical Treehole/Notifications、Community reader、SQLite、认证与用户/内容夹具
-interactions.cases.ts: 社交交互用例，覆盖幂等点赞、自赞拒绝、评论回复、计数同步、统一作者与批量投影
+interactions.cases.ts: 社交交互用例，覆盖 PUT/DELETE 幂等点赞、自赞拒绝、父作者 reply/帖子作者 comment、计数与批量投影
 management.cases.ts: 生命周期管理用例，覆盖作者软删除、公共作者后台视图、管理删除与参数边界
 posts.cases.ts: 帖子用例，覆盖统一作者、Community 实时资料、公共用户帖子接口与列表无 N+1
 

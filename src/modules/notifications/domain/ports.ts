@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 Notifications 事件与读模型 DTO，不依赖 Drizzle、Hono 或 Community 具体实现
- * [OUTPUT]: 对外提供事务内 Outbox writer、提交后投影触发器、投影 store 与通知查询仓储窄边界
- * [POS]: modules/notifications/domain 的依赖倒置端口，允许 UGC 事务写事件并由后台投影独立消费
+ * [OUTPUT]: 对外提供事务内 Outbox writer、提交后投影触发器、投影 store 与普通/增量通知查询仓储
+ * [POS]: modules/notifications/domain 的依赖倒置端口，永久通知只允许查询、计数和逐条已读，不暴露删除能力
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -34,7 +34,11 @@ export interface NotificationRepository {
     page: number,
     pageSize: number,
   ): Promise<{ items: NotificationFact[]; total: number }>;
+  listChanges(
+    recipientUserId: number,
+    afterNotificationId: number,
+    limit: number,
+  ): Promise<NotificationFact[]>;
   countUnread(recipientUserId: number): Promise<number>;
   markRead(recipientUserId: number, notificationId: number, readAt: Date): Promise<boolean>;
-  deleteReadBefore(before: Date): Promise<number>;
 }

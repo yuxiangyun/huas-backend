@@ -345,8 +345,8 @@ SQLite 是业务事实源；data 下 JSON、媒体与内存态只承载运行策
 课表来源策略文件默认位于 dirname(DB_PATH)，生产蓝绿槽必须共享同一绝对持久路径，运行态 JSON、锁与临时文件不得纳入 Git。
 community 独立拥有 community_profiles 昵称/头像与默认 displayName；只经 Identity 窄端口读取 className，社交消费者经批量 reader 投影统一公共作者。
 discover 与 treehole 是独立业务支线，媒体访问挂载于 /media/*，不经过学校上游；内容事实表不保存公开资料快照。
-Discover/Treehole 的六类有效互动与 activity_outbox 在同一 SQLite 短事务提交；Notifications 以稳定 recipient event_id 幂等投影、仅支持逐条已读，取消点赞在原事务撤销对应通知。
-Messaging 只建一对一唯一会话，首条消息事务内延迟建会话并以 UUID 幂等；私信图片位于 dirname(DB_PATH)/message-media，仅参与者或管理员经鉴权路由读取，Operations 只消费公开只读 port。
+Discover/Treehole 的六类有效互动与 activity_outbox 在同一 SQLite 短事务提交；Notifications 按父评论/帖子作者差异投影、仅逐条已读且永久保留，轮询使用 notification ID 高水位，取消点赞原子撤销通知。
+Messaging 只建一对一唯一会话，首条消息事务内延迟建会话并以 UUID 严格图文幂等；会话轮询使用 lastMessageId 高水位，消息统一最新/before/after 三态，multipart 在解析前执行请求上限；私信图片仅参与者或管理员鉴权读取，管理员三类读取写最小隐私审计。
 应用启动只有 schema metadata/fingerprint 校验权，结构变更仅由部署阶段显式 migration 执行；进程级清理由统一 PeriodicTaskRegistry 管理并在关闭时等待停止。
 Web 入口为 /m，普通用户默认进入 Treehole；管理端使用独立 HttpOnly Cookie 会话，普通用户 JWT 与后台权限不互通。
 Git push 始终把当前 HEAD 推到 baidu/main，由远端 hook 执行维护发布：release 准备后停流与停全部 writer，再快照、显式 destructive migration、新 Server/Web 本机冒烟并重新开放流量；migration 后失败不得恢复旧 upstream，只能保持停流并 forward-fix。

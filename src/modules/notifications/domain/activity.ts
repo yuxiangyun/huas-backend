@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 无运行时基础设施依赖，只接收互动事实的稳定 ID、参与用户与发生时间
- * [OUTPUT]: 对外提供六类 ActivityEvent、逐 recipient 稳定 eventId 与去重/自我互动过滤规则
+ * [OUTPUT]: 对外提供六类 ActivityEvent、逐 recipient 稳定 eventId，以及评论/回复的统一接收者与类型规则
  * [POS]: modules/notifications/domain 的事件契约源，供 Discover/Treehole 在自身事务中生成无正文 Outbox 事实
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -35,6 +35,16 @@ export interface CreateActivityEventsInput {
   resourceType: ActivityResourceType;
   resourceId: number;
   subresourceId?: number | null;
+  createdAt?: Date;
+}
+
+export interface CreateCommentActivityEventsInput {
+  actorUserId: number;
+  postAuthorUserId: number;
+  parentCommentAuthorUserId: number | null;
+  resourceType: ActivityResourceType;
+  resourceId: number;
+  commentId: number;
   createdAt?: Date;
 }
 
@@ -107,4 +117,45 @@ export function createActivityEvents(input: CreateActivityEventsInput): Activity
     const event = { ...base, recipientUserId };
     return { ...event, eventId: buildActivityEventId(event) };
   });
+}
+
+export function createCommentActivityEvents(
+  input: CreateCommentActivityEventsInput,
+): ActivityEvent[] {
+  const scope = input.resourceType === 'discover_post' ? 'discover' : 'treehole';
+  if (input.parentCommentAuthorUserId === null) {
+    return createActivityEvents({
+      actorUserId: input.actorUserId,
+      recipientUserIds: [input.postAuthorUserId],
+      type: `${scope}_comment`,
+      resourceType: input.resourceType,
+      resourceId: input.resourceId,
+      subresourceId: input.commentId,
+      createdAt: input.createdAt,
+    });
+  }
+
+  const events = [
+    ...createActivityEvents({
+      actorUserId: input.actorUserId,
+      recipientUserIds: [input.parentCommentAuthorUserId],
+      type: `${scope}_comment_reply`,
+      resourceType: input.resourceType,
+      resourceId: input.resourceId,
+      subresourceId: input.commentId,
+      createdAt: input.createdAt,
+    }),
+  ];
+  if (input.postAuthorUserId !== input.parentCommentAuthorUserId) {
+    events.push(...createActivityEvents({
+      actorUserId: input.actorUserId,
+      recipientUserIds: [input.postAuthorUserId],
+      type: `${scope}_comment`,
+      resourceType: input.resourceType,
+      resourceId: input.resourceId,
+      subresourceId: input.commentId,
+      createdAt: input.createdAt,
+    }));
+  }
+  return events;
 }

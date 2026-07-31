@@ -1,16 +1,17 @@
 /**
  * [INPUT]: 依赖 Messaging canonical 纵向切片、CommunityProfileReader、Hono、Node 隔离媒体目录与显式迁移的测试 SQLite
- * [OUTPUT]: 覆盖一对一唯一/延迟建会话、UUID 幂等、事实限流、图文原子性/补偿、输入边界、鉴权、游标/未读与管理只读端口
- * [POS]: tests 的 Messaging 专项回归，锁定私信事实、私有媒体与 Community 投影的跨边界不变式
+ * [OUTPUT]: 覆盖延迟会话/定位、严格 UUID 图文幂等、压缩前事实限流、会话增量、三态消息、未读与管理只读端口
+ * [POS]: tests 的 Messaging 专项回归，锁定前端会话轮询高水位、消息合并键与历史游标不变式
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { beforeEach, describe, expect, test } from 'bun:test';
+import { beforeEach, describe, expect, spyOn, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readdir, rm, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
+import sharp from 'sharp';
 import { getDb, schema } from '../src/db';
 import type { CommunityProfile } from '../src/modules/community/domain/community';
 import type { CommunityProfileReader } from '../src/modules/community/domain/ports';
@@ -161,7 +162,47 @@ describe('Messaging conversation and idempotency invariants', () => {
     expect(await db.select().from(schema.messages)).toHaveLength(2);
   });
 
-  test('returns the original message for sender UUID retries without consuming quota or creating another pair', async () => {
+  test('locates a target profile and an optional existing conversation without creating an empty one', async () => {
+    const sender = await createUser('sender');
+    const recipient = await createUser('recipient');
+    const module = createModule();
+    const app = new Hono();
+    app.use('*', async (c, next) => {
+      c.set('userId', sender);
+      await next();
+    });
+    app.route('/api/messaging', module.routes);
+
+    const emptyResponse = await app.request(
+      `http://localhost/api/messaging/users/${recipient}/conversation`,
+    );
+    expect(emptyResponse.status).toBe(200);
+    expect((await emptyResponse.json() as any).data).toEqual({
+      profile: profiles.get(recipient),
+      conversationId: null,
+    });
+    expect(await db.select().from(schema.conversations)).toHaveLength(0);
+    expect((await app.request(
+      'http://localhost/api/messaging/users/999999/conversation',
+    )).status).toBe(404);
+    await expect(module.service.getConversationTarget(sender, sender)).rejects.toThrow('不能给自己');
+
+    const sent = await module.service.send({
+      senderUserId: sender,
+      recipientUserId: recipient,
+      clientMessageId: randomUUID(),
+      text: '真正发送后才建会话',
+    });
+    expect(await module.service.getConversationTarget(sender, recipient)).toEqual({
+      profile: profiles.get(recipient),
+      conversationId: sent.conversationId,
+    });
+    expect((await app.request(
+      `http://localhost/api/messaging/conversations/${sent.conversationId}/messages?beforeMessageId=${sent.id}&afterMessageId=${sent.id}`,
+    )).status).toBe(400);
+  });
+
+  test('returns only exact UUID retries and rejects reuse across recipients or different content', async () => {
     const sender = await createUser('sender');
     const recipient = await createUser('recipient');
     const other = await createUser('other');
@@ -181,11 +222,18 @@ describe('Messaging conversation and idempotency invariants', () => {
       senderUserId: sender,
       recipientUserId: recipient,
       clientMessageId,
-      text: '这次正文不应覆盖原事实',
-      images: Array.from({ length: 10 }, () => pngFile()),
+      text: '原始消息',
     });
     expect(retry).toEqual(first);
+    expect(retry.clientMessageId).toBe(clientMessageId);
     expect(await db.select().from(schema.messages)).toHaveLength(1);
+
+    await expect(module.service.send({
+      senderUserId: sender,
+      recipientUserId: recipient,
+      clientMessageId,
+      text: '不同正文',
+    })).rejects.toThrow('不同的消息内容');
 
     const racePolicy = { ...DEFAULT_MESSAGING_POLICY, sendLimit: 1 };
     const raceRepository = new SQLiteMessagingRepository(db, racePolicy);
@@ -201,8 +249,7 @@ describe('Messaging conversation and idempotency invariants', () => {
       senderUserId: sender,
       recipientUserId: recipient,
       clientMessageId,
-      text: '并发重试',
-      images: [pngFile()],
+      text: '原始消息',
     });
     expect(concurrentRetry).toEqual(first);
     expect(await readdir(mediaRoot)).toEqual([]);
@@ -214,6 +261,35 @@ describe('Messaging conversation and idempotency invariants', () => {
       text: '错误复用',
     })).rejects.toThrow('另一个私信会话');
     expect(await db.select().from(schema.conversations)).toHaveLength(1);
+
+    const imageModule = createModule();
+    const [blue, red] = await Promise.all([
+      sharp({ create: { width: 2, height: 2, channels: 3, background: '#0000ff' } }).png().toBuffer(),
+      sharp({ create: { width: 2, height: 2, channels: 3, background: '#ff0000' } }).png().toBuffer(),
+    ]);
+    const imageKey = randomUUID();
+    const imageMessage = await imageModule.service.send({
+      senderUserId: sender,
+      recipientUserId: recipient,
+      clientMessageId: imageKey,
+      text: '图文幂等',
+      images: [new File([blue], 'blue.png', { type: 'image/png' })],
+    });
+    const imageRetry = await imageModule.service.send({
+      senderUserId: sender,
+      recipientUserId: recipient,
+      clientMessageId: imageKey,
+      text: '图文幂等',
+      images: [new File([blue], 'renamed.png', { type: 'image/png' })],
+    });
+    expect(imageRetry).toEqual(imageMessage);
+    await expect(imageModule.service.send({
+      senderUserId: sender,
+      recipientUserId: recipient,
+      clientMessageId: imageKey,
+      text: '图文幂等',
+      images: [new File([red], 'red.png', { type: 'image/png' })],
+    })).rejects.toThrow('不同的消息内容');
   });
 });
 
@@ -306,13 +382,17 @@ describe('Messaging limits and atomic media', () => {
     });
     const failingRepository: MessagingRepository = {
       async findByClientMessageId() { return null; },
+      async assertCanSend() {},
       async commitMessage() { throw new Error('forced transaction failure'); },
+      async findConversationBetween() { return null; },
       async getConversationForUser() { return null; },
       async listConversations() { return { items: [], total: 0 }; },
+      async listConversationChanges() { return []; },
       async listMessagesForUser() { return null; },
       async markRead() { return null; },
       async countUnread() { return 0; },
       async listAllConversations() { return { items: [], total: 0 }; },
+      async listAllConversationChanges() { return []; },
       async listAllMessages() { return null; },
     };
     const failingService = new MessagingApplicationService(
@@ -380,14 +460,160 @@ describe('Messaging limits and atomic media', () => {
       senderUserId: sender,
       recipientUserId: recipient,
       clientMessageId: firstKey,
-      text: 'ignored',
+      text: 'message-0',
     });
     expect(retry.id).toBe(firstId);
     expect(await db.select().from(schema.messages)).toHaveLength(30);
   });
+
+  test('applies persisted rate limit before compression', async () => {
+    const sender = await createUser('sender');
+    const recipient = await createUser('recipient');
+    const module = createModule(profileReader, { sendLimit: 1 });
+    await module.service.send({
+      senderUserId: sender,
+      recipientUserId: recipient,
+      clientMessageId: randomUUID(),
+      text: '占用事实额度',
+    });
+    const prepare = spyOn(module.media, 'prepare');
+    try {
+      await expect(module.service.send({
+        senderUserId: sender,
+        recipientUserId: recipient,
+        clientMessageId: randomUUID(),
+        images: [pngFile()],
+      })).rejects.toMatchObject({ code: 4003, httpStatus: 429 });
+      expect(prepare).not.toHaveBeenCalled();
+    } finally {
+      prepare.mockRestore();
+    }
+  });
 });
 
 describe('Messaging read model, authorization and operations port', () => {
+  test('polls conversation inserts and moves by monotonic lastMessageId without offset gaps', async () => {
+    const owner = await createUser('owner');
+    const firstPeer = await createUser('first-peer');
+    const secondPeer = await createUser('second-peer');
+    const module = createModule();
+    const first = await module.service.send({
+      senderUserId: owner,
+      recipientUserId: firstPeer,
+      clientMessageId: randomUUID(),
+      text: 'first-conversation',
+    });
+    const second = await module.service.send({
+      senderUserId: owner,
+      recipientUserId: secondPeer,
+      clientMessageId: randomUUID(),
+      text: 'second-conversation',
+    });
+
+    const firstPage = await module.service.listConversationChanges(owner, {
+      afterMessageId: 0,
+      limit: 1,
+    });
+    expect(firstPage.items.map((item) => item.id)).toEqual([first.conversationId]);
+    expect(firstPage.afterMessageId).toBe(first.id);
+    expect(firstPage.hasMore).toBe(true);
+
+    const moved = await module.service.send({
+      senderUserId: firstPeer,
+      recipientUserId: owner,
+      clientMessageId: randomUUID(),
+      text: 'first-conversation-moved-again',
+    });
+    const tail = await module.service.listConversationChanges(owner, {
+      afterMessageId: firstPage.afterMessageId,
+      limit: 10,
+    });
+    expect(tail.items.map((item) => item.id)).toEqual([
+      second.conversationId,
+      first.conversationId,
+    ]);
+    expect(tail.items.map((item) => item.lastMessage?.id)).toEqual([second.id, moved.id]);
+    expect(tail.afterMessageId).toBe(moved.id);
+    expect(tail.hasMore).toBe(false);
+    expect((await module.service.listConversationChanges(owner, {
+      afterMessageId: tail.afterMessageId,
+    })).items).toEqual([]);
+
+    const adminTail = await module.operationsQuery.listConversationChanges({
+      afterMessageId: first.id,
+    });
+    expect(adminTail.items.map((item) => item.lastMessage?.id)).toEqual([second.id, moved.id]);
+  });
+
+  test('returns latest, before-history and after-increment pages in ascending order with exact hasMore', async () => {
+    const sender = await createUser('sender');
+    const recipient = await createUser('recipient');
+    const module = createModule();
+    const sent = [];
+    for (let index = 1; index <= 5; index += 1) {
+      sent.push(await module.service.send({
+        senderUserId: sender,
+        recipientUserId: recipient,
+        clientMessageId: randomUUID(),
+        text: `分页消息-${index}`,
+      }));
+    }
+    const conversationId = sent[0]!.conversationId;
+
+    const latest = await module.service.listMessages(recipient, conversationId, { limit: 2 });
+    expect(latest!.items.map((message) => message.id)).toEqual([sent[3]!.id, sent[4]!.id]);
+    expect(latest).toMatchObject({
+      beforeMessageId: sent[3]!.id,
+      afterMessageId: sent[4]!.id,
+      hasMore: true,
+    });
+    expect(latest!.items.map((message) => message.clientMessageId))
+      .toEqual([sent[3]!.clientMessageId, sent[4]!.clientMessageId]);
+
+    const older = await module.service.listMessages(recipient, conversationId, {
+      beforeMessageId: sent[3]!.id,
+      limit: 2,
+    });
+    expect(older!.items.map((message) => message.id)).toEqual([sent[1]!.id, sent[2]!.id]);
+    expect(older!.hasMore).toBe(true);
+    const oldest = await module.service.listMessages(recipient, conversationId, {
+      beforeMessageId: sent[1]!.id,
+      limit: 2,
+    });
+    expect(oldest!.items.map((message) => message.id)).toEqual([sent[0]!.id]);
+    expect(oldest!.hasMore).toBe(false);
+
+    const increment = await module.service.listMessages(recipient, conversationId, {
+      afterMessageId: sent[2]!.id,
+      limit: 1,
+    });
+    expect(increment!.items.map((message) => message.id)).toEqual([sent[3]!.id]);
+    expect(increment!.hasMore).toBe(true);
+    const incrementTail = await module.service.listMessages(recipient, conversationId, {
+      afterMessageId: sent[3]!.id,
+      limit: 2,
+    });
+    expect(incrementTail!.items.map((message) => message.id)).toEqual([sent[4]!.id]);
+    expect(incrementTail!.hasMore).toBe(false);
+    await expect(module.service.listMessages(recipient, conversationId, {
+      beforeMessageId: sent[3]!.id,
+      afterMessageId: sent[3]!.id,
+    })).rejects.toThrow('不能同时提交');
+
+    const adminLatest = await module.operationsQuery.listMessages(conversationId, { limit: 2 });
+    expect(adminLatest!.items.map((message) => message.id)).toEqual([sent[3]!.id, sent[4]!.id]);
+    const adminOlder = await module.operationsQuery.listMessages(conversationId, {
+      beforeMessageId: sent[3]!.id,
+      limit: 2,
+    });
+    expect(adminOlder!.items.map((message) => message.id)).toEqual([sent[1]!.id, sent[2]!.id]);
+    const adminIncrement = await module.operationsQuery.listMessages(conversationId, {
+      afterMessageId: sent[3]!.id,
+      limit: 2,
+    });
+    expect(adminIncrement!.items.map((message) => message.id)).toEqual([sent[4]!.id]);
+  });
+
   test('computes unread from facts, advances only a monotonic participant cursor and isolates conversations', async () => {
     const sender = await createUser('sender');
     const recipient = await createUser('recipient');

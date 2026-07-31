@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 Hono、注入的 NotificationApplicationService 与统一响应工具
- * [OUTPUT]: 对外提供 createNotificationRoutes(service)，暴露列表、未读计数和单条幂等已读协议
- * [POS]: modules/notifications/http 的认证后协议 adapter，不提供全部已读或私信通知入口
+ * [OUTPUT]: 对外提供 createNotificationRoutes(service)，暴露普通列表、ID 增量轮询、未读计数和单条幂等已读协议
+ * [POS]: modules/notifications/http 的认证后协议 adapter，明确分离 offset 翻页与无漏项增量读取且不提供全部已读
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -12,7 +12,7 @@ import type { NotificationApplicationService } from '../application/notification
 
 type NotificationHttpService = Pick<
   NotificationApplicationService,
-  'list' | 'countUnread' | 'markRead'
+  'list' | 'listChanges' | 'countUnread' | 'markRead'
 >;
 
 function parseOptionalPositiveInt(value: string | undefined): number | null | undefined {
@@ -35,6 +35,19 @@ export function createNotificationRoutes(service: NotificationHttpService) {
 
   routes.get('/unread-count', async (c) => {
     return success(c, { unreadCount: await service.countUnread(c.get('userId')) });
+  });
+
+  routes.get('/changes', async (c) => {
+    const afterValue = c.req.query('afterNotificationId');
+    const limit = parseOptionalPositiveInt(c.req.query('limit'));
+    const afterNotificationId = afterValue === undefined ? 0 : Number(afterValue);
+    if (!Number.isInteger(afterNotificationId) || afterNotificationId < 0 || limit === null) {
+      return error(c, ErrorCode.PARAM_ERROR, '通知增量参数不合法', 400);
+    }
+    return success(c, await service.listChanges(c.get('userId'), {
+      afterNotificationId,
+      limit,
+    }));
   });
 
   routes.put('/:id/read', async (c) => {

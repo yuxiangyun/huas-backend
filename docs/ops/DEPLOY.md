@@ -432,7 +432,7 @@ npm run build
 
 `treehole-avatars` 是历史目录名，当前所有权属于 Community；Messaging 媒体固定落在 `dirname(DB_PATH)/message-media`，没有独立环境变量可把它与 SQLite 持久目录拆开。备份与迁移数据库时必须同时保留该目录，否则消息元数据仍在但图片永久缺失。
 
-运行期周期维护由同一 registry 管理：Activity Outbox 默认每 5 秒重试；已读通知每天清理一次并保留 90 天；无主私信媒体每小时检查一次，只删除超过 1 小时且没有 `message_images` 引用的候选目录。已引用消息图片永久保留，不属于周期清理对象。
+运行期周期维护由同一 registry 管理：Activity Outbox 默认每 5 秒重试；通知第一版永久保留，不注册已读清理或归档；无主私信媒体每小时检查一次，只删除超过 1 小时且没有 `message_images` 引用的候选目录。已引用消息图片永久保留，不属于周期清理对象。
 
 Notifications/Messaging 成功 GET 轮询采用 quiet access log，但 HTTP metrics 仍然统计；4xx/5xx 和发送、已读等写操作继续记录。任何日志都不得包含消息正文、原始文件名或图片内容。
 
@@ -450,7 +450,7 @@ bun run db:migrate -- --db ./data/huas.db --allow-destructive
 
 执行器默认拒绝破坏性 migration；维护发布必须在停流、停 writer 和快照成功后显式传入 `--allow-destructive`。这只是执行授权，不是回滚能力；应用启动只校验 schema version，不再自动改变结构。
 
-`0003_social_rearchitecture` 在同一事务中动态保存并复核 users、credentials、cache、Discover 和 Treehole 八张核心事实表的行数，并把旧昵称/头像元数据迁入 `community_profiles`。旧 Discover 评分不会转换成点赞；旧评分或旧 Treehole 通知只要出现一条，迁移就拒绝删除旧表并完整回滚。运维人员不得通过手写版本记录、临时删行或修改 migration 绕过断言。
+`0003_social_rearchitecture` 在同一事务中动态保存并复核 users、credentials、cache、Discover 和 Treehole 八张核心事实表的行数，并把旧昵称/头像元数据迁入 `community_profiles`。按产品废弃决策，旧 Discover 评分表/字段和旧 Treehole 通知表即使非空也直接删除，不转换成点赞或新通知；核心事实守恒与最终结构断言仍会在不一致时完整回滚。运维人员不得通过手写版本记录或修改 migration 绕过断言。
 
 ### 8.2 派生计数 repair
 

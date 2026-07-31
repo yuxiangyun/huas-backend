@@ -2,7 +2,7 @@
 > L2 | 父级: docs/AGENTS.md
 
 成员清单
-DEPLOY.md: 部署与运维手册，覆盖 Bun、PM2、SQLite migration/repair/snapshot、临时库演练、message-media 灾备、停流维护发布、Git push hook 与 migration 后 forward-fix 门禁。
+DEPLOY.md: 部署与运维手册，覆盖 SQLite migration/repair/snapshot、废弃旧社交事实的 contract 演练、永久通知、message-media 灾备与停流 forward-fix 门禁。
 RUNTIME.md: Runtime 健康探针、Prometheus 轻量指标、本地/CI 质量门与正常关闭 flush 接线说明
 
 架构决策

@@ -6,11 +6,11 @@ academic/: 学业领域纵向切片，承载课表、成绩、评教与空教室
 cache/: 本地缓存纵向切片，显式建模永久/限时新鲜度、版本 envelope、SQLite 持久化与进程内 singleflight
 calendar/: 日历订阅纵向切片，承载签名、用户查询、Academic 课表编排与 RFC 5545 ICS
 campus-integrations/: 学校 CAS、Portal、JW 防腐层，收敛 HTTP、凭证恢复、上游编排、资料服务与纯解析器唯一实现
-community/: 公共社区资料纵向切片，统一默认 displayName、作者 DTO、资料读写与头像媒体
+community/: 公共社区资料纵向切片，统一默认 displayName、昵称校验、公共/本人 DTO、资料读写与头像媒体
 discover/: 好饭内容纵向切片，承载点赞/评论/推荐、Community 作者投影、SQLite 事务与本地媒体
 identity/: 身份领域纵向切片，隔离登录应用编排、领域契约、基础设施适配与 HTTP 映射
-messaging/: 一对一私信纵向切片，承载 UUID 幂等图文消息、会话阅读游标/未读、私有媒体与管理只读 port
-notifications/: 活动通知纵向切片，承载六类事件、事务 Outbox、逐条已读、Community actor 投影与周期重试
+messaging/: 一对一私信纵向切片，承载会话 lastMessageId 增量、严格 UUID 图文幂等、三态消息/未读、私有媒体与管理只读 port
+notifications/: 活动通知纵向切片，承载差异回复事件、事务 Outbox、ID 增量、逐条已读、永久保留与周期投影重试
 operations/: 后台管理与运行支撑纵向切片，通过公开只读 query ports 聚合 Dashboard，并承载批量 analytics、公告、日志、会话、社区管理、健康与指标 HTTP 适配
 treehole/: 保留树洞产品名称的实名绑定内容切片，承载帖子/点赞/评论、公共/管理模型与 SQLite 事务
 

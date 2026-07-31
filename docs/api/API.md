@@ -29,7 +29,7 @@
 | `GET /api/ecard` | Bearer JWT | 一卡通余额 |
 | `GET /api/user` | Bearer JWT | 用户资料 |
 | `GET/PUT/DELETE /api/community/*` | Bearer JWT | Community 公共资料、昵称与头像接口 |
-| `GET/POST/DELETE /api/discover/*` | Bearer JWT | Discover 帖子、点赞、评论与用户帖子接口 |
+| `GET/POST/PUT/DELETE /api/discover/*` | Bearer JWT | Discover 帖子、幂等点赞、评论与用户帖子接口 |
 | `GET/POST/PUT/DELETE /api/treehole/*` | Bearer JWT | 实名绑定的“树洞”帖子、点赞、评论与用户帖子接口 |
 | `GET/PUT /api/notifications/*` | Bearer JWT | 六类活动通知列表、未读计数与逐条已读 |
 | `GET/POST/PUT /api/messaging/*` | Bearer JWT | 一对一会话、图文消息、阅读游标、未读数与私有媒体 |
@@ -405,7 +405,7 @@ async function apiRequest<T>(path: string, token?: string): Promise<ApiResponse<
 
 ### 5.6 社交领域模型
 
-Community、Discover、Treehole、Notifications 与 Messaging 的当前契约统一见 [SOCIAL_API.md](./SOCIAL_API.md)。社交内容中的公开人物字段固定为 `{ id, displayName, avatarUrl }`，本文件不保留已废止的兼容模型。
+Community、Discover、Treehole、Notifications 与 Messaging 的当前契约统一见 [SOCIAL_API.md](./SOCIAL_API.md)。社交内容中的公开人物字段固定为 `{ id, displayName, avatarUrl }`；只有当前用户 `/api/community/profile` 额外返回 `nickname`。会话/通知稳定增量、消息三态游标、私信 Blob 鉴权和真实 400/401/404/413 语义均以该分册为准。
 
 ## 6. 接口明细
 

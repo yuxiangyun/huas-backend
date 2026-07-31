@@ -63,10 +63,15 @@ describe('Discover 评论生命周期', () => {
         actorUserId: otherAuthorId,
         subresourceId: firstComment.id,
       }),
+      expect.objectContaining({
+        recipientUserId: authorId,
+        actorUserId: likerId,
+        subresourceId: secondComment.id,
+      }),
     ]);
     expect(activityRows.filter((row) => row.type === 'discover_comment_reply')
-      .map((row) => row.recipientUserId).sort((a, b) => a - b))
-      .toEqual([authorId, otherAuthorId].sort((a, b) => a - b));
+      .map((row) => row.recipientUserId))
+      .toEqual([otherAuthorId]);
     expect(activityRows.filter((row) => row.type === 'discover_comment_reply')
       .every((row) => row.actorUserId === likerId && row.subresourceId === secondComment.id))
       .toBe(true);

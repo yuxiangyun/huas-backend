@@ -39,7 +39,11 @@ describe('Treehole 社交交互', () => {
         headers,
       });
       expect(response.status).toBe(200);
-      expect((await response.json() as any).data.stats.likeCount).toBe(1);
+      expect((await response.json() as any).data).toEqual({
+        postId,
+        liked: true,
+        likeCount: 1,
+      });
     }
     const likeRows = await getDb().select().from(schema.treeholePostLikes)
       .where(eq(schema.treeholePostLikes.postId, postId));
@@ -61,7 +65,11 @@ describe('Treehole 社交交互', () => {
         headers,
       });
       expect(response.status).toBe(200);
-      expect((await response.json() as any).data.stats.likeCount).toBe(0);
+      expect((await response.json() as any).data).toEqual({
+        postId,
+        liked: false,
+        likeCount: 0,
+      });
     }
     expect(await getDb().select().from(schema.notifications)
       .where(eq(schema.notifications.resourceId, postId))).toHaveLength(0);
@@ -149,10 +157,15 @@ describe('Treehole 社交交互', () => {
         actorUserId: otherUserId,
         subresourceId: parentId,
       }),
+      expect.objectContaining({
+        recipientUserId: authorId,
+        actorUserId: thirdUserId,
+        subresourceId: replyId,
+      }),
     ]);
     expect(activityRows.filter((row) => row.type === 'treehole_comment_reply')
-      .map((row) => row.recipientUserId).sort((a, b) => a - b))
-      .toEqual([authorId, otherUserId].sort((a, b) => a - b));
+      .map((row) => row.recipientUserId))
+      .toEqual([otherUserId]);
 
     const anotherPostId = await createTreeholePost(app, thirdUserId, '2023002003', '另一条。');
     const anotherCommentId = await createTreeholeComment(

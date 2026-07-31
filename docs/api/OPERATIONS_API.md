@@ -279,7 +279,8 @@ interface AdminTreeholePostList {
 | 接口 | 语义 |
 |---|---|
 | `GET /api/admin/messaging/conversations?page=&pageSize=` | 全部一对一会话，默认 20、最大 100 |
-| `GET /api/admin/messaging/conversations/:id/messages?afterMessageId=&limit=` | 指定会话增量消息，默认 50、最大 100 |
+| `GET /api/admin/messaging/conversations/changes?afterMessageId=&limit=` | 按全局消息 ID 高水位读取变化会话 |
+| `GET /api/admin/messaging/conversations/:id/messages?beforeMessageId=&afterMessageId=&limit=` | 指定会话首屏/旧历史/新增消息，默认 50、最大 100 |
 | `GET /api/admin/messaging/media/:batchKey/:fileName` | 数据库仍引用的私信图片 |
 
 会话项：
@@ -294,7 +295,32 @@ interface AdminConversation {
 }
 ```
 
-消息结构与 [SOCIAL_API.md](./SOCIAL_API.md) 的 `Message` 相同，但图片 URL 使用 `/api/admin/messaging/media/*`。管理员可以读取全部会话、消息正文和图片；本模块没有私信 POST、PUT、DELETE 管理命令。
+普通会话列表按 `updatedAt DESC, id DESC`，offset 仅供人工翻页。轮询使用 `/changes`：`afterMessageId` 可省略或为非负整数，响应按 `lastMessage.id ASC`，并返回 `{ items, afterMessageId, hasMore }`；管理员前端按会话 `id` 覆盖去重。`hasMore=true` 表示本次 limit 后仍有变化会话。
+
+消息结构与 [SOCIAL_API.md](./SOCIAL_API.md) 的 `Message` 完全相同，包含 `clientMessageId`，但图片 URL 使用 `/api/admin/messaging/media/*`。消息分页也与用户侧同构：无游标取最新页，`beforeMessageId` 取更旧事实，`afterMessageId` 取新增事实，二者同传返回 `400 + 4002`；三种模式均按消息 ID 升序返回。无游标/before 的 `hasMore` 表示仍有更旧消息，after 的 `hasMore` 表示仍有更新消息。会话不存在返回 `404 + 4002`。
+
+```json
+{
+  "success": true,
+  "data": {
+    "conversationId": 7,
+    "items": [{
+      "id": 123,
+      "conversationId": 7,
+      "clientMessageId": "550e8400-e29b-41d4-a716-446655440000",
+      "sender": { "id": 17, "displayName": "软工同学17", "avatarUrl": null },
+      "text": "下课一起吃饭？",
+      "images": [],
+      "createdAt": "2026-07-31T20:10:00.000+08:00"
+    }],
+    "beforeMessageId": 123,
+    "afterMessageId": 123,
+    "hasMore": false
+  }
+}
+```
+
+管理员可以读取全部会话、消息正文和图片；管理面没有发送、修改、撤回、删除消息或清空会话的接口，也没有任何私信 POST/PUT/DELETE 路由。普通用户 Bearer JWT 不能代替后台 Cookie；Cookie 缺失或失效返回 401。
 
 媒体响应使用：
 
@@ -304,3 +330,12 @@ X-Content-Type-Options: nosniff
 ```
 
 Operations 只依赖 `MessagingOperationsQueryPort`，不直接查询 `conversations/messages/message_images`，也不解析媒体文件路径。
+
+每次成功读取都会写 `AdminMessagingAudit` 操作日志：
+
+- 会话列表：管理员身份、`read_conversation_list`；
+- 会话增量：管理员身份、`read_conversation_changes`；
+- 指定消息：管理员身份、`conversationId`、`read_conversation_messages`；
+- 图片：管理员身份、`conversationId`、稳定 `storageKey`、`read_message_media`。
+
+审计日志不得包含消息正文、图片二进制、原始文件名、学号、真实姓名或其他隐私内容；列表/增量审计也不枚举参与者。

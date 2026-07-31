@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖构造注入的 Drizzle db、CommunityProfileReader、ActivityOutboxWriter、DiscoverPostQuery、领域策略与 schema
- * [OUTPUT]: 对外提供 SQLiteDiscoverCommentService，处理评论列表、事实/Outbox 原子创建、回复校验、软删除和计数同步
- * [POS]: modules/discover/infrastructure 的评论事实 adapter，作者资料经 Community 投影，活动通知经 Notifications 窄端口写入
+ * [OUTPUT]: 对外提供 SQLiteDiscoverCommentService，处理评论列表、父作者 reply/帖子作者 comment 原子创建、删除与计数
+ * [POS]: modules/discover/infrastructure 的评论事实 adapter，复用 Notifications 共享接收规则防止两条 UGC 支线语义漂移
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -10,7 +10,7 @@ import { schema } from '../../../db';
 import { AppError, ErrorCode } from '../../../utils/errors';
 import type { CommunityProfile } from '../../community/domain/community';
 import type { CommunityProfileReader } from '../../community/domain/ports';
-import { createActivityEvents } from '../../notifications/domain/activity';
+import { createCommentActivityEvents } from '../../notifications/domain/activity';
 import type { ActivityOutboxWriter } from '../../notifications/domain/ports';
 import type { DiscoverPolicy, PersistDiscoverCommentInput } from '../domain/discover';
 import { DiscoverPostQuery } from './sqlite-discover-post-service';
@@ -116,15 +116,13 @@ export class SQLiteDiscoverCommentService {
       }).returning({ id: schema.discoverComments.id }).all();
       const createdCommentId = inserted[0]?.id ?? null;
       if (!createdCommentId) throw new Error('Discover comment insert returned no id.');
-      this.outbox.enqueue(tx, createActivityEvents({
+      this.outbox.enqueue(tx, createCommentActivityEvents({
         actorUserId: input.userId,
-        recipientUserIds: parentAuthorUserId === null
-          ? [postRows[0].authorUserId]
-          : [parentAuthorUserId, postRows[0].authorUserId],
-        type: parentAuthorUserId === null ? 'discover_comment' : 'discover_comment_reply',
+        postAuthorUserId: postRows[0].authorUserId,
+        parentCommentAuthorUserId: parentAuthorUserId,
         resourceType: 'discover_post',
         resourceId: input.postId,
-        subresourceId: createdCommentId,
+        commentId: createdCommentId,
         createdAt: now,
       }));
       this.refreshPostCommentCount(tx, input.postId, now);

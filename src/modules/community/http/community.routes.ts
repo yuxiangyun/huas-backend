@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 Hono、注入的 CommunityApplicationService 与统一响应/HTTP 日志工具
- * [OUTPUT]: 对外提供 createCommunityRoutes(service)，映射当前资料、资料修改、头像删除与公共用户详情
- * [POS]: modules/community/http 的认证后协议 adapter，所有公开响应严格收敛为 id/displayName/avatarUrl
+ * [OUTPUT]: 对外提供 createCommunityRoutes(service)，映射含 nickname 的当前资料与三字段公共用户详情
+ * [POS]: modules/community/http 的认证后协议 adapter，在本人编辑契约与公共资料最小披露之间建立字段边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -13,7 +13,7 @@ import type { CommunityApplicationService } from '../application/community-appli
 
 type CommunityHttpService = Pick<
   CommunityApplicationService,
-  'getProfile' | 'updateProfile' | 'clearAvatar'
+  'getProfile' | 'getCurrentProfile' | 'updateProfile' | 'clearAvatar'
 >;
 
 function parseUserId(value: string) {
@@ -29,7 +29,7 @@ export function createCommunityRoutes(service: CommunityHttpService) {
   const routes = new Hono();
 
   routes.get('/profile', async (c) => {
-    const profile = await service.getProfile(c.get('userId'));
+    const profile = await service.getCurrentProfile(c.get('userId'));
     return profile ? success(c, profile) : profileNotFound(c);
   });
 

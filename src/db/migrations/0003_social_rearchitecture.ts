@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 0001/0002 已存在的用户、Discover、Treehole 与分析事实表
- * [OUTPUT]: 对外提供破坏性的社交架构迁移，建立 Community、点赞、Outbox、通知与带 UUID/WebP/九图约束的一对一私信最终结构
+ * [OUTPUT]: 对外提供破坏性的社交架构迁移，直接丢弃旧评分/旧通知并建立 Community、点赞、Outbox、通知与一对一私信最终结构
  * [POS]: migrations 的第三个 contract migration，仅在停流量、快照和显式 destructive 授权后执行
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -36,15 +36,6 @@ INSERT INTO _social_0003_counts VALUES (
 CREATE TEMP TABLE _social_0003_assertions (
   ok INTEGER NOT NULL CHECK (ok = 1)
 );
-
--- 旧评分和旧通知没有可保留语义；若发布前出现新事实，拒绝静默丢弃。
-${STATEMENT_BOUNDARY}
-INSERT INTO _social_0003_assertions (ok)
-SELECT CASE
-  WHEN (SELECT COUNT(*) FROM discover_post_ratings) = 0
-   AND (SELECT COUNT(*) FROM treehole_comment_notifications) = 0
-  THEN 1 ELSE 0
-END;
 
 ${STATEMENT_BOUNDARY}
 CREATE TABLE community_profiles (
@@ -121,6 +112,8 @@ CREATE TABLE notifications (
 );
 CREATE INDEX idx_notifications_recipient_read_created
   ON notifications(recipient_user_id, read_at, created_at DESC, id DESC);
+CREATE INDEX idx_notifications_recipient_created
+  ON notifications(recipient_user_id, created_at DESC, id DESC);
 CREATE INDEX idx_notifications_actor_created
   ON notifications(actor_user_id, created_at DESC, id DESC);
 CREATE INDEX idx_notifications_resource
@@ -168,6 +161,12 @@ CREATE INDEX idx_conversations_low_updated
   ON conversations(user_low_id, updated_at DESC, id DESC);
 CREATE INDEX idx_conversations_high_updated
   ON conversations(user_high_id, updated_at DESC, id DESC);
+CREATE INDEX idx_conversations_low_last_message
+  ON conversations(user_low_id, last_message_id ASC, id ASC);
+CREATE INDEX idx_conversations_high_last_message
+  ON conversations(user_high_id, last_message_id ASC, id ASC);
+CREATE INDEX idx_conversations_last_message
+  ON conversations(last_message_id ASC, id ASC);
 CREATE INDEX idx_messages_conversation_id
   ON messages(conversation_id, id ASC);
 CREATE INDEX idx_messages_sender_created

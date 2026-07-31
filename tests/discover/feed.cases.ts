@@ -30,20 +30,19 @@ describe('Discover 点赞与推荐', () => {
     });
 
     const selfLike = await app.request(`http://localhost/api/discover/posts/${post.id}/like`, {
-      method: 'POST',
+      method: 'PUT',
       headers: await authHeaderFor(authorId, '2023001001'),
     });
     expect(selfLike.status).toBe(400);
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const response = await app.request(`http://localhost/api/discover/posts/${post.id}/like`, {
-        method: 'POST',
+        method: 'PUT',
         headers: await authHeaderFor(likerId, '2023001003'),
       });
       expect(response.status).toBe(200);
       const body = await response.json() as any;
-      expect(body.data.likeCount).toBe(1);
-      expect(body.data.likedByMe).toBe(true);
+      expect(body.data).toEqual({ postId: post.id, liked: true, likeCount: 1 });
     }
 
     const likes = await getDb().select().from(schema.discoverPostLikes)
@@ -71,8 +70,7 @@ describe('Discover 点赞与推荐', () => {
       });
       expect(response.status).toBe(200);
       const body = await response.json() as any;
-      expect(body.data.likeCount).toBe(0);
-      expect(body.data.likedByMe).toBe(false);
+      expect(body.data).toEqual({ postId: post.id, liked: false, likeCount: 0 });
     }
 
     expect(await getDb().select().from(schema.discoverPostLikes)
@@ -82,7 +80,7 @@ describe('Discover 点赞与推荐', () => {
     expect(await getDb().select().from(schema.activityOutbox)).toHaveLength(0);
 
     const reLike = await app.request(`http://localhost/api/discover/posts/${post.id}/like`, {
-      method: 'POST',
+      method: 'PUT',
       headers: await authHeaderFor(likerId, '2023001003'),
     });
     expect(reLike.status).toBe(200);
@@ -115,7 +113,7 @@ describe('Discover 点赞与推荐', () => {
       [otherAuthorId, '2023001002', newest.id],
     ] as const) {
       const response = await app.request(`http://localhost/api/discover/posts/${postId}/like`, {
-        method: 'POST',
+        method: 'PUT',
         headers: await authHeaderFor(userId, studentId),
       });
       expect(response.status).toBe(200);
@@ -166,7 +164,7 @@ describe('Discover 点赞与推荐', () => {
     expect(coldIds).toEqual(latestIds);
 
     const likeResponse = await app.request(`http://localhost/api/discover/posts/${preferredSource.id}/like`, {
-      method: 'POST',
+      method: 'PUT',
       headers: await authHeaderFor(likerId, '2023001003'),
     });
     expect(likeResponse.status).toBe(200);

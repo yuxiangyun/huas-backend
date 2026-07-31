@@ -11,9 +11,9 @@ import { Logger } from '../utils/logger';
 
 const STATIC_ASSET_EXT_RE = /\.(?:js|mjs|css|map|png|jpe?g|gif|webp|svg|ico|avif|woff2?|ttf|otf|eot)$/i;
 const QUIET_POLL_PATHS = [
-  /^\/api\/notifications(?:\/unread-count)?$/,
+  /^\/api\/notifications(?:\/unread-count|\/changes)?$/,
   /^\/api\/messaging\/unread-count$/,
-  /^\/api\/messaging\/conversations$/,
+  /^\/api\/messaging\/conversations(?:\/changes)?$/,
   /^\/api\/messaging\/conversations\/\d+\/messages$/,
 ] as const;
 

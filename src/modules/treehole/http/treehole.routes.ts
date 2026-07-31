@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Hono、注入的 TreeholeApplicationService 与统一错误/日志/响应工具
- * [OUTPUT]: 对外提供 createTreeholeRoutes(service)，映射帖子、用户帖子、点赞、评论与作者删除协议
+ * [OUTPUT]: 对外提供 createTreeholeRoutes(service)，映射帖子、评论及统一 `{postId, liked, likeCount}` 的 PUT/DELETE 点赞协议
  * [POS]: modules/treehole/http 的认证后 factory adapter，不读取配置、数据库或 composition singleton
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -133,7 +133,7 @@ export function createTreeholeRoutes(service: TreeholeHttpService) {
     if (!data) return error(c, ErrorCode.PARAM_ERROR, '帖子不存在', 404);
     appendHttpLogDetail(c, formatHttpLogDetail({ postId, liked: data.viewer.liked }));
     Logger.operation('Treehole', `点赞树洞 #${postId}`, c.get('studentId'), c.get('name'));
-    return success(c, data);
+    return success(c, { postId: data.id, liked: data.viewer.liked, likeCount: data.stats.likeCount });
   });
 
   routes.delete('/posts/:id/like', async (c) => {
@@ -143,7 +143,7 @@ export function createTreeholeRoutes(service: TreeholeHttpService) {
     if (!data) return error(c, ErrorCode.PARAM_ERROR, '帖子不存在', 404);
     appendHttpLogDetail(c, formatHttpLogDetail({ postId, liked: data.viewer.liked }));
     Logger.operation('Treehole', `取消点赞树洞 #${postId}`, c.get('studentId'), c.get('name'));
-    return success(c, data);
+    return success(c, { postId: data.id, liked: data.viewer.liked, likeCount: data.stats.likeCount });
   });
 
   routes.get('/posts/:id/comments', async (c) => {

@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Runtime readiness/metrics/shutdown hooks、HTTP 日志中间件、Operations health/metrics 路由、迁移注册表与隔离 SQLite
- * [OUTPUT]: 验证 live/ready 故障矩阵、轮询 quiet 日志、既有 health 兼容响应、指标序列化与 flush 失败隔离
+ * [OUTPUT]: 验证 live/ready 故障矩阵、普通/增量轮询 quiet 日志、既有 health 兼容响应、指标序列化与 flush 失败隔离
  * [POS]: tests 的 Runtime Engineering 与 HTTP 可观测性定向回归套件；共享测试地图由总控统一回环
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -131,8 +131,10 @@ describe('HTTP polling quiet logs', () => {
     const instance = new Hono();
     instance.use('*', loggingMiddleware);
     instance.get('/api/notifications/unread-count', (c) => c.json({ success: true }));
+    instance.get('/api/notifications/changes', (c) => c.json({ success: true }));
     instance.get('/api/messaging/unread-count', (c) => c.json({ success: true }));
     instance.get('/api/messaging/conversations', (c) => c.json({ success: true }));
+    instance.get('/api/messaging/conversations/changes', (c) => c.json({ success: true }));
     instance.get('/api/messaging/conversations/:id/messages', (c) => {
       return c.req.param('id') === '404'
         ? c.json({ success: false }, 404)
@@ -146,8 +148,10 @@ describe('HTTP polling quiet logs', () => {
     const httpLog = spyOn(Logger, 'http').mockImplementation(() => undefined);
     try {
       expect((await app().request('http://localhost/api/notifications/unread-count')).status).toBe(200);
+      expect((await app().request('http://localhost/api/notifications/changes')).status).toBe(200);
       expect((await app().request('http://localhost/api/messaging/unread-count')).status).toBe(200);
       expect((await app().request('http://localhost/api/messaging/conversations')).status).toBe(200);
+      expect((await app().request('http://localhost/api/messaging/conversations/changes')).status).toBe(200);
       expect((await app().request('http://localhost/api/messaging/conversations/1/messages')).status).toBe(200);
       expect(httpLog).toHaveBeenCalledTimes(0);
 

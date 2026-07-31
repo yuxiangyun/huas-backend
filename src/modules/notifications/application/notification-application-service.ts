@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 NotificationRepository、CommunityProfileReader 与 Notifications 纯映射/分页规则
- * [OUTPUT]: 对外提供 NotificationApplicationService 的列表、未读计数和逐条已读用例
- * [POS]: modules/notifications/application 的用户读模型编排器，批量取得 actor 公共资料并维持 recipient 权限边界
+ * [OUTPUT]: 对外提供 NotificationApplicationService 的普通列表、增量轮询、未读计数和逐条已读用例
+ * [POS]: modules/notifications/application 的用户读模型编排器，以 ID 高水位隔离轮询和 offset 翻页并维持 recipient 权限边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -10,7 +10,10 @@ import type { CommunityProfileReader } from '../../community/domain/ports';
 import {
   clampNotificationPage,
   clampNotificationPageSize,
+  normalizeNotificationAfterId,
   toNotificationResponse,
+  type NotificationChangesOptions,
+  type NotificationChangesResponse,
   type NotificationListOptions,
   type NotificationListResponse,
   type NotificationsPolicy,
@@ -47,6 +50,29 @@ export class NotificationApplicationService {
       pageSize,
       total: result.total,
       hasMore: page * pageSize < result.total,
+    };
+  }
+
+  async listChanges(
+    recipientUserId: number,
+    options: NotificationChangesOptions = {},
+  ): Promise<NotificationChangesResponse> {
+    const afterNotificationId = normalizeNotificationAfterId(options.afterNotificationId);
+    const limit = clampNotificationPageSize(options.limit, this.policy);
+    const rows = await this.repository.listChanges(
+      recipientUserId,
+      afterNotificationId,
+      limit + 1,
+    );
+    const selected = rows.slice(0, limit);
+    const profiles = await this.profiles.getMany(selected.map((item) => item.actorUserId));
+    return {
+      items: selected.map((item) => toNotificationResponse(
+        item,
+        requireProfile(profiles, item.actorUserId),
+      )),
+      afterNotificationId: selected.at(-1)?.id ?? afterNotificationId,
+      hasMore: rows.length > limit,
     };
   }
 

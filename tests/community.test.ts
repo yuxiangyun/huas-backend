@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 Community/Identity 构造注入 adapters、Hono 路由 factory、隔离 SQLite、sharp 与临时头像目录
- * [OUTPUT]: 覆盖默认 displayName、重复昵称、批量投影、公共字段隔离及新旧头像媒体生命周期
- * [POS]: tests 的 Community 纵向切片专项回归，锁定公共身份边界而不装配其他社交模块
+ * [OUTPUT]: 覆盖默认 displayName、昵称后端校验、当前/公共 DTO 隔离及新旧头像媒体生命周期
+ * [POS]: tests 的 Community 纵向切片专项回归，锁定本人编辑字段与公共身份最小披露边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -79,20 +79,60 @@ describe('Community public profile', () => {
       avatarUrl: null,
     });
     expect(result.get(otherUserId)?.displayName).toBe(`文理er ${otherUserId}`);
+
+    const noDigitClassUserId = await createUser('community-no-digit', '软工班');
+    expect((await service.getProfile(noDigitClassUserId))?.displayName)
+      .toBe(`文理er ${noDigitClassUserId}`);
   });
 
-  test('allows duplicate nicknames without exposing the stored nickname shape', async () => {
+  test('allows duplicate nicknames and returns stored nickname only in current-profile writes', async () => {
     const first = await service.updateProfile(currentUserId, { nickname: '  同名同学  ' });
     const second = await service.updateProfile(otherUserId, { nickname: '同名同学' });
 
-    expect(first).toEqual({ id: currentUserId, displayName: '同名同学', avatarUrl: null });
-    expect(second).toEqual({ id: otherUserId, displayName: '同名同学', avatarUrl: null });
+    expect(first).toEqual({
+      id: currentUserId,
+      displayName: '同名同学',
+      avatarUrl: null,
+      nickname: '同名同学',
+    });
+    expect(second).toEqual({
+      id: otherUserId,
+      displayName: '同名同学',
+      avatarUrl: null,
+      nickname: '同名同学',
+    });
 
     const rows = await db.select().from(schema.communityProfiles);
     expect(rows.map((row) => row.nickname)).toEqual(['同名同学', '同名同学']);
   });
 
-  test('HTTP current/detail responses expose exactly id, displayName and avatarUrl', async () => {
+  test('enforces Unicode nickname bounds, reserved names and control-character rejection', async () => {
+    await expect(service.updateProfile(currentUserId, { nickname: '一' }))
+      .rejects.toMatchObject({ code: 4002 });
+    await expect(service.updateProfile(currentUserId, { nickname: '🙂'.repeat(13) }))
+      .rejects.toMatchObject({ code: 4002 });
+    for (const reserved of ['管理员', '官方', '系统', '匿名用户']) {
+      await expect(service.updateProfile(currentUserId, { nickname: ` ${reserved} ` }))
+        .rejects.toMatchObject({ code: 4002 });
+    }
+    await expect(service.updateProfile(currentUserId, { nickname: '换\n行' }))
+      .rejects.toMatchObject({ code: 4002 });
+    await expect(service.updateProfile(currentUserId, { nickname: `控制\u0000符` }))
+      .rejects.toMatchObject({ code: 4002 });
+
+    const unicode = await service.updateProfile(currentUserId, { nickname: '🙂同' });
+    expect(unicode.nickname).toBe('🙂同');
+    const cleared = await service.updateProfile(currentUserId, { nickname: '   ' });
+    expect(cleared).toEqual({
+      id: currentUserId,
+      displayName: `软工同学${currentUserId}`,
+      avatarUrl: null,
+      nickname: null,
+    });
+    expect((await db.select().from(schema.communityProfiles))[0]!.nickname).toBeNull();
+  });
+
+  test('HTTP current profile adds nickname while public detail remains exactly three fields', async () => {
     const app = createHttpApp();
     const form = new FormData();
     form.set('nickname', '公开昵称');
@@ -106,25 +146,32 @@ describe('Community public profile', () => {
     const cases = [
       {
         path: '/community/profile',
-        expected: { id: otherUserId, displayName: `文理er ${otherUserId}`, avatarUrl: null },
+        expected: {
+          id: otherUserId,
+          displayName: `文理er ${otherUserId}`,
+          avatarUrl: null,
+          nickname: null,
+        },
+        keys: ['avatarUrl', 'displayName', 'id', 'nickname'],
       },
       {
         path: `/community/users/${currentUserId}`,
         expected: { id: currentUserId, displayName: '公开昵称', avatarUrl: null },
+        keys: ['avatarUrl', 'displayName', 'id'],
       },
     ];
-    for (const { path, expected } of cases) {
+    for (const { path, expected, keys } of cases) {
       const response = await app.request(`http://localhost${path}`, {
         headers: { 'x-test-user-id': String(otherUserId) },
       });
       expect(response.status).toBe(200);
       const body = await response.json() as any;
-      expect(Object.keys(body.data).sort()).toEqual(['avatarUrl', 'displayName', 'id']);
+      expect(Object.keys(body.data).sort()).toEqual(keys);
       expect(body.data).toEqual(expected);
       expect(JSON.stringify(body.data)).not.toContain('community-1001');
       expect(JSON.stringify(body.data)).not.toContain('真实姓名');
       expect(JSON.stringify(body.data)).not.toContain('软工24101班');
-      expect(JSON.stringify(body.data)).not.toContain('nickname');
+      if (path.includes('/users/')) expect('nickname' in body.data).toBe(false);
     }
   });
 });

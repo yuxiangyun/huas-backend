@@ -7,7 +7,7 @@ admin-session.middleware.ts: Operations canonical 后台 Cookie 会话边界的�
 auth-login-rate-limit.middleware.ts: 登录失败内存限流，按学号和客户端 IP 构造 key，降低暴力尝试风险
 auth.middleware.ts: Bearer JWT 认证边界，解析用户身份并刷新 lastActiveAt
 error.middleware.ts: 全局错误语义翻译层，把 AppError/异常转换为统一 JSON 响应
-logging.middleware.ts: 请求日志中间件，收集耗时、身份、响应元信息和 HTTP 细节；Notifications/Messaging 高频 GET 轮询仅在成功响应时静默访问日志
+logging.middleware.ts: 请求日志中间件，收集耗时、身份、响应元信息和 HTTP 细节；Notifications/Messaging 未读、普通读取与稳定增量 GET 仅在成功时静默访问日志
 
 架构决策
 中间件只处理横切边界：认证、限流、错误、日志；业务判断进入 services，响应结构进入 utils/response。

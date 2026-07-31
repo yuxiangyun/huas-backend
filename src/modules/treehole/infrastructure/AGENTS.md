@@ -6,7 +6,7 @@ sqlite-treehole-admin-persistence.ts: 管理侧 Treehole 事实查询与软删�
 sqlite-treehole-persistence.ts: 聚合用户/管理 SQLite 能力并完整实现 TreeholePersistence port
 sqlite-treehole-operations-query.ts: 构造注入 db/profile reader/policy 的 TreeholeOperationsQueryPort 只读 adapter
 sqlite-treehole-support.ts: 无全局状态的数据库/事务类型、事实选择器、点赞批量查询、作者批量映射与计数刷新 helper
-sqlite-treehole-user-persistence.ts: 用户侧帖子/用户帖子、点赞评论事实/计数/Outbox 原子写入及作者删除事务 adapter
+sqlite-treehole-user-persistence.ts: 用户侧帖子/用户帖子、幂等点赞与差异回复通知、计数/Outbox 原子写入及作者删除事务 adapter
 
 架构决策
 Drizzle db 与 CommunityProfileReader 必须构造注入；查询只访问 Treehole 自有事实表，不得调用 getDb 或 JOIN users/community_profiles。

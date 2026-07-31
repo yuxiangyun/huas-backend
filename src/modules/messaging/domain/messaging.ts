@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 Community 公共资料 DTO 与共享北京时间映射，不依赖 HTTP、SQLite 或文件系统
- * [OUTPUT]: 对外提供 Messaging 策略、事实/响应 DTO 与 UUID、Unicode 文字、图片输入校验纯规则
- * [POS]: modules/messaging/domain 的一对一私信内核，将存储事实收敛为经鉴权的公开读模型
+ * [OUTPUT]: 对外提供 Messaging 策略、事实/响应 DTO 与会话增量、消息三态游标、UUID/图文输入校验纯规则
+ * [POS]: modules/messaging/domain 的一对一私信内核，用全局消息 ID 高水位稳定轮询会话变化并明确历史分页语义
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -119,9 +119,23 @@ export interface MessagingListOptions {
   pageSize?: number;
 }
 
-export interface MessagingMessageListOptions {
+export interface MessagingConversationChangesOptions {
   afterMessageId?: number;
   limit?: number;
+}
+
+export interface MessagingMessageListOptions {
+  beforeMessageId?: number;
+  afterMessageId?: number;
+  limit?: number;
+}
+
+export type MessagePageMode = 'latest' | 'before' | 'after';
+
+export interface MessagePageQuery {
+  mode: MessagePageMode;
+  cursorMessageId: number | null;
+  limit: number;
 }
 
 export interface MessageImageResponse {
@@ -136,10 +150,16 @@ export interface MessageImageResponse {
 export interface MessageResponse {
   id: number;
   conversationId: number;
+  clientMessageId: string;
   sender: CommunityProfile;
   text: string | null;
   images: MessageImageResponse[];
   createdAt: string;
+}
+
+export interface ConversationTargetResponse {
+  profile: CommunityProfile;
+  conversationId: number | null;
 }
 
 export interface ConversationResponse {
@@ -159,9 +179,16 @@ export interface ConversationListResponse {
   hasMore: boolean;
 }
 
+export interface ConversationChangesResponse {
+  items: ConversationResponse[];
+  afterMessageId: number;
+  hasMore: boolean;
+}
+
 export interface MessageListResponse {
   conversationId: number;
   items: MessageResponse[];
+  beforeMessageId: number | null;
   afterMessageId: number | null;
   hasMore: boolean;
 }
@@ -188,9 +215,16 @@ export interface MessagingOperationsConversationListResponse {
   hasMore: boolean;
 }
 
+export interface MessagingOperationsConversationChangesResponse {
+  items: MessagingOperationsConversationResponse[];
+  afterMessageId: number;
+  hasMore: boolean;
+}
+
 export interface MessagingOperationsMessageListResponse {
   conversationId: number;
   items: MessageResponse[];
+  beforeMessageId: number | null;
   afterMessageId: number | null;
   hasMore: boolean;
 }
@@ -258,9 +292,72 @@ export function clampMessagingPageSize(value: number | undefined, policy: Messag
   return Math.min(Math.floor(value), policy.maxConversationPageSize);
 }
 
+export function normalizeConversationChangesQuery(
+  options: MessagingConversationChangesOptions,
+  policy: MessagingPolicy,
+) {
+  const afterMessageId = options.afterMessageId ?? 0;
+  if (!Number.isInteger(afterMessageId) || afterMessageId < 0) {
+    throw new AppError(ErrorCode.PARAM_ERROR, 'afterMessageId 不合法');
+  }
+  return {
+    afterMessageId,
+    limit: clampMessagingPageSize(options.limit, policy),
+  };
+}
+
 export function clampMessageLimit(value: number | undefined, policy: MessagingPolicy) {
   if (!value || !Number.isFinite(value) || value <= 0) return policy.defaultMessagePageSize;
   return Math.min(Math.floor(value), policy.maxMessagePageSize);
+}
+
+export function normalizeMessagePageQuery(
+  options: MessagingMessageListOptions,
+  policy: MessagingPolicy,
+): MessagePageQuery {
+  if (options.beforeMessageId !== undefined && options.afterMessageId !== undefined) {
+    throw new AppError(
+      ErrorCode.PARAM_ERROR,
+      'beforeMessageId 和 afterMessageId 不能同时提交',
+    );
+  }
+  const limit = clampMessageLimit(options.limit, policy);
+  if (options.beforeMessageId !== undefined) {
+    return {
+      mode: 'before',
+      cursorMessageId: normalizeMessageCursor(options.beforeMessageId, 'beforeMessageId'),
+      limit,
+    };
+  }
+  if (options.afterMessageId !== undefined) {
+    return {
+      mode: 'after',
+      cursorMessageId: normalizeMessageCursor(options.afterMessageId, 'afterMessageId'),
+      limit,
+    };
+  }
+  return { mode: 'latest', cursorMessageId: null, limit };
+}
+
+export function messagingRequestMaxBytes(policy: MessagingPolicy) {
+  return policy.maxTotalImageBytes + 1024 * 1024;
+}
+
+export function finalizeMessagePage<T extends { id: number }>(
+  rows: readonly T[],
+  query: MessagePageQuery,
+) {
+  const hasMore = rows.length > query.limit;
+  const selected = rows.slice(0, query.limit);
+  const items = query.mode === 'after' ? selected : selected.reverse();
+  return {
+    items,
+    beforeMessageId: items.at(0)?.id
+      ?? (query.mode === 'before' ? query.cursorMessageId : null),
+    afterMessageId: items.at(-1)?.id
+      ?? (query.mode === 'after' ? query.cursorMessageId : null),
+    hasMore,
+  };
 }
 
 export function otherParticipantId(conversation: ConversationFact, userId: number) {
@@ -277,6 +374,7 @@ export function toMessageResponse(
   return {
     id: fact.id,
     conversationId: fact.conversationId,
+    clientMessageId: fact.clientMessageId,
     sender,
     text: fact.text,
     images: fact.images.map((image) => ({
@@ -289,6 +387,13 @@ export function toMessageResponse(
     })),
     createdAt: beijingIsoString(fact.createdAt),
   };
+}
+
+function normalizeMessageCursor(value: number, name: string) {
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new AppError(ErrorCode.PARAM_ERROR, `${name} 不合法`);
+  }
+  return value;
 }
 
 export function requireProfile(

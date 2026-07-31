@@ -35,7 +35,7 @@ src 是应用机器相核心；新业务按 modules 纵向切片，旧 routes �
 2026-07-27: 新增 Operations 纵向切片，后台管理、批量 analytics、公告、日志、会话与健康检查迁入 canonical 模块。
 2026-07-31: Discover/Treehole 旧 routes/services Facade 与内容空读运行态物理删除，路由装配直接依赖 canonical HTTP adapters。
 2026-07-31: Treehole 取消匿名与资料/头像职责，Discover 以幂等点赞替代评分；二者统一通过 Community 批量投影公共作者并由根组合实例化。
-2026-07-31: Discover/Treehole 互动事务接入 Notifications Outbox，请求后即时投影并由 periodic registry 重试和清理已读通知。
+2026-07-31: Discover/Treehole 互动事务接入 Notifications Outbox，请求后即时投影并由 periodic registry 重试；通知事实不自动清理。
 2026-07-31: 新增 Messaging 一对一私信切片，根组合连接 Community/Operations、私有媒体与无主目录周期清理。
 2026-07-27: 新增 Calendar 纵向切片，签名、周快照与 ICS 统一迁入 modules/calendar。
 2026-07-27: 新增 Academic 纵向切片，课表、成绩、评教与空教室旧服务退化为单向兼容 Facade。

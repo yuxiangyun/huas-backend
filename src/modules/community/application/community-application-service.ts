@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 Identity 只读端口、Community 资料仓储/头像端口与纯领域规则
- * [OUTPUT]: 对外提供 CommunityApplicationService，完成批量作者投影、资料读写与头像补偿
- * [POS]: modules/community/application 的唯一用例服务，同时实现社交消费者所需 CommunityProfileReader
+ * [OUTPUT]: 对外提供 CommunityApplicationService，完成公共/当前资料投影、资料读写与头像补偿
+ * [POS]: modules/community/application 的唯一用例服务，同时隔离社交公共作者读模型与本人编辑读模型
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -11,6 +11,7 @@ import type { CommunityIdentityReader } from '../../identity/domain/community-id
 import {
   normalizeCommunityNickname,
   toCommunityProfile,
+  toCurrentCommunityProfile,
   type CommunityProfile,
   type StoredCommunityProfile,
 } from '../domain/community';
@@ -57,6 +58,15 @@ export class CommunityApplicationService implements CommunityProfileReader {
     return (await this.getMany([userId])).get(userId) ?? null;
   }
 
+  async getCurrentProfile(userId: number) {
+    const [identities, profiles] = await Promise.all([
+      this.identities.getMany([userId]),
+      this.profiles.getMany([userId]),
+    ]);
+    const identity = identities.get(userId);
+    return identity ? toCurrentCommunityProfile(identity, profiles.get(userId)) : null;
+  }
+
   async updateProfile(userId: number, input: UpdateCommunityProfileInput) {
     const identity = (await this.identities.getMany([userId])).get(userId);
     if (!identity) throw new AppError(ErrorCode.PARAM_ERROR, '用户不存在');
@@ -101,7 +111,7 @@ export class CommunityApplicationService implements CommunityProfileReader {
         Logger.warn('CommunityAvatar', `旧头像清理失败 userId=${userId}`, detail);
       }
     }
-    return toCommunityProfile(identity, stored);
+    return toCurrentCommunityProfile(identity, stored);
   }
 
   clearAvatar(userId: number) {

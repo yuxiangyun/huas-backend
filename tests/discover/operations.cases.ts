@@ -38,7 +38,7 @@ describe('Discover Operations 边界', () => {
     const filePath = join(config.discover.storageRoot, relativePath);
 
     const likeResponse = await app.request(`http://localhost/api/discover/posts/${post.id}/like`, {
-      method: 'POST',
+      method: 'PUT',
       headers: await authHeaderFor(likerId, '2023001003'),
     });
     expect(likeResponse.status).toBe(200);
