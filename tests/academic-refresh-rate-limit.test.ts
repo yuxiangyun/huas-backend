@@ -90,7 +90,6 @@ mock.module('../src/modules/academic/schedule.ts', () => ({
   },
 }));
 
-let initDatabase: any;
 let getDb: any;
 let schema: any;
 let registerRoutes: any;
@@ -105,13 +104,13 @@ function createApp() {
 
 async function resetDb() {
   const db = getDb();
-  await db.delete(schema.treeholeCommentNotifications);
   await db.delete(schema.treeholePostLikes);
   await db.delete(schema.treeholeComments);
   await db.delete(schema.treeholePosts);
   await db.delete(schema.discoverComments);
-  await db.delete(schema.discoverPostRatings);
+  await db.delete(schema.discoverPostLikes);
   await db.delete(schema.discoverPosts);
+  await db.delete(schema.communityProfiles);
   await db.delete(schema.credentials);
   await db.delete(schema.cache);
   await db.delete(schema.users);
@@ -138,11 +137,10 @@ async function authHeaderFor(userId: number, studentId: string) {
 }
 
 beforeAll(async () => {
-  ({ initDatabase, getDb, schema } = await import('../src/db/index.ts'));
+  ({ getDb, schema } = await import('../src/db/index.ts'));
   ({ registerRoutes } = await import('../src/routes/index.ts'));
   ({ generateToken } = await import('../src/auth/jwt.ts'));
   ({ resetAcademicRefreshRateLimitStateForTests } = await import('../src/middleware/academic-refresh-rate-limit.middleware.ts'));
-  initDatabase();
 });
 
 beforeEach(async () => {

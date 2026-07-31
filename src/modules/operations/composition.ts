@@ -1,20 +1,22 @@
 /**
- * [INPUT]: 依赖 Operations application/infrastructure 与 Identity/Discover/Treehole 公开 query adapters
- * [OUTPUT]: 对外提供生产 application 实例、SystemOperations 与 AdminDashboardService 兼容静态类
- * [POS]: modules/operations 的唯一 composition root，集中完成跨域只读端口和本模块基础设施装配
+ * [INPUT]: 依赖调用方注入的 Identity/Discover/Treehole/Messaging 公开 ports 与 Operations 自有 application/infrastructure
+ * [OUTPUT]: 对外提供 createOperationsComposition 与进程级 systemOperations
+ * [POS]: modules/operations 的局部组合工厂，只聚合公开端口；跨模块 concrete 装配统一留在 src/composition.ts
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { SQLiteDiscoverOperationsQuery } from '../discover/infrastructure/sqlite-discover-operations-query';
-import { SQLiteIdentityOperationsQuery } from '../identity/infrastructure/sqlite-identity-operations-query';
+import type { DiscoverOperationsQueryPort } from '../discover/domain/operations-query';
+import type { IdentityOperationsQueryPort } from '../identity/domain/operations-query';
 import { configureLoginAnalyticsRecorder } from '../identity/http/login-analytics';
-import { SQLiteTreeholeOperationsQuery } from '../treehole/infrastructure/sqlite-treehole-operations-query';
+import type { MessagingOperationsQueryPort } from '../messaging/domain/ports';
+import type { TreeholeOperationsQueryPort } from '../treehole/domain/operations-query';
 import { AdminDashboardApplicationService } from './application/admin-dashboard-service';
 import { CommunityAdminApplicationService } from './application/community-admin-service';
-import type { DashboardQuery } from './domain/operations';
+import { MessagingAdminApplicationService } from './application/messaging-admin-service';
+import type { DiscoverAdminCommandPort, TreeholeAdminCommandPort } from './domain/ports';
+import { createAdminRoutes } from './http/admin.routes';
 import { AnnouncementService } from './infrastructure/announcement-service';
 import { AnalyticsService } from './infrastructure/analytics-service';
-import { DiscoverAdminCommandAdapter, TreeholeAdminCommandAdapter } from './infrastructure/community-admin-adapters';
 import { SystemOperations } from './infrastructure/system-operations';
 import { TerminalLogService } from './infrastructure/terminal-log-service';
 
@@ -24,22 +26,34 @@ configureLoginAnalyticsRecorder((platformHeader, success) => {
   AnalyticsService.recordLogin(platformHeader, success);
 });
 
-export const adminDashboardApplicationService = new AdminDashboardApplicationService(
-  new SQLiteIdentityOperationsQuery(),
-  new SQLiteDiscoverOperationsQuery(),
-  AnnouncementService,
-  TerminalLogService,
-  systemOperations,
-);
+export interface OperationsCompositionDependencies {
+  identityQuery: IdentityOperationsQueryPort;
+  discoverQuery: DiscoverOperationsQueryPort;
+  treeholeQuery: TreeholeOperationsQueryPort;
+  messagingQuery: MessagingOperationsQueryPort;
+  discoverCommands: DiscoverAdminCommandPort;
+  treeholeCommands: TreeholeAdminCommandPort;
+}
 
-export const communityAdminApplicationService = new CommunityAdminApplicationService(
-  new SQLiteTreeholeOperationsQuery(),
-  new DiscoverAdminCommandAdapter(),
-  new TreeholeAdminCommandAdapter(),
-);
+export function createOperationsComposition(dependencies: OperationsCompositionDependencies) {
+  const dashboard = new AdminDashboardApplicationService(
+    dependencies.identityQuery,
+    dependencies.discoverQuery,
+    AnnouncementService,
+    TerminalLogService,
+    systemOperations,
+  );
+  const communityAdmin = new CommunityAdminApplicationService(
+    dependencies.treeholeQuery,
+    dependencies.discoverCommands,
+    dependencies.treeholeCommands,
+  );
+  const messagingAdmin = new MessagingAdminApplicationService(dependencies.messagingQuery);
 
-export class AdminDashboardService {
-  static getDashboard(query: DashboardQuery) {
-    return adminDashboardApplicationService.getDashboard(query);
-  }
+  return {
+    dashboard,
+    communityAdmin,
+    messagingAdmin,
+    adminRoutes: createAdminRoutes({ dashboard, communityAdmin, messagingAdmin }),
+  };
 }

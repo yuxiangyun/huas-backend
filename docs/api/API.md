@@ -13,7 +13,6 @@
 | `GET /api/public/announcements` | 无 | 公告弹窗列表 |
 | `POST/GET/DELETE /api/admin/session` | 登录凭据 / 后台 Cookie | 建立、探测与撤销后台会话 |
 | `GET /api/admin/dashboard` | 后台 HttpOnly Cookie | 管理仪表盘 |
-| `GET/PUT /api/admin/compliance/ugc` | 后台 HttpOnly Cookie | UGC 正常/合规模式热开关 |
 | `GET/PUT /api/admin/academic/schedule-source-policy` | 后台 HttpOnly Cookie | 课表 JW/Portal 优先模式热切换 |
 | `GET/POST/PUT/DELETE /api/admin/announcements*` | 后台 HttpOnly Cookie | 公告管理 |
 | `GET /api/admin/logs` | 后台 HttpOnly Cookie | 终端日志读取 |
@@ -56,7 +55,6 @@ GET /calendar/schedule.ics?studentId=2023001001&sig=<hmac_sha256(studentId, CALE
 
 - `/api/admin/session` 建立短期 HttpOnly Cookie；其余 `/api/admin/*` 统一由 `adminSessionMiddleware` 保护，普通用户 Bearer JWT 不具备后台权限
 - 日历订阅不是 JWT，也不落库；它是固定链接，签名规则是 `HMAC_SHA256(studentId, CALENDAR_SECRET)`
-- UGC 合规模式由 `/api/admin/compliance/ugc` 热更新；`normal` 模式走真实业务，`compliance` 模式让分享美食和神秘角落的 GET 读请求返回后台配置的纯文本 mock 或空分页，写操作不受影响；配置 `UGC_COMPLIANCE_ASNS` 后，命中可信 ASN 头和端口的 GET 读请求强制返回空态
 
 ## 2. 响应包结构
 
@@ -1272,57 +1270,7 @@ END:VCALENDAR
 - `discover.items[].coverUrl` 和 `discover.items[].images` 用于管理员页面点击后查看图片
 - 当前管理页上的公告增删改、管理员删帖、用户发帖/评分/删帖都会写入终端日志，因此刷新 dashboard 时能在日志表里看到最近操作
 
-### 6.9.1 `GET/PUT /api/admin/compliance/ugc`
-
-后台热控制 UGC 正常/合规模式，需有效后台 Cookie 会话。
-
-`GET` 返回当前状态：
-
-```json
-{
-  "success": true,
-  "data": {
-    "mode": "normal",
-    "disabled": false,
-    "discoverMockText": "",
-    "treeholeMockText": "",
-    "updatedAt": "2026-07-01T12:00:00.000+08:00",
-    "updatedBy": "admin",
-    "stateFile": "./data/ugc-compliance-state.json"
-  }
-}
-```
-
-`PUT` 请求体：
-
-```json
-{
-  "mode": "compliance",
-  "discoverMockText": "",
-  "treeholeMockText": ""
-}
-```
-
-字段说明：
-
-| 字段 | 类型 | 必填 | 说明 |
-|---|---|---|---|
-| `mode` | string | 是 | `normal` 走真实业务；`compliance` 返回虚拟 mock |
-| `discoverMockText` | string | 否 | 分享美食纯文本 mock，默认空字符串 |
-| `treeholeMockText` | string | 否 | 神秘角落纯文本 mock，默认空字符串 |
-
-补充说明：
-
-- 两个 mock 字段只保存纯文本；服务端会移除尖括号和控制字符，并截断到 400 字符
-- `compliance` 模式下，分享美食和神秘角落的 GET 读请求（`/meta` 除外）仍需 Bearer JWT
-- mock 为空时列表和评论返回空分页；mock 非空时对应模块公共列表第 1 页返回一条虚拟内容
-- 前端不读取合规模式 meta；当公共列表返回空分页、空数组、空对象或 id=0 mock 时，应收敛反馈入口与内容展示
-- 写操作（发帖、评论、评分、点赞、删除、头像上传等）不受该模式影响
-- 状态写入 `UGC_COMPLIANCE_STATE_FILE`，默认 `./data/ugc-compliance-state.json`，用于多进程热传播和重启后延续
-- `UGC_COMPLIANCE_ASNS` 可配置逗号/空格分隔 ASN；`UGC_COMPLIANCE_PORTS` 可限制入口端口，空值表示不限端口
-- ASN 自动空态依赖可信反代写入 `UGC_COMPLIANCE_ASN_HEADER`（默认 `x-client-asn`）与 `UGC_COMPLIANCE_PORT_HEADER`（默认 `x-forwarded-port`），命中时忽略后台 mock 文案并返回空数据
-
-### 6.9.2 `GET/PUT /api/admin/academic/schedule-source-policy`
+### 6.9.1 `GET/PUT /api/admin/academic/schedule-source-policy`
 
 后台 Cookie 会话保护的课表来源热策略接口。管理操作只改变后续 `/api/schedule` 的来源顺序，不清缓存，也不主动访问校园上游。
 

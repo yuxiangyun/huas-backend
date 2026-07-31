@@ -15,14 +15,12 @@ import {
   deleteAdminTreeholePost,
   getAdminAnnouncements,
   getAdminAnalyticsOverview,
-  getAdminComplianceStatus,
   getAdminDashboard,
   getAdminScheduleSourcePolicy,
   getAdminTerminalLogs,
   getAdminTreeholeComments,
   getAdminTreeholePosts,
   updateAdminAnnouncement,
-  updateAdminComplianceStatus,
   updateAdminScheduleSourcePolicy,
 } from '@/entities/admin/api/admin-api';
 import { adminQueryKeys } from '@/entities/admin/model/admin-query-keys';
@@ -36,21 +34,6 @@ export function useAdminAnalyticsQuery(session: AdminSession | null, days: 7 | 3
     queryKey: adminQueryKeys.analytics(days),
     queryFn: ({ signal }) => getAdminAnalyticsOverview(days, { signal }),
     enabled: session !== null,
-  });
-}
-
-export function useAdminComplianceQuery(session: AdminSession | null) {
-  return useQuery({
-    queryKey: adminQueryKeys.compliance(),
-    queryFn: ({ signal }) => getAdminComplianceStatus({ signal }),
-    enabled: session !== null,
-  });
-}
-
-export function useUpdateAdminComplianceMutation(session: AdminSession | null) {
-  return useMutation({
-    mutationFn: (payload: Parameters<typeof updateAdminComplianceStatus>[0]) =>
-      updateAdminComplianceStatus(payload),
   });
 }
 

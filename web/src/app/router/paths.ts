@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 Web 与后台的稳定信息架构，包含设置页 canonical 与历史合规路径
+ * [INPUT]: 依赖 Web 与后台的稳定信息架构与设置页 canonical 路径
  * [OUTPUT]: 提供 appRoutes 全局路径常量，供路由、导航与重定向共享
  * [POS]: app/router 的路径命名源，防止页面和导航各自硬编码 URL
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -21,6 +21,5 @@ export const appRoutes = {
   adminDiscover: '/admin/manage/discover',
   adminTreehole: '/admin/manage/treehole',
   adminSettings: '/admin/system/settings',
-  adminCompliance: '/admin/system/compliance',
   adminLogs: '/admin/system/logs',
 } as const;

@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 appRoutes、用户/后台页面与保护壳，将历史合规路径映射到设置页 canonical
- * [OUTPUT]: 提供 BrowserRouter，以树洞为普通用户默认页，并包含后台设置 canonical 与旧路径 replace 重定向
+ * [INPUT]: 依赖 appRoutes、用户/后台页面与保护壳，装配普通用户与后台 canonical 路由
+ * [OUTPUT]: 提供 BrowserRouter，以树洞为普通用户默认页，并包含后台设置 canonical
  * [POS]: app/router 的顶层组装点，统一 basename、页面边界与路径兼容性
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -64,10 +64,6 @@ export const router = createBrowserRouter(
         {
           path: 'system/settings',
           Component: AdminSettingsPage,
-        },
-        {
-          path: 'system/compliance',
-          element: <Navigate to={appRoutes.adminSettings} replace />,
         },
         {
           path: 'system/logs',

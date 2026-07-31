@@ -50,8 +50,13 @@ describe('Discover 媒体摄取与规范化', () => {
     expect(body.data.tags).toEqual(['辣', '便宜']);
     expect(body.data.images).toHaveLength(1);
     expect(body.data.images[0].url.endsWith('.webp')).toBe(true);
-    expect(body.data.author.label).toBe('软件工程');
-    expect(body.data.rating.average).toBe(0);
+    expect(body.data.author).toEqual({
+      id: authorId,
+      displayName: `软件工程同学${authorId}`,
+      avatarUrl: null,
+    });
+    expect(body.data.likeCount).toBe(0);
+    expect(body.data.likedByMe).toBe(false);
 
     const relativePath = body.data.images[0].url.replace(`${config.discover.mediaBasePath}/`, '');
     const filePath = join(config.discover.storageRoot, relativePath);

@@ -1,17 +1,16 @@
 # infrastructure/
-> L2 | 父级: /Users/xiangyun/workspace/huas-wechat-app/huas-server/src/modules/treehole/AGENTS.md
+> L2 | 父级: /src/modules/treehole/AGENTS.md
 
 成员清单
-sqlite-treehole-admin-persistence.ts: 管理侧 SQLite 查询与软删除事务，唯一暴露真实作者信息
-sqlite-treehole-persistence.ts: 聚合社区资料、用户/管理 SQLite 能力并完整实现 TreeholePersistence port
-sqlite-treehole-operations-query.ts: TreeholeOperationsQueryPort 的只读 adapter，复用管理 SQL 并保持原分页策略
-sqlite-treehole-support.ts: Treehole 专属 Drizzle 选择器、社区资料/点赞批量查询、响应列表与计数刷新 helper
-sqlite-treehole-user-persistence.ts: 社区资料与用户侧 SQLite 查询，保持点赞、评论/通知/计数及删除事务
-treehole-avatar-media-storage.ts: sharp 压缩、本地 WebP 存储/删除、公开读取和 immutable 缓存语义
+sqlite-treehole-admin-persistence.ts: 管理侧 Treehole 事实查询与软删除事务，经 Community reader 批量投影公共作者
+sqlite-treehole-persistence.ts: 聚合用户/管理 SQLite 能力并完整实现 TreeholePersistence port
+sqlite-treehole-operations-query.ts: 构造注入 db/profile reader/policy 的 TreeholeOperationsQueryPort 只读 adapter
+sqlite-treehole-support.ts: 无全局状态的数据库/事务类型、事实选择器、点赞批量查询、作者批量映射与计数刷新 helper
+sqlite-treehole-user-persistence.ts: 用户侧帖子/用户帖子、点赞评论事实/计数/Outbox 原子写入及作者删除事务 adapter
 
 架构决策
-原 Drizzle 事务整体留在用户/管理 SQLite adapter，SQL 顺序不因应用分层而拆散。
-头像媒体通过注入的 persistence 校验数据库已发布 URL 后才公开文件，昵称与头像只从 users 实时投影，防止资料快照和内容脱节。
+Drizzle db 与 CommunityProfileReader 必须构造注入；查询只访问 Treehole 自有事实表，不得调用 getDb 或 JOIN users/community_profiles。
+列表先完成事实分页，再对本页全部 userId 执行一次 getMany；点赞和评论计数与活动 Outbox 经注入 writer 在同一短事务提交，Bun SQLite 事务 callback 必须同步，投影仅在提交后触发。
 
 开发规范
 不得引用旧 routes/services Facade 或 modules/discover；新增 SQL helper 仅服务 Treehole 事实表。

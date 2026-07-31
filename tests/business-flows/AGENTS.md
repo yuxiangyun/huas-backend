@@ -1,5 +1,5 @@
 # business-flows/
-> L2 | 父级: /Users/xiangyun/workspace/huas-wechat-app/huas-server/tests/AGENTS.md
+> L2 | 父级: /tests/AGENTS.md
 
 核心业务流测试按能力边界拆分；顶层 `business-flows.test.ts` 在同一 Bun 进程内装配全部用例，以维持进程级模块 mock 与共享 SQLite 的原有隔离语义。
 

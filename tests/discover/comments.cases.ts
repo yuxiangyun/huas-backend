@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 Discover 测试支架、评论/回复/删除 API 与帖子夹具
- * [OUTPUT]: 验证社区资料投影、评论分页、父评论约束、作者删除与帖子删除后的级联可见性
+ * [INPUT]: 依赖 Discover 测试支架、评论/回复/删除 API、帖子夹具与 Notifications 投影事实
+ * [OUTPUT]: 验证社区资料投影、评论通知 recipient 去重、分页、父评论约束、作者删除与帖子删除后的级联可见性
  * [POS]: tests/discover 的 Discover 评论生命周期细分用例，失败时直接定位该业务能力
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -9,18 +9,19 @@ import { describe, expect, it } from 'bun:test';
 import {
   authorId,
   otherAuthorId,
-  raterId,
+  likerId,
   createApp,
   authHeaderFor,
   createDiscoverPost,
   createDiscoverComment,
+  setCommunityProfile,
   eq,
   getDb,
   schema,
 } from './harness';
 
 describe('Discover 评论生命周期', () => {
-  it('评论支持分页与回复，返回头像和作者标签，并同步帖子评论数', async () => {
+  it('评论支持分页与回复，批量投影统一作者资料，并同步帖子评论数', async () => {
     const app = createApp();
     const post = await createDiscoverPost(app, {
       userId: authorId,
@@ -29,19 +30,14 @@ describe('Discover 评论生命周期', () => {
       color: '#ff7844',
     });
 
-    const db = getDb();
-    await db.update(schema.users)
-      .set({
-        treeholeAvatarUrl: '/media/treehole-avatar/test-poster.webp',
-        communityNickname: '饭搭子',
-      })
-      .where(eq(schema.users.id, authorId));
-    await db.update(schema.users)
-      .set({
-        treeholeAvatarUrl: '/media/treehole-avatar/test-commenter.webp',
-        communityNickname: '评论员_2',
-      })
-      .where(eq(schema.users.id, otherAuthorId));
+    await setCommunityProfile(authorId, {
+      avatarUrl: '/media/community-avatar/test-poster.webp',
+      nickname: '饭搭子',
+    });
+    await setCommunityProfile(otherAuthorId, {
+      avatarUrl: '/media/community-avatar/test-commenter.webp',
+      nickname: '评论员_2',
+    });
 
     const firstComment = await createDiscoverComment(app, {
       postId: post.id,
@@ -51,13 +47,29 @@ describe('Discover 评论生命周期', () => {
     });
     const secondComment = await createDiscoverComment(app, {
       postId: post.id,
-      userId: raterId,
+      userId: likerId,
       studentId: '2023001003',
       content: '回复第一条',
       parentCommentId: firstComment.id,
     });
 
     expect(secondComment.parentCommentId).toBe(firstComment.id);
+    const activityRows = await getDb().select().from(schema.notifications)
+      .where(eq(schema.notifications.resourceId, post.id));
+    expect(activityRows).toHaveLength(3);
+    expect(activityRows.filter((row) => row.type === 'discover_comment')).toEqual([
+      expect.objectContaining({
+        recipientUserId: authorId,
+        actorUserId: otherAuthorId,
+        subresourceId: firstComment.id,
+      }),
+    ]);
+    expect(activityRows.filter((row) => row.type === 'discover_comment_reply')
+      .map((row) => row.recipientUserId).sort((a, b) => a - b))
+      .toEqual([authorId, otherAuthorId].sort((a, b) => a - b));
+    expect(activityRows.filter((row) => row.type === 'discover_comment_reply')
+      .every((row) => row.actorUserId === likerId && row.subresourceId === secondComment.id))
+      .toBe(true);
 
     const firstPageRes = await app.request(`http://localhost/api/discover/posts/${post.id}/comments?page=1&pageSize=1`, {
       headers: await authHeaderFor(authorId, '2023001001'),
@@ -66,10 +78,12 @@ describe('Discover 评论生命周期', () => {
     const firstPageBody = await firstPageRes.json() as any;
     expect(firstPageBody.data.total).toBe(2);
     expect(firstPageBody.data.items[0].id).toBe(firstComment.id);
-    expect(firstPageBody.data.items[0].avatarUrl).toBe('/media/treehole-avatar/test-commenter.webp');
-    expect(firstPageBody.data.items[0].author.id).toBe(otherAuthorId);
-    expect(firstPageBody.data.items[0].author.label.length).toBeGreaterThan(0);
-    expect(firstPageBody.data.items[0].author.nickname).toBe('评论员_2');
+    expect(firstPageBody.data.items[0].author).toEqual({
+      id: otherAuthorId,
+      displayName: '评论员_2',
+      avatarUrl: '/media/community-avatar/test-commenter.webp',
+    });
+    expect(firstPageBody.data.items[0].avatarUrl).toBeUndefined();
 
     const secondPageRes = await app.request(`http://localhost/api/discover/posts/${post.id}/comments?page=2&pageSize=1`, {
       headers: await authHeaderFor(authorId, '2023001001'),
@@ -92,8 +106,11 @@ describe('Discover 评论生命周期', () => {
     expect(listRes.status).toBe(200);
     const listBody = await listRes.json() as any;
     expect(listBody.data.items[0].commentCount).toBe(2);
-    expect(listBody.data.items[0].avatarUrl).toBe('/media/treehole-avatar/test-poster.webp');
-    expect(listBody.data.items[0].author.nickname).toBe('饭搭子');
+    expect(listBody.data.items[0].author).toEqual({
+      id: authorId,
+      displayName: '饭搭子',
+      avatarUrl: '/media/community-avatar/test-poster.webp',
+    });
   });
 
   it('评论会校验父评论合法性（跨帖/已删除/非法 ID）', async () => {
@@ -122,7 +139,7 @@ describe('Discover 评论生命周期', () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(await authHeaderFor(raterId, '2023001003')),
+        ...(await authHeaderFor(likerId, '2023001003')),
       },
       body: JSON.stringify({
         content: '跨帖回复',

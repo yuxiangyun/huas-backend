@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 DiscoverApplicationService 与内存 persistence/media port doubles
- * [OUTPUT]: 验证发帖数据库失败的媒体补偿，以及软删除后媒体清理失败不改变删除结果
- * [POS]: tests 的 Discover application 边界回归，补足文件副作用与数据库事实之间的失败语义证明
+ * [INPUT]: 依赖 DiscoverApplicationService 与内存 persistence/media/activity projection port doubles
+ * [OUTPUT]: 验证发帖数据库失败的媒体补偿、软删除后媒体清理失败语义，以及互动提交后的投影触发边界
+ * [POS]: tests 的 Discover application 边界回归，补足文件副作用、数据库事实与提交后通知投影之间的失败语义证明
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -38,7 +38,7 @@ describe('DiscoverApplicationService media compensation', () => {
       }),
       removeStorage: async (storageKey) => { removedKeys.push(storageKey); },
     };
-    const service = new DiscoverApplicationService(persistence, media, policy);
+    const service = new DiscoverApplicationService(persistence, media, policy, { async attempt() {} });
 
     const operation = service.createPost({
       userId: 1,
@@ -61,7 +61,7 @@ describe('DiscoverApplicationService media compensation', () => {
       storeImages: async () => { throw new Error('unused'); },
       removeStorage: async () => { throw new Error('filesystem unavailable'); },
     } satisfies DiscoverMediaStorage;
-    const service = new DiscoverApplicationService(persistence, media, policy);
+    const service = new DiscoverApplicationService(persistence, media, policy, { async attempt() {} });
 
     await expect(service.deletePost(7, 1)).resolves.toEqual({ id: 7 });
   });

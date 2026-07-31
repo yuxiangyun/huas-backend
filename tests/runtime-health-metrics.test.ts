@@ -1,13 +1,12 @@
 /**
- * [INPUT]: 依赖 Runtime readiness/metrics/shutdown hooks、Operations health/metrics 路由、迁移注册表与隔离 SQLite
- * [OUTPUT]: 验证 live/ready 故障矩阵、既有 health 兼容响应、指标序列化与 flush 失败隔离
- * [POS]: tests 的 Runtime Engineering 定向回归套件；共享测试地图由总控统一回环
+ * [INPUT]: 依赖 Runtime readiness/metrics/shutdown hooks、HTTP 日志中间件、Operations health/metrics 路由、迁移注册表与隔离 SQLite
+ * [OUTPUT]: 验证 live/ready 故障矩阵、轮询 quiet 日志、既有 health 兼容响应、指标序列化与 flush 失败隔离
+ * [POS]: tests 的 Runtime Engineering 与 HTTP 可观测性定向回归套件；共享测试地图由总控统一回环
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { afterEach, beforeAll, describe, expect, it, spyOn } from 'bun:test';
+import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import { Hono } from 'hono';
-import { initDatabase } from '../src/db';
 import { MIGRATIONS } from '../src/db/migrations';
 import healthRoutes from '../src/modules/operations/http/health.routes';
 import metricsRoutes from '../src/modules/operations/http/metrics.routes';
@@ -16,10 +15,11 @@ import { createRuntimeMetrics, runtimeMetrics } from '../src/runtime/runtime-met
 import { serverState } from '../src/runtime/server-state';
 import { flushShutdownHooks, registerShutdownFlushHook } from '../src/runtime/shutdown-hooks';
 import { configureHttpClientObservers, HttpClient } from '../src/modules/campus-integrations/http/http-client';
+import { loggingMiddleware } from '../src/middleware/logging.middleware';
+import { Logger } from '../src/utils/logger';
 
 const LATEST_MIGRATION_VERSION = MIGRATIONS.at(-1)?.version ?? 0;
 
-beforeAll(() => initDatabase());
 afterEach(() => serverState.markStarting());
 
 describe('runtime readiness failure matrix', () => {
@@ -123,6 +123,44 @@ describe('runtime HTTP probes', () => {
     expect(response.headers.get('content-type')).toContain('text/plain');
     expect(body).toContain('huas_upstream_requests_total{outcome="timeout"}');
     expect(body).toContain('huas_analytics_flush_failure_total');
+  });
+});
+
+describe('HTTP polling quiet logs', () => {
+  function app() {
+    const instance = new Hono();
+    instance.use('*', loggingMiddleware);
+    instance.get('/api/notifications/unread-count', (c) => c.json({ success: true }));
+    instance.get('/api/messaging/unread-count', (c) => c.json({ success: true }));
+    instance.get('/api/messaging/conversations', (c) => c.json({ success: true }));
+    instance.get('/api/messaging/conversations/:id/messages', (c) => {
+      return c.req.param('id') === '404'
+        ? c.json({ success: false }, 404)
+        : c.json({ success: true });
+    });
+    instance.put('/api/messaging/conversations/:id/read', (c) => c.json({ success: true }));
+    return instance;
+  }
+
+  it('suppresses only successful GET polling access logs', async () => {
+    const httpLog = spyOn(Logger, 'http').mockImplementation(() => undefined);
+    try {
+      expect((await app().request('http://localhost/api/notifications/unread-count')).status).toBe(200);
+      expect((await app().request('http://localhost/api/messaging/unread-count')).status).toBe(200);
+      expect((await app().request('http://localhost/api/messaging/conversations')).status).toBe(200);
+      expect((await app().request('http://localhost/api/messaging/conversations/1/messages')).status).toBe(200);
+      expect(httpLog).toHaveBeenCalledTimes(0);
+
+      expect((await app().request('http://localhost/api/messaging/conversations/404/messages')).status).toBe(404);
+      expect(httpLog).toHaveBeenCalledTimes(1);
+
+      expect((await app().request('http://localhost/api/messaging/conversations/1/read', {
+        method: 'PUT',
+      })).status).toBe(200);
+      expect(httpLog).toHaveBeenCalledTimes(2);
+    } finally {
+      httpLog.mockRestore();
+    }
   });
 });
 

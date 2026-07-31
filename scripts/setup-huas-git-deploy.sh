@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # [INPUT]: 依赖本地 git/ssh、百度服务器 SSH 别名与远端蓝绿目录结构。
-# [OUTPUT]: 对外提供 Git push 蓝绿发布初始化器，创建 baidu remote、裸仓库与 post-receive hook。
-# [POS]: scripts 的 Git 发布入口，连接本地提交与 remote-blue-green-deploy.sh。
+# [OUTPUT]: 对外提供 Git push 维护发布初始化器，创建 baidu remote、裸仓库与受 contract migration 门禁保护的 post-receive hook。
+# [POS]: scripts 的 Git 发布入口，连接本地提交与 remote-blue-green-deploy.sh 维护窗口。
 # [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
 
 set -euo pipefail
@@ -117,6 +117,7 @@ INSTALL_WEB_DEPS='$INSTALL_WEB_DEPS'
 WEB_PACKAGE_MANAGER='$WEB_PACKAGE_MANAGER'
 NPM_REGISTRY='$NPM_REGISTRY'
 CONTROL_DIR='$CONTROL_DIR'
+RELEASE_MODE='maintenance'
 ZERO_OID='0000000000000000000000000000000000000000'
 
 deploy_rev=''
@@ -158,6 +159,7 @@ BUILD_WEB="\$BUILD_WEB" \\
 INSTALL_WEB_DEPS="\$INSTALL_WEB_DEPS" \\
 WEB_PACKAGE_MANAGER="\$WEB_PACKAGE_MANAGER" \\
 NPM_REGISTRY="\$NPM_REGISTRY" \\
+RELEASE_MODE="\$RELEASE_MODE" \\
 bash "\$tmpdir/scripts/remote-blue-green-deploy.sh"
 EOF
 }
@@ -182,7 +184,10 @@ Push command:
   git push $GIT_REMOTE_NAME HEAD:$DEPLOY_BRANCH
 
 Deploy mode:
-  blue-green release with nginx traffic switch
+  maintenance release: stop traffic/writers, snapshot, destructive migration, local smoke, reopen
+
+Failure policy:
+  after migration starts, keep traffic stopped and forward-fix; never restore the old upstream
 
 Remote bare repo:
   $BARE_REPO_DIR

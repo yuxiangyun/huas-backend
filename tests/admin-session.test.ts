@@ -5,18 +5,18 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { beforeAll, describe, expect, it } from 'bun:test';
+import { afterAll, describe, expect, it } from 'bun:test';
 import { Hono } from 'hono';
-import { initDatabase } from '../src/db';
-import { registerRoutes } from '../src/routes';
+import { createApplicationComposition } from '../src/composition';
+
+const composition = createApplicationComposition();
+afterAll(() => composition.dispose());
 
 function createApp() {
   const app = new Hono();
-  registerRoutes(app);
+  composition.app.registerRoutes(app);
   return app;
 }
-
-beforeAll(() => initDatabase());
 
 describe('admin session', () => {
   it('creates an HttpOnly session and revokes it on logout', async () => {

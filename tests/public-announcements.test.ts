@@ -5,14 +5,19 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { beforeAll, beforeEach, describe, expect, it, spyOn } from 'bun:test';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import * as fsPromises from 'node:fs/promises';
 import { join } from 'node:path';
 import { Hono } from 'hono';
-import { initDatabase, getDb, schema } from '../src/db';
+import { getDb, schema } from '../src/db';
 import { registerRoutes } from '../src/routes';
-import { AdminDashboardService } from '../src/services/admin/dashboard-service';
+import { createApplicationComposition } from '../src/composition';
 import { AnnouncementService } from '../src/services/content/announcement-service';
+import { clearSocialTestData } from './social-database';
+
+const composition = createApplicationComposition();
+const AdminDashboardService = composition.operations.dashboard;
+afterAll(() => composition.dispose());
 
 const testRoot = (globalThis as { __HUAS_TEST_ROOT__: string }).__HUAS_TEST_ROOT__;
 const announcementsDirectory = join(testRoot, 'data');
@@ -28,10 +33,6 @@ const initialAnnouncements = [
     updatedAt: '2026-03-07T00:00:00.000+08:00',
   },
 ];
-
-beforeAll(() => {
-  initDatabase();
-});
 
 describe('announcement service 数据完整性', () => {
   beforeEach(async () => {
@@ -141,16 +142,7 @@ describe('public announcements route', () => {
 describe('admin dashboard 年级解析', () => {
   async function clearUserTables() {
     const db = getDb();
-    await db.delete(schema.treeholeCommentNotifications);
-    await db.delete(schema.treeholePostLikes);
-    await db.delete(schema.treeholeComments);
-    await db.delete(schema.treeholePosts);
-    await db.delete(schema.discoverComments);
-    await db.delete(schema.discoverPostRatings);
-    await db.delete(schema.discoverPosts);
-    await db.delete(schema.credentials);
-    await db.delete(schema.cache);
-    await db.delete(schema.users);
+    await clearSocialTestData(db);
   }
 
   async function createUser(studentId: string, name: string, className = '测试班') {
@@ -222,7 +214,7 @@ describe('admin dashboard 年级解析', () => {
     ]).returning({ id: schema.users.id });
 
     const authorId = insertedUsers[0].id as number;
-    const raterId = insertedUsers[1].id as number;
+    const likerId = insertedUsers[1].id as number;
 
     const insertedPosts = await db.insert(schema.discoverPosts).values({
       userId: authorId,
@@ -233,32 +225,28 @@ describe('admin dashboard 年级解析', () => {
       tagsJson: '["辣"]',
       coverUrl: '/media/discover/test-storage/01.webp',
       imageCount: 1,
-      ratingCount: 1,
-      ratingSum: 5,
-      ratingAvg: 5,
+      likeCount: 1,
       createdAt: now,
       updatedAt: now,
       publishedAt: now,
       deletedAt: null,
     }).returning({ id: schema.discoverPosts.id });
 
-    await db.insert(schema.discoverPostRatings).values({
+    await db.insert(schema.discoverPostLikes).values({
       postId: insertedPosts[0].id,
-      userId: raterId,
-      score: 5,
+      userId: likerId,
       createdAt: now,
-      updatedAt: now,
     });
 
     const data = await AdminDashboardService.getDashboard({ page: '1' });
 
     expect(data.metrics.totalDiscoverPosts).toBe(1);
-    expect(data.metrics.totalDiscoverRatings).toBe(1);
+    expect(data.metrics.totalDiscoverLikes).toBe(1);
     expect(data.discover.totalPosts).toBe(1);
-    expect(data.discover.totalRatings).toBe(1);
+    expect(data.discover.totalLikes).toBe(1);
     expect(data.discover.items).toHaveLength(1);
     expect(data.discover.items[0].title).toBe('测试帖子');
-    expect(data.discover.items[0].authorLabel).toBe('软件工程');
+    expect(data.discover.items[0].authorDisplayName).toBe(`软件工程同学${authorId}`);
     expect(data.discover.items[0].coverUrl).toBe('/media/discover/test-storage/01.webp');
     expect(data.discover.items[0].images).toEqual([]);
   });

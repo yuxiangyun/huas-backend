@@ -13,6 +13,5 @@ public 只放无需构建的静态资产；开发测试页只在非 production �
 
 变更日志
 2026-07-12: 删除旧 `/status` 静态后台，管理界面收敛到 `/m/admin/*`。
-2026-07-01: 播种 public L2 地图，记录 status.html 的 UGC 合规模式控制职责。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md

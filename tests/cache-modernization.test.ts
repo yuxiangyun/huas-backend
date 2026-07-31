@@ -20,7 +20,6 @@ beforeAll(async () => {
   const database = await import('../src/db');
   getDb = database.getDb;
   schema = database.schema;
-  database.initDatabase();
 });
 
 beforeEach(async () => {

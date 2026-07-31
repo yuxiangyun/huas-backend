@@ -1,18 +1,28 @@
 /**
- * [INPUT]: 依赖 Drizzle schema/getDb 与 Treehole domain 映射，不依赖 application 或旧 Facade
- * [OUTPUT]: 对 SQLite adapter 提供选择器、社区资料/点赞批量查询、列表映射与计数刷新 helper
- * [POS]: modules/treehole/infrastructure 的 Treehole 专属 SQL 支撑层，不与 Discover 共享数据库抽象
+ * [INPUT]: 依赖构造方传入的 Drizzle db、CommunityProfileReader、Treehole schema 与领域映射
+ * [OUTPUT]: 对 SQLite adapters 提供数据库/事务类型、事实选择器、批量点赞/作者投影、列表映射与计数刷新 helper
+ * [POS]: modules/treehole/infrastructure 的无全局状态 SQL 支撑层，禁止读取 users/community_profiles
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
-import { getDb, schema } from '../../../db';
+import { schema } from '../../../db';
+import type { getDb } from '../../../db';
+import { AppError, ErrorCode } from '../../../utils/errors';
+import type { CommunityProfile } from '../../community/domain/community';
+import type { CommunityProfileReader } from '../../community/domain/ports';
 import {
   toPostResponse,
-  type CommunityProfileResponse,
   type TreeholeListResponse,
   type TreeholePostRow,
 } from '../domain/treehole';
+
+export type TreeholeDatabase = ReturnType<typeof getDb>;
+export type TreeholeTransaction = Parameters<Parameters<TreeholeDatabase['transaction']>[0]>[0];
+
+export function uniqueUserIds(rows: ReadonlyArray<{ userId: number }>) {
+  return Array.from(new Set(rows.map((row) => row.userId)));
+}
 
 export function postSelect() {
   return {
@@ -25,15 +35,6 @@ export function postSelect() {
     updatedAt: schema.treeholePosts.updatedAt,
     publishedAt: schema.treeholePosts.publishedAt,
     deletedAt: schema.treeholePosts.deletedAt,
-  };
-}
-
-export function adminPostSelect() {
-  return {
-    ...postSelect(),
-    authorStudentId: schema.users.studentId,
-    authorName: schema.users.name,
-    authorClassName: schema.users.className,
   };
 }
 
@@ -50,17 +51,7 @@ export function commentSelect() {
   };
 }
 
-export function adminCommentSelect() {
-  return {
-    ...commentSelect(),
-    authorStudentId: schema.users.studentId,
-    authorName: schema.users.name,
-    authorClassName: schema.users.className,
-  };
-}
-
-export async function findPublicPost(postId: number): Promise<TreeholePostRow | null> {
-  const db = getDb();
+export async function findPublicPost(db: TreeholeDatabase, postId: number): Promise<TreeholePostRow | null> {
   const rows = await db.select(postSelect())
     .from(schema.treeholePosts)
     .where(and(eq(schema.treeholePosts.id, postId), isNull(schema.treeholePosts.deletedAt)))
@@ -68,9 +59,8 @@ export async function findPublicPost(postId: number): Promise<TreeholePostRow | 
   return (rows[0] as TreeholePostRow | undefined) ?? null;
 }
 
-export async function getLikedMap(userId: number, postIds: number[]) {
+export async function getLikedMap(db: TreeholeDatabase, userId: number, postIds: number[]) {
   if (postIds.length === 0) return new Map<number, true>();
-  const db = getDb();
   const rows = await db.select({ postId: schema.treeholePostLikes.postId })
     .from(schema.treeholePostLikes)
     .where(and(
@@ -80,48 +70,37 @@ export async function getLikedMap(userId: number, postIds: number[]) {
   return new Map(rows.map((row) => [row.postId, true] as const));
 }
 
-export async function getCommunityProfileMap(userIds: number[]) {
-  const uniqueUserIds = Array.from(new Set(
-    userIds.filter((userId) => Number.isInteger(userId) && userId > 0),
-  ));
-  if (uniqueUserIds.length === 0) return new Map<number, CommunityProfileResponse>();
-  const db = getDb();
-  const rows = await db.select({
-    id: schema.users.id,
-    avatarUrl: schema.users.treeholeAvatarUrl,
-    nickname: schema.users.communityNickname,
-  })
-    .from(schema.users)
-    .where(inArray(schema.users.id, uniqueUserIds));
-  return new Map(rows.map((row) => [row.id, {
-    avatarUrl: row.avatarUrl || null,
-    nickname: row.nickname?.trim() || null,
-  }] as const));
-}
-
-/** @deprecated 新代码使用 getCommunityProfileMap，兼容层仍只投影头像。 */
-export async function getTreeholeAvatarMap(userIds: number[]) {
-  const profiles = await getCommunityProfileMap(userIds);
-  return new Map(Array.from(profiles, ([userId, profile]) => [userId, profile.avatarUrl] as const));
+export function requireCommunityProfile(
+  profiles: ReadonlyMap<number, CommunityProfile>,
+  userId: number,
+) {
+  const profile = profiles.get(userId);
+  if (!profile) {
+    throw new AppError(ErrorCode.INTERNAL_ERROR, `Treehole 作者资料不可用 userId=${userId}`);
+  }
+  return profile;
 }
 
 export async function toPostListResponse(
+  db: TreeholeDatabase,
+  profileReader: CommunityProfileReader,
   rows: TreeholePostRow[],
   userId: number,
   page: number,
   pageSize: number,
   total: number,
 ): Promise<TreeholeListResponse> {
-  const likedMap = await getLikedMap(userId, rows.map((row) => row.id));
-  const profileMap = await getCommunityProfileMap(rows.map((row) => row.userId));
+  const [likedMap, profileMap] = await Promise.all([
+    getLikedMap(db, userId, rows.map((row) => row.id)),
+    profileReader.getMany(uniqueUserIds(rows)),
+  ]);
   return {
-    items: rows.map((row) =>
-      toPostResponse(
-        row,
-        userId,
-        likedMap.has(row.id),
-        profileMap.get(row.userId) ?? { avatarUrl: null, nickname: null },
-      )),
+    items: rows.map((row) => toPostResponse(
+      row,
+      userId,
+      likedMap.has(row.id),
+      requireCommunityProfile(profileMap, row.userId),
+    )),
     page,
     pageSize,
     total,
@@ -129,23 +108,27 @@ export async function toPostListResponse(
   };
 }
 
-export async function refreshPostLikeCount(tx: any, postId: number, now: Date) {
-  const countRows = await tx.select({ count: sql<number>`count(*)` })
+export function refreshPostLikeCount(tx: TreeholeTransaction, postId: number, now: Date): void {
+  const countRows = tx.select({ count: sql<number>`count(*)` })
     .from(schema.treeholePostLikes)
-    .where(eq(schema.treeholePostLikes.postId, postId));
-  await tx.update(schema.treeholePosts)
+    .where(eq(schema.treeholePostLikes.postId, postId))
+    .all();
+  tx.update(schema.treeholePosts)
     .set({ likeCount: Number(countRows[0]?.count || 0), updatedAt: now })
-    .where(eq(schema.treeholePosts.id, postId));
+    .where(eq(schema.treeholePosts.id, postId))
+    .run();
 }
 
-export async function refreshPostCommentCount(tx: any, postId: number, now: Date) {
-  const countRows = await tx.select({ count: sql<number>`count(*)` })
+export function refreshPostCommentCount(tx: TreeholeTransaction, postId: number, now: Date): void {
+  const countRows = tx.select({ count: sql<number>`count(*)` })
     .from(schema.treeholeComments)
     .where(and(
       eq(schema.treeholeComments.postId, postId),
       isNull(schema.treeholeComments.deletedAt),
-    ));
-  await tx.update(schema.treeholePosts)
+    ))
+    .all();
+  tx.update(schema.treeholePosts)
     .set({ commentCount: Number(countRows[0]?.count || 0), updatedAt: now })
-    .where(eq(schema.treeholePosts.id, postId));
+    .where(eq(schema.treeholePosts.id, postId))
+    .run();
 }

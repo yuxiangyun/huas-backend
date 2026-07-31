@@ -1,11 +1,12 @@
 /**
- * [INPUT]: 依赖 drizzle-orm/sqlite-core 的表、列、唯一键构造器
- * [OUTPUT]: 对外提供含社区资料字段的 users、credentials、cache、discover、treehole 与 analytics 全部 SQLite 表定义
- * [POS]: db 的类型相与查询相，和 index.ts 的运行期建表/轻迁移相保持同构
+ * [INPUT]: 依赖 drizzle-orm/sqlite-core 的表、列、索引、检查与唯一键构造器
+ * [OUTPUT]: 对外提供 Identity、Community、Discover、Treehole、Notifications、Messaging 与 analytics 全部 SQLite 表定义
+ * [POS]: db 的全局 Drizzle 类型相；migration 是结构事实源，各纵向模块只消费自己拥有的表
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { sqliteTable, text, integer, real, unique } from 'drizzle-orm/sqlite-core';
+import { sql } from 'drizzle-orm';
+import { check, index, sqliteTable, text, integer, unique } from 'drizzle-orm/sqlite-core';
 import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 
 export const users = sqliteTable('users', {
@@ -13,12 +14,17 @@ export const users = sqliteTable('users', {
   studentId: text('student_id').notNull().unique(),
   name: text('name'),
   className: text('class_name'),
-  treeholeAvatarUrl: text('treehole_avatar_url'),
-  communityNickname: text('community_nickname'),
   encryptedPassword: text('encrypted_password'), // AES-GCM encrypted, for silent re-auth
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
   lastLoginAt: integer('last_login_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
   lastActiveAt: integer('last_active_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
+});
+
+export const communityProfiles = sqliteTable('community_profiles', {
+  userId: integer('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
+  nickname: text('nickname'),
+  avatarUrl: text('avatar_url'),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
 });
 
 export const credentials = sqliteTable('credentials', {
@@ -58,24 +64,20 @@ export const discoverPosts = sqliteTable('discover_posts', {
   coverUrl: text('cover_url').notNull(),
   imageCount: integer('image_count').notNull().default(0),
   commentCount: integer('comment_count').notNull().default(0),
-  ratingCount: integer('rating_count').notNull().default(0),
-  ratingSum: integer('rating_sum').notNull().default(0),
-  ratingAvg: real('rating_avg').notNull().default(0),
+  likeCount: integer('like_count').notNull().default(0),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
   publishedAt: integer('published_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
   deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
 });
 
-export const discoverPostRatings = sqliteTable('discover_post_ratings', {
+export const discoverPostLikes = sqliteTable('discover_post_likes', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   postId: integer('post_id').notNull().references(() => discoverPosts.id),
   userId: integer('user_id').notNull().references(() => users.id),
-  score: integer('score').notNull(),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
-  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
 }, (table) => ({
-  postUserUnique: unique('uq_discover_post_ratings_post_user').on(table.postId, table.userId),
+  postUserUnique: unique('uq_discover_post_likes_post_user').on(table.postId, table.userId),
 }));
 
 export const discoverComments = sqliteTable('discover_comments', {
@@ -121,16 +123,92 @@ export const treeholeComments = sqliteTable('treehole_comments', {
   deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
 });
 
-export const treeholeCommentNotifications = sqliteTable('treehole_comment_notifications', {
+export const activityOutbox = sqliteTable('activity_outbox', {
   id: integer('id').primaryKey({ autoIncrement: true }),
+  eventId: text('event_id').notNull().unique(),
   recipientUserId: integer('recipient_user_id').notNull().references(() => users.id),
   actorUserId: integer('actor_user_id').notNull().references(() => users.id),
-  postId: integer('post_id').notNull().references(() => treeholePosts.id),
-  commentId: integer('comment_id').notNull().references(() => treeholeComments.id),
-  type: text('type').notNull(), // 'post_comment' | 'comment_reply'
+  type: text('type').notNull(),
+  resourceType: text('resource_type').notNull(),
+  resourceId: integer('resource_id').notNull(),
+  subresourceId: integer('subresource_id'),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
+  processedAt: integer('processed_at', { mode: 'timestamp_ms' }),
+  attemptCount: integer('attempt_count').notNull().default(0),
+  nextAttemptAt: integer('next_attempt_at', { mode: 'timestamp_ms' }),
+  lastError: text('last_error'),
+}, (table) => ({
+  attemptCountNonNegative: check('ck_activity_outbox_attempt_count', sql`${table.attemptCount} >= 0`),
+  pendingIndex: index('idx_activity_outbox_pending').on(table.processedAt, table.nextAttemptAt, table.id),
+}));
+
+export const notifications = sqliteTable('notifications', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  eventId: text('event_id').notNull().unique(),
+  recipientUserId: integer('recipient_user_id').notNull().references(() => users.id),
+  actorUserId: integer('actor_user_id').notNull().references(() => users.id),
+  type: text('type').notNull(),
+  resourceType: text('resource_type').notNull(),
+  resourceId: integer('resource_id').notNull(),
+  subresourceId: integer('subresource_id'),
   readAt: integer('read_at', { mode: 'timestamp_ms' }),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
-});
+}, (table) => ({
+  recipientReadCreatedIndex: index('idx_notifications_recipient_read_created')
+    .on(table.recipientUserId, table.readAt, table.createdAt, table.id),
+}));
+
+export const conversations = sqliteTable('conversations', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  userLowId: integer('user_low_id').notNull().references(() => users.id),
+  userHighId: integer('user_high_id').notNull().references(() => users.id),
+  lowLastReadMessageId: integer('low_last_read_message_id')
+    .references((): AnySQLiteColumn => messages.id),
+  highLastReadMessageId: integer('high_last_read_message_id')
+    .references((): AnySQLiteColumn => messages.id),
+  lastMessageId: integer('last_message_id').references((): AnySQLiteColumn => messages.id),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
+}, (table) => ({
+  orderedPair: check('ck_conversations_ordered_pair', sql`${table.userLowId} < ${table.userHighId}`),
+  pairUnique: unique('uq_conversations_user_pair').on(table.userLowId, table.userHighId),
+}));
+
+export const messages = sqliteTable('messages', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  conversationId: integer('conversation_id').notNull()
+    .references((): AnySQLiteColumn => conversations.id),
+  senderUserId: integer('sender_user_id').notNull().references(() => users.id),
+  clientMessageId: text('client_message_id').notNull(),
+  text: text('text'),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
+}, (table) => ({
+  senderClientUnique: unique('uq_messages_sender_client').on(table.senderUserId, table.clientMessageId),
+  clientMessageIdLength: check('ck_messages_client_message_id_length', sql`length(${table.clientMessageId}) = 36`),
+  textLength: check('ck_messages_text_length', sql`${table.text} IS NULL OR length(${table.text}) BETWEEN 1 AND 1000`),
+  conversationIndex: index('idx_messages_conversation_id').on(table.conversationId, table.id),
+  senderCreatedIndex: index('idx_messages_sender_created')
+    .on(table.senderUserId, table.createdAt, table.id),
+}));
+
+export const messageImages = sqliteTable('message_images', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  messageId: integer('message_id').notNull().references(() => messages.id),
+  storageKey: text('storage_key').notNull().unique(),
+  sortOrder: integer('sort_order').notNull(),
+  width: integer('width').notNull(),
+  height: integer('height').notNull(),
+  sizeBytes: integer('size_bytes').notNull(),
+  mimeType: text('mime_type').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
+}, (table) => ({
+  messageOrderUnique: unique('uq_message_images_message_order').on(table.messageId, table.sortOrder),
+  sortOrderRange: check('ck_message_images_sort_order', sql`${table.sortOrder} BETWEEN 0 AND 8`),
+  widthPositive: check('ck_message_images_width', sql`${table.width} > 0`),
+  heightPositive: check('ck_message_images_height', sql`${table.height} > 0`),
+  sizePositive: check('ck_message_images_size', sql`${table.sizeBytes} > 0`),
+  webpOnly: check('ck_message_images_mime_type', sql`${table.mimeType} = 'image/webp'`),
+}));
 
 export const analyticsDailyMetrics = sqliteTable('analytics_daily_metrics', {
   id: integer('id').primaryKey({ autoIncrement: true }),

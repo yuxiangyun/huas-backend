@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 Discover domain 规则与 persistence/media ports，通过构造函数注入外部实现
- * [OUTPUT]: 对外提供 DiscoverApplicationService，编排帖子、评分、评论、推荐与媒体补偿用例
- * [POS]: modules/discover/application 的唯一用例服务，不知道 Hono、Drizzle、Bun 或文件系统实现
+ * [INPUT]: 依赖 Discover domain 规则、构造注入的 persistence/media ports 与 Notifications 提交后投影触发器
+ * [OUTPUT]: 对外提供 DiscoverApplicationService，编排帖子、点赞、评论、推荐、用户帖子、活动投影与媒体补偿用例
+ * [POS]: modules/discover/application 的唯一用例服务，不知道 Hono、Drizzle、Community/Notifications 实现或文件系统
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -19,12 +19,14 @@ import {
   type ListOptions,
 } from '../domain/discover';
 import type { DiscoverMediaStorage, DiscoverPersistence } from '../domain/ports';
+import type { ActivityProjectionTrigger } from '../../notifications/domain/ports';
 
 export class DiscoverApplicationService {
   constructor(
     private readonly persistence: DiscoverPersistence,
     private readonly media: DiscoverMediaStorage,
     private readonly policy: DiscoverPolicy,
+    private readonly activityProjection: ActivityProjectionTrigger,
   ) {}
 
   getMeta() {
@@ -35,13 +37,18 @@ export class DiscoverApplicationService {
     const normalized = normalizePostInput(input, this.policy);
     validateImages(input.images, this.policy);
     const media = await this.media.storeImages(input.images);
+    let postId: number;
     try {
-      const postId = await this.persistence.createPost({ ...normalized, media });
-      return this.persistence.getPostDetail(input.userId, postId);
+      postId = await this.persistence.createPost({ ...normalized, media });
     } catch (error) {
-      await this.media.removeStorage(media.storageKey);
+      try {
+        await this.media.removeStorage(media.storageKey);
+      } catch (cleanupError: any) {
+        Logger.error('DiscoverService', '帖子写库失败后的媒体补偿也失败', cleanupError);
+      }
       throw error;
     }
+    return this.persistence.getPostDetail(input.userId, postId);
   }
 
   getPostDetail(userId: number, postId: number) {
@@ -55,30 +62,42 @@ export class DiscoverApplicationService {
   }
 
   listMyPosts(options: ListOptions) {
-    return this.persistence.listMyPosts(options);
+    return this.persistence.listUserPosts(options.userId, options);
   }
 
-  ratePost(userId: number, postId: number, score: number) {
-    if (!Number.isInteger(score) || score < 1 || score > 5) {
-      throw new AppError(ErrorCode.PARAM_ERROR, '评分必须是 1 到 5 的整数');
+  listUserPosts(viewerUserId: number, targetUserId: number, options: Omit<ListOptions, 'userId'>) {
+    if (!Number.isInteger(targetUserId) || targetUserId <= 0) {
+      throw new AppError(ErrorCode.PARAM_ERROR, '用户 ID 不合法');
     }
-    return this.persistence.ratePost(userId, postId, score);
+    return this.persistence.listUserPosts(targetUserId, { ...options, userId: viewerUserId });
+  }
+
+  async likePost(userId: number, postId: number) {
+    const result = await this.persistence.likePost(userId, postId);
+    if (result) await this.attemptActivityProjection();
+    return result;
+  }
+
+  unlikePost(userId: number, postId: number) {
+    return this.persistence.unlikePost(userId, postId);
   }
 
   listComments(userId: number, postId: number, options: { page?: number; pageSize?: number }) {
     return this.persistence.listComments(userId, postId, options);
   }
 
-  createComment(input: CreateDiscoverCommentInput) {
+  async createComment(input: CreateDiscoverCommentInput) {
     const parentCommentId = input.parentCommentId ?? null;
     if (parentCommentId !== null && (!Number.isInteger(parentCommentId) || parentCommentId <= 0)) {
       throw new AppError(ErrorCode.PARAM_ERROR, '父评论 ID 不合法');
     }
-    return this.persistence.createComment({
+    const result = await this.persistence.createComment({
       ...input,
       content: normalizeCommentContent(input.content, this.policy),
       parentCommentId,
     });
+    if (result) await this.attemptActivityProjection();
+    return result;
   }
 
   deleteComment(commentId: number, userId: number) {
@@ -94,5 +113,13 @@ export class DiscoverApplicationService {
       Logger.error('DiscoverService', `帖子 ${removed.id} 删除后清理图片失败`, error);
     }
     return { id: removed.id };
+  }
+
+  private async attemptActivityProjection(): Promise<void> {
+    try {
+      await this.activityProjection.attempt();
+    } catch (error: any) {
+      Logger.warn('DiscoverActivity', '提交后活动通知投影失败，等待周期重试', error?.message || String(error));
+    }
   }
 }

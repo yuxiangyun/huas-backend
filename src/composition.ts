@@ -1,0 +1,214 @@
+/**
+ * [INPUT]: 依赖各 canonical 模块公开构造器/ports、唯一数据库实例、运行配置、观测器、媒体端口与周期任务注册器
+ * [OUTPUT]: 对外提供 createApplicationComposition，集中生成 HTTP 依赖、社交模块实例、Operations 聚合、周期任务和关闭清理
+ * [POS]: src 的唯一跨模块组合根；index.ts 只消费其结果，不直接知道社交或基础设施实现
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
+import type { AppDependencies } from './app';
+import { dirname, join } from 'node:path';
+import { CredentialManager } from './auth/credential-manager';
+import { config } from './config';
+import { getDb } from './db';
+import { CacheService } from './modules/cache/cache-service';
+import { configureHttpClientObservers } from './modules/campus-integrations/http/http-client';
+import { CommunityApplicationService } from './modules/community/application/community-application-service';
+import { createCommunityRoutes } from './modules/community/http/community.routes';
+import {
+  CommunityAvatarMediaStorage,
+  COMMUNITY_AVATAR_CACHE_CONTROL,
+} from './modules/community/infrastructure/community-avatar-media-storage';
+import { SQLiteCommunityProfileRepository } from './modules/community/infrastructure/sqlite-community-profile-repository';
+import { createDiscoverModule } from './modules/discover/composition';
+import { DISCOVER_MEDIA_CACHE_CONTROL } from './modules/discover/infrastructure/discover-media-service';
+import { loginApplicationService } from './modules/identity/http/auth.routes';
+import { SQLiteCommunityIdentityReader } from './modules/identity/infrastructure/sqlite-community-identity-reader';
+import { SQLiteIdentityOperationsQuery } from './modules/identity/infrastructure/sqlite-identity-operations-query';
+import { createMessagingModule } from './modules/messaging/composition';
+import { createNotificationsModule } from './modules/notifications/composition';
+import type { ActivityProjectionTrigger } from './modules/notifications/domain/ports';
+import { createOperationsComposition } from './modules/operations/composition';
+import metricsRoutes from './modules/operations/http/metrics.routes';
+import { AnalyticsService } from './modules/operations/infrastructure/analytics-service';
+import { createTreeholeComposition } from './modules/treehole/composition';
+import { registerRoutes as registerApplicationRoutes } from './routes';
+import { PeriodicTaskRegistry } from './runtime/periodic-tasks';
+import { runtimeMetrics } from './runtime/runtime-metrics';
+import { registerShutdownFlushHook } from './runtime/shutdown-hooks';
+import { configureRefreshFallbackObservers } from './services/infra/refresh-fallback';
+import { Logger } from './utils/logger';
+
+export interface ApplicationComposition {
+  app: AppDependencies;
+  social: {
+    community: CommunityApplicationService;
+    discover: ReturnType<typeof createDiscoverModule>;
+    messaging: ReturnType<typeof createMessagingModule>;
+    notifications: ReturnType<typeof createNotificationsModule>;
+    treehole: ReturnType<typeof createTreeholeComposition>;
+  };
+  operations: ReturnType<typeof createOperationsComposition>;
+  periodicTasks: PeriodicTaskRegistry;
+  dispose(): void;
+}
+
+export function createApplicationComposition(): ApplicationComposition {
+  const db = getDb();
+  const profileRepository = new SQLiteCommunityProfileRepository(db);
+  const communityAvatarMedia = new CommunityAvatarMediaStorage(profileRepository, {
+    storageRoot: config.community.avatarStorageRoot,
+    mediaBasePath: config.community.avatarMediaBasePath,
+    maxBytes: config.community.avatarMaxBytes,
+    maxDimension: config.community.avatarMaxDimension,
+    quality: config.community.avatarQuality,
+  });
+  const community = new CommunityApplicationService(
+    new SQLiteCommunityIdentityReader(db),
+    profileRepository,
+    communityAvatarMedia,
+  );
+  const notifications = createNotificationsModule({ db, profileReader: community });
+  const activityProjection: ActivityProjectionTrigger = {
+    async attempt() {
+      await notifications.projector.runOnce();
+    },
+  };
+  const discover = createDiscoverModule({
+    db,
+    profileReader: community,
+    activityOutbox: notifications.outboxWriter,
+    activityProjection,
+  });
+  const treehole = createTreeholeComposition({
+    db,
+    profiles: community,
+    policy: {
+      maxPostLength: config.treehole.maxPostLength,
+      maxCommentLength: config.treehole.maxCommentLength,
+      defaultPageSize: config.treehole.defaultPageSize,
+      maxPageSize: config.treehole.maxPageSize,
+      defaultCommentPageSize: config.treehole.defaultCommentPageSize,
+      maxCommentPageSize: config.treehole.maxCommentPageSize,
+    },
+    activityOutbox: notifications.outboxWriter,
+    activityProjection,
+  });
+  const messaging = createMessagingModule({
+    db,
+    profileReader: community,
+    media: {
+      storageRoot: join(dirname(config.dbPath), 'message-media'),
+      mediaBasePath: '/api/messaging/media',
+      adminMediaBasePath: '/api/admin/messaging/media',
+    },
+  });
+  const operations = createOperationsComposition({
+    identityQuery: new SQLiteIdentityOperationsQuery(),
+    discoverQuery: discover.operationsQuery,
+    treeholeQuery: treehole.operationsQuery,
+    messagingQuery: messaging.operationsQuery,
+    discoverCommands: {
+      deletePost: (postId) => discover.service.deletePost(postId),
+    },
+    treeholeCommands: {
+      deletePost: (postId) => treehole.service.adminDeletePost(postId),
+      deleteComment: (commentId) => treehole.service.adminDeleteComment(commentId),
+    },
+  });
+  const communityRoutes = createCommunityRoutes(community);
+
+  const unregisterAnalyticsShutdown = registerShutdownFlushHook('analytics', async () => {
+    const result = await AnalyticsService.shutdown();
+    if (!result.success) Logger.warn('Shutdown', 'analytics shutdown flush returned success=false');
+  });
+
+  AnalyticsService.configureFlushFailureObserver(() => {
+    runtimeMetrics.recordAnalyticsFlushFailure();
+  });
+  const restoreCacheObservers = CacheService.configureObservers({
+    recordAccess: (outcome) => runtimeMetrics.recordCache(outcome),
+    recordSingleflightMerge: () => runtimeMetrics.recordSingleflightMerge(),
+  });
+  const restoreRefreshFallbackObservers = configureRefreshFallbackObservers({
+    recordFallback: () => runtimeMetrics.recordFallback(),
+  });
+  const restoreHttpClientObservers = configureHttpClientObservers({
+    recordOutcome: (outcome) => runtimeMetrics.recordUpstream(outcome),
+  });
+
+  const periodicTasks = new PeriodicTaskRegistry(({ name, error }) => {
+    Logger.error('PeriodicTask', `周期任务失败 name=${name}`, error);
+  });
+  periodicTasks.register({
+    name: 'credential-cleanup',
+    intervalMs: config.cleanupInterval,
+    run: () => CredentialManager.cleanupExpired(),
+  });
+  periodicTasks.register({
+    name: 'cache-cleanup',
+    intervalMs: config.cleanupInterval,
+    run: () => CacheService.cleanupExpired(),
+  });
+  periodicTasks.register({
+    name: 'captcha-session-cleanup',
+    intervalMs: config.captchaSessionTtl,
+    run: () => loginApplicationService.cleanupExpiredCaptchaSessions(),
+  });
+  periodicTasks.register({
+    name: 'activity-outbox-projection',
+    intervalMs: 5_000,
+    async run() {
+      await notifications.projector.runOnce();
+    },
+  });
+  periodicTasks.register({
+    name: 'read-notification-cleanup',
+    intervalMs: 24 * 60 * 60_000,
+    async run() {
+      await notifications.cleanup.run();
+    },
+  });
+  periodicTasks.register({
+    name: 'orphan-message-media-cleanup',
+    intervalMs: 60 * 60_000,
+    async run() {
+      await messaging.orphanMediaCleanup.runOnce();
+    },
+  });
+
+  return {
+    app: {
+      registerRoutes: (app) => registerApplicationRoutes(app, {
+        adminRoutes: operations.adminRoutes,
+        communityRoutes,
+        discoverRoutes: discover.routes,
+        messagingRoutes: messaging.routes,
+        notificationRoutes: notifications.routes,
+        treeholeRoutes: treehole.routes,
+      }),
+      metricsRoutes,
+      media: [
+        {
+          basePath: config.discover.mediaBasePath,
+          cacheControl: DISCOVER_MEDIA_CACHE_CONTROL,
+          getFile: (requestPath) => discover.media.getPublicFile(requestPath),
+        },
+        {
+          basePath: config.community.avatarMediaBasePath,
+          cacheControl: COMMUNITY_AVATAR_CACHE_CONTROL,
+          getFile: (requestPath) => communityAvatarMedia.getPublicFile(requestPath),
+        },
+      ],
+    },
+    social: { community, discover, messaging, notifications, treehole },
+    operations,
+    periodicTasks,
+    dispose() {
+      unregisterAnalyticsShutdown();
+      restoreCacheObservers();
+      AnalyticsService.configureFlushFailureObserver();
+      restoreRefreshFallbackObservers();
+      restoreHttpClientObservers();
+    },
+  };
+}

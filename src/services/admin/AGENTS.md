@@ -1,9 +1,9 @@
 # admin/
-> L2 | 父级: /Users/xiangyun/workspace/huas-wechat-app/huas-server/src/services/AGENTS.md
+> L2 | 父级: /src/services/AGENTS.md
 
 成员清单
 analytics-service.ts: Operations canonical 批量 analytics 服务的单向兼容 Facade
-dashboard-service.ts: Operations canonical Dashboard application 的单向兼容 Facade
+dashboard-service.ts: 以旧类名再导出可构造的 Operations Dashboard application class，生产实例归根组合
 terminal-log-service.ts: Operations canonical 终端日志服务的单向兼容 Facade
 
 架构决策

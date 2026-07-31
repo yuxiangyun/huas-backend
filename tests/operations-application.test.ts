@@ -38,7 +38,7 @@ describe('operations dashboard application', () => {
           };
         },
       },
-      { async getSnapshot() { return { totalPosts: 5, totalRatings: 8, items: [] }; } },
+      { async getSnapshot() { return { totalPosts: 5, totalLikes: 8, items: [] }; } },
       { async listAdmin() { return [{ id: 'notice' }]; } },
       { async list(query) { return { limit: query.limit || 50, keyword: '', items: [] }; } },
       {
@@ -61,7 +61,8 @@ describe('operations dashboard application', () => {
     expect(identityInput?.search).toBe('Alice');
     expect(result.metrics.totalUsers).toBe(2);
     expect(result.metrics.totalDiscoverPosts).toBe(5);
-    expect(result.discover.totalRatings).toBe(8);
+    expect(result.discover.totalLikes).toBe(8);
+    expect(result.metrics.totalDiscoverLikes).toBe(8);
     expect(result.announcements).toEqual([{ id: 'notice' }]);
     expect(result.logs.limit).toBe(50);
   });

@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 Bun SQLite 事务、Node SHA-256 与 migrations 编号注册表
- * [OUTPUT]: 对外提供事务化 migrateDatabase、schema 指纹与当前版本查询
- * [POS]: db 的结构演进内核，以严格 fingerprint 控制 baseline adoption 并对漂移 fail closed
+ * [OUTPUT]: 对外提供显式授权的事务化 migrateDatabase、只读当前 schema 校验、指纹与版本查询
+ * [POS]: db 的结构演进内核，以严格 fingerprint 和 destructive 预检控制发布，并让运行期只读校验 fail closed
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -32,7 +32,12 @@ export interface MigrationResult {
 
 export interface MigrationOptions {
   migrations?: readonly Migration[];
+  allowDestructive?: boolean;
   afterExecute?: (migration: Migration) => void;
+}
+
+export interface SchemaValidationResult {
+  version: number;
 }
 
 function checksum(value: string): string {
@@ -76,11 +81,15 @@ function expectedObjects(migrations: readonly Migration[]): SchemaObject[] {
   const reference = new Database(':memory:');
   try {
     reference.exec('PRAGMA foreign_keys = ON');
-    for (const migration of migrations) reference.exec(migration.sql);
+    for (const migration of migrations) executeMigration(reference, migration);
     return schemaObjects(reference);
   } finally {
     reference.close();
   }
+}
+
+function executeMigration(database: Database, migration: Migration): void {
+  for (const statement of migration.statements ?? [migration.sql]) database.exec(statement);
 }
 
 export function getSchemaFingerprint(database: Database): string {
@@ -112,6 +121,26 @@ function assertSchemaMatches(database: Database, migrations: readonly Migration[
   ].join('\n'));
 }
 
+function orderedMigrations(migrations: readonly Migration[]): Migration[] {
+  const ordered = [...migrations].sort((a, b) => a.version - b.version);
+  if (new Set(ordered.map((item) => item.version)).size !== ordered.length) {
+    throw new Error('Duplicate database migration version detected.');
+  }
+  return ordered;
+}
+
+function assertAppliedMetadata(appliedRows: MigrationRow[], migrations: readonly Migration[]): void {
+  for (const row of appliedRows) {
+    const migration = migrations.find((item) => item.version === Number(row.version));
+    if (!migration) {
+      throw new Error(`Database schema version ${row.version} is newer than this release; deploy a compatible release.`);
+    }
+    if (row.name !== migration.name || row.checksum !== checksum(migration.sql)) {
+      throw new Error(`Migration ${row.version} metadata mismatch; published migrations are immutable.`);
+    }
+  }
+}
+
 function createMigrationTable(database: Database): void {
   database.exec(`CREATE TABLE IF NOT EXISTS ${MIGRATION_TABLE} (
     version INTEGER PRIMARY KEY,
@@ -137,11 +166,35 @@ export function getCurrentSchemaVersion(database: Database): number {
   return Number(row.version);
 }
 
-export function migrateDatabase(database: Database, options: MigrationOptions = {}): MigrationResult {
-  const migrations = [...(options.migrations ?? MIGRATIONS)].sort((a, b) => a.version - b.version);
-  if (new Set(migrations.map((item) => item.version)).size !== migrations.length) {
-    throw new Error('Duplicate database migration version detected.');
+export function assertDatabaseSchemaCurrent(
+  database: Database,
+  options: Pick<MigrationOptions, 'migrations'> = {},
+): SchemaValidationResult {
+  const migrations = orderedMigrations(options.migrations ?? MIGRATIONS);
+  if (!migrationTableExists(database)) {
+    throw new Error('Database schema is not initialized; run the explicit db:migrate command before starting the application.');
   }
+
+  const appliedRows = database
+    .query(`SELECT version, name, checksum FROM ${MIGRATION_TABLE} ORDER BY version`)
+    .all() as MigrationRow[];
+  assertAppliedMetadata(appliedRows, migrations);
+
+  const expectedVersions = migrations.map((migration) => migration.version);
+  const actualVersions = appliedRows.map((row) => Number(row.version));
+  if (JSON.stringify(actualVersions) !== JSON.stringify(expectedVersions)) {
+    throw new Error(
+      `Database schema version mismatch; expected ${expectedVersions.at(-1) ?? 0}, current ${actualVersions.at(-1) ?? 0}. `
+      + 'Run the explicit db:migrate command before starting the application.',
+    );
+  }
+
+  assertSchemaMatches(database, migrations);
+  return { version: expectedVersions.at(-1) ?? 0 };
+}
+
+export function migrateDatabase(database: Database, options: MigrationOptions = {}): MigrationResult {
+  const migrations = orderedMigrations(options.migrations ?? MIGRATIONS);
 
   const hadMigrationTable = migrationTableExists(database);
   const appliedRows = hadMigrationTable
@@ -150,14 +203,18 @@ export function migrateDatabase(database: Database, options: MigrationOptions = 
   const appliedVersions = new Set(appliedRows.map((row) => Number(row.version)));
   let adopted = false;
 
-  for (const row of appliedRows) {
-    const migration = migrations.find((item) => item.version === Number(row.version));
-    if (!migration) {
-      throw new Error(`Database schema version ${row.version} is newer than this release; deploy a compatible release.`);
-    }
-    if (row.name !== migration.name || row.checksum !== checksum(migration.sql)) {
-      throw new Error(`Migration ${row.version} metadata mismatch; published migrations are immutable.`);
-    }
+  assertAppliedMetadata(appliedRows, migrations);
+
+  const blocked = migrations.find((migration) => (
+    migration.destructive
+    && !appliedVersions.has(migration.version)
+    && !options.allowDestructive
+  ));
+  if (blocked) {
+    throw new Error(
+      `Migration ${blocked.version} (${blocked.name}) is destructive; `
+      + 'snapshot the database, stop all traffic, then rerun with --allow-destructive.',
+    );
   }
 
   if (appliedRows.length === 0 && schemaObjects(database).length > 0) {
@@ -186,7 +243,7 @@ export function migrateDatabase(database: Database, options: MigrationOptions = 
   for (const migration of migrations) {
     if (appliedVersions.has(migration.version)) continue;
     const apply = database.transaction(() => {
-      database.exec(migration.sql);
+      executeMigration(database, migration);
       options.afterExecute?.(migration);
       database.query(
         `INSERT INTO ${MIGRATION_TABLE} (version, name, checksum, adopted, applied_at) VALUES (?, ?, ?, 0, ?)`

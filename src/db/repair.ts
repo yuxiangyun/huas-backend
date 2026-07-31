@@ -20,14 +20,8 @@ const discoverMismatch = `
       SELECT count(*) FROM discover_comments AS comments
       WHERE comments.post_id = posts.id AND comments.deleted_at IS NULL
     )
-    OR posts.rating_count <> (
-      SELECT count(*) FROM discover_post_ratings AS ratings WHERE ratings.post_id = posts.id
-    )
-    OR posts.rating_sum <> (
-      SELECT coalesce(sum(score), 0) FROM discover_post_ratings AS ratings WHERE ratings.post_id = posts.id
-    )
-    OR posts.rating_avg <> (
-      SELECT round(coalesce(avg(score), 0), 2) FROM discover_post_ratings AS ratings WHERE ratings.post_id = posts.id
+    OR posts.like_count <> (
+      SELECT count(*) FROM discover_post_likes AS likes WHERE likes.post_id = posts.id
     )
 `;
 
@@ -61,20 +55,10 @@ export function repairDerivedCounts(database: Database, options: { dryRun?: bool
         SELECT count(*) FROM discover_comments AS comments
         WHERE comments.post_id = posts.id AND comments.deleted_at IS NULL
       ),
-      rating_count = (
-        SELECT count(*) FROM discover_post_ratings AS ratings WHERE ratings.post_id = posts.id
-      ),
-      rating_sum = (
-        SELECT coalesce(sum(score), 0) FROM discover_post_ratings AS ratings WHERE ratings.post_id = posts.id
-      ),
-      rating_avg = (
-        SELECT round(coalesce(avg(score), 0), 2) FROM discover_post_ratings AS ratings WHERE ratings.post_id = posts.id
-      )
+      like_count = (SELECT count(*) FROM discover_post_likes AS likes WHERE likes.post_id = posts.id)
       WHERE id IN (SELECT id FROM discover_posts AS candidates WHERE
         candidates.comment_count <> (SELECT count(*) FROM discover_comments WHERE post_id = candidates.id AND deleted_at IS NULL)
-        OR candidates.rating_count <> (SELECT count(*) FROM discover_post_ratings WHERE post_id = candidates.id)
-        OR candidates.rating_sum <> (SELECT coalesce(sum(score), 0) FROM discover_post_ratings WHERE post_id = candidates.id)
-        OR candidates.rating_avg <> (SELECT round(coalesce(avg(score), 0), 2) FROM discover_post_ratings WHERE post_id = candidates.id)
+        OR candidates.like_count <> (SELECT count(*) FROM discover_post_likes WHERE post_id = candidates.id)
       )`);
     database.exec(`UPDATE treehole_posts AS posts SET
       like_count = (SELECT count(*) FROM treehole_post_likes AS likes WHERE likes.post_id = posts.id),

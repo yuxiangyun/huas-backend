@@ -56,15 +56,7 @@
 
 依据：[`src/services/academic/schedule-facade.ts`](src/services/academic/schedule-facade.ts)、[`src/services/academic/schedule-service.ts`](src/services/academic/schedule-service.ts)、[`src/services/portal/portal-schedule-service.ts`](src/services/portal/portal-schedule-service.ts)。
 
-## 5. UGC 合规守卫
-
-![UGC 合规守卫决策树](assets/ugc-compliance.svg)
-
-合规守卫只拦截 Discover/Treehole 的非 `meta` GET。写操作和 `meta` 继续进入真实业务；被拦截的读请求仍需 Bearer 鉴权。后台合规模式可返回纯文本生成的 `id=0` mock，可信 ASN 与端口命中时则强制清空 mock，返回空分页、空对象或零值。
-
-守卫必须挂在 app 层而非 Hono 子应用内部，因为 payload 选择依赖完整的 `c.req.path`。[`src/routes/index.ts`](src/routes/index.ts)、[`src/runtime/ugc-compliance-state.ts`](src/runtime/ugc-compliance-state.ts)
-
-## 6. 管理员会话
+## 5. 管理员会话
 
 ![管理员 Cookie 会话生命周期](assets/admin-session.svg)
 
@@ -72,31 +64,31 @@
 
 这带来一个文档未记录的部署事实：蓝绿切换、PM2 重启或请求落到另一实例会丢失管理员会话，即使浏览器 Cookie 还在。它不影响普通 Self JWT 用户，但会要求管理员重新登录。[`src/middleware/admin-session.middleware.ts`](src/middleware/admin-session.middleware.ts)、[`web/src/pages/admin/layout.tsx`](web/src/pages/admin/layout.tsx)
 
-## 7. 状态持久化边界
+## 6. 状态持久化边界
 
 ![应用状态持久化边界](assets/state-boundaries.svg)
 
 | 边界 | 当前内容 | 可靠性含义 |
 |---|---|---|
 | SQLite | `users`、`credentials`、`cache`；Discover 3 表；Treehole 4 表；Analytics 2 表，共 12 表 | 可跨进程重启；启动时通过兼容 SQL 建表和补列，不是独立 migration 流 |
-| 本地文件 | `announcements.json`、`ugc-compliance-state.json`、Discover 图片、Treehole 头像、业务与 PM2 日志 | 单机稳定；多实例需要共享盘或外部存储 |
+| 本地文件 | `announcements.json`、Discover 图片、Treehole 头像、业务与 PM2 日志 | 单机稳定；多实例需要共享盘或外部存储 |
 | 进程内存 | 验证码会话、管理员会话、登录失败限流、静默重认证冷却 | 重启即丢失；多实例间不共享 |
 
-依据：[`src/db/index.ts`](src/db/index.ts)、[`src/db/schema.ts`](src/db/schema.ts)、[`src/services/content/announcement-service.ts`](src/services/content/announcement-service.ts)、[`src/runtime/ugc-compliance-state.ts`](src/runtime/ugc-compliance-state.ts)。
+依据：[`src/db/index.ts`](src/db/index.ts)、[`src/db/schema.ts`](src/db/schema.ts)、[`src/services/content/announcement-service.ts`](src/services/content/announcement-service.ts)。
 
-## 8. 代码—文档一致性
+## 7. 代码—文档一致性
 
 | 文档 | 仍与代码一致 | 已确认漂移 |
 |---|---|---|
-| [`docs/architecture/ARCHITECTURE.md`](docs/architecture/ARCHITECTURE.md) | Bun/Hono 分层、校园凭证恢复、缓存语义、UGC 媒体边界 | 仍写 `/status`、Basic Auth、硬编码管理员口令；数据库仍写 10 表，漏掉 2 张 Analytics 表；测试清单漏掉管理员会话和分析测试 |
+| [`docs/architecture/ARCHITECTURE.md`](docs/architecture/ARCHITECTURE.md) | Bun/Hono 分层、校园凭证恢复、缓存语义、社区媒体边界 | 仍写 `/status`、Basic Auth、硬编码管理员口令；数据库仍写 10 表，漏掉 2 张 Analytics 表；测试清单漏掉管理员会话和分析测试 |
 | [`docs/architecture/WEB_ARCHITECTURE.md`](docs/architecture/WEB_ARCHITECTURE.md) | React/Query/Zustand 分层、`/m` 托管、业务页守卫 | 管理认证仍写 Basic Auth；管理路由仍是旧的 `/admin/announcements` 等路径，代码已拆成 `/admin/users`、`/admin/content`、`/admin/manage/*`、`/admin/system/*` |
-| [`docs/api/API.md`](docs/api/API.md) | 统一 envelope、缓存 `_meta`、课表/UGC/媒体主契约 | 管理接口整章仍写 Basic Auth；不存在的 `/status` 仍在矩阵；缺 `/api/admin/session`、`/api/admin/analytics/overview`；总矩阵缺 classrooms/evaluations；错误码表缺 `3005` 和 `4004` |
+| [`docs/api/API.md`](docs/api/API.md) | 统一 envelope、缓存 `_meta`、课表/社区/媒体主契约 | 管理接口整章仍写 Basic Auth；不存在的 `/status` 仍在矩阵；缺 `/api/admin/session`、`/api/admin/analytics/overview`；总矩阵缺 classrooms/evaluations；错误码表缺 `3005` 和 `4004` |
 | [`docs/api/CLASSROOM_FREE_QUERY_REQUIREMENTS.md`](docs/api/CLASSROOM_FREE_QUERY_REQUIREMENTS.md) | 只读查询、管理员上游账号、无缓存、过滤特殊场地 | “下个会话开发重点”已经全部落地；文档写死具体账号，代码已改为 `CLASSROOM_ADMIN_STUDENT_ID`；应转为已实现决策记录而非待办 |
 | [`docs/api/CLASSROOM_FREE_QUERY_FRONTEND.md`](docs/api/CLASSROOM_FREE_QUERY_FRONTEND.md) | 两个接口、参数和无缓存语义与实现一致 | 错误表未列服务账号未配置的 `3005/503` |
 | [`docs/api/EVALUATION_API.md`](docs/api/EVALUATION_API.md) | 发现、状态、预检与提交主流程存在 | 独立文档记录了 `4004`，但主 API 文档没有把评教路由和错误码纳入总契约 |
-| [`docs/ops/DEPLOY.md`](docs/ops/DEPLOY.md) | Bun、PM2、前端构建、蓝绿与 Git push 发布链仍存在 | Nginx 路由仍要求 `/status`；最小环境配置未包含管理账号；备份清单未显式列 UGC 状态文件；未提示管理会话在切槽后失效 |
+| [`docs/ops/DEPLOY.md`](docs/ops/DEPLOY.md) | Bun、PM2、前端构建、蓝绿与 Git push 发布链仍存在 | Nginx 路由仍要求 `/status`；最小环境配置未包含管理账号；未提示管理会话在切槽后失效 |
 
-## 9. GEB 同构缺口
+## 8. GEB 同构缺口
 
 静态扫描结果：
 
@@ -111,18 +103,18 @@
 
 这与根协议“L3 是代码逻辑的折叠”不完全同构。修复时应按模块批次补齐，并同时核对相邻 `AGENTS.md`，不应一次机械插入 83 个模板头。
 
-## 10. 建议的文档修复顺序
+## 9. 建议的文档修复顺序
 
 1. 先统一管理认证真相：同步改架构、API、Web、部署四处，删除 `/status` 与 Basic Auth 旧叙述，补 `/api/admin/session` 和内存会话限制。
 2. 更新数据库与分析契约：12 表、`analytics_daily_*`、`/api/admin/analytics/overview`、`3005/4004`。
 3. 以 [`web/src/app/router/paths.ts`](web/src/app/router/paths.ts) 为唯一清单重写 Web 管理路由章节。
 4. 将空教室需求备忘改成“已实现决策 + 仍未实现事项”，删除具体人员信息和过期待办。
-5. 补部署状态边界：管理员会话切槽失效、UGC 状态文件备份、完整必需环境变量。
+5. 补部署状态边界：管理员会话切槽失效与完整必需环境变量。
 6. 按 `src` → `web/src/entities|app` → `web/src/pages|widgets` → `tests` 的顺序修复 GEB L3；先补架构枢纽，再补叶子组件。
 
 ## 证据索引
 
-- [`src/index.ts`](src/index.ts)、[`src/routes/index.ts`](src/routes/index.ts)：进程入口、路由边界、SPA/媒体托管与 UGC 守卫。
+- [`src/index.ts`](src/index.ts)、[`src/routes/index.ts`](src/routes/index.ts)：进程入口、路由边界与 SPA/媒体托管。
 - [`src/routes/auth/auth.routes.ts`](src/routes/auth/auth.routes.ts)、[`src/auth/credential-manager.ts`](src/auth/credential-manager.ts)：登录、验证码、学校凭证与交互恢复状态。
 - [`src/services/academic/schedule-facade.ts`](src/services/academic/schedule-facade.ts)：JW/Portal 双源优先级与自然周回退约束。
 - [`src/middleware/admin-session.middleware.ts`](src/middleware/admin-session.middleware.ts)：当前管理员 Cookie 会话真相。

@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 LoginApplicationService、LegacyCampusLoginAdapter、SqliteIdentityStore、CryptoHelper、JWT、config 与 Node crypto
- * [OUTPUT]: 对外提供纯装配 createLoginApplicationService 与按旧周期清理验证码会话的生产装配函数
- * [POS]: identity/infrastructure 的 composition root，把具体实现注入纯应用服务，HTTP 层不接触实现细节
+ * [OUTPUT]: 对外提供纯装配 createLoginApplicationService，由根组合层接管验证码会话周期清理
+ * [POS]: identity/infrastructure 的 composition root，把具体实现注入纯应用服务，不私自创建后台定时器
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -44,14 +44,4 @@ export function createLoginApplicationService(): LoginApplicationService {
       maxCaptchaSessions: 1000,
     },
   });
-}
-
-export function createScheduledLoginApplicationService(): LoginApplicationService {
-  const service = createLoginApplicationService();
-  const cleanupTimer = setInterval(
-    () => service.cleanupExpiredCaptchaSessions(),
-    config.captchaSessionTtl,
-  );
-  cleanupTimer.unref?.();
-  return service;
 }

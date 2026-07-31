@@ -18,7 +18,8 @@ import type {
 import type { LoginCredentialSet, LoginUser } from '../src/modules/identity/domain/login';
 import { SqliteIdentityStore } from '../src/modules/identity/infrastructure/sqlite-identity.store';
 import { config } from '../src/config';
-import { getDb, initDatabase, schema } from '../src/db';
+import { getDb, schema } from '../src/db';
+import { clearSocialTestData } from './social-database';
 
 const session: CampusSession = { opaque: { id: 'campus-session' } };
 
@@ -102,20 +103,8 @@ function createService(options: {
 
 let triggerDatabase: Database | null = null;
 
-beforeAll(() => initDatabase());
-
 beforeEach(async () => {
-  await getDb().delete(schema.treeholeCommentNotifications);
-  await getDb().delete(schema.treeholePostLikes);
-  await getDb().delete(schema.treeholeComments);
-  await getDb().delete(schema.treeholePosts);
-  await getDb().delete(schema.discoverComments);
-  await getDb().delete(schema.discoverPostRatings);
-  await getDb().delete(schema.discoverPosts);
-  await getDb().delete(schema.analyticsDailyUsers);
-  await getDb().delete(schema.credentials);
-  await getDb().delete(schema.cache);
-  await getDb().delete(schema.users);
+  await clearSocialTestData(getDb());
 });
 
 afterEach(() => {

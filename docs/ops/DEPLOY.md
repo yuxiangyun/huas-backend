@@ -3,9 +3,9 @@
 本文档当前维护中的部署链路：
 
 - 运行方式：`Bun + PM2`
-- 快速发布：`scripts/deploy-huas.sh`
-- 无痛蓝绿发布：`scripts/deploy-huas-zero-downtime.sh`
-- Git Push 蓝绿发布：`git push baidu HEAD:main`
+- 历史快速入口：`scripts/deploy-huas.sh`（已收敛为维护发布别名）
+- 本地维护发布：`scripts/deploy-huas-zero-downtime.sh`（保留文件名，不再承诺零停机）
+- Git Push 维护发布：`git push baidu HEAD:main`
 
 仓库中的 Docker 相关部署文件已经移除，不再作为维护入口。
 
@@ -29,9 +29,11 @@
 当前只维护四种操作：
 
 1. 服务器上使用 PM2 直接运行服务
-2. 本地通过 `scripts/deploy-huas.sh` 构建前端、同步代码并远程重启 PM2
-3. 本地通过 `scripts/deploy-huas-zero-downtime.sh` 执行蓝绿发布，在健康检查通过后再切 nginx 流量
-4. 本地通过 `git push baidu HEAD:main` 推送到服务器裸仓库，由 `post-receive` hook 执行蓝绿发布
+2. `scripts/deploy-huas.sh` 作为历史别名委托同一维护发布内核
+3. 本地通过 `scripts/deploy-huas-zero-downtime.sh` 上传 release，远端显式停流与停 writer 后执行 contract migration
+4. 本地通过 `git push baidu HEAD:main` 推送到服务器裸仓库，由 `post-receive` hook 执行同一维护发布
+
+所有发布入口共享一条不可绕过的顺序：停流/停 writer → snapshot → `db:migrate --allow-destructive` → 新 Server/Web 本机冒烟 → 开放流量。
 
 不再维护以下链路：
 
@@ -121,6 +123,8 @@ openssl rand -base64 32
 ```bash
 mkdir -p data logs
 bun install --frozen-lockfile
+bun run web:build
+bun run db:migrate -- --db ./data/huas.db --allow-destructive
 pm2 start ecosystem.config.cjs
 pm2 save
 ```
@@ -148,24 +152,15 @@ curl -I http://127.0.0.1:3000/m
 
 ## 4. 发布方式
 
-### 4.1 快速发布（可能有短暂切换）
+### 4.1 历史快速入口（维护发布别名）
 
-当前快速发布入口：
+当前保留这个文件名，但它不再执行独立的 rsync + PM2 重载流程：
 
 ```bash
 scripts/deploy-huas.sh
 ```
 
-脚本会执行以下动作：
-
-1. 在本地构建 `web/`
-2. 用 `rsync` 同步项目到远程目录
-3. 在远程执行 `bun install --frozen-lockfile --production`
-4. 对明确的 `DB_PATH` 创建 SQLite 一致性快照
-5. 执行版本化 database migration
-6. 用 PM2 `startOrReload` 重载应用并执行本机健康检查
-
-快照或 migration 失败时脚本立即退出，不会重载 PM2。
+脚本只映射历史参数，然后 `exec` 到 `deploy-huas-zero-downtime.sh`。因此它同样会进入停流维护窗口，不是快速重载逃生口。`--dry-run` 只打印映射结果，不上传文件也不改变远端状态。
 
 ### 4.2 本地依赖
 
@@ -205,30 +200,20 @@ REMOTE_HOST=your-server scripts/deploy-huas.sh --dry-run
 | `REMOTE_HOST` | `baidu` | SSH 目标主机 |
 | `REMOTE_DIR` | `/www/wwwroot/huas-server` | 远程项目目录 |
 | `APP_NAME` | `huas-server` | PM2 应用名 |
-| `SYNC_DELETE` | `0` | 为 `1` 时启用 `rsync --delete`，仅清理代码残留，不删除 `.env`、`data`、`logs` |
-| `BUILD_WEB` | `1` | 为 `0` 时跳过本地前端构建 |
+| `BUILD_WEB` | `1` | 维护发布必须为 `1`；远端需构建并冒烟验证新 Web |
 | `INSTALL_WEB_DEPS` | `1` | 为 `0` 时跳过本地 `web` 依赖安装 |
 | `INSTALL_SERVER_DEPS` | `1` | 为 `0` 时跳过远程 `bun install --production` |
 | `WEB_PACKAGE_MANAGER` | `auto` | 本地前端构建包管理器，默认按锁文件自动判断 |
 
-### 4.5 远程 PM2 行为
+### 4.5 远端 PM2 与 writer 行为
 
-脚本的远程逻辑已经统一：
+维护窗口开始后，脚本会停止 `huas-server-blue`、`huas-server-green` 和历史 `huas-server` 进程，并立即 `pm2 save`。这是 SQLite contract migration 的单 writer 门禁，不允许旧进程在快照或迁移期间继续写入。
 
-- 要求远程 `.env` 存在，并从中读取 `PORT`
-- 使用 `pm2 startOrReload ecosystem.config.cjs --only <APP_NAME> --update-env`
-- 检查 `http://127.0.0.1:$PORT/health/ready`
-- 仅在 readiness 成功后执行 `pm2 save`
+迁移后只启动目标槽进程。`/health/ready` 与 `/m` 本机冒烟都通过后才持久化新 PM2 状态并尝试开放流量。
 
-这意味着：
+### 4.6 本地维护发布
 
-- 首次部署也可以直接使用同一个脚本
-- 后续发布无需额外的根目录部署脚本
-- `SYNC_DELETE=1` 也不会再清掉 `.env`、`data`、`logs`
-
-### 4.6 无痛蓝绿发布
-
-如果你要尽量避免影响用户体验，优先使用：
+如果你不通过 Git push 发布，使用：
 
 ```bash
 scripts/deploy-huas-zero-downtime.sh
@@ -236,29 +221,23 @@ scripts/deploy-huas-zero-downtime.sh
 
 这条链路会执行：
 
-1. 将当前代码上传到远端非活动槽
-2. 对共享 `DB_PATH` 创建 SQLite 一致性快照并执行前向 migration
-3. 在非活动槽安装依赖并构建 `web/`
-4. 用 PM2 在备用端口启动新实例
-5. 对备用端口执行 `/health/ready` 检查，确认进程、SQLite 与 migration version 全部就绪
-6. 仅在 readiness 通过后更新 nginx upstream、校验配置并 reload nginx；校验或 reload 失败会恢复原路由文件
+1. 将当前代码上传到远端 release，安装依赖并构建新 `web/`
+2. 将 nginx 切入 503 maintenance，确认不再把用户请求转发给应用
+3. 停止 blue、green 与 legacy PM2 进程，持久化停 writer 状态
+4. 对共享 `DB_PATH` 创建 SQLite 一致性快照
+5. 显式执行 `db:migrate --allow-destructive`
+6. 只启动目标槽新 Server，本机检查 `/health/ready`
+7. 本机请求 `/m` 验证新 Web 产物能由新 Server 托管
+8. 两项冒烟都通过后，才把 nginx 指向目标槽并原子更新 `active-slot`
 
 当前服务器默认槽位：
 
 - `blue` -> `127.0.0.1:3000`
 - `green` -> `127.0.0.1:3001`
 
-首次从单实例迁移到蓝绿时：
+维护状态一旦成功开启，任何后续失败都会重写 maintenance 503、停止全部 writer 并保持停流。迁移可能已提交，所以不得恢复旧 upstream，不得重启旧槽应用；必须修复新 release 并 forward-fix。
 
-- 旧的 `huas-server` 仍保留在 `3000`
-- 新版本会先启动到 `3001`
-- nginx 切到 `3001` 后，旧实例不再接收新流量
-
-这意味着：
-
-- 切流前用户仍然访问旧实例
-- 只有新实例健康检查通过，才会切到新版本
-- `.env`、`data/`、`logs/`、`reports/` 都继续保留在共享目录
+`.env`、`data/`、`logs/`、`reports/` 仍位于 release 外的共享目录。
 
 ### 4.7 Git Push 发布
 
@@ -274,9 +253,9 @@ scripts/setup-huas-git-deploy.sh
 - 远程创建裸仓库：`/www/git/huas-server.git`
 - 远程裸仓库默认 HEAD 指向 `main`
 - 远程为裸仓库安装 `post-receive` hook
-- 每次把当前 `HEAD` 推送到 `baidu` 的 `main` 时，自动把 commit 导出到非活动槽
-- 在非活动槽完成依赖安装、前端构建、健康检查
-- 通过后再切 nginx 流量到新槽位
+- 每次把当前 `HEAD` 推送到 `baidu` 的 `main` 时，自动把 commit 导出为候选 release
+- 候选 release 准备完成后明确进入停流维护窗口
+- 只在 destructive migration 与 Server/Web 本机冒烟成功后重新开放 nginx 流量
 
 这条链路和 `scripts/deploy-huas.sh` 是并存的，互不替代；如果你以后只想走 git 发布，可以完全不再用 `rsync` 脚本。
 
@@ -302,13 +281,13 @@ scripts/setup-huas-git-deploy.sh
 git push baidu HEAD:main
 ```
 
-hook 会自动执行蓝绿发布：
+hook 会自动执行维护发布：
 
-1. 将推送的 `main` commit 导出到非活动槽
+1. 将推送的 `main` commit 导出为候选 release
 2. 排除并保留 `.env`、`data`、`logs` 等共享内容
-3. 在非活动槽执行依赖安装和 `web` 构建
-4. 启动备用端口实例并执行 `/health/ready`
-5. 健康检查通过后切 nginx 到新槽位
+3. 执行停流/停 writer、snapshot 和 `db:migrate --allow-destructive`
+4. 启动目标槽并执行 `/health/ready` 与 `/m` 本机冒烟
+5. 冒烟通过后开放 nginx 流量；失败则继续 maintenance 并 forward-fix
 
 如果需要自定义远程参数，可以在初始化时传环境变量：
 
@@ -325,11 +304,11 @@ scripts/setup-huas-git-deploy.sh
 
 ### 5.1 PM2
 
-蓝绿发布上线后，常见 PM2 进程名会变成：
+维护发布仍使用 blue/green 槽保存 release，常见 PM2 进程名为：
 
 - `huas-server-blue`
 - `huas-server-green`
-- 首次迁移后的过渡阶段，可能还会暂时看到旧的 `huas-server`，但它不再承接流量
+- 历史 `huas-server`（维护窗口会与两个槽进程一起停止）
 
 先确认当前活动槽：
 
@@ -402,7 +381,7 @@ npm run build
 
 - `.deploy/active-slot` 记录当前线上流量所在槽位
 - `.deploy/current/<slot>` 是当前槽位的 release 软链接
-- `.deploy/releases/` 保存每次蓝绿发布生成的 release
+- `.deploy/releases/` 保存每次维护发布生成的槽位 release
 - `.deploy/logs/<slot>/` 保存槽位级别的 PM2 日志
 - `web/dist` 是 `/m` 前端入口的静态资源来源
 - `public/status.html` 是 `/status` 页面来源
@@ -413,7 +392,7 @@ npm run build
 
 如果你使用 Nginx 做反向代理，可以继续保留根目录的 `nginx.conf` 作为参考模板。
 
-当前 `huas` 线上是宝塔 Nginx，蓝绿发布实际切换的是：
+当前 `huas` 线上是宝塔 Nginx，维护发布在 maintenance 503 与目标槽之间切换的是：
 
 - `/www/server/panel/vhost/nginx/huas-server-active-proxy.inc`
 
@@ -446,19 +425,17 @@ npm run build
 
 ### 8.1 Database migration
 
-数据库结构以 `src/db/migrations/` 中不可变的编号 migration 为事实源，当前 baseline 版本为 `1`。migration 记录写入 `huas_schema_migrations`，每个版本在单独的 SQLite immediate transaction 中执行，因此进程中断时该版本的 SQL 与版本记录会一起回滚，重跑即可恢复。
+数据库结构以 `src/db/migrations/` 中不可变的编号 migration 为事实源，`0001/0002` 保持不可变，`0003_social_rearchitecture` 是明确的 contract migration。migration 记录写入 `huas_schema_migrations`，每个版本在单独的 SQLite immediate transaction 中执行；单个版本失败时该版本的 DDL/DML 与版本记录一起回滚。
 
 对空库初始化：
 
 ```bash
-bun run db:migrate -- --db ./data/huas.db
+bun run db:migrate -- --db ./data/huas.db --allow-destructive
 ```
 
 对已有库首次采用 baseline 时，执行器会比较表与索引的结构化 fingerprint。只有与 baseline 完全一致才写 adoption 记录；缺表、多表、列或索引定义漂移都会拒绝继续，并输出对象差异与诊断命令。不要通过手写 migration 记录绕过检查。
 
-这是只前进的 expand-contract 流程：不生成自动 down migration，也禁止在 migration 中使用破坏性 DDL。新 schema 只新增 migration 元数据表，不改变当前业务表，上一版本应用仍可读取业务数据。
-
-`initDatabase()` 旧导出和启动调用暂保留一个版本并打印 `DEPRECATED` 日志。兼容层暂时只保留关键时间戳补正；旧的 Discover/Treehole 派生计数全表修复已移出普通启动。后续版本应把部署入口统一到显式 `db:migrate` 后再移除兼容层。
+执行器默认拒绝破坏性 migration；维护发布必须在停流、停 writer 和快照成功后显式传入 `--allow-destructive`。这只是执行授权，不是回滚能力；应用启动只校验 schema version，不再自动改变结构。
 
 ### 8.2 派生计数 repair
 
@@ -474,7 +451,7 @@ bun run db:repair -- --db ./data/huas.db --dry-run
 bun run db:repair -- --db ./data/huas.db
 ```
 
-repair 在事务内重新计算 Discover 的评论数、评分数/总分/两位小数均值，以及 Treehole 的点赞数、未删除评论数。它只更新不一致的帖子，可重复执行；第二次执行应报告 `0`。输出只包含影响行数，不输出数据库行内容。
+repair 在事务内重新计算 Discover 的点赞数、未删除评论数，以及 Treehole 的点赞数、未删除评论数。它只更新不一致的帖子，可重复执行；第二次执行应报告 `0`。输出只包含影响行数，不输出数据库行内容。
 
 ### 8.3 部署前 SQLite snapshot
 
@@ -493,13 +470,13 @@ bun run db:snapshot -- \
 huas-<UTC时间>-schema-v<版本>-release-<标识>.db
 ```
 
-普通应用启动不会自动快照。快速部署与蓝绿部署均按“snapshot → migrate → 启动/切流”执行，任一步失败都会停止发布。首次部署若数据库尚不存在，先在服务器明确执行一次空库 `db:migrate`，再进入标准部署流程。
+普通应用启动不会自动快照或迁移。维护发布严格按“maintenance 503 → stop writers → snapshot → `db:migrate --allow-destructive` → Server/Web 本机冒烟 → 开放流量”执行。首次部署若数据库尚不存在，也必须在应用启动前显式执行迁移。
 
 ### 8.4 快照保留与恢复
 
 `data/snapshots/` 可能包含人工快照或其他工具产生的文件，发布脚本不会自动清理。运维人员只能按明确文件名、创建时间、release 和 schema version 制定保留策略；禁止用未知 glob 自动删除未识别文件。
 
-恢复时先停止所有访问该 SQLite 文件的应用进程，把目标快照复制到一个新路径并执行 `PRAGMA quick_check`，再原子切换明确的 `DB_PATH`。数据库回退必须与能够读取该 schema version 的应用版本配对；不要依赖不存在的自动 down migration。
+快照恢复只属于单独批准的事故恢复，不是发布脚本的自动失败分支。若确需恢复，先保持 nginx maintenance 并停止所有访问 SQLite 的进程，明确评估快照后生产写入丢失窗口，再把目标快照复制到新路径、执行 `PRAGMA quick_check` 并原子切换明确的 `DB_PATH`。
 
 备份时至少保留：
 
@@ -512,7 +489,7 @@ huas-<UTC时间>-schema-v<版本>-release-<标识>.db
 
 当前 `huas` 服务器已经完成 `baidu` remote 和 `post-receive` hook 初始化。
 
-以后日常无痛发布，直接在本地执行：
+预约维护窗口后，在本地执行：
 
 ```bash
 git status
@@ -530,10 +507,10 @@ git push baidu HEAD:main
 标准发布结果应该是：
 
 1. 代码被推送到服务器裸仓库
-2. `post-receive` hook 将 commit 导出到非活动槽
-3. 在非活动槽安装依赖、构建前端、启动新实例
-4. `/health/ready` 检查通过后，nginx 才切到新槽位
-5. 老槽位继续保留，作为下一次切换前的回退缓冲
+2. `post-receive` hook 将 commit 导出为候选 release，先安装依赖并构建 Web
+3. nginx 进入 maintenance 503，全部 PM2 writer 停止并持久化状态
+4. 快照成功后执行 `db:migrate --allow-destructive`
+5. 新 Server `/health/ready` 和 Web `/m` 本机冒烟通过后，nginx 才重新开放流量
 
 发布完成后，建议立刻验证：
 
@@ -546,7 +523,8 @@ curl https://api.huas-api.top/health/ready
 
 - 只有已经 `commit` 的内容会上线
 - `.env`、`data/`、`logs/`、`reports/` 不会被发布覆盖
-- 发布失败时，流量会继续停留在旧槽位
+- 维护状态开启后发布失败，必须保持停流与停 writer，不得恢复旧 upstream
+- 失败后修复候选 release 并 forward-fix，不得把旧 commit 当作自动回滚
 - 不要在服务器的 `/www/wwwroot/huas-server` 里执行 `git pull`
 - 不要手动删除 `.deploy/active-slot`、`.deploy/current/blue`、`.deploy/current/green`
 
@@ -575,7 +553,7 @@ DEPLOY_BRANCH=main \
 scripts/setup-huas-git-deploy.sh
 ```
 
-### 9.3 备用流程：本地无痛蓝绿发布脚本
+### 9.3 备用流程：本地维护发布脚本
 
 如果你暂时不想走 `git push`，也可以在本地直接执行：
 
@@ -583,9 +561,9 @@ scripts/setup-huas-git-deploy.sh
 scripts/deploy-huas-zero-downtime.sh
 ```
 
-这条链路同样会部署到非活动槽，并在健康检查通过后再切流量。
+这条链路与 Git hook 执行同一停流、停 writer、快照、destructive migration 和本机冒烟流程。
 
-### 9.4 快速流程：允许短暂切换
+### 9.4 历史快速文件名
 
 在本地执行：
 
@@ -596,54 +574,24 @@ APP_NAME=huas-server \
 scripts/deploy-huas.sh
 ```
 
-这条链路仍然可用，但它不是无痛发布。只有在你接受短暂切换窗口时再使用。
+该文件仅是维护发布别名，执行语义与 9.3 完全相同。
 
-### 9.5 回滚到上一个稳定版本
+### 9.5 migration 后失败处置：forward-fix
 
-先确认本次发布是否应用了新 migration。应用回滚与数据库回滚不是同一件事：旧 release 的 migration 注册表若不知道当前 schema version，重新启动时会 fail closed；即使本次 DDL 是 expand-only，也不能默认认为重新推送旧 commit 一定能启动。
+维护状态开启后，脚本不会自动恢复旧 upstream。尤其在 migration 命令已开始后，无法根据调用方看到的失败位置推断数据库仍兼容旧应用。
 
-只有本次发布没有改变 schema，且你确认需要快速回退时，才可以把上一个稳定 commit 重新推到 `main`：
+固定处置顺序：
 
-```bash
-git log --oneline
-git push --force baidu <stable_commit_sha>:main
-```
+1. 保持 nginx maintenance 503，保持全部 PM2 writer stopped；
+2. 保存脚本输出、目标槽日志、快照文件名和 migration version；
+3. 在候选 release 上修复问题，用同一维护发布重跑；
+4. 只在新 Server `/health/ready` 和 Web `/m` 本机冒烟均通过后重新开放流量。
 
-如果新 migration 已经应用：
+不得通过强推旧 commit、重启旧槽或手工改回 nginx upstream 绕过这个门禁。快照恢复是另一个需明确批准、接受数据丢失窗口的事故恢复流程。
 
-1. 优先修复 forward 并重新发布；
-2. 旧槽既有进程仍在线且已经证明兼容新 schema 时，它只能作为临时流量缓冲，不代表旧 commit 可以重新启动；
-3. 不兼容 migration 或 contract 变更必须进入事故恢复，不执行普通 Git 回滚；
-4. 快照恢复必须停止所有写入，核对明确快照与应用版本，并单独确认快照之后生产写入丢失的时间窗口。
+### 9.6 服务器手动更新
 
-回滚后同样要做一次验证：
-
-```bash
-ssh baidu 'cat /www/wwwroot/huas-server/.deploy/active-slot && pm2 status --no-color'
-curl https://api.huas-api.top/health/ready
-```
-
-### 9.6 服务器手动更新（仅限 git clone 场景）
-
-只有在服务器目录本身就是 git clone 时，才适用这一组命令。
-
-如果当前服务器目录是通过 `rsync` 或 `git push -> post-receive hook` 维护的工作目录，那么它通常不是 git 仓库，不能直接在 `/www/wwwroot/huas-server` 里执行 `git pull`。
-
-满足“服务器目录本身就是 git clone”这个前提时，可以手动：
-
-```bash
-cd /www/wwwroot/huas-server
-git fetch github
-git checkout main
-git pull --ff-only github main
-bun install --frozen-lockfile --production
-cd web
-npm ci --include=dev
-npm run build
-cd ..
-pm2 restart huas-server
-pm2 save
-```
+不再维护 `git pull + pm2 restart` 这种可绕过停 writer、快照和 destructive migration 授权的发布方式。即使服务器目录本身是 git clone，也应将要发布的 commit 从本地推送到 `baidu/main`，由维护发布内核执行完整门禁。
 
 ## 10. 故障排查
 
@@ -777,6 +725,7 @@ curl -sS -b /tmp/huas-admin-cookie \
 
 - 只保留 PM2 运行方式
 - 默认发布方式是 `git push baidu HEAD:main`
-- 无痛本地发布脚本是 `scripts/deploy-huas-zero-downtime.sh`
-- `scripts/deploy-huas.sh` 仅作为快速发布入口保留
+- 本地维护发布脚本是 `scripts/deploy-huas-zero-downtime.sh`，文件名不代表零停机承诺
+- `scripts/deploy-huas.sh` 仅作为同一维护发布的历史别名保留
+- maintenance 开启后任一失败都保持 503 与停 writer，只允许 forward-fix
 - 不再维护 Docker 和根目录 `deploy.sh`

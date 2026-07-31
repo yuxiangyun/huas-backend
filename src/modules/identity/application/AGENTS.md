@@ -1,5 +1,5 @@
 # application/
-> L2 | 父级: /Users/xiangyun/workspace/huas-wechat-app/huas-server/src/modules/identity/AGENTS.md
+> L2 | 父级: /src/modules/identity/AGENTS.md
 
 成员清单
 login.ports.ts: 登录用例外部能力端口，隔离学校上游、恢复标记、SQLite、密码、JWT、资料回填与时钟/ID

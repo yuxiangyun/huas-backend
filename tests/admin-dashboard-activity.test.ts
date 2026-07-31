@@ -5,35 +5,26 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
-import { getDb, initDatabase, schema } from '../src/db';
-import { AdminDashboardService } from '../src/services/admin/dashboard-service';
+import { getDb, schema } from '../src/db';
+import { createApplicationComposition } from '../src/composition';
 import { authMiddleware } from '../src/middleware/auth.middleware';
 import { generateToken } from '../src/auth/jwt';
 import { AnalyticsService } from '../src/services/admin/analytics-service';
 import { beijingDate } from '../src/utils/time';
+import { clearSocialTestData } from './social-database';
+
+const composition = createApplicationComposition();
+const AdminDashboardService = composition.operations.dashboard;
+afterAll(() => composition.dispose());
 
 async function resetDb() {
   const db = getDb();
-  await db.delete(schema.analyticsDailyUsers);
+  await clearSocialTestData(db);
   await db.delete(schema.analyticsDailyMetrics);
-  await db.delete(schema.treeholeCommentNotifications);
-  await db.delete(schema.treeholePostLikes);
-  await db.delete(schema.treeholeComments);
-  await db.delete(schema.treeholePosts);
-  await db.delete(schema.discoverComments);
-  await db.delete(schema.discoverPostRatings);
-  await db.delete(schema.discoverPosts);
-  await db.delete(schema.credentials);
-  await db.delete(schema.cache);
-  await db.delete(schema.users);
 }
-
-beforeAll(() => {
-  initDatabase();
-});
 
 beforeEach(async () => {
   await resetDb();

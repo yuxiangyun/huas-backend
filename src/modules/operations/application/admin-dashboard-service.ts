@@ -54,7 +54,7 @@ export class AdminDashboardApplicationService {
       metrics: {
         ...identity.metrics,
         totalDiscoverPosts: discover.totalPosts,
-        totalDiscoverRatings: discover.totalRatings,
+        totalDiscoverLikes: discover.totalLikes,
         memory: system.memory,
         uptimeSeconds: system.uptimeSeconds,
       },

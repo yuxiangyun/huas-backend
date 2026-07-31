@@ -10,13 +10,12 @@ import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from '
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Hono } from 'hono';
+import { createApplicationComposition, type ApplicationComposition } from '../src/composition';
 import { ScheduleFacadeApplicationService } from '../src/modules/academic/application/schedule-facade';
 import { FileScheduleSourcePolicyStore } from '../src/modules/academic/infrastructure/file-schedule-source-policy-store';
 import { ScheduleSourcePolicy } from '../src/modules/academic/schedule';
 import type { ScheduleSource } from '../src/modules/academic/domain/schedule';
 import type { ScheduleSourcePolicySnapshot } from '../src/modules/academic/domain/schedule-source-policy';
-import { initDatabase } from '../src/db';
-import { registerRoutes } from '../src/routes';
 import { AppError, ErrorCode } from '../src/utils/errors';
 
 type ReaderBehavior = {
@@ -341,11 +340,12 @@ describe('FileScheduleSourcePolicyStore', () => {
 describe('课表来源策略管理 API', () => {
   let app: Hono;
   let cookie = '';
+  let composition: ApplicationComposition;
 
   beforeAll(async () => {
-    initDatabase();
     app = new Hono();
-    registerRoutes(app);
+    composition = createApplicationComposition();
+    composition.app.registerRoutes(app);
     const login = await app.request('http://localhost/api/admin/session', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -356,6 +356,7 @@ describe('课表来源策略管理 API', () => {
 
   afterAll(async () => {
     await ScheduleSourcePolicy.configure('jw-first', 'test-cleanup');
+    composition.dispose();
   });
 
   it('受后台会话保护，并支持 GET/PUT 无重启热切换', async () => {

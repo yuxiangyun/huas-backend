@@ -1,167 +1,110 @@
 /**
- * [INPUT]: 依赖 Drizzle db/schema、Treehole domain DTO 与模块内 SQLite 支撑函数
- * [OUTPUT]: 对 SQLiteTreeholePersistence 提供社区资料、用户侧查询及点赞、评论、通知、删除完整事务
- * [POS]: modules/treehole/infrastructure 的用户侧 SQLite adapter，保持原 SQL 顺序与事务边界
+ * [INPUT]: 依赖构造注入的 Drizzle db、CommunityProfileReader、ActivityOutboxWriter、Treehole schema 与模块内 SQL helpers
+ * [OUTPUT]: 对 SQLiteTreeholePersistence 提供帖子、用户帖子、事实/Outbox 原子点赞评论与作者删除事务
+ * [POS]: modules/treehole/infrastructure 的用户侧事实 adapter，不读取 users/community_profiles，仅经 Notifications 窄端口写活动事件
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { and, asc, desc, eq, isNotNull, isNull, lt, sql } from 'drizzle-orm';
-import { getDb, schema } from '../../../db';
+import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
+import { schema } from '../../../db';
 import { AppError, ErrorCode } from '../../../utils/errors';
+import type { CommunityProfileReader } from '../../community/domain/ports';
+import { createActivityEvents } from '../../notifications/domain/activity';
+import type { ActivityOutboxWriter } from '../../notifications/domain/ports';
 import {
   toCommentResponse,
   toPostResponse,
   type PersistTreeholeCommentInput,
-  type CommunityProfileResponse,
   type TreeholeCommentListResponse,
   type TreeholeCommentRow,
-  type TreeholeAvatarResponse,
-  type TreeholeNotificationType,
   type TreeholeListResponse,
   type TreeholePostResponse,
   type TreeholePostRow,
-  type TreeholeReadAllNotificationsResponse,
-  type TreeholeUnreadNotificationCountResponse,
 } from '../domain/treehole';
 import {
   commentSelect,
   findPublicPost,
   getLikedMap,
-  getCommunityProfileMap,
   postSelect,
   refreshPostCommentCount,
   refreshPostLikeCount,
+  requireCommunityProfile,
   toPostListResponse,
+  type TreeholeDatabase,
+  type TreeholeTransaction,
+  uniqueUserIds,
 } from './sqlite-treehole-support';
 
 export class SQLiteTreeholeUserPersistence {
-  async getAvatar(userId: number): Promise<TreeholeAvatarResponse> {
-    const db = getDb();
-    const rows = await db.select({
-      avatarUrl: schema.users.treeholeAvatarUrl,
-    })
-      .from(schema.users)
-      .where(eq(schema.users.id, userId))
-      .limit(1);
-
-    return {
-      avatarUrl: rows[0]?.avatarUrl || null,
-    };
-  }
-
-  async getCommunityProfile(userId: number): Promise<CommunityProfileResponse> {
-    const db = getDb();
-    const rows = await db.select({
-      avatarUrl: schema.users.treeholeAvatarUrl,
-      nickname: schema.users.communityNickname,
-    })
-      .from(schema.users)
-      .where(eq(schema.users.id, userId))
-      .limit(1);
-
-    return {
-      avatarUrl: rows[0]?.avatarUrl || null,
-      nickname: rows[0]?.nickname?.trim() || null,
-    };
-  }
-
-  async setAvatarUrl(userId: number, avatarUrl: string | null): Promise<void> {
-    const db = getDb();
-    await db.update(schema.users)
-      .set({ treeholeAvatarUrl: avatarUrl })
-      .where(eq(schema.users.id, userId));
-  }
-
-  async setCommunityProfile(
-    userId: number,
-    profile: { nickname: string | null; avatarUrl?: string },
-  ): Promise<void> {
-    const db = getDb();
-    await db.update(schema.users)
-      .set({
-        communityNickname: profile.nickname,
-        ...(profile.avatarUrl === undefined ? {} : { treeholeAvatarUrl: profile.avatarUrl }),
-      })
-      .where(eq(schema.users.id, userId));
-  }
-
-  async getUnreadNotificationCount(userId: number): Promise<TreeholeUnreadNotificationCountResponse> {
-    const db = getDb();
-    const rows = await db.select({ count: sql<number>`count(*)` })
-      .from(schema.treeholeCommentNotifications)
-      .where(and(
-        eq(schema.treeholeCommentNotifications.recipientUserId, userId),
-        isNull(schema.treeholeCommentNotifications.readAt),
-      ));
-
-    return { unreadCount: Number(rows[0]?.count || 0) };
-  }
-
-  async markAllNotificationsRead(userId: number): Promise<TreeholeReadAllNotificationsResponse> {
-    const db = getDb();
-    const now = new Date();
-    const pruneBefore = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    const updated = await db.update(schema.treeholeCommentNotifications)
-      .set({ readAt: now })
-      .where(and(
-        eq(schema.treeholeCommentNotifications.recipientUserId, userId),
-        isNull(schema.treeholeCommentNotifications.readAt),
-      ))
-      .returning({ id: schema.treeholeCommentNotifications.id });
-
-    await db.delete(schema.treeholeCommentNotifications)
-      .where(and(
-        eq(schema.treeholeCommentNotifications.recipientUserId, userId),
-        isNotNull(schema.treeholeCommentNotifications.readAt),
-        lt(schema.treeholeCommentNotifications.readAt, pruneBefore),
-      ));
-
-    return { readCount: updated.length };
-  }
+  constructor(
+    private readonly db: TreeholeDatabase,
+    private readonly profiles: CommunityProfileReader,
+    private readonly outbox: ActivityOutboxWriter<TreeholeTransaction>,
+  ) {}
 
   async listPosts(options: { userId: number; page: number; pageSize: number }): Promise<TreeholeListResponse> {
-    const db = getDb();
     const { page, pageSize } = options;
     const whereExpr = isNull(schema.treeholePosts.deletedAt);
-    const totalRows = await db.select({ count: sql<number>`count(*)` })
-      .from(schema.treeholePosts)
-      .where(whereExpr);
+    const [totalRows, rows] = await Promise.all([
+      this.db.select({ count: sql<number>`count(*)` })
+        .from(schema.treeholePosts)
+        .where(whereExpr),
+      this.db.select(postSelect())
+        .from(schema.treeholePosts)
+        .where(whereExpr)
+        .orderBy(desc(schema.treeholePosts.publishedAt), desc(schema.treeholePosts.id))
+        .limit(pageSize)
+        .offset((page - 1) * pageSize),
+    ]);
     const total = Number(totalRows[0]?.count || 0);
-    const rows = await db.select(postSelect())
-      .from(schema.treeholePosts)
-      .where(whereExpr)
-      .orderBy(desc(schema.treeholePosts.publishedAt), desc(schema.treeholePosts.id))
-      .limit(pageSize)
-      .offset((page - 1) * pageSize);
-
-    return toPostListResponse(rows as TreeholePostRow[], options.userId, page, pageSize, total);
+    return toPostListResponse(
+      this.db,
+      this.profiles,
+      rows as TreeholePostRow[],
+      options.userId,
+      page,
+      pageSize,
+      total,
+    );
   }
 
-  async listMyPosts(options: { userId: number; page: number; pageSize: number }): Promise<TreeholeListResponse> {
-    const db = getDb();
+  async listUserPosts(options: {
+    viewerUserId: number;
+    authorUserId: number;
+    page: number;
+    pageSize: number;
+  }): Promise<TreeholeListResponse> {
     const { page, pageSize } = options;
     const whereExpr = and(
-      eq(schema.treeholePosts.userId, options.userId),
+      eq(schema.treeholePosts.userId, options.authorUserId),
       isNull(schema.treeholePosts.deletedAt),
     );
-    const totalRows = await db.select({ count: sql<number>`count(*)` })
-      .from(schema.treeholePosts)
-      .where(whereExpr);
+    const [totalRows, rows] = await Promise.all([
+      this.db.select({ count: sql<number>`count(*)` })
+        .from(schema.treeholePosts)
+        .where(whereExpr),
+      this.db.select(postSelect())
+        .from(schema.treeholePosts)
+        .where(whereExpr)
+        .orderBy(desc(schema.treeholePosts.publishedAt), desc(schema.treeholePosts.id))
+        .limit(pageSize)
+        .offset((page - 1) * pageSize),
+    ]);
     const total = Number(totalRows[0]?.count || 0);
-    const rows = await db.select(postSelect())
-      .from(schema.treeholePosts)
-      .where(whereExpr)
-      .orderBy(desc(schema.treeholePosts.publishedAt), desc(schema.treeholePosts.id))
-      .limit(pageSize)
-      .offset((page - 1) * pageSize);
-
-    return toPostListResponse(rows as TreeholePostRow[], options.userId, page, pageSize, total);
+    return toPostListResponse(
+      this.db,
+      this.profiles,
+      rows as TreeholePostRow[],
+      options.viewerUserId,
+      page,
+      pageSize,
+      total,
+    );
   }
 
   async createPost(input: { userId: number; content: string }): Promise<TreeholePostResponse | null> {
-    const db = getDb();
     const now = new Date();
-    const inserted = await db.insert(schema.treeholePosts).values({
+    const inserted = await this.db.insert(schema.treeholePosts).values({
       userId: input.userId,
       content: input.content,
       likeCount: 0,
@@ -172,110 +115,138 @@ export class SQLiteTreeholeUserPersistence {
       deletedAt: null,
     }).returning({ id: schema.treeholePosts.id });
 
-    return this.getPostDetail(input.userId, inserted[0].id);
+    return this.getPostDetail(input.userId, inserted[0]!.id);
   }
 
   async getPostDetail(userId: number, postId: number): Promise<TreeholePostResponse | null> {
-    const row = await findPublicPost(postId);
+    const row = await findPublicPost(this.db, postId);
     if (!row) return null;
 
-    const likedMap = await getLikedMap(userId, [postId]);
-    const profileMap = await getCommunityProfileMap([row.userId]);
+    const [likedMap, profileMap] = await Promise.all([
+      getLikedMap(this.db, userId, [postId]),
+      this.profiles.getMany([row.userId]),
+    ]);
     return toPostResponse(
       row,
       userId,
       likedMap.has(postId),
-      profileMap.get(row.userId) ?? { avatarUrl: null, nickname: null },
+      requireCommunityProfile(profileMap, row.userId),
     );
   }
 
   async likePost(userId: number, postId: number): Promise<TreeholePostResponse | null> {
-    const db = getDb();
-    const exists = await db.transaction(async (tx) => {
-      const rows = await tx.select({ id: schema.treeholePosts.id })
+    const exists = this.db.transaction((tx) => {
+      const rows = tx.select({
+        id: schema.treeholePosts.id,
+        authorUserId: schema.treeholePosts.userId,
+      })
         .from(schema.treeholePosts)
         .where(and(
           eq(schema.treeholePosts.id, postId),
           isNull(schema.treeholePosts.deletedAt),
         ))
-        .limit(1);
+        .limit(1)
+        .all();
 
       if (!rows[0]) return false;
+      if (rows[0].authorUserId === userId) {
+        throw new AppError(ErrorCode.PARAM_ERROR, '不能点赞自己的帖子');
+      }
 
       const now = new Date();
-      await tx.insert(schema.treeholePostLikes).values({
+      const events = createActivityEvents({
+        actorUserId: userId,
+        recipientUserIds: [rows[0].authorUserId],
+        type: 'treehole_like',
+        resourceType: 'treehole_post',
+        resourceId: postId,
+        createdAt: now,
+      });
+      const inserted = tx.insert(schema.treeholePostLikes).values({
         postId,
         userId,
         createdAt: now,
-      }).onConflictDoNothing();
+      }).onConflictDoNothing().returning({ id: schema.treeholePostLikes.id }).all();
+      if (inserted.length > 0) this.outbox.enqueue(tx, events);
 
-      await refreshPostLikeCount(tx, postId, now);
+      refreshPostLikeCount(tx, postId, now);
       return true;
     });
 
-    if (!exists) return null;
-    return this.getPostDetail(userId, postId);
+    return exists ? this.getPostDetail(userId, postId) : null;
   }
 
   async unlikePost(userId: number, postId: number): Promise<TreeholePostResponse | null> {
-    const db = getDb();
-    const exists = await db.transaction(async (tx) => {
-      const rows = await tx.select({ id: schema.treeholePosts.id })
+    const exists = this.db.transaction((tx) => {
+      const rows = tx.select({
+        id: schema.treeholePosts.id,
+        authorUserId: schema.treeholePosts.userId,
+      })
         .from(schema.treeholePosts)
         .where(and(
           eq(schema.treeholePosts.id, postId),
           isNull(schema.treeholePosts.deletedAt),
         ))
-        .limit(1);
+        .limit(1)
+        .all();
 
       if (!rows[0]) return false;
 
       const now = new Date();
-      await tx.delete(schema.treeholePostLikes).where(and(
+      const removed = tx.delete(schema.treeholePostLikes).where(and(
         eq(schema.treeholePostLikes.postId, postId),
         eq(schema.treeholePostLikes.userId, userId),
-      ));
-
-      await refreshPostLikeCount(tx, postId, now);
+      )).returning({ id: schema.treeholePostLikes.id }).all();
+      if (removed.length > 0) {
+        const event = createActivityEvents({
+          actorUserId: userId,
+          recipientUserIds: [rows[0].authorUserId],
+          type: 'treehole_like',
+          resourceType: 'treehole_post',
+          resourceId: postId,
+          createdAt: now,
+        })[0];
+        if (event) this.outbox.removeLike(tx, event.eventId);
+      }
+      refreshPostLikeCount(tx, postId, now);
       return true;
     });
 
-    if (!exists) return null;
-    return this.getPostDetail(userId, postId);
+    return exists ? this.getPostDetail(userId, postId) : null;
   }
 
   async listComments(
     userId: number,
     postId: number,
-    options: { page: number; pageSize: number }
+    options: { page: number; pageSize: number },
   ): Promise<TreeholeCommentListResponse | null> {
-    const post = await findPublicPost(postId);
-    if (!post) return null;
+    if (!(await findPublicPost(this.db, postId))) return null;
 
-    const db = getDb();
     const { page, pageSize } = options;
     const whereExpr = and(
       eq(schema.treeholeComments.postId, postId),
       isNull(schema.treeholeComments.deletedAt),
     );
-    const totalRows = await db.select({ count: sql<number>`count(*)` })
-      .from(schema.treeholeComments)
-      .where(whereExpr);
-    const total = Number(totalRows[0]?.count || 0);
-    const rows = await db.select(commentSelect())
-      .from(schema.treeholeComments)
-      .where(whereExpr)
-      .orderBy(asc(schema.treeholeComments.createdAt), asc(schema.treeholeComments.id))
-      .limit(pageSize)
-      .offset((page - 1) * pageSize);
+    const [totalRows, rows] = await Promise.all([
+      this.db.select({ count: sql<number>`count(*)` })
+        .from(schema.treeholeComments)
+        .where(whereExpr),
+      this.db.select(commentSelect())
+        .from(schema.treeholeComments)
+        .where(whereExpr)
+        .orderBy(asc(schema.treeholeComments.createdAt), asc(schema.treeholeComments.id))
+        .limit(pageSize)
+        .offset((page - 1) * pageSize),
+    ]);
     const typedRows = rows as TreeholeCommentRow[];
-    const profileMap = await getCommunityProfileMap(typedRows.map((row) => row.userId));
+    const profileMap = await this.profiles.getMany(uniqueUserIds(typedRows));
+    const total = Number(totalRows[0]?.count || 0);
 
     return {
       items: typedRows.map((row) => toCommentResponse(
         row,
         userId,
-        profileMap.get(row.userId) ?? { avatarUrl: null, nickname: null },
+        requireCommunityProfile(profileMap, row.userId),
       )),
       page,
       pageSize,
@@ -285,129 +256,92 @@ export class SQLiteTreeholeUserPersistence {
   }
 
   async createComment(input: PersistTreeholeCommentInput) {
-    const { parentCommentId } = input;
-
-    const db = getDb();
-    const created = await db.transaction(async (tx) => {
-      const postRows = await tx.select({
+    const created = this.db.transaction((tx) => {
+      const postRows = tx.select({
         id: schema.treeholePosts.id,
-        userId: schema.treeholePosts.userId,
+        authorUserId: schema.treeholePosts.userId,
       })
         .from(schema.treeholePosts)
         .where(and(
           eq(schema.treeholePosts.id, input.postId),
           isNull(schema.treeholePosts.deletedAt),
         ))
-        .limit(1);
-
+        .limit(1)
+        .all();
       if (!postRows[0]) return null;
 
-      let parentCommentUserId: number | null = null;
-      if (parentCommentId !== null) {
-        const parentRows = await tx.select({
+      let parentAuthorUserId: number | null = null;
+      if (input.parentCommentId !== null) {
+        const parentRows = tx.select({
           id: schema.treeholeComments.id,
-          userId: schema.treeholeComments.userId,
+          authorUserId: schema.treeholeComments.userId,
         })
           .from(schema.treeholeComments)
           .where(and(
-            eq(schema.treeholeComments.id, parentCommentId),
+            eq(schema.treeholeComments.id, input.parentCommentId),
             eq(schema.treeholeComments.postId, input.postId),
             isNull(schema.treeholeComments.deletedAt),
           ))
-          .limit(1);
-
-        if (!parentRows[0]) {
-          throw new AppError(ErrorCode.PARAM_ERROR, '回复的评论不存在');
-        }
-
-        parentCommentUserId = parentRows[0].userId;
+          .limit(1)
+          .all();
+        if (!parentRows[0]) throw new AppError(ErrorCode.PARAM_ERROR, '回复的评论不存在');
+        parentAuthorUserId = parentRows[0].authorUserId;
       }
 
       const now = new Date();
-      const inserted = await tx.insert(schema.treeholeComments).values({
+      const inserted = tx.insert(schema.treeholeComments).values({
         postId: input.postId,
         userId: input.userId,
-        parentCommentId,
+        parentCommentId: input.parentCommentId,
         content: input.content,
         createdAt: now,
         updatedAt: now,
         deletedAt: null,
-      }).returning(commentSelect());
-
-      await refreshPostCommentCount(tx, input.postId, now);
-
-      const recipientTypeMap = new Map<number, TreeholeNotificationType>();
-      if (postRows[0].userId !== input.userId) {
-        recipientTypeMap.set(postRows[0].userId, 'post_comment');
-      }
-      if (parentCommentUserId !== null && parentCommentUserId !== input.userId) {
-        recipientTypeMap.set(parentCommentUserId, 'comment_reply');
-      }
-
-      const notificationValues = Array.from(recipientTypeMap.entries()).map(([recipientUserId, type]) => ({
-        recipientUserId,
+      }).returning(commentSelect()).all();
+      const created = inserted[0] as TreeholeCommentRow | undefined;
+      if (!created) throw new Error('Treehole comment insert returned no row.');
+      this.outbox.enqueue(tx, createActivityEvents({
         actorUserId: input.userId,
-        postId: input.postId,
-        commentId: inserted[0].id,
-        type,
-        readAt: null,
+        recipientUserIds: parentAuthorUserId === null
+          ? [postRows[0].authorUserId]
+          : [parentAuthorUserId, postRows[0].authorUserId],
+        type: parentAuthorUserId === null ? 'treehole_comment' : 'treehole_comment_reply',
+        resourceType: 'treehole_post',
+        resourceId: input.postId,
+        subresourceId: created.id,
         createdAt: now,
       }));
-
-      if (notificationValues.length > 0) {
-        await tx.insert(schema.treeholeCommentNotifications).values(notificationValues);
-      }
-
-      return inserted[0] as TreeholeCommentRow;
+      refreshPostCommentCount(tx, input.postId, now);
+      return created;
     });
 
     if (!created) return null;
-    const profileMap = await getCommunityProfileMap([created.userId]);
+    const profileMap = await this.profiles.getMany([created.userId]);
     return toCommentResponse(
       created,
       input.userId,
-      profileMap.get(created.userId) ?? { avatarUrl: null, nickname: null },
+      requireCommunityProfile(profileMap, created.userId),
     );
   }
 
   async deletePost(postId: number, userId: number) {
-    const db = getDb();
-    return db.transaction(async (tx) => {
-      const now = new Date();
-      const updated = await tx.update(schema.treeholePosts)
-        .set({
-          deletedAt: now,
-          updatedAt: now,
-        })
-        .where(and(
-          eq(schema.treeholePosts.id, postId),
-          eq(schema.treeholePosts.userId, userId),
-          isNull(schema.treeholePosts.deletedAt),
-        ))
-        .returning({ id: schema.treeholePosts.id });
-
-      if (!updated[0]) return null;
-
-      await tx.update(schema.treeholeCommentNotifications)
-        .set({ readAt: now })
-        .where(and(
-          eq(schema.treeholeCommentNotifications.postId, postId),
-          isNull(schema.treeholeCommentNotifications.readAt),
-        ));
-
-      return { id: updated[0].id };
-    });
+    const now = new Date();
+    const updated = await this.db.update(schema.treeholePosts)
+      .set({ deletedAt: now, updatedAt: now })
+      .where(and(
+        eq(schema.treeholePosts.id, postId),
+        eq(schema.treeholePosts.userId, userId),
+        isNull(schema.treeholePosts.deletedAt),
+      ))
+      .returning({ id: schema.treeholePosts.id });
+    return updated[0] ? { id: updated[0].id } : null;
   }
 
   async deleteComment(commentId: number, userId: number) {
-    const db = getDb();
-    return db.transaction(async (tx) => {
+    return this.db.transaction((tx) => {
       const now = new Date();
-      const updated = await tx.update(schema.treeholeComments)
-        .set({
-          deletedAt: now,
-          updatedAt: now,
-        })
+      const updated = tx.update(schema.treeholeComments)
+        .set({ deletedAt: now, updatedAt: now })
         .where(and(
           eq(schema.treeholeComments.id, commentId),
           eq(schema.treeholeComments.userId, userId),
@@ -416,18 +350,11 @@ export class SQLiteTreeholeUserPersistence {
         .returning({
           id: schema.treeholeComments.id,
           postId: schema.treeholeComments.postId,
-        });
-
+        })
+        .all();
       if (!updated[0]) return null;
 
-      await refreshPostCommentCount(tx, updated[0].postId, now);
-      await tx.update(schema.treeholeCommentNotifications)
-        .set({ readAt: now })
-        .where(and(
-          eq(schema.treeholeCommentNotifications.commentId, updated[0].id),
-          isNull(schema.treeholeCommentNotifications.readAt),
-        ));
-
+      refreshPostCommentCount(tx, updated[0].postId, now);
       return updated[0];
     });
   }

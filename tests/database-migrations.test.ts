@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 Bun SQLite、临时目录与 db migration/repair/snapshot 内核
- * [OUTPUT]: 覆盖空库、baseline adoption、漂移拒绝、中断恢复、幂等 repair 与部署快照边界
- * [POS]: tests 的数据库现代化定向回归，验证结构演进 fail closed 且不改变旧应用业务表读法
+ * [INPUT]: 依赖 Bun SQLite、临时目录与 db migration/repair/snapshot/只读校验内核
+ * [OUTPUT]: 覆盖 destructive 授权、0003 数据守恒/私信约束、旧事实拒绝、schema fail-closed、repair 与快照边界
+ * [POS]: tests 的数据库 contract migration 回归，证明破坏性发布必须显式且运行期没有结构变更权
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -10,12 +10,18 @@ import { Database } from 'bun:sqlite';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { migrateDatabase, getCurrentSchemaVersion } from '../src/db/migrator';
+import {
+  assertDatabaseSchemaCurrent,
+  getCurrentSchemaVersion,
+  migrateDatabase,
+} from '../src/db/migrator';
 import { baselineSql } from '../src/db/migrations/0001_baseline';
+import { MIGRATIONS } from '../src/db/migrations';
 import { repairDerivedCounts } from '../src/db/repair';
 import { createDatabaseSnapshot } from '../src/db/snapshot';
 
 const roots: string[] = [];
+const LEGACY_MIGRATIONS = MIGRATIONS.slice(0, 2);
 
 function temporaryRoot(): string {
   const root = mkdtempSync(join(tmpdir(), 'huas-db-migration-'));
@@ -29,60 +35,211 @@ function openMemory(): Database {
   return database;
 }
 
+function migrateLegacy(database: Database): void {
+  migrateDatabase(database, { migrations: LEGACY_MIGRATIONS });
+}
+
+function objectExists(database: Database, name: string): boolean {
+  const row = database.query(
+    "SELECT count(*) AS count FROM sqlite_master WHERE name = ?",
+  ).get(name) as { count: number };
+  return Number(row.count) === 1;
+}
+
+function count(database: Database, table: string): number {
+  return Number((database.query(`SELECT count(*) AS count FROM ${table}`).get() as { count: number }).count);
+}
+
 afterEach(() => {
   while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true });
 });
 
 describe('database migrations', () => {
-  test('initializes an empty database and records its version', () => {
+  test('requires explicit destructive authorization before writing an empty database', () => {
     const database = openMemory();
-    const result = migrateDatabase(database);
-    expect(result).toEqual({ version: 2, applied: [1, 2], adopted: false });
-    expect(getCurrentSchemaVersion(database)).toBe(2);
-    expect((database.query("SELECT count(*) AS count FROM sqlite_master WHERE type='table' AND name='users'").get() as any).count).toBe(1);
-    expect((database.query("SELECT count(*) AS count FROM pragma_table_info('users') WHERE name='community_nickname'").get() as any).count).toBe(1);
+    expect(() => migrateDatabase(database)).toThrow(/allow-destructive/);
+    expect(objectExists(database, 'huas_schema_migrations')).toBe(false);
+    expect(objectExists(database, 'users')).toBe(false);
+
+    const result = migrateDatabase(database, { allowDestructive: true });
+    expect(result).toEqual({ version: 3, applied: [1, 2, 3], adopted: false });
+    expect(assertDatabaseSchemaCurrent(database)).toEqual({ version: 3 });
     database.close();
   });
 
-  test('adopts a current unversioned schema only after fingerprint match', () => {
-    const database = openMemory();
-    database.exec(baselineSql.replaceAll('CREATE TABLE ', 'CREATE TABLE IF NOT EXISTS ').replaceAll('CREATE INDEX ', 'CREATE INDEX IF NOT EXISTS ').replaceAll('CREATE UNIQUE INDEX ', 'CREATE UNIQUE INDEX IF NOT EXISTS '));
-    const result = migrateDatabase(database);
-    expect(result).toEqual({ version: 2, applied: [2], adopted: true });
-    expect(getCurrentSchemaVersion(database)).toBe(2);
-    database.close();
-  });
-
-  test('adopts only the baseline before applying later numbered migrations', () => {
+  test('adopts a baseline only with destructive authorization before later versions', () => {
     const database = openMemory();
     database.exec(baselineSql);
-    const migrations = [
-      { version: 1, name: 'baseline', sql: baselineSql },
-      { version: 2, name: 'expand_only', sql: 'CREATE TABLE future_compatible (id INTEGER PRIMARY KEY);' },
-    ];
-    expect(migrateDatabase(database, { migrations })).toEqual({ version: 2, applied: [2], adopted: true });
-    const rows = database.query('SELECT version, adopted FROM huas_schema_migrations ORDER BY version').all();
-    expect(rows).toEqual([{ version: 1, adopted: 1 }, { version: 2, adopted: 0 }]);
-    database.close();
-  });
-
-  test('is repeatable without applying a migration twice', () => {
-    const database = openMemory();
-    migrateDatabase(database);
-    expect(migrateDatabase(database)).toEqual({ version: 2, applied: [], adopted: false });
-    const row = database.query('SELECT count(*) AS count FROM huas_schema_migrations').get() as { count: number };
-    expect(row.count).toBe(2);
-    database.close();
-  });
-
-  test('fails closed on a mismatched fingerprint with executable diagnostics', () => {
-    const database = openMemory();
-    database.exec(baselineSql);
-    database.exec('ALTER TABLE users ADD COLUMN drifted TEXT');
-    expect(() => migrateDatabase(database)).toThrow(/schema fingerprint mismatch/);
-    expect(() => migrateDatabase(database)).toThrow(/sqlite3 <DB_PATH> "\.schema"/);
+    expect(() => migrateDatabase(database)).toThrow(/allow-destructive/);
     expect(getCurrentSchemaVersion(database)).toBe(0);
-    expect((database.query("SELECT count(*) AS count FROM sqlite_master WHERE name='huas_schema_migrations'").get() as any).count).toBe(0);
+
+    const result = migrateDatabase(database, { allowDestructive: true });
+    expect(result).toEqual({ version: 3, applied: [2, 3], adopted: true });
+    expect(getCurrentSchemaVersion(database)).toBe(3);
+    database.close();
+  });
+
+  test('is repeatable without requiring the flag after the destructive version is applied', () => {
+    const database = openMemory();
+    migrateDatabase(database, { allowDestructive: true });
+    expect(migrateDatabase(database)).toEqual({ version: 3, applied: [], adopted: false });
+    expect(count(database, 'huas_schema_migrations')).toBe(3);
+    database.close();
+  });
+
+  test('preserves every core v2 fact row and migrates community profile values', () => {
+    const database = openMemory();
+    migrateLegacy(database);
+    database.exec(`
+      INSERT INTO users (student_id, name, class_name, treehole_avatar_url, community_nickname)
+      VALUES ('u-1', '甲', '软工24101班', '/media/treehole-avatar/1.webp?v=7', '山茶'),
+             ('u-2', '乙', '计科24201班', NULL, NULL);
+      INSERT INTO credentials (user_id, system, value) VALUES (1, 'tgc', 'opaque');
+      INSERT INTO cache (key, data, source) VALUES ('schedule:1', '{}', 'jw');
+      INSERT INTO discover_posts
+        (user_id, title, category, storage_key, images_json, tags_json, cover_url)
+      VALUES (1, '保留帖子', '食堂', 'discover-1', '["1.webp"]', '["早餐"]', '/media/discover/1.webp');
+      INSERT INTO discover_comments (post_id, user_id, content) VALUES (1, 2, '保留评论');
+      INSERT INTO treehole_posts (user_id, content, like_count, comment_count)
+      VALUES (2, '保留树洞', 1, 1);
+      INSERT INTO treehole_post_likes (post_id, user_id) VALUES (1, 1);
+      INSERT INTO treehole_comments (post_id, user_id, content) VALUES (1, 1, '保留回复');
+    `);
+
+    const coreTables = [
+      'users',
+      'credentials',
+      'cache',
+      'discover_posts',
+      'discover_comments',
+      'treehole_posts',
+      'treehole_comments',
+      'treehole_post_likes',
+    ] as const;
+    const before = Object.fromEntries(coreTables.map((table) => [table, count(database, table)]));
+
+    expect(() => migrateDatabase(database)).toThrow(/allow-destructive/);
+    expect(getCurrentSchemaVersion(database)).toBe(2);
+    expect(Object.fromEntries(coreTables.map((table) => [table, count(database, table)]))).toEqual(before);
+
+    migrateDatabase(database, { allowDestructive: true });
+    expect(Object.fromEntries(coreTables.map((table) => [table, count(database, table)]))).toEqual(before);
+    expect(database.query(
+      'SELECT user_id, nickname, avatar_url FROM community_profiles ORDER BY user_id',
+    ).all()).toEqual([
+      { user_id: 1, nickname: '山茶', avatar_url: '/media/treehole-avatar/1.webp?v=7' },
+      { user_id: 2, nickname: null, avatar_url: null },
+    ]);
+    expect(database.query('SELECT title, like_count FROM discover_posts').get()).toEqual({
+      title: '保留帖子',
+      like_count: 0,
+    });
+    expect(objectExists(database, 'discover_post_ratings')).toBe(false);
+    expect(objectExists(database, 'treehole_comment_notifications')).toBe(false);
+    expect((database.query(
+      "SELECT count(*) AS count FROM pragma_table_info('users') WHERE name IN ('community_nickname', 'treehole_avatar_url')",
+    ).get() as { count: number }).count).toBe(0);
+    expect(assertDatabaseSchemaCurrent(database)).toEqual({ version: 3 });
+    database.close();
+  });
+
+  test('refuses to discard a newly appeared legacy rating', () => {
+    const database = openMemory();
+    migrateLegacy(database);
+    database.exec(`
+      INSERT INTO users (student_id) VALUES ('rating-user');
+      INSERT INTO discover_posts (user_id, category, storage_key, images_json, tags_json, cover_url)
+      VALUES (1, '其他', 'rating-post', '[]', '[]', '');
+      INSERT INTO discover_post_ratings (post_id, user_id, score) VALUES (1, 1, 5);
+    `);
+    expect(() => migrateDatabase(database, { allowDestructive: true })).toThrow(/CHECK constraint failed/);
+    expect(getCurrentSchemaVersion(database)).toBe(2);
+    expect(count(database, 'discover_post_ratings')).toBe(1);
+    expect(objectExists(database, 'community_profiles')).toBe(false);
+    database.close();
+  });
+
+  test('refuses to discard a newly appeared legacy treehole notification', () => {
+    const database = openMemory();
+    migrateLegacy(database);
+    database.exec(`
+      INSERT INTO users (student_id) VALUES ('author'), ('recipient');
+      INSERT INTO treehole_posts (user_id, content) VALUES (1, 'post');
+      INSERT INTO treehole_comments (post_id, user_id, content) VALUES (1, 1, 'comment');
+      INSERT INTO treehole_comment_notifications
+        (recipient_user_id, actor_user_id, post_id, comment_id, type)
+      VALUES (2, 1, 1, 1, 'post_comment');
+    `);
+    expect(() => migrateDatabase(database, { allowDestructive: true })).toThrow(/CHECK constraint failed/);
+    expect(getCurrentSchemaVersion(database)).toBe(2);
+    expect(count(database, 'treehole_comment_notifications')).toBe(1);
+    database.close();
+  });
+
+  test('enforces final social uniqueness, ordering and media metadata constraints', () => {
+    const database = openMemory();
+    migrateDatabase(database, { allowDestructive: true });
+    database.exec("INSERT INTO users (student_id) VALUES ('low'), ('high')");
+
+    expect(() => database.exec(
+      'INSERT INTO conversations (user_low_id, user_high_id) VALUES (1, 1)',
+    )).toThrow(/CHECK constraint failed/);
+    database.exec('INSERT INTO conversations (user_low_id, user_high_id) VALUES (1, 2)');
+    expect(() => database.exec(
+      'INSERT INTO conversations (user_low_id, user_high_id) VALUES (1, 2)',
+    )).toThrow(/UNIQUE constraint failed/);
+
+    expect(() => database.exec(
+      "INSERT INTO messages (conversation_id, sender_user_id, client_message_id, text) VALUES (1, 1, '', '非法')",
+    )).toThrow(/CHECK constraint failed/);
+    const clientMessageId = '11111111-1111-4111-8111-111111111111';
+    database.query(
+      'INSERT INTO messages (conversation_id, sender_user_id, client_message_id, text) VALUES (1, 1, ?, ?)',
+    ).run(clientMessageId, '你好');
+    expect(() => database.exec(
+      `INSERT INTO messages (conversation_id, sender_user_id, client_message_id, text) VALUES (1, 1, '${clientMessageId}', '重复')`,
+    )).toThrow(/UNIQUE constraint failed/);
+    expect(() => database.exec(
+      "INSERT INTO messages (conversation_id, sender_user_id, client_message_id, text) VALUES (1, 1, '22222222-2222-4222-8222-222222222222', '')",
+    )).toThrow(/CHECK constraint failed/);
+    database.exec("INSERT INTO message_images (message_id, storage_key, sort_order, width, height, size_bytes, mime_type) VALUES (1, 'm/1.webp', 0, 1280, 720, 1024, 'image/webp')");
+    expect(() => database.exec(
+      "INSERT INTO message_images (message_id, storage_key, sort_order, width, height, size_bytes, mime_type) VALUES (1, 'm/2.webp', 0, 1, 1, 1, 'image/webp')",
+    )).toThrow(/UNIQUE constraint failed/);
+    expect(() => database.exec(
+      "INSERT INTO message_images (message_id, storage_key, sort_order, width, height, size_bytes, mime_type) VALUES (1, 'm/10.webp', 9, 1, 1, 1, 'image/webp')",
+    )).toThrow(/CHECK constraint failed/);
+    expect(() => database.exec(
+      "INSERT INTO message_images (message_id, storage_key, sort_order, width, height, size_bytes, mime_type) VALUES (1, 'm/2.png', 1, 1, 1, 1, 'image/png')",
+    )).toThrow(/CHECK constraint failed/);
+    const messagingIndexes = database.query(
+      "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'messages' ORDER BY name",
+    ).all() as Array<{ name: string }>;
+    expect(messagingIndexes.map((row) => row.name)).toContain('idx_messages_sender_created');
+
+    database.exec("INSERT INTO activity_outbox (event_id, recipient_user_id, actor_user_id, type, resource_type, resource_id) VALUES ('event-1', 2, 1, 'discover_like', 'discover_post', 9)");
+    expect(() => database.exec(
+      "INSERT INTO activity_outbox (event_id, recipient_user_id, actor_user_id, type, resource_type, resource_id) VALUES ('event-1', 2, 1, 'discover_like', 'discover_post', 9)",
+    )).toThrow(/UNIQUE constraint failed/);
+    database.exec("INSERT INTO notifications (event_id, recipient_user_id, actor_user_id, type, resource_type, resource_id) VALUES ('event-1', 2, 1, 'discover_like', 'discover_post', 9)");
+    expect(() => database.exec(
+      "INSERT INTO notifications (event_id, recipient_user_id, actor_user_id, type, resource_type, resource_id) VALUES ('event-1', 1, 2, 'discover_like', 'discover_post', 9)",
+    )).toThrow(/UNIQUE constraint failed/);
+    database.close();
+  });
+
+  test('fails closed on migration metadata or schema drift without writing', () => {
+    const database = openMemory();
+    migrateDatabase(database, { allowDestructive: true });
+    const originalChecksum = (database.query(
+      'SELECT checksum FROM huas_schema_migrations WHERE version = 2',
+    ).get() as { checksum: string }).checksum;
+    database.exec("UPDATE huas_schema_migrations SET checksum = 'tampered' WHERE version = 2");
+    expect(() => assertDatabaseSchemaCurrent(database)).toThrow(/metadata mismatch/);
+    database.query('UPDATE huas_schema_migrations SET checksum = ? WHERE version = 2').run(originalChecksum);
+    database.exec('ALTER TABLE users ADD COLUMN drifted TEXT');
+    expect(() => assertDatabaseSchemaCurrent(database)).toThrow(/schema fingerprint mismatch/);
+    expect(getCurrentSchemaVersion(database)).toBe(3);
     database.close();
   });
 
@@ -99,39 +256,66 @@ describe('database migrations', () => {
       },
     })).toThrow('simulated interruption');
     expect(getCurrentSchemaVersion(database)).toBe(1);
-    expect((database.query("SELECT count(*) AS count FROM sqlite_master WHERE name='second_table'").get() as any).count).toBe(0);
+    expect(objectExists(database, 'second_table')).toBe(false);
     expect(migrateDatabase(database, { migrations }).version).toBe(2);
     database.close();
   });
 
-  test('keeps the business schema readable by the previous application version', () => {
-    const database = openMemory();
-    migrateDatabase(database);
-    database.query('INSERT INTO users (student_id, name) VALUES (?, ?)').run('previous-app', '兼容用户');
-    const row = database.query('SELECT student_id, name, last_active_at FROM users WHERE student_id = ?').get('previous-app') as any;
-    expect(row.student_id).toBe('previous-app');
-    expect(Number(row.last_active_at)).toBeGreaterThan(0);
-    database.close();
+  test('keeps all migration authority out of the runtime database entry', () => {
+    const source = readFileSync(join(process.cwd(), 'src/db/index.ts'), 'utf8');
+    expect(source).not.toContain('initDatabase');
+    expect(source).not.toContain('migrateDatabase');
+    expect(source).not.toContain('backfillCriticalTimestamps');
+    expect(source).toContain('assertConfiguredDatabaseSchemaCurrent');
   });
 
-  test('keeps full-table derived-count repair out of ordinary initialization', () => {
-    const source = readFileSync(join(process.cwd(), 'src/db/index.ts'), 'utf8');
-    expect(source).not.toContain('SET comment_count =');
-    expect(source).not.toContain('SET like_count =');
-    expect(source).toContain('DEPRECATED: initDatabase()');
-  });
+  test('a v2 database makes the server fail before ready instead of self-migrating', async () => {
+    const root = temporaryRoot();
+    const dbPath = join(root, 'v2.db');
+    const database = new Database(dbPath);
+    migrateLegacy(database);
+    database.close();
+
+    const child = Bun.spawn([process.execPath, 'run', 'src/index.ts'], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        DB_PATH: dbPath,
+        PORT: '0',
+        NODE_ENV: 'production',
+        LOG_LEVEL: 'error',
+      },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const stdoutPromise = new Response(child.stdout).text();
+    const stderrPromise = new Response(child.stderr).text();
+    const outcome = await Promise.race([
+      child.exited.then((exitCode) => ({ exitCode, timedOut: false })),
+      new Promise<{ exitCode: number; timedOut: true }>((resolve) => {
+        setTimeout(() => resolve({ exitCode: -1, timedOut: true }), 5_000);
+      }),
+    ]);
+    if (outcome.timedOut) child.kill();
+    const output = `${await stdoutPromise}\n${await stderrPromise}`;
+    expect(outcome.timedOut).toBe(false);
+    expect(outcome.exitCode).not.toBe(0);
+    expect(output).toMatch(/schema|migration/i);
+    expect(output).not.toMatch(/server ready/i);
+  }, 10_000);
 });
 
 describe('database repair', () => {
   function databaseWithDrift(): Database {
     const database = openMemory();
-    migrateDatabase(database);
+    migrateDatabase(database, { allowDestructive: true });
     database.query('INSERT INTO users (student_id) VALUES (?)').run('repair-user');
     database.exec(`
-      INSERT INTO discover_posts (user_id, category, storage_key, images_json, tags_json, cover_url, comment_count, rating_count, rating_sum, rating_avg)
-      VALUES (1, '其他', 'repair', '[]', '[]', '', 99, 99, 99, 99);
+      INSERT INTO discover_posts
+        (user_id, category, storage_key, images_json, tags_json, cover_url, comment_count, like_count)
+      VALUES (1, '其他', 'repair', '[]', '[]', '', 99, 99);
       INSERT INTO discover_comments (post_id, user_id, content) VALUES (1, 1, 'visible');
-      INSERT INTO discover_post_ratings (post_id, user_id, score) VALUES (1, 1, 4);
+      INSERT INTO discover_post_likes (post_id, user_id) VALUES (1, 1);
       INSERT INTO treehole_posts (user_id, content, like_count, comment_count) VALUES (1, 'repair', 99, 99);
       INSERT INTO treehole_post_likes (post_id, user_id) VALUES (1, 1);
       INSERT INTO treehole_comments (post_id, user_id, content) VALUES (1, 1, 'visible');
@@ -141,8 +325,15 @@ describe('database repair', () => {
 
   test('dry-run reports drift without writing rows', () => {
     const database = databaseWithDrift();
-    expect(repairDerivedCounts(database, { dryRun: true })).toEqual({ dryRun: true, discoverPosts: 1, treeholePosts: 1 });
-    expect((database.query('SELECT comment_count FROM discover_posts').get() as any).comment_count).toBe(99);
+    expect(repairDerivedCounts(database, { dryRun: true })).toEqual({
+      dryRun: true,
+      discoverPosts: 1,
+      treeholePosts: 1,
+    });
+    expect(database.query('SELECT comment_count, like_count FROM discover_posts').get()).toEqual({
+      comment_count: 99,
+      like_count: 99,
+    });
     database.close();
   });
 
@@ -150,13 +341,14 @@ describe('database repair', () => {
     const database = databaseWithDrift();
     expect(repairDerivedCounts(database)).toEqual({ dryRun: false, discoverPosts: 1, treeholePosts: 1 });
     expect(repairDerivedCounts(database)).toEqual({ dryRun: false, discoverPosts: 0, treeholePosts: 0 });
-    expect(database.query('SELECT comment_count, rating_count, rating_sum, rating_avg FROM discover_posts').get()).toEqual({
+    expect(database.query('SELECT comment_count, like_count FROM discover_posts').get()).toEqual({
       comment_count: 1,
-      rating_count: 1,
-      rating_sum: 4,
-      rating_avg: 4,
+      like_count: 1,
     });
-    expect(database.query('SELECT like_count, comment_count FROM treehole_posts').get()).toEqual({ like_count: 1, comment_count: 1 });
+    expect(database.query('SELECT like_count, comment_count FROM treehole_posts').get()).toEqual({
+      like_count: 1,
+      comment_count: 1,
+    });
     database.close();
   });
 });
@@ -166,7 +358,7 @@ describe('database snapshots', () => {
     const root = temporaryRoot();
     const dbPath = join(root, 'source.db');
     const database = new Database(dbPath);
-    migrateDatabase(database);
+    migrateDatabase(database, { allowDestructive: true });
     database.query('INSERT INTO users (student_id) VALUES (?)').run('snapshot-user');
     database.close();
 
@@ -175,29 +367,15 @@ describe('database snapshots', () => {
       release: 'release/phase-1',
       now: new Date('2026-07-27T01:02:03.000Z'),
     });
-    expect(snapshot).toEndWith('source-20260727T010203Z-schema-v2-release-release-phase-1.db');
+    expect(snapshot).toEndWith('source-20260727T010203Z-schema-v3-release-release-phase-1.db');
     const copy = new Database(snapshot, { readonly: true });
-    expect((copy.query('SELECT count(*) AS count FROM users').get() as any).count).toBe(1);
+    expect(count(copy, 'users')).toBe(1);
     copy.close();
   });
 
-  test('throws on snapshot failure and deploy scripts order snapshot before migration/start', () => {
+  test('throws on snapshot failure', () => {
     const root = temporaryRoot();
-    expect(() => createDatabaseSnapshot({ dbPath: join(root, 'missing.db'), release: 'failure' })).toThrow(/does not exist/);
-    for (const script of ['scripts/deploy-huas.sh', 'scripts/remote-blue-green-deploy.sh']) {
-      const source = readFileSync(join(process.cwd(), script), 'utf8');
-      const snapshotCall = script.endsWith('deploy-huas.sh')
-        ? source.lastIndexOf('bun run db:snapshot')
-        : source.lastIndexOf('snapshot_database "$RELEASE_SOURCE_DIR"');
-      const migrationCall = script.endsWith('deploy-huas.sh')
-        ? source.lastIndexOf('bun run db:migrate')
-        : source.lastIndexOf('migrate_database "$RELEASE_SOURCE_DIR"');
-      expect(snapshotCall).toBeGreaterThan(-1);
-      expect(snapshotCall).toBeLessThan(migrationCall);
-      const startCall = script.endsWith('deploy-huas.sh')
-        ? source.lastIndexOf('pm2 startOrReload')
-        : source.lastIndexOf('ensure_pm2_app "$target_slot"');
-      expect(snapshotCall).toBeLessThan(startCall);
-    }
+    expect(() => createDatabaseSnapshot({ dbPath: join(root, 'missing.db'), release: 'failure' }))
+      .toThrow(/does not exist/);
   });
 });

@@ -186,7 +186,6 @@ mock.module('../../src/modules/campus-integrations/upstream/upstream.ts', () => 
   },
 }));
 
-export let initDatabase: any;
 export let getDb: any;
 export let schema: any;
 export let config: any;
@@ -205,13 +204,13 @@ export let resetAuthLoginRateLimitStateForTests: any;
 
 export async function resetDb() {
   const db = getDb();
-  await db.delete(schema.treeholeCommentNotifications);
   await db.delete(schema.treeholePostLikes);
   await db.delete(schema.treeholeComments);
   await db.delete(schema.treeholePosts);
   await db.delete(schema.discoverComments);
-  await db.delete(schema.discoverPostRatings);
+  await db.delete(schema.discoverPostLikes);
   await db.delete(schema.discoverPosts);
+  await db.delete(schema.communityProfiles);
   await db.delete(schema.credentials);
   await db.delete(schema.cache);
   await db.delete(schema.users);
@@ -233,7 +232,7 @@ export async function createUser(studentId: string, password: string) {
 }
 
 beforeAll(async () => {
-  ({ initDatabase, getDb, schema } = await import('../../src/db/index.ts'));
+  ({ getDb, schema } = await import('../../src/db/index.ts'));
   ({ config } = await import('../../src/config.ts'));
   ({ default: authRoutes } = await import('../../src/routes/auth/auth.routes.ts'));
   ({ registerRoutes } = await import('../../src/routes/index.ts'));
@@ -247,7 +246,6 @@ beforeAll(async () => {
   ({ CacheService } = await import('../../src/services/infra/cache-service.ts'));
   ({ CryptoHelper } = await import('../../src/utils/crypto.ts'));
   ({ resetAuthLoginRateLimitStateForTests } = await import('../../src/middleware/auth-login-rate-limit.middleware.ts'));
-  initDatabase();
 });
 
 beforeEach(async () => {

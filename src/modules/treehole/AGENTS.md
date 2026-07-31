@@ -1,27 +1,25 @@
 # treehole/
-> L2 | 父级: /Users/xiangyun/workspace/huas-wechat-app/huas-server/src/modules/AGENTS.md
+> L2 | 父级: /src/modules/AGENTS.md
 
 成员清单
-application/: 树洞用例编排层，仅通过 ports 协调化名社区、管理视图与共享社区资料
-domain/: 树洞纯领域模型，定义校验、分页、前台社区资料响应、后台真实作者响应、外部端口与 Operations 只读查询契约
-http/: Treehole canonical Hono 协议适配器，保持 /api/treehole 契约
-infrastructure/: SQLite、Operations 管理只读查询与本地头像媒体 adapters，保存原 SQL、事务、图片和缓存语义
-composition.ts: 唯一装配根，连接 application ports 与 SQLite/头像 adapters，并提供迁移期静态类名
-legacy-shared.ts: composition-level 旧共享出口，恢复无 policy 参数规则签名与历史 SQL helper 导出
+application/: 树洞用例编排层，仅通过 persistence port 协调公开内容、用户帖子与管理行为
+domain/: 树洞纯领域模型，定义校验、分页、统一公共作者响应、外部端口与 Operations 只读查询契约
+http/: Treehole 注入式 Hono factory，提供帖子、公共用户帖子、点赞、评论和作者删除协议
+infrastructure/: 构造注入 SQLite adapters，查询 Treehole 事实并经 CommunityProfileReader 批量投影作者
+composition.ts: 无全局状态模块工厂，接收 db/profile reader/policy/Notifications Outbox 与投影 ports，并产出 service、routes 与 Operations query
 
 架构决策
-Treehole 是独立化名社区纵向切片；application 不知道 Hono、Drizzle、Bun 或文件系统，domain 不依赖 Hono/Drizzle/Bun/Node fs。
-持久化只有一个 TreeholePersistence port，头像文件只有一个 TreeholeAvatarStorage port；不会为单条 select 伪造 Repository，也不与 Discover 共享数据库 helper。
-前台帖子/评论仅映射社区昵称与头像；真实学号、姓名、班级只允许管理查询 adapter 映射。
+Treehole 是实名绑定但沿用“树洞”产品名称的独立内容切片；application 不知道 Hono/Drizzle，domain 只依赖 Community 公共作者类型。
+持久化只有一个 TreeholePersistence port；资料与头像完全归 Community，Treehole 仅经 Notifications 窄端口原子写活动 Outbox 并在提交后触发投影，不保留兼容入口。
+所有内容响应显式携带 `{ id, displayName, avatarUrl }`，SQLite adapter 不 JOIN users/community_profiles，只在事实分页完成后批量投影作者。
 
 开发规范
-点赞幂等、评论/通知/计数与删除清理必须保留 SQLite 原事务边界及 SQL 顺序。
-旧 routes/services 只能单向再导出 composition/http/domain，新模块禁止反向依赖 Facade。
-legacy-shared.ts 只服务旧 Facade，canonical application/domain 禁止依赖该兼容层。
-Operations 管理列表经 TreeholeOperationsQueryPort 读取，真实作者 SQL 仍封装在本模块 infrastructure。
+点赞幂等、自赞门禁、评论计数与删除清理必须保留 SQLite 事务边界。
+Operations 管理列表经 TreeholeOperationsQueryPort 读取内容事实与公共作者，不暴露校园敏感身份。
 
 变更日志
-2026-07-29: 社区资料扩展昵称并保留头像兼容接口，前台公共视图只投影化名资料，不泄露校园身份。
+2026-07-31: 完全取消匿名与模块内资料/头像/旧通知职责，统一 Community 作者 DTO，新增公共用户帖子接口并改为全构造注入。
+2026-07-31: 删除 Treehole 旧 routes/services 过渡出口，生产装配直接使用 canonical 模块。
 2026-07-27: 建立 Treehole http/application/domain/infrastructure 纵向切片并保留旧路径 Facade。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md

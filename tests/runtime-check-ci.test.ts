@@ -33,17 +33,18 @@ describe('runtime local and CI quality gate', () => {
 
   it('registers Analytics shutdown behind the bounded Runtime flush hook', async () => {
     const entry = await readFile(join(process.cwd(), 'src/index.ts'), 'utf8');
-    expect(entry).toContain("registerShutdownFlushHook('analytics'");
-    expect(entry).toContain('await AnalyticsService.shutdown()');
+    const composition = await readFile(join(process.cwd(), 'src/composition.ts'), 'utf8');
+    expect(composition).toContain("registerShutdownFlushHook('analytics'");
+    expect(composition).toContain('await AnalyticsService.shutdown()');
     expect(entry).toContain('await flushShutdownHooks()');
-    expect(entry).toContain('CacheService.configureObservers({');
-    expect(entry).toContain('runtimeMetrics.recordCache(outcome)');
-    expect(entry).toContain('runtimeMetrics.recordSingleflightMerge()');
-    expect(entry).toContain('configureRefreshFallbackObservers({');
-    expect(entry).toContain('runtimeMetrics.recordFallback()');
-    expect(entry).toContain('AnalyticsService.configureFlushFailureObserver');
-    expect(entry).toContain('runtimeMetrics.recordAnalyticsFlushFailure()');
-    expect(entry).toContain('configureHttpClientObservers({');
-    expect(entry).toContain('runtimeMetrics.recordUpstream(outcome)');
+    expect(composition).toContain('CacheService.configureObservers({');
+    expect(composition).toContain('runtimeMetrics.recordCache(outcome)');
+    expect(composition).toContain('runtimeMetrics.recordSingleflightMerge()');
+    expect(composition).toContain('configureRefreshFallbackObservers({');
+    expect(composition).toContain('runtimeMetrics.recordFallback()');
+    expect(composition).toContain('AnalyticsService.configureFlushFailureObserver');
+    expect(composition).toContain('runtimeMetrics.recordAnalyticsFlushFailure()');
+    expect(composition).toContain('configureHttpClientObservers({');
+    expect(composition).toContain('runtimeMetrics.recordUpstream(outcome)');
   });
 });

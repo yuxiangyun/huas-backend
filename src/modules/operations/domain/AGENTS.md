@@ -1,5 +1,5 @@
 # domain/
-> L2 | 父级: /Users/xiangyun/workspace/huas-wechat-app/huas-server/src/modules/operations/AGENTS.md
+> L2 | 父级: /src/modules/operations/AGENTS.md
 
 成员清单
 operations.ts: Dashboard 输入、进程遥测与终端日志等稳定 DTO

@@ -343,10 +343,12 @@ SQLite 是业务事实源；data 下 JSON、媒体与内存态只承载运行策
 课表由 Academic Facade 按持久化策略执行双源 current，再按 JW、Portal 固定顺序选择 stale；管理面只调用 Academic 暴露的策略用例。
 成绩强制刷新执行 JW fresh-first：45 秒总预算内有限恢复凭证并重试明确临时错误，只有新鲜路径穷尽后才允许 stale fallback。
 课表来源策略文件默认位于 dirname(DB_PATH)，生产蓝绿槽必须共享同一绝对持久路径，运行态 JSON、锁与临时文件不得纳入 Git。
-discover 与 treehole 是独立业务支线，媒体访问挂载于 /media/*，不经过学校上游。
-Web 社区昵称与头像存于 users 并实时投影到 discover/treehole；昵称不覆盖校园姓名，内容事实表不保存资料快照。
+community 独立拥有 community_profiles 昵称/头像与默认 displayName；只经 Identity 窄端口读取 className，社交消费者经批量 reader 投影统一公共作者。
+discover 与 treehole 是独立业务支线，媒体访问挂载于 /media/*，不经过学校上游；内容事实表不保存公开资料快照。
+Discover/Treehole 的六类有效互动与 activity_outbox 在同一 SQLite 短事务提交；Notifications 以稳定 recipient event_id 幂等投影、仅支持逐条已读，取消点赞在原事务撤销对应通知。
+Messaging 只建一对一唯一会话，首条消息事务内延迟建会话并以 UUID 幂等；私信图片位于 dirname(DB_PATH)/message-media，仅参与者或管理员经鉴权路由读取，Operations 只消费公开只读 port。
 Web 入口为 /m，普通用户默认进入 Treehole；管理端使用独立 HttpOnly Cookie 会话，普通用户 JWT 与后台权限不互通。
-Git push 始终把当前 HEAD 推到 baidu/main，由远端 hook 完成数据库快照、迁移、非活动槽构建、readiness 与 nginx 原子切流。
+Git push 始终把当前 HEAD 推到 baidu/main，由远端 hook 执行维护发布：release 准备后停流与停全部 writer，再快照、显式 destructive migration、新 Server/Web 本机冒烟并重新开放流量；migration 后失败不得恢复旧 upstream，只能保持停流并 forward-fix。
 </architecture_decisions>
 
 <routes>
@@ -359,8 +361,11 @@ Git push 始终把当前 HEAD 推到 baidu/main，由远端 hook 完成数据库
 /api/admin/academic/schedule-source-policy - 课表双源优先级读取与热切换
 /api/schedule、/api/v1/schedule - 双源课表与兼容入口
 /api/grades、/api/ecard、/api/user - 校园业务接口
-/api/discover/*、/api/treehole/* - 独立 UGC 业务
-/api/treehole/profile - Web 社区昵称与头像的认证读写入口
+/api/discover/*、/api/treehole/* - 绑定 users.id 并统一投影公共作者的独立 UGC 业务
+/api/community/profile、/api/community/users/:id - Web 社区资料读写与公共用户详情
+/api/notifications/* - 六类活动通知列表、未读计数与逐条已读
+/api/messaging/* - 一对一会话、图文消息、阅读游标、未读计数与参与者私有媒体
+/api/admin/messaging/* - 后台 Cookie 会话保护的私信会话、历史与媒体只读入口
 /api/classrooms/* - 管理员账号代查的空教室只读接口
 /media/discover/*、/media/treehole-avatar/* - 静态媒体访问
 </routes>

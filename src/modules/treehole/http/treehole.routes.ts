@@ -1,25 +1,37 @@
 /**
- * [INPUT]: 依赖 composition 的 TreeholeService、config.treehole、errors/http-log/logger/response 工具
- * [OUTPUT]: 对外默认导出 treehole Hono 路由，提供 /api/treehole 帖子、评论、点赞、通知与社区资料接口
- * [POS]: modules/treehole/http 的 canonical 协议适配器，只解析请求与包装响应，业务规则下沉到 application
+ * [INPUT]: 依赖 Hono、注入的 TreeholeApplicationService 与统一错误/日志/响应工具
+ * [OUTPUT]: 对外提供 createTreeholeRoutes(service)，映射帖子、用户帖子、点赞、评论与作者删除协议
+ * [POS]: modules/treehole/http 的认证后 factory adapter，不读取配置、数据库或 composition singleton
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { Hono } from 'hono';
-import { config } from '../../../config';
+import { Hono, type Context } from 'hono';
 import { ErrorCode } from '../../../utils/errors';
 import { appendHttpLogDetail, formatHttpLogDetail } from '../../../utils/http-log';
 import { Logger } from '../../../utils/logger';
 import { error, success } from '../../../utils/response';
-import { TreeholeService } from '../composition';
+import type { TreeholeApplicationService } from '../application/treehole-application-service';
 
-const treehole = new Hono();
+type TreeholeHttpService = Pick<
+  TreeholeApplicationService,
+  | 'getMeta'
+  | 'listPosts'
+  | 'listMyPosts'
+  | 'listUserPosts'
+  | 'createPost'
+  | 'getPostDetail'
+  | 'likePost'
+  | 'unlikePost'
+  | 'listComments'
+  | 'createComment'
+  | 'deletePost'
+  | 'deleteComment'
+>;
 
-function parsePositiveInt(value: string | undefined, fallback: number) {
-  if (value === undefined) return fallback;
-  const n = Number(value);
-  if (!Number.isInteger(n) || n <= 0) return null;
-  return n;
+function parseOptionalPositiveInt(value: string | undefined) {
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 function parseEntityId(value: string) {
@@ -27,386 +39,175 @@ function parseEntityId(value: string) {
   return Number.isInteger(id) && id > 0 ? id : null;
 }
 
-treehole.get('/meta', (c) => {
-  const data = TreeholeService.getMeta();
-  appendHttpLogDetail(c, formatHttpLogDetail({
-    maxPostLength: data.limits.maxPostLength,
-    maxCommentLength: data.limits.maxCommentLength,
-  }));
-  return success(c, data);
-});
+function parsePagination(c: Context) {
+  return {
+    page: parseOptionalPositiveInt(c.req.query('page')),
+    pageSize: parseOptionalPositiveInt(c.req.query('pageSize')),
+  };
+}
 
-treehole.get('/avatar', async (c) => {
-  const data = await TreeholeService.getAvatar(c.get('userId'));
-  appendHttpLogDetail(c, formatHttpLogDetail({
-    hasAvatar: Boolean(data.avatarUrl),
-  }));
-  return success(c, data);
-});
+export function createTreeholeRoutes(service: TreeholeHttpService) {
+  const routes = new Hono();
 
-treehole.get('/profile', async (c) => {
-  const data = await TreeholeService.getCommunityProfile(c.get('userId'));
-  appendHttpLogDetail(c, formatHttpLogDetail({
-    hasAvatar: Boolean(data.avatarUrl),
-    hasNickname: Boolean(data.nickname),
-  }));
-  return success(c, data);
-});
-
-treehole.put('/profile', async (c) => {
-  let form: FormData;
-  try {
-    form = await c.req.formData();
-  } catch {
-    return error(c, ErrorCode.PARAM_ERROR, '请求必须是 multipart/form-data', 400);
-  }
-
-  const nickname = form.get('nickname');
-  if (typeof nickname !== 'string') {
-    return error(c, ErrorCode.PARAM_ERROR, '昵称字段不能为空', 400);
-  }
-
-  const avatarEntry = form.get('avatar');
-  if (avatarEntry !== null && (!(avatarEntry instanceof File) || avatarEntry.size <= 0)) {
-    return error(c, ErrorCode.PARAM_ERROR, '头像文件不合法', 400);
-  }
-  const avatar = avatarEntry instanceof File ? avatarEntry : undefined;
-
-  appendHttpLogDetail(c, formatHttpLogDetail({
-    nicknameLength: Array.from(nickname.trim()).length,
-    avatarBytes: avatar?.size ?? 0,
-  }));
-
-  const data = await TreeholeService.updateCommunityProfile(c.get('userId'), nickname, avatar);
-  appendHttpLogDetail(c, formatHttpLogDetail({
-    hasAvatar: Boolean(data.avatarUrl),
-    hasNickname: Boolean(data.nickname),
-  }));
-  return success(c, data);
-});
-
-treehole.post('/avatar', async (c) => {
-  let form: FormData;
-  try {
-    form = await c.req.formData();
-  } catch {
-    return error(c, ErrorCode.PARAM_ERROR, '请求必须是 multipart/form-data', 400);
-  }
-
-  const avatar = form.get('avatar');
-  if (!(avatar instanceof File) || avatar.size <= 0) {
-    return error(c, ErrorCode.PARAM_ERROR, '头像文件不能为空', 400);
-  }
-
-  appendHttpLogDetail(c, formatHttpLogDetail({
-    avatarBytes: avatar.size,
-  }));
-
-  const data = await TreeholeService.updateAvatar(c.get('userId'), avatar);
-  appendHttpLogDetail(c, formatHttpLogDetail({
-    hasAvatar: Boolean(data.avatarUrl),
-  }));
-  return success(c, data);
-});
-
-treehole.delete('/avatar', async (c) => {
-  const data = await TreeholeService.clearAvatar(c.get('userId'));
-  appendHttpLogDetail(c, formatHttpLogDetail({
-    hasAvatar: Boolean(data.avatarUrl),
-  }));
-  return success(c, data);
-});
-
-treehole.get('/notifications/unread-count', async (c) => {
-  const data = await TreeholeService.getUnreadNotificationCount(c.get('userId'));
-  appendHttpLogDetail(c, formatHttpLogDetail({
-    unreadCount: data.unreadCount,
-  }));
-  return success(c, data);
-});
-
-treehole.post('/notifications/read-all', async (c) => {
-  const data = await TreeholeService.markAllNotificationsRead(c.get('userId'));
-  appendHttpLogDetail(c, formatHttpLogDetail({
-    readCount: data.readCount,
-  }));
-  return success(c, data);
-});
-
-treehole.get('/posts', async (c) => {
-  const page = parsePositiveInt(c.req.query('page'), 1);
-  const pageSize = parsePositiveInt(c.req.query('pageSize'), config.treehole.defaultPageSize);
-  if (!page || !pageSize) {
-    return error(c, ErrorCode.PARAM_ERROR, '分页参数不合法', 400);
-  }
-
-  appendHttpLogDetail(c, formatHttpLogDetail({ page, pageSize }));
-  const data = await TreeholeService.listPosts({
-    userId: c.get('userId'),
-    page,
-    pageSize,
+  routes.get('/meta', (c) => {
+    const data = service.getMeta();
+    appendHttpLogDetail(c, formatHttpLogDetail({
+      maxPostLength: data.limits.maxPostLength,
+      maxCommentLength: data.limits.maxCommentLength,
+    }));
+    return success(c, data);
   });
 
-  appendHttpLogDetail(c, formatHttpLogDetail({
-    total: data.total,
-    items: data.items.length,
-    hasMore: data.hasMore,
-  }));
-  return success(c, data);
-});
-
-treehole.get('/posts/me', async (c) => {
-  const page = parsePositiveInt(c.req.query('page'), 1);
-  const pageSize = parsePositiveInt(c.req.query('pageSize'), config.treehole.defaultPageSize);
-  if (!page || !pageSize) {
-    return error(c, ErrorCode.PARAM_ERROR, '分页参数不合法', 400);
-  }
-
-  appendHttpLogDetail(c, formatHttpLogDetail({
-    scope: 'me',
-    page,
-    pageSize,
-  }));
-  const data = await TreeholeService.listMyPosts({
-    userId: c.get('userId'),
-    page,
-    pageSize,
-  });
-
-  appendHttpLogDetail(c, formatHttpLogDetail({
-    total: data.total,
-    items: data.items.length,
-    hasMore: data.hasMore,
-  }));
-  return success(c, data);
-});
-
-treehole.post('/posts', async (c) => {
-  let body: any;
-  try {
-    body = await c.req.json();
-  } catch {
-    return error(c, ErrorCode.PARAM_ERROR, '请求体必须是有效的 JSON', 400);
-  }
-
-  appendHttpLogDetail(c, formatHttpLogDetail({
-    contentLength: typeof body?.content === 'string' ? body.content.trim().length : 0,
-  }));
-
-  const data = await TreeholeService.createPost({
-    userId: c.get('userId'),
-    content: typeof body?.content === 'string' ? body.content : '',
-  });
-
-  appendHttpLogDetail(c, formatHttpLogDetail({ postId: data?.id }));
-
-  Logger.operation(
-    'Treehole',
-    `发布树洞 #${data?.id ?? '-'}`,
-    c.get('studentId'),
-    c.get('name')
-  );
-
-  return success(c, data, undefined, 201);
-});
-
-treehole.get('/posts/:id', async (c) => {
-  const postId = parseEntityId(c.req.param('id'));
-  if (!postId) {
-    return error(c, ErrorCode.PARAM_ERROR, '帖子 ID 不合法', 400);
-  }
-
-  appendHttpLogDetail(c, formatHttpLogDetail({ postId }));
-  const data = await TreeholeService.getPostDetail(c.get('userId'), postId);
-  if (!data) {
-    return error(c, ErrorCode.PARAM_ERROR, '帖子不存在', 404);
-  }
-
-  return success(c, data);
-});
-
-treehole.put('/posts/:id/like', async (c) => {
-  const postId = parseEntityId(c.req.param('id'));
-  if (!postId) {
-    return error(c, ErrorCode.PARAM_ERROR, '帖子 ID 不合法', 400);
-  }
-
-  appendHttpLogDetail(c, formatHttpLogDetail({ postId, action: 'like' }));
-  const data = await TreeholeService.likePost(c.get('userId'), postId);
-  if (!data) {
-    return error(c, ErrorCode.PARAM_ERROR, '帖子不存在', 404);
-  }
-
-  appendHttpLogDetail(c, formatHttpLogDetail({
-    liked: data.viewer.liked,
-    likeCount: data.stats.likeCount,
-  }));
-
-  Logger.operation(
-    'Treehole',
-    `点赞树洞 #${postId}`,
-    c.get('studentId'),
-    c.get('name')
-  );
-
-  return success(c, data);
-});
-
-treehole.delete('/posts/:id/like', async (c) => {
-  const postId = parseEntityId(c.req.param('id'));
-  if (!postId) {
-    return error(c, ErrorCode.PARAM_ERROR, '帖子 ID 不合法', 400);
-  }
-
-  appendHttpLogDetail(c, formatHttpLogDetail({ postId, action: 'unlike' }));
-  const data = await TreeholeService.unlikePost(c.get('userId'), postId);
-  if (!data) {
-    return error(c, ErrorCode.PARAM_ERROR, '帖子不存在', 404);
-  }
-
-  appendHttpLogDetail(c, formatHttpLogDetail({
-    liked: data.viewer.liked,
-    likeCount: data.stats.likeCount,
-  }));
-
-  Logger.operation(
-    'Treehole',
-    `取消点赞树洞 #${postId}`,
-    c.get('studentId'),
-    c.get('name')
-  );
-
-  return success(c, data);
-});
-
-treehole.get('/posts/:id/comments', async (c) => {
-  const postId = parseEntityId(c.req.param('id'));
-  if (!postId) {
-    return error(c, ErrorCode.PARAM_ERROR, '帖子 ID 不合法', 400);
-  }
-
-  const page = parsePositiveInt(c.req.query('page'), 1);
-  const pageSize = parsePositiveInt(c.req.query('pageSize'), config.treehole.defaultCommentPageSize);
-  if (!page || !pageSize) {
-    return error(c, ErrorCode.PARAM_ERROR, '分页参数不合法', 400);
-  }
-
-  appendHttpLogDetail(c, formatHttpLogDetail({
-    postId,
-    page,
-    pageSize,
-  }));
-  const data = await TreeholeService.listComments(c.get('userId'), postId, {
-    page,
-    pageSize,
-  });
-  if (!data) {
-    return error(c, ErrorCode.PARAM_ERROR, '帖子不存在', 404);
-  }
-
-  appendHttpLogDetail(c, formatHttpLogDetail({
-    total: data.total,
-    items: data.items.length,
-    hasMore: data.hasMore,
-  }));
-
-  return success(c, data);
-});
-
-treehole.post('/posts/:id/comments', async (c) => {
-  const postId = parseEntityId(c.req.param('id'));
-  if (!postId) {
-    return error(c, ErrorCode.PARAM_ERROR, '帖子 ID 不合法', 400);
-  }
-
-  let body: any;
-  try {
-    body = await c.req.json();
-  } catch {
-    return error(c, ErrorCode.PARAM_ERROR, '请求体必须是有效的 JSON', 400);
-  }
-
-  appendHttpLogDetail(c, formatHttpLogDetail({
-    postId,
-    contentLength: typeof body?.content === 'string' ? body.content.trim().length : 0,
-  }));
-
-  let parentCommentId: number | null = null;
-  if (body?.parentCommentId !== undefined && body?.parentCommentId !== null && body?.parentCommentId !== '') {
-    const parsedParentCommentId = Number(body.parentCommentId);
-    if (!Number.isInteger(parsedParentCommentId) || parsedParentCommentId <= 0) {
-      return error(c, ErrorCode.PARAM_ERROR, '父评论 ID 不合法', 400);
+  routes.get('/posts', async (c) => {
+    const pagination = parsePagination(c);
+    if (pagination.page === null || pagination.pageSize === null) {
+      return error(c, ErrorCode.PARAM_ERROR, '分页参数不合法', 400);
     }
-    parentCommentId = parsedParentCommentId;
-  }
-
-  const data = await TreeholeService.createComment({
-    userId: c.get('userId'),
-    postId,
-    content: typeof body?.content === 'string' ? body.content : '',
-    parentCommentId,
+    const data = await service.listPosts({
+      userId: c.get('userId'),
+      page: pagination.page ?? undefined,
+      pageSize: pagination.pageSize ?? undefined,
+    });
+    appendHttpLogDetail(c, formatHttpLogDetail({ total: data.total, items: data.items.length }));
+    return success(c, data);
   });
-  if (!data) {
-    return error(c, ErrorCode.PARAM_ERROR, '帖子不存在', 404);
-  }
 
-  appendHttpLogDetail(c, formatHttpLogDetail({ commentId: data.id, parentCommentId: data.parentCommentId ?? undefined }));
+  routes.get('/posts/me', async (c) => {
+    const pagination = parsePagination(c);
+    if (pagination.page === null || pagination.pageSize === null) {
+      return error(c, ErrorCode.PARAM_ERROR, '分页参数不合法', 400);
+    }
+    const data = await service.listMyPosts({
+      userId: c.get('userId'),
+      page: pagination.page ?? undefined,
+      pageSize: pagination.pageSize ?? undefined,
+    });
+    appendHttpLogDetail(c, formatHttpLogDetail({ scope: 'me', total: data.total }));
+    return success(c, data);
+  });
 
-  Logger.operation(
-    'Treehole',
-    `评论树洞 #${postId}`,
-    c.get('studentId'),
-    c.get('name')
-  );
+  routes.get('/users/:userId/posts', async (c) => {
+    const authorUserId = parseEntityId(c.req.param('userId'));
+    const pagination = parsePagination(c);
+    if (!authorUserId) return error(c, ErrorCode.PARAM_ERROR, '用户 ID 不合法', 400);
+    if (pagination.page === null || pagination.pageSize === null) {
+      return error(c, ErrorCode.PARAM_ERROR, '分页参数不合法', 400);
+    }
+    const data = await service.listUserPosts(c.get('userId'), authorUserId, {
+      page: pagination.page ?? undefined,
+      pageSize: pagination.pageSize ?? undefined,
+    });
+    appendHttpLogDetail(c, formatHttpLogDetail({ authorUserId, total: data.total }));
+    return success(c, data);
+  });
 
-  return success(c, data, undefined, 201);
-});
+  routes.post('/posts', async (c) => {
+    let body: any;
+    try {
+      body = await c.req.json();
+    } catch {
+      return error(c, ErrorCode.PARAM_ERROR, '请求体必须是有效的 JSON', 400);
+    }
+    appendHttpLogDetail(c, formatHttpLogDetail({
+      contentLength: typeof body?.content === 'string' ? body.content.trim().length : 0,
+    }));
+    const data = await service.createPost({
+      userId: c.get('userId'),
+      content: typeof body?.content === 'string' ? body.content : '',
+    });
+    Logger.operation('Treehole', `发布树洞 #${data?.id ?? '-'}`, c.get('studentId'), c.get('name'));
+    return success(c, data, undefined, 201);
+  });
 
-treehole.delete('/posts/:id', async (c) => {
-  const postId = parseEntityId(c.req.param('id'));
-  if (!postId) {
-    return error(c, ErrorCode.PARAM_ERROR, '帖子 ID 不合法', 400);
-  }
+  routes.get('/posts/:id', async (c) => {
+    const postId = parseEntityId(c.req.param('id'));
+    if (!postId) return error(c, ErrorCode.PARAM_ERROR, '帖子 ID 不合法', 400);
+    const data = await service.getPostDetail(c.get('userId'), postId);
+    return data ? success(c, data) : error(c, ErrorCode.PARAM_ERROR, '帖子不存在', 404);
+  });
 
-  appendHttpLogDetail(c, formatHttpLogDetail({ postId }));
-  const removed = await TreeholeService.deletePost(postId, c.get('userId'));
-  if (!removed) {
-    return error(c, ErrorCode.PARAM_ERROR, '帖子不存在或无权删除', 404);
-  }
+  routes.put('/posts/:id/like', async (c) => {
+    const postId = parseEntityId(c.req.param('id'));
+    if (!postId) return error(c, ErrorCode.PARAM_ERROR, '帖子 ID 不合法', 400);
+    const data = await service.likePost(c.get('userId'), postId);
+    if (!data) return error(c, ErrorCode.PARAM_ERROR, '帖子不存在', 404);
+    appendHttpLogDetail(c, formatHttpLogDetail({ postId, liked: data.viewer.liked }));
+    Logger.operation('Treehole', `点赞树洞 #${postId}`, c.get('studentId'), c.get('name'));
+    return success(c, data);
+  });
 
-  Logger.operation(
-    'Treehole',
-    `删除树洞 #${removed.id}`,
-    c.get('studentId'),
-    c.get('name')
-  );
+  routes.delete('/posts/:id/like', async (c) => {
+    const postId = parseEntityId(c.req.param('id'));
+    if (!postId) return error(c, ErrorCode.PARAM_ERROR, '帖子 ID 不合法', 400);
+    const data = await service.unlikePost(c.get('userId'), postId);
+    if (!data) return error(c, ErrorCode.PARAM_ERROR, '帖子不存在', 404);
+    appendHttpLogDetail(c, formatHttpLogDetail({ postId, liked: data.viewer.liked }));
+    Logger.operation('Treehole', `取消点赞树洞 #${postId}`, c.get('studentId'), c.get('name'));
+    return success(c, data);
+  });
 
-  return success(c, removed);
-});
+  routes.get('/posts/:id/comments', async (c) => {
+    const postId = parseEntityId(c.req.param('id'));
+    const pagination = parsePagination(c);
+    if (!postId) return error(c, ErrorCode.PARAM_ERROR, '帖子 ID 不合法', 400);
+    if (pagination.page === null || pagination.pageSize === null) {
+      return error(c, ErrorCode.PARAM_ERROR, '分页参数不合法', 400);
+    }
+    const data = await service.listComments(c.get('userId'), postId, {
+      page: pagination.page ?? undefined,
+      pageSize: pagination.pageSize ?? undefined,
+    });
+    return data ? success(c, data) : error(c, ErrorCode.PARAM_ERROR, '帖子不存在', 404);
+  });
 
-treehole.delete('/comments/:id', async (c) => {
-  const commentId = parseEntityId(c.req.param('id'));
-  if (!commentId) {
-    return error(c, ErrorCode.PARAM_ERROR, '评论 ID 不合法', 400);
-  }
+  routes.post('/posts/:id/comments', async (c) => {
+    const postId = parseEntityId(c.req.param('id'));
+    if (!postId) return error(c, ErrorCode.PARAM_ERROR, '帖子 ID 不合法', 400);
+    let body: any;
+    try {
+      body = await c.req.json();
+    } catch {
+      return error(c, ErrorCode.PARAM_ERROR, '请求体必须是有效的 JSON', 400);
+    }
+    let parentCommentId: number | null = null;
+    if (body?.parentCommentId !== undefined && body?.parentCommentId !== null && body.parentCommentId !== '') {
+      parentCommentId = parseEntityId(String(body.parentCommentId));
+      if (!parentCommentId) return error(c, ErrorCode.PARAM_ERROR, '父评论 ID 不合法', 400);
+    }
+    const data = await service.createComment({
+      userId: c.get('userId'),
+      postId,
+      content: typeof body?.content === 'string' ? body.content : '',
+      parentCommentId,
+    });
+    if (!data) return error(c, ErrorCode.PARAM_ERROR, '帖子不存在', 404);
+    Logger.operation('Treehole', `评论树洞 #${postId}`, c.get('studentId'), c.get('name'));
+    return success(c, data, undefined, 201);
+  });
 
-  appendHttpLogDetail(c, formatHttpLogDetail({ commentId }));
-  const removed = await TreeholeService.deleteComment(commentId, c.get('userId'));
-  if (!removed) {
-    return error(c, ErrorCode.PARAM_ERROR, '评论不存在或无权删除', 404);
-  }
+  routes.delete('/posts/:id', async (c) => {
+    const postId = parseEntityId(c.req.param('id'));
+    if (!postId) return error(c, ErrorCode.PARAM_ERROR, '帖子 ID 不合法', 400);
+    const removed = await service.deletePost(postId, c.get('userId'));
+    if (!removed) return error(c, ErrorCode.PARAM_ERROR, '帖子不存在或无权删除', 404);
+    Logger.operation('Treehole', `删除树洞 #${removed.id}`, c.get('studentId'), c.get('name'));
+    return success(c, removed);
+  });
 
-  appendHttpLogDetail(c, formatHttpLogDetail({ postId: removed.postId }));
+  routes.delete('/comments/:id', async (c) => {
+    const commentId = parseEntityId(c.req.param('id'));
+    if (!commentId) return error(c, ErrorCode.PARAM_ERROR, '评论 ID 不合法', 400);
+    const removed = await service.deleteComment(commentId, c.get('userId'));
+    if (!removed) return error(c, ErrorCode.PARAM_ERROR, '评论不存在或无权删除', 404);
+    Logger.operation(
+      'Treehole',
+      `删除评论 #${removed.id}`,
+      c.get('studentId'),
+      c.get('name'),
+      `postId=${removed.postId}`,
+    );
+    return success(c, removed);
+  });
 
-  Logger.operation(
-    'Treehole',
-    `删除评论 #${removed.id}`,
-    c.get('studentId'),
-    c.get('name'),
-    `postId=${removed.postId}`
-  );
-
-  return success(c, removed);
-});
-
-export default treehole;
+  return routes;
+}

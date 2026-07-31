@@ -75,9 +75,9 @@
   <rect x="542.25" y="177.8" width="130.87" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
   <text x="607.685" y="196.25" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">分析统计两表</text>
 </g>
-<g class="node" data-id="Json" data-label="公告与 UGC 合规 JSON" data-shape="rectangle">
+<g class="node" data-id="Json" data-label="公告 JSON" data-shape="rectangle">
   <rect x="701.1200000000001" y="177.8" width="184.96299999999997" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
-  <text x="793.6015000000001" y="196.25" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">公告与 UGC 合规 JSON</text>
+  <text x="793.6015000000001" y="196.25" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">公告 JSON</text>
 </g>
 <g class="node" data-id="Media" data-label="Discover 图片与 Treehole 头像" data-shape="rectangle">
   <rect x="914.0830000000001" y="177.8" width="232.38699999999994" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />

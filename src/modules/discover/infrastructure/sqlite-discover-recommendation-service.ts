@@ -1,144 +1,87 @@
 /**
- * [INPUT]: 依赖 db/schema、domain 推荐边界与同层 DiscoverPostQuery 分页响应组件
- * [OUTPUT]: 对外提供 DiscoverRecommendationService，按用户评分偏好或时间兜底返回推荐帖子
- * [POS]: modules/discover/infrastructure 的 SQLite 推荐 adapter，复用同层帖子查询而不依赖 application service
+ * [INPUT]: 依赖构造注入的 Drizzle db、DiscoverPostQuery/PostService、点赞事实与帖子分类/标签
+ * [OUTPUT]: 对外提供 SQLiteDiscoverRecommendationService，按当前用户点赞偏好排序并在无偏好时退化 latest
+ * [POS]: modules/discover/infrastructure 的推荐 adapter，只从 Discover 自有事实推断偏好，不读取用户资料表
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { and, desc, eq, isNull, ne, sql } from 'drizzle-orm';
-import { getDb, schema } from '../../../db';
+import { and, desc, eq, isNull } from 'drizzle-orm';
+import { schema } from '../../../db';
 import { safeParseJsonArray } from '../domain/discover';
-import { DiscoverPostQuery } from './sqlite-discover-post-service';
+import { DiscoverPostQuery, SQLiteDiscoverPostService } from './sqlite-discover-post-service';
 import {
   clampPage,
   clampPageSize,
   clampRecommendedCandidateLimit,
   normalizeCategory,
   postSelect,
-  recommendedRatingJoin,
+  type DiscoverDatabase,
   type DiscoverListResponse,
   type DiscoverRow,
   type ListOptions,
 } from './discover-mapping';
 
-export class DiscoverRecommendationService {
-  static async list(options: ListOptions): Promise<DiscoverListResponse> {
+export class SQLiteDiscoverRecommendationService {
+  constructor(
+    private readonly db: DiscoverDatabase,
+    private readonly postQuery: DiscoverPostQuery,
+    private readonly posts: SQLiteDiscoverPostService,
+  ) {}
+
+  async list(options: ListOptions): Promise<DiscoverListResponse> {
     const page = clampPage(options.page);
     const pageSize = clampPageSize(options.pageSize);
-    const preferenceRows = await getDb().select({
-      postId: schema.discoverPostRatings.postId,
-      score: schema.discoverPostRatings.score,
+    const preferenceRows = await this.db.select({
       category: schema.discoverPosts.category,
       tagsJson: schema.discoverPosts.tagsJson,
     })
-      .from(schema.discoverPostRatings)
-      .innerJoin(schema.discoverPosts, eq(schema.discoverPostRatings.postId, schema.discoverPosts.id))
+      .from(schema.discoverPostLikes)
+      .innerJoin(schema.discoverPosts, eq(schema.discoverPostLikes.postId, schema.discoverPosts.id))
       .where(and(
-        eq(schema.discoverPostRatings.userId, options.userId),
+        eq(schema.discoverPostLikes.userId, options.userId),
         isNull(schema.discoverPosts.deletedAt),
       ));
+
+    if (preferenceRows.length === 0) return this.posts.list('latest', options);
 
     const tagWeights = new Map<string, number>();
     const categoryWeights = new Map<string, number>();
     for (const row of preferenceRows) {
-      const weight = Math.max(0, row.score - 2);
-      if (weight <= 0) continue;
-      categoryWeights.set(row.category, (categoryWeights.get(row.category) || 0) + weight);
+      categoryWeights.set(row.category, (categoryWeights.get(row.category) || 0) + 1);
       for (const tag of safeParseJsonArray<string>(row.tagsJson, [])) {
-        tagWeights.set(tag, (tagWeights.get(tag) || 0) + weight);
+        tagWeights.set(tag, (tagWeights.get(tag) || 0) + 1);
       }
     }
 
-    if (tagWeights.size === 0 && categoryWeights.size === 0) {
-      return this.listFallback(options, page, pageSize);
-    }
-
-    const ranked = (await this.listCandidates(options, page, pageSize))
+    const filters = [isNull(schema.discoverPosts.deletedAt)];
+    if (options.category) filters.push(eq(schema.discoverPosts.category, normalizeCategory(options.category)));
+    const candidates = await this.db.select(postSelect())
+      .from(schema.discoverPosts)
+      .where(and(...filters))
+      .orderBy(desc(schema.discoverPosts.publishedAt), desc(schema.discoverPosts.id))
+      .limit(clampRecommendedCandidateLimit(page, pageSize)) as DiscoverRow[];
+    const ranked = candidates
       .map((row) => ({ row, matchScore: this.matchScore(row, tagWeights, categoryWeights) }))
       .filter((item) => item.matchScore > 0)
-      .sort((a, b) => {
-        if (b.matchScore !== a.matchScore) return b.matchScore - a.matchScore;
-        if (b.row.ratingAvg !== a.row.ratingAvg) return b.row.ratingAvg - a.row.ratingAvg;
-        return b.row.publishedAt.getTime() - a.row.publishedAt.getTime();
+      .sort((left, right) => {
+        if (right.matchScore !== left.matchScore) return right.matchScore - left.matchScore;
+        if (right.row.likeCount !== left.row.likeCount) return right.row.likeCount - left.row.likeCount;
+        const publishedDelta = right.row.publishedAt.getTime() - left.row.publishedAt.getTime();
+        return publishedDelta || right.row.id - left.row.id;
       });
 
-    if (ranked.length === 0) return this.listFallback(options, page, pageSize);
+    if (ranked.length === 0) return this.posts.list('latest', options);
     const start = (page - 1) * pageSize;
     const rows = ranked.slice(start, start + pageSize).map((item) => item.row);
-    return DiscoverPostQuery.toPagedResponse(rows, options.userId, page, pageSize, ranked.length);
+    return this.postQuery.toPagedResponse(rows, options.userId, page, pageSize, ranked.length);
   }
 
-  private static matchScore(
+  private matchScore(
     row: DiscoverRow,
     tagWeights: Map<string, number>,
     categoryWeights: Map<string, number>,
   ) {
     return safeParseJsonArray<string>(row.tagsJson, [])
       .reduce((score, tag) => score + (tagWeights.get(tag) || 0), categoryWeights.get(row.category) || 0);
-  }
-
-  private static async listFallback(options: ListOptions, page: number, pageSize: number) {
-    const db = getDb();
-    const filters = this.candidateFilters(options);
-    const ratingJoin = recommendedRatingJoin(options.userId);
-    const totalRows = await db.select({ count: sql<number>`count(*)` })
-      .from(schema.discoverPosts)
-      .leftJoin(schema.discoverPostRatings, ratingJoin)
-      .where(and(...filters));
-
-    const rows = await db.select(postSelect())
-      .from(schema.discoverPosts)
-      .innerJoin(schema.users, eq(schema.discoverPosts.userId, schema.users.id))
-      .leftJoin(schema.discoverPostRatings, ratingJoin)
-      .where(and(...filters))
-      .orderBy(desc(schema.discoverPosts.publishedAt), desc(schema.discoverPosts.id))
-      .limit(pageSize)
-      .offset((page - 1) * pageSize);
-
-    return DiscoverPostQuery.toPagedResponse(
-      rows as DiscoverRow[],
-      options.userId,
-      page,
-      pageSize,
-      Number(totalRows[0]?.count || 0),
-    );
-  }
-
-  private static async listCandidates(options: ListOptions, page: number, pageSize: number) {
-    const db = getDb();
-    const filters = this.candidateFilters(options);
-    const ratingJoin = recommendedRatingJoin(options.userId);
-    const limit = clampRecommendedCandidateLimit(page, pageSize);
-
-    const latestRows = await db.select(postSelect())
-      .from(schema.discoverPosts)
-      .innerJoin(schema.users, eq(schema.discoverPosts.userId, schema.users.id))
-      .leftJoin(schema.discoverPostRatings, ratingJoin)
-      .where(and(...filters))
-      .orderBy(desc(schema.discoverPosts.publishedAt), desc(schema.discoverPosts.id))
-      .limit(limit);
-    const scoreRows = await db.select(postSelect())
-      .from(schema.discoverPosts)
-      .innerJoin(schema.users, eq(schema.discoverPosts.userId, schema.users.id))
-      .leftJoin(schema.discoverPostRatings, ratingJoin)
-      .where(and(...filters))
-      .orderBy(desc(schema.discoverPosts.ratingAvg), desc(schema.discoverPosts.publishedAt), desc(schema.discoverPosts.id))
-      .limit(limit);
-
-    const merged = new Map<number, DiscoverRow>();
-    for (const row of [...latestRows, ...scoreRows] as DiscoverRow[]) {
-      if (!merged.has(row.id)) merged.set(row.id, row);
-    }
-    return [...merged.values()];
-  }
-
-  private static candidateFilters(options: ListOptions) {
-    const filters = [
-      isNull(schema.discoverPosts.deletedAt),
-      ne(schema.discoverPosts.userId, options.userId),
-      isNull(schema.discoverPostRatings.id),
-    ];
-    if (options.category) filters.push(eq(schema.discoverPosts.category, normalizeCategory(options.category)));
-    return filters;
   }
 }

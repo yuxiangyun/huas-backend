@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 Treehole 测试支架、点赞、个人列表、评论回复与通知 API
- * [OUTPUT]: 验证幂等点赞、个人内容、评论计数、回复约束与通知已读流程
- * [POS]: tests/treehole 的 Treehole 社交交互细分用例，失败时直接定位该业务能力
+ * [INPUT]: 依赖 Treehole 测试支架、点赞、评论回复、删除、Notifications 投影与 Community 批量 reader 观测
+ * [OUTPUT]: 验证幂等点赞/通知撤销、自赞门禁、评论 recipient 规则、公共作者、分页计数、回复约束与无 N+1
+ * [POS]: tests/treehole 的社交交互细分用例，锁定事实/Outbox/通知一致性与 Community 作者边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -10,216 +10,180 @@ import {
   authorId,
   otherUserId,
   thirdUserId,
-  createApp,
   authHeaderFor,
-  createTreeholePost,
+  createApp,
   createTreeholeComment,
-  getTreeholeUnreadCount,
+  createTreeholePost,
   eq,
   getDb,
+  profileReader,
   schema,
+  setCommunityProfile,
 } from './harness';
 
 describe('Treehole 社交交互', () => {
-  it('点赞与取消点赞保持幂等，不会产生重复记录', async () => {
+  it('点赞与取消点赞幂等，且明确拒绝作者点赞自己的帖子', async () => {
     const app = createApp();
-    const postId = await createTreeholePost(app, authorId, '2023002001', '希望这周不要再下雨了。');
+    const postId = await createTreeholePost(app, authorId, '2023002001', '希望这周不要再下雨。');
 
-    const likeHeaders = await authHeaderFor(otherUserId, '2023002002');
-    const firstLike = await app.request(`http://localhost/api/treehole/posts/${postId}/like`, {
+    const selfLike = await app.request(`http://localhost/api/treehole/posts/${postId}/like`, {
       method: 'PUT',
-      headers: likeHeaders,
-    });
-    expect(firstLike.status).toBe(200);
-    const firstLikeBody = await firstLike.json() as any;
-    expect(firstLikeBody.data.stats.likeCount).toBe(1);
-    expect(firstLikeBody.data.viewer.liked).toBe(true);
-
-    const secondLike = await app.request(`http://localhost/api/treehole/posts/${postId}/like`, {
-      method: 'PUT',
-      headers: likeHeaders,
-    });
-    expect(secondLike.status).toBe(200);
-    const secondLikeBody = await secondLike.json() as any;
-    expect(secondLikeBody.data.stats.likeCount).toBe(1);
-
-    const db = getDb();
-    const likeRows = await db.select().from(schema.treeholePostLikes).where(eq(schema.treeholePostLikes.postId, postId));
-    expect(likeRows).toHaveLength(1);
-
-    const firstUnlike = await app.request(`http://localhost/api/treehole/posts/${postId}/like`, {
-      method: 'DELETE',
-      headers: likeHeaders,
-    });
-    expect(firstUnlike.status).toBe(200);
-    const firstUnlikeBody = await firstUnlike.json() as any;
-    expect(firstUnlikeBody.data.stats.likeCount).toBe(0);
-    expect(firstUnlikeBody.data.viewer.liked).toBe(false);
-
-    const secondUnlike = await app.request(`http://localhost/api/treehole/posts/${postId}/like`, {
-      method: 'DELETE',
-      headers: likeHeaders,
-    });
-    expect(secondUnlike.status).toBe(200);
-    const secondUnlikeBody = await secondUnlike.json() as any;
-    expect(secondUnlikeBody.data.stats.likeCount).toBe(0);
-  });
-
-  it('我的树洞列表只返回当前用户自己的未删除内容', async () => {
-    const app = createApp();
-    const firstMinePostId = await createTreeholePost(app, authorId, '2023002001', '这是我第一条树洞。');
-    const otherPostId = await createTreeholePost(app, otherUserId, '2023002002', '这是别人的树洞。');
-    const secondMinePostId = await createTreeholePost(app, authorId, '2023002001', '这是我第二条树洞。');
-
-    const myListRes = await app.request('http://localhost/api/treehole/posts/me?page=1&pageSize=10', {
       headers: await authHeaderFor(authorId, '2023002001'),
     });
-    expect(myListRes.status).toBe(200);
-    const myListBody = await myListRes.json() as any;
-    expect(myListBody.data.total).toBe(2);
-    expect(myListBody.data.items).toHaveLength(2);
-    expect(myListBody.data.items[0].id).toBe(secondMinePostId);
-    expect(myListBody.data.items[1].id).toBe(firstMinePostId);
-    expect(myListBody.data.items.every((item: any) => item.viewer.isMine === true)).toBe(true);
-    expect(myListBody.data.items.some((item: any) => item.id === otherPostId)).toBe(false);
+    expect(selfLike.status).toBe(400);
+
+    const headers = await authHeaderFor(otherUserId, '2023002002');
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const response = await app.request(`http://localhost/api/treehole/posts/${postId}/like`, {
+        method: 'PUT',
+        headers,
+      });
+      expect(response.status).toBe(200);
+      expect((await response.json() as any).data.stats.likeCount).toBe(1);
+    }
+    const likeRows = await getDb().select().from(schema.treeholePostLikes)
+      .where(eq(schema.treeholePostLikes.postId, postId));
+    expect(likeRows).toHaveLength(1);
+    const projectedLikes = await getDb().select().from(schema.notifications)
+      .where(eq(schema.notifications.resourceId, postId));
+    expect(projectedLikes).toHaveLength(1);
+    expect(projectedLikes[0]).toMatchObject({
+      recipientUserId: authorId,
+      actorUserId: otherUserId,
+      type: 'treehole_like',
+      resourceType: 'treehole_post',
+      subresourceId: null,
+    });
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const response = await app.request(`http://localhost/api/treehole/posts/${postId}/like`, {
+        method: 'DELETE',
+        headers,
+      });
+      expect(response.status).toBe(200);
+      expect((await response.json() as any).data.stats.likeCount).toBe(0);
+    }
+    expect(await getDb().select().from(schema.notifications)
+      .where(eq(schema.notifications.resourceId, postId))).toHaveLength(0);
+
+    const reLike = await app.request(`http://localhost/api/treehole/posts/${postId}/like`, {
+      method: 'PUT',
+      headers,
+    });
+    expect(reLike.status).toBe(200);
+    expect(await getDb().select().from(schema.notifications)
+      .where(eq(schema.notifications.resourceId, postId))).toHaveLength(1);
   });
 
-  it('评论支持分页读取，删除后会同步更新帖子计数', async () => {
+  it('评论分页返回统一作者，删除后同步刷新帖子计数', async () => {
     const app = createApp();
-    const postId = await createTreeholePost(app, authorId, '2023002001', '考试周真的太折磨人了。');
-    const firstCommentId = await createTreeholeComment(app, postId, otherUserId, '2023002002', '先把最难的那门过掉。');
-    const secondCommentId = await createTreeholeComment(app, postId, authorId, '2023002001', '已经开始背重点了。');
+    const postId = await createTreeholePost(app, authorId, '2023002001', '考试周真的太折磨人。');
+    await setCommunityProfile(otherUserId, '解题人');
+    const firstId = await createTreeholeComment(app, postId, otherUserId, '2023002002', '先把最难的过掉。');
+    const secondId = await createTreeholeComment(app, postId, authorId, '2023002001', '已经开始背重点。');
 
-    const firstPageRes = await app.request(`http://localhost/api/treehole/posts/${postId}/comments?page=1&pageSize=1`, {
-      headers: await authHeaderFor(thirdUserId, '2023002003'),
+    const firstPage = await app.request(
+      `http://localhost/api/treehole/posts/${postId}/comments?page=1&pageSize=1`,
+      { headers: await authHeaderFor(thirdUserId, '2023002003') },
+    );
+    const firstData = (await firstPage.json() as any).data;
+    expect(firstData.total).toBe(2);
+    expect(firstData.items[0].id).toBe(firstId);
+    expect(firstData.items[0].author).toEqual({
+      id: otherUserId,
+      displayName: '解题人',
+      avatarUrl: null,
     });
-    expect(firstPageRes.status).toBe(200);
-    const firstPageBody = await firstPageRes.json() as any;
-    expect(firstPageBody.data.total).toBe(2);
-    expect(firstPageBody.data.items[0].id).toBe(firstCommentId);
 
-    const secondPageRes = await app.request(`http://localhost/api/treehole/posts/${postId}/comments?page=2&pageSize=1`, {
-      headers: await authHeaderFor(thirdUserId, '2023002003'),
-    });
-    expect(secondPageRes.status).toBe(200);
-    const secondPageBody = await secondPageRes.json() as any;
-    expect(secondPageBody.data.items[0].id).toBe(secondCommentId);
-
-    const forbiddenDelete = await app.request(`http://localhost/api/treehole/comments/${secondCommentId}`, {
+    const forbidden = await app.request(`http://localhost/api/treehole/comments/${secondId}`, {
       method: 'DELETE',
       headers: await authHeaderFor(otherUserId, '2023002002'),
     });
-    expect(forbiddenDelete.status).toBe(404);
-
-    const deleteRes = await app.request(`http://localhost/api/treehole/comments/${secondCommentId}`, {
+    expect(forbidden.status).toBe(404);
+    const removed = await app.request(`http://localhost/api/treehole/comments/${secondId}`, {
       method: 'DELETE',
       headers: await authHeaderFor(authorId, '2023002001'),
     });
-    expect(deleteRes.status).toBe(200);
+    expect(removed.status).toBe(200);
 
-    const detailRes = await app.request(`http://localhost/api/treehole/posts/${postId}`, {
+    const detail = await app.request(`http://localhost/api/treehole/posts/${postId}`, {
       headers: await authHeaderFor(authorId, '2023002001'),
     });
-    expect(detailRes.status).toBe(200);
-    const detailBody = await detailRes.json() as any;
-    expect(detailBody.data.stats.commentCount).toBe(1);
+    expect((await detail.json() as any).data.stats.commentCount).toBe(1);
   });
 
-  it('评论支持回复同帖评论，并拒绝非法父评论', async () => {
+  it('评论列表对多个作者只执行一次 Community 批量读取', async () => {
+    const app = createApp();
+    const postId = await createTreeholePost(app, authorId, '2023002001', '批量评论。');
+    await createTreeholeComment(app, postId, otherUserId, '2023002002', '评论一。');
+    await createTreeholeComment(app, postId, thirdUserId, '2023002003', '评论二。');
+    await createTreeholeComment(app, postId, otherUserId, '2023002002', '评论三。');
+    profileReader.reset();
+
+    const response = await app.request(`http://localhost/api/treehole/posts/${postId}/comments`, {
+      headers: await authHeaderFor(authorId, '2023002001'),
+    });
+    expect(response.status).toBe(200);
+    expect(profileReader.calls).toHaveLength(1);
+    expect(profileReader.calls[0]).toEqual([otherUserId, thirdUserId]);
+  });
+
+  it('回复必须引用同帖且未删除的父评论', async () => {
     const app = createApp();
     const postId = await createTreeholePost(app, authorId, '2023002001', '今天有点迷茫。');
-    const firstCommentId = await createTreeholeComment(app, postId, otherUserId, '2023002002', '慢慢来。');
+    const parentId = await createTreeholeComment(app, postId, otherUserId, '2023002002', '慢慢来。');
+    const replyId = await createTreeholeComment(
+      app,
+      postId,
+      thirdUserId,
+      '2023002003',
+      '谢谢你。',
+      parentId,
+    );
+    expect(replyId).toBeGreaterThan(0);
+    const activityRows = await getDb().select().from(schema.notifications)
+      .where(eq(schema.notifications.resourceId, postId));
+    expect(activityRows.filter((row) => row.type === 'treehole_comment')).toEqual([
+      expect.objectContaining({
+        recipientUserId: authorId,
+        actorUserId: otherUserId,
+        subresourceId: parentId,
+      }),
+    ]);
+    expect(activityRows.filter((row) => row.type === 'treehole_comment_reply')
+      .map((row) => row.recipientUserId).sort((a, b) => a - b))
+      .toEqual([authorId, otherUserId].sort((a, b) => a - b));
 
-    const replyRes = await app.request(`http://localhost/api/treehole/posts/${postId}/comments`, {
+    const anotherPostId = await createTreeholePost(app, thirdUserId, '2023002003', '另一条。');
+    const anotherCommentId = await createTreeholeComment(
+      app,
+      anotherPostId,
+      authorId,
+      '2023002001',
+      '另一条评论。',
+    );
+    const crossReply = await app.request(`http://localhost/api/treehole/posts/${postId}/comments`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         ...(await authHeaderFor(thirdUserId, '2023002003')),
       },
-      body: JSON.stringify({
-        content: '谢谢你。',
-        parentCommentId: firstCommentId,
-      }),
+      body: JSON.stringify({ content: '跨帖回复', parentCommentId: anotherCommentId }),
     });
-    expect(replyRes.status).toBe(201);
-    const replyBody = await replyRes.json() as any;
-    expect(replyBody.data.parentCommentId).toBe(firstCommentId);
+    expect(crossReply.status).toBe(400);
 
-    const anotherPostId = await createTreeholePost(app, thirdUserId, '2023002003', '另一条树洞。');
-    const anotherCommentId = await createTreeholeComment(app, anotherPostId, authorId, '2023002001', '另一条评论。');
-
-    const crossPostReplyRes = await app.request(`http://localhost/api/treehole/posts/${postId}/comments`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(await authHeaderFor(thirdUserId, '2023002003')),
-      },
-      body: JSON.stringify({
-        content: '跨帖回复',
-        parentCommentId: anotherCommentId,
-      }),
-    });
-    expect(crossPostReplyRes.status).toBe(400);
-
-    const deleteParentRes = await app.request(`http://localhost/api/treehole/comments/${firstCommentId}`, {
+    await app.request(`http://localhost/api/treehole/comments/${parentId}`, {
       method: 'DELETE',
       headers: await authHeaderFor(otherUserId, '2023002002'),
     });
-    expect(deleteParentRes.status).toBe(200);
-
-    const deletedParentReplyRes = await app.request(`http://localhost/api/treehole/posts/${postId}/comments`, {
+    const deletedReply = await app.request(`http://localhost/api/treehole/posts/${postId}/comments`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         ...(await authHeaderFor(authorId, '2023002001')),
       },
-      body: JSON.stringify({
-        content: '回复已删除评论',
-        parentCommentId: firstCommentId,
-      }),
+      body: JSON.stringify({ content: '回复已删除评论', parentCommentId: parentId }),
     });
-    expect(deletedParentReplyRes.status).toBe(400);
-  });
-
-  it('评论与回复会产生提醒并支持全部已读', async () => {
-    const app = createApp();
-    const postId = await createTreeholePost(app, authorId, '2023002001', '今天状态一般。');
-    const firstCommentId = await createTreeholeComment(app, postId, otherUserId, '2023002002', '早点休息。');
-    await createTreeholeComment(app, postId, thirdUserId, '2023002003', '也要记得吃饭。', firstCommentId);
-    await createTreeholeComment(app, postId, authorId, '2023002001', '收到。', firstCommentId);
-
-    expect(await getTreeholeUnreadCount(app, authorId, '2023002001')).toBe(2);
-    expect(await getTreeholeUnreadCount(app, otherUserId, '2023002002')).toBe(2);
-    expect(await getTreeholeUnreadCount(app, thirdUserId, '2023002003')).toBe(0);
-
-    const otherReadAllRes = await app.request('http://localhost/api/treehole/notifications/read-all', {
-      method: 'POST',
-      headers: await authHeaderFor(otherUserId, '2023002002'),
-    });
-    expect(otherReadAllRes.status).toBe(200);
-    const otherReadAllBody = await otherReadAllRes.json() as any;
-    expect(otherReadAllBody.data.readCount).toBe(2);
-    expect(await getTreeholeUnreadCount(app, otherUserId, '2023002002')).toBe(0);
-
-    const otherReadAllAgainRes = await app.request('http://localhost/api/treehole/notifications/read-all', {
-      method: 'POST',
-      headers: await authHeaderFor(otherUserId, '2023002002'),
-    });
-    expect(otherReadAllAgainRes.status).toBe(200);
-    const otherReadAllAgainBody = await otherReadAllAgainRes.json() as any;
-    expect(otherReadAllAgainBody.data.readCount).toBe(0);
-
-    const ownerCommentId = await createTreeholeComment(app, postId, authorId, '2023002001', '我先补充一点。');
-    await createTreeholeComment(app, postId, otherUserId, '2023002002', '回复楼主评论', ownerCommentId);
-    expect(await getTreeholeUnreadCount(app, authorId, '2023002001')).toBe(3);
-
-    const ownerReadAllRes = await app.request('http://localhost/api/treehole/notifications/read-all', {
-      method: 'POST',
-      headers: await authHeaderFor(authorId, '2023002001'),
-    });
-    expect(ownerReadAllRes.status).toBe(200);
-    const ownerReadAllBody = await ownerReadAllRes.json() as any;
-    expect(ownerReadAllBody.data.readCount).toBe(3);
-    expect(await getTreeholeUnreadCount(app, authorId, '2023002001')).toBe(0);
+    expect(deletedReply.status).toBe(400);
   });
 });

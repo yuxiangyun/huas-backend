@@ -1,18 +1,19 @@
 /**
- * [INPUT]: 依赖共享 AppError/ErrorCode 与北京时间格式化能力，不依赖 HTTP、数据库或文件系统
- * [OUTPUT]: 对外提供含社区资料投影的 Discover 稳定类型、校验规则、分页规则与响应映射纯函数
- * [POS]: modules/discover/domain 的领域内核，由 application 编排和 SQLite adapter 共同消费
+ * [INPUT]: 依赖 Community 公共资料 DTO、共享 AppError/ErrorCode 与北京时间格式化能力
+ * [OUTPUT]: 对外提供 Discover 帖子/评论/点赞稳定类型、校验规则、分页规则与响应映射纯函数
+ * [POS]: modules/discover/domain 的领域内核，只描述 Discover 事实并通过 CommunityProfile 接收作者投影
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { AppError, ErrorCode } from '../../../utils/errors';
 import { beijingIsoString } from '../../../utils/time';
+import type { CommunityProfile } from '../../community/domain/community';
 
 export const DISCOVER_CATEGORIES = ['1食堂', '2食堂', '3食堂', '5食堂', '校外', '其他'] as const;
 export const DISCOVER_COMMON_TAGS = ['好吃', '便宜', '分量足', '辣', '清淡', '排队久', '值得再吃'] as const;
 
 export type DiscoverCategory = typeof DISCOVER_CATEGORIES[number];
-export type DiscoverSort = 'latest' | 'score' | 'recommended';
+export type DiscoverSort = 'latest' | 'popular' | 'recommended';
 
 export interface DiscoverPolicy {
   maxImagesPerPost: number;
@@ -90,24 +91,15 @@ export interface DiscoverPostResponse {
   storeName: string;
   priceText: string;
   content: string;
-  avatarUrl: string | null;
   category: string;
   tags: string[];
   images: DiscoverStoredImage[];
   coverUrl: string;
   imageCount: number;
   commentCount: number;
-  rating: {
-    average: number;
-    count: number;
-    total: number;
-    userScore: number | null;
-  };
-  author: {
-    id: number;
-    label: string;
-    nickname: string | null;
-  };
+  likeCount: number;
+  likedByMe: boolean;
+  author: CommunityProfile;
   isMine: boolean;
   publishedAt: string;
   createdAt: string;
@@ -119,12 +111,7 @@ export interface DiscoverCommentResponse {
   postId: number;
   parentCommentId: number | null;
   content: string;
-  avatarUrl: string | null;
-  author: {
-    id: number;
-    label: string;
-    nickname: string | null;
-  };
+  author: CommunityProfile;
   isMine: boolean;
   createdAt: string;
   updatedAt: string;
@@ -159,17 +146,12 @@ export interface DiscoverRow {
   coverUrl: string;
   imageCount: number;
   commentCount: number;
-  ratingCount: number;
-  ratingSum: number;
-  ratingAvg: number;
+  likeCount: number;
   createdAt: Date;
   updatedAt: Date;
   publishedAt: Date;
   deletedAt: Date | null;
   storageKey: string;
-  avatarUrl: string | null;
-  authorNickname: string | null;
-  authorClassName: string | null;
 }
 
 export interface DiscoverCommentRow {
@@ -178,9 +160,6 @@ export interface DiscoverCommentRow {
   userId: number;
   parentCommentId: number | null;
   content: string;
-  avatarUrl: string | null;
-  authorNickname: string | null;
-  authorClassName: string | null;
   createdAt: Date;
   updatedAt: Date;
   deletedAt: Date | null;
@@ -196,6 +175,7 @@ export function getDiscoverMeta(policy: DiscoverPolicy) {
   return {
     categories: [...DISCOVER_CATEGORIES],
     commonTags: [...DISCOVER_COMMON_TAGS],
+    sorts: ['latest', 'popular', 'recommended'] as DiscoverSort[],
     limits: {
       maxImagesPerPost: policy.maxImagesPerPost,
       maxTagsPerPost: policy.maxTagsPerPost,
@@ -328,19 +308,6 @@ export function isDiscoverCategory(value: string): value is DiscoverCategory {
   return DISCOVER_CATEGORIES.includes(value as DiscoverCategory);
 }
 
-export function buildDiscoverAuthorLabel(className: string | null | undefined): string {
-  const raw = (className || '').trim();
-  if (!raw) return '校园用户';
-  const stripped = raw.replace(/\s+/g, ' ')
-    .replace(/(?:19|20)\d{2}级/g, '')
-    .replace(/\d{2,4}班/g, '')
-    .replace(/\d{2,4}/g, ' ')
-    .replace(/[()（）]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return stripped || '校园用户';
-}
-
 export function parseStringArray(value: string): string[] {
   const raw = value.trim();
   if (!raw) return [];
@@ -364,55 +331,46 @@ export function safeParseJsonArray<T>(value: string, fallback: T[]): T[] {
   }
 }
 
-export function roundRating(value: number) {
-  return Math.round(value * 100) / 100;
-}
-
-export function toPostResponse(row: DiscoverRow, userId: number, userScore: number | null): DiscoverPostResponse {
+export function toPostResponse(
+  row: DiscoverRow,
+  viewerUserId: number,
+  likedByMe: boolean,
+  author: CommunityProfile,
+): DiscoverPostResponse {
   return {
     id: row.id,
     title: row.title || '',
     storeName: row.storeName || '',
     priceText: row.priceText || '',
     content: row.content || '',
-    avatarUrl: row.avatarUrl,
     category: row.category,
     tags: safeParseJsonArray<string>(row.tagsJson, []),
     images: safeParseJsonArray<DiscoverStoredImage>(row.imagesJson, []),
     coverUrl: row.coverUrl,
     imageCount: row.imageCount,
     commentCount: row.commentCount,
-    rating: {
-      average: roundRating(Number(row.ratingAvg || 0)),
-      count: row.ratingCount,
-      total: row.ratingSum,
-      userScore,
-    },
-    author: {
-      id: row.userId,
-      label: buildDiscoverAuthorLabel(row.authorClassName),
-      nickname: row.authorNickname?.trim() || null,
-    },
-    isMine: row.userId === userId,
+    likeCount: row.likeCount,
+    likedByMe,
+    author,
+    isMine: row.userId === viewerUserId,
     publishedAt: beijingIsoString(row.publishedAt),
     createdAt: beijingIsoString(row.createdAt),
     updatedAt: beijingIsoString(row.updatedAt),
   };
 }
 
-export function toCommentResponse(row: DiscoverCommentRow, userId: number): DiscoverCommentResponse {
+export function toCommentResponse(
+  row: DiscoverCommentRow,
+  viewerUserId: number,
+  author: CommunityProfile,
+): DiscoverCommentResponse {
   return {
     id: row.id,
     postId: row.postId,
     parentCommentId: row.parentCommentId,
     content: row.content,
-    avatarUrl: row.avatarUrl,
-    author: {
-      id: row.userId,
-      label: buildDiscoverAuthorLabel(row.authorClassName),
-      nickname: row.authorNickname?.trim() || null,
-    },
-    isMine: row.userId === userId,
+    author,
+    isMine: row.userId === viewerUserId,
     createdAt: beijingIsoString(row.createdAt),
     updatedAt: beijingIsoString(row.updatedAt),
   };

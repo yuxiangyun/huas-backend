@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 DiscoverStoredImage 领域媒体 DTO
- * [OUTPUT]: 对外提供 DiscoverOperationsQueryPort 与管理仪表盘只读快照 DTO
- * [POS]: discover/domain 的公开查询契约，向 Operations 隐藏 Discover 表、join 与存储 JSON
+ * [OUTPUT]: 对外提供基于点赞口径的 DiscoverOperationsQueryPort 与管理只读快照 DTO
+ * [POS]: discover/domain 的公开查询契约，向 Operations 隐藏 Discover 表与存储 JSON
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -14,15 +14,14 @@ export interface DiscoverOperationsPost {
   coverUrl: string;
   images: DiscoverStoredImage[];
   imageCount: number;
-  ratingAverage: number;
-  ratingCount: number;
-  authorLabel: string;
+  likeCount: number;
+  authorDisplayName: string;
   publishedAt: string | null;
 }
 
 export interface DiscoverOperationsSnapshot {
   totalPosts: number;
-  totalRatings: number;
+  totalLikes: number;
   items: DiscoverOperationsPost[];
 }
 

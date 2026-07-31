@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # [INPUT]: 依赖含数据库运维脚本的 release 源目录、共享 .env/data/logs 与 SQLite/nginx/PM2/Bun 运行环境。
-# [OUTPUT]: 对外提供部署前数据库快照、蓝绿槽位部署、readiness 检查、可回滚 nginx 切流与旧实例整理能力。
-# [POS]: scripts 的远端部署内核，以共享 SQLite 快照、migration 和目标槽 readiness 成功作为原子切流前置条件。
+# [OUTPUT]: 对外提供停流与停 writer、SQLite 快照、destructive migration、目标槽 Server/Web 本机冒烟和重新开放流量的维护发布能力。
+# [POS]: scripts 的远端 contract release 内核；migration 后失败必须保持 maintenance 与停 writer，只允许 forward-fix。
 # [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
 
-set -euo pipefail
+set -Eeuo pipefail
 
 APP_ROOT="${APP_ROOT:-/www/wwwroot/huas-server}"
 CONTROL_DIR="${CONTROL_DIR:-$APP_ROOT/.deploy}"
@@ -17,6 +17,7 @@ BUILD_WEB="${BUILD_WEB:-1}"
 INSTALL_WEB_DEPS="${INSTALL_WEB_DEPS:-1}"
 WEB_PACKAGE_MANAGER="${WEB_PACKAGE_MANAGER:-auto}"
 NPM_REGISTRY="${NPM_REGISTRY:-https://registry.npmjs.org}"
+RELEASE_MODE="${RELEASE_MODE:-maintenance}"
 BLUE_SLOT="${BLUE_SLOT:-blue}"
 GREEN_SLOT="${GREEN_SLOT:-green}"
 BLUE_PORT="${BLUE_PORT:-3000}"
@@ -34,6 +35,8 @@ ENV_DIR="$CONTROL_DIR/env"
 ECOSYSTEM_DIR="$CONTROL_DIR/ecosystem"
 NGINX_CHANGED_FILES=()
 NGINX_BACKUP_FILES=()
+MAINTENANCE_ACTIVE=0
+ACTIVE_SLOT_CANDIDATE=""
 
 require_command() {
   local command_name="$1"
@@ -83,6 +86,15 @@ resolve_web_package_manager() {
 
   echo "Could not determine web package manager in $release_dir/web" >&2
   exit 1
+}
+
+discard_nginx_backups() {
+  local backup_path
+  for backup_path in "${NGINX_BACKUP_FILES[@]}"; do
+    rm -f "$backup_path"
+  done
+  NGINX_CHANGED_FILES=()
+  NGINX_BACKUP_FILES=()
 }
 
 install_web_dependencies() {
@@ -176,6 +188,7 @@ rollback_nginx_vhosts() {
   for index in "${!NGINX_CHANGED_FILES[@]}"; do
     cp -p "${NGINX_BACKUP_FILES[$index]}" "${NGINX_CHANGED_FILES[$index]}"
   done
+  discard_nginx_backups
 }
 
 write_active_proxy() {
@@ -191,50 +204,76 @@ write_active_proxy() {
   fi
 }
 
-switch_active_proxy() {
-  local active_port="$1"
-  local proxy_dir previous_proxy had_previous
-  proxy_dir="$(dirname "$NGINX_PROXY_INCLUDE")"
-  if ! previous_proxy="$(mktemp "$proxy_dir/.huas-previous-proxy.XXXXXX")"; then
+write_maintenance_proxy() {
+  local temp_file
+  if ! temp_file="$(mktemp "$(dirname "$NGINX_PROXY_INCLUDE")/.huas-maintenance-proxy.XXXXXX")"; then
     return 1
   fi
+  if ! printf 'return 503;\n' >"$temp_file" \
+    || ! mv "$temp_file" "$NGINX_PROXY_INCLUDE"; then
+    rm -f "$temp_file"
+    return 1
+  fi
+}
+
+reload_nginx() {
+  "$NGINX_BIN" -t -c "$NGINX_CONF" \
+    && "$NGINX_BIN" -s reload -c "$NGINX_CONF"
+}
+
+enter_maintenance_mode() {
+  local proxy_dir previous_proxy had_previous
+  proxy_dir="$(dirname "$NGINX_PROXY_INCLUDE")"
+  mkdir -p "$proxy_dir"
+  previous_proxy="$(mktemp "$proxy_dir/.huas-pre-maintenance-proxy.XXXXXX")"
   had_previous=0
 
   if [[ -f "$NGINX_PROXY_INCLUDE" ]]; then
-    if ! cp -p "$NGINX_PROXY_INCLUDE" "$previous_proxy"; then
-      rm -f "$previous_proxy"
-      return 1
-    fi
+    cp -p "$NGINX_PROXY_INCLUDE" "$previous_proxy"
     had_previous=1
   fi
 
-  if ! write_active_proxy "$active_port"; then
+  if write_maintenance_proxy && ensure_nginx_managed && reload_nginx; then
     rm -f "$previous_proxy"
-    return 1
-  fi
-
-  if ! ensure_nginx_managed; then
-    if [[ "$had_previous" == "1" ]]; then
-      mv "$previous_proxy" "$NGINX_PROXY_INCLUDE"
-    else
-      rm -f "$previous_proxy" "$NGINX_PROXY_INCLUDE"
-    fi
-    return 1
-  fi
-
-  if "$NGINX_BIN" -t -c "$NGINX_CONF" \
-    && "$NGINX_BIN" -s reload -c "$NGINX_CONF"; then
-    rm -f "$previous_proxy"
+    discard_nginx_backups
+    MAINTENANCE_ACTIVE=1
+    echo "Maintenance mode enabled: nginx returns 503 and no application traffic is forwarded"
     return 0
   fi
 
-  echo "Nginx validation or reload failed; restoring previous routing files" >&2
+  echo "Could not enter maintenance mode; production routing will be restored before migration" >&2
   if [[ "$had_previous" == "1" ]]; then
     mv "$previous_proxy" "$NGINX_PROXY_INCLUDE"
   else
     rm -f "$previous_proxy" "$NGINX_PROXY_INCLUDE"
   fi
   rollback_nginx_vhosts
+  reload_nginx >/dev/null 2>&1 || true
+  return 1
+}
+
+switch_active_proxy() {
+  local active_port="$1"
+  local proxy_dir previous_proxy
+  proxy_dir="$(dirname "$NGINX_PROXY_INCLUDE")"
+  if ! previous_proxy="$(mktemp "$proxy_dir/.huas-previous-proxy.XXXXXX")"; then
+    return 1
+  fi
+  cp -p "$NGINX_PROXY_INCLUDE" "$previous_proxy"
+
+  if ! write_active_proxy "$active_port"; then
+    rm -f "$previous_proxy"
+    return 1
+  fi
+
+  if reload_nginx; then
+    rm -f "$previous_proxy"
+    return 0
+  fi
+
+  echo "Nginx validation or reload failed; restoring maintenance routing, never the old upstream" >&2
+  mv "$previous_proxy" "$NGINX_PROXY_INCLUDE"
+  reload_nginx >/dev/null 2>&1 || true
   return 1
 }
 
@@ -341,6 +380,62 @@ wait_for_health() {
   return 1
 }
 
+smoke_web() {
+  local port="$1"
+  local url="http://127.0.0.1:$port/m"
+
+  if ! curl --fail --silent --show-error --max-time 10 "$url" >/dev/null; then
+    echo "Web smoke check failed: $url" >&2
+    return 1
+  fi
+
+  echo "Web smoke check passed on $url"
+}
+
+stop_all_writers() {
+  local app_name
+  local app_names=(
+    "$(slot_app_name "$BLUE_SLOT")"
+    "$(slot_app_name "$GREEN_SLOT")"
+    "$LEGACY_APP_NAME"
+  )
+
+  for app_name in "${app_names[@]}"; do
+    if pm2 describe "$app_name" >/dev/null 2>&1; then
+      echo "Stopping PM2 writer: $app_name"
+      pm2 stop "$app_name" >/dev/null
+    fi
+  done
+}
+
+enforce_failed_release_maintenance() {
+  echo "Enforcing failed-release maintenance mode" >&2
+  write_maintenance_proxy || true
+  reload_nginx >/dev/null 2>&1 || true
+  stop_all_writers || true
+  pm2 save >/dev/null 2>&1 || true
+}
+
+on_release_error() {
+  local exit_code="$1"
+  trap - ERR
+
+  if [[ "$MAINTENANCE_ACTIVE" == "1" ]]; then
+    set +e
+    enforce_failed_release_maintenance
+    if [[ -n "$ACTIVE_SLOT_CANDIDATE" ]]; then
+      rm -f "$ACTIVE_SLOT_CANDIDATE"
+    fi
+    cat >&2 <<'EOF'
+Maintenance release failed after traffic was stopped.
+Migration may already be committed; the old upstream will not be restored.
+Keep the service in maintenance mode, repair forward, and rerun this release.
+EOF
+  fi
+
+  exit "$exit_code"
+}
+
 prepare_release_dir() {
   local slot="$1"
   local release_dir="$2"
@@ -390,9 +485,34 @@ migrate_database() {
     . "$APP_ROOT/.env"
     set +a
     cd "$APP_ROOT"
-    bun "$release_source/scripts/db-migrate.ts" --db "${DB_PATH:-./data/huas.db}"
+    bun "$release_source/scripts/db-migrate.ts" \
+      --db "${DB_PATH:-./data/huas.db}" \
+      --allow-destructive
   )
 }
+
+trap 'on_release_error $?' ERR
+
+if [[ "$RELEASE_MODE" != "maintenance" ]]; then
+  echo "Unsupported release mode: $RELEASE_MODE" >&2
+  exit 1
+fi
+
+if [[ "$BUILD_WEB" != "1" ]]; then
+  echo "Maintenance releases require BUILD_WEB=1 so the target Web can be smoke tested" >&2
+  exit 1
+fi
+
+require_command rsync
+require_command bun
+require_command pm2
+require_command curl
+require_command perl
+
+if [[ ! -x "$NGINX_BIN" ]]; then
+  echo "Missing nginx binary: $NGINX_BIN" >&2
+  exit 1
+fi
 
 active_slot='legacy'
 if [[ -f "$ACTIVE_SLOT_FILE" ]]; then
@@ -418,30 +538,6 @@ target_app_name="$(slot_app_name "$target_slot")"
 target_release_dir="$RELEASES_DIR/${RELEASE_ID}-${target_slot}"
 target_current_link="$CURRENT_DIR/$target_slot"
 
-require_command rsync
-require_command bun
-require_command pm2
-require_command curl
-require_command perl
-
-if [[ ! -x "$NGINX_BIN" ]]; then
-  echo "Missing nginx binary: $NGINX_BIN" >&2
-  exit 1
-fi
-
-snapshot_database "$RELEASE_SOURCE_DIR"
-migrate_database "$RELEASE_SOURCE_DIR"
-
-if [[ "$target_slot" == "$BLUE_SLOT" ]] && pm2 describe "$LEGACY_APP_NAME" >/dev/null 2>&1; then
-  if [[ "$active_slot" == "$GREEN_SLOT" ]]; then
-    echo "Stopping legacy PM2 app to free port $BLUE_PORT"
-    pm2 delete "$LEGACY_APP_NAME" >/dev/null 2>&1 || true
-  else
-    echo "Legacy PM2 app still owns port $BLUE_PORT while active traffic is not on $GREEN_SLOT" >&2
-    exit 1
-  fi
-fi
-
 prepare_release_dir "$target_slot" "$target_release_dir"
 
 if [[ "$INSTALL_SERVER_DEPS" == "1" ]]; then
@@ -451,36 +547,39 @@ if [[ "$INSTALL_SERVER_DEPS" == "1" ]]; then
   )
 fi
 
-if [[ "$BUILD_WEB" == "1" ]]; then
-  web_package_manager="$(resolve_web_package_manager "$target_release_dir")"
-  require_command "$web_package_manager"
-  if [[ "$INSTALL_WEB_DEPS" == "1" ]]; then
-    install_web_dependencies "$target_release_dir" "$web_package_manager"
-  fi
-  run_web_build "$target_release_dir" "$web_package_manager"
-  if [[ ! -f "$target_release_dir/web/dist/index.html" ]]; then
-    echo "web build did not produce $target_release_dir/web/dist/index.html" >&2
-    exit 1
-  fi
+web_package_manager="$(resolve_web_package_manager "$target_release_dir")"
+require_command "$web_package_manager"
+if [[ "$INSTALL_WEB_DEPS" == "1" ]]; then
+  install_web_dependencies "$target_release_dir" "$web_package_manager"
 fi
-
-ln -sfn "$target_release_dir" "$target_current_link"
-runtime_env="$(ensure_runtime_env "$target_slot" "$target_port")"
-attach_runtime_env_to_release "$runtime_env" "$target_release_dir"
-ensure_pm2_app "$target_slot" "$target_current_link" "$runtime_env" "$target_port"
-wait_for_health "$target_port"
-pm2 save >/dev/null
-
-active_slot_candidate="$(prepare_active_slot_record "$target_slot")"
-if ! switch_active_proxy "$target_port"; then
-  rm -f "$active_slot_candidate"
+run_web_build "$target_release_dir" "$web_package_manager"
+if [[ ! -f "$target_release_dir/web/dist/index.html" ]]; then
+  echo "web build did not produce $target_release_dir/web/dist/index.html" >&2
   exit 1
 fi
-mv "$active_slot_candidate" "$ACTIVE_SLOT_FILE"
 
-if [[ "$active_slot" == 'legacy' ]] && pm2 describe "$LEGACY_APP_NAME" >/dev/null 2>&1; then
-  echo "Legacy PM2 app $LEGACY_APP_NAME is still running on $BLUE_PORT with no traffic; it will be removed on the first deploy back to $BLUE_SLOT."
-fi
+runtime_env="$(ensure_runtime_env "$target_slot" "$target_port")"
+attach_runtime_env_to_release "$runtime_env" "$target_release_dir"
+ACTIVE_SLOT_CANDIDATE="$(prepare_active_slot_record "$target_slot")"
 
-echo "Active slot switched to $target_slot on port $target_port"
+enter_maintenance_mode
+stop_all_writers
+pm2 save >/dev/null
+
+snapshot_database "$RELEASE_SOURCE_DIR"
+migrate_database "$RELEASE_SOURCE_DIR"
+
+ln -sfn "$target_release_dir" "$target_current_link"
+ensure_pm2_app "$target_slot" "$target_current_link" "$runtime_env" "$target_port"
+wait_for_health "$target_port"
+smoke_web "$target_port"
+pm2 save >/dev/null
+
+switch_active_proxy "$target_port"
+mv "$ACTIVE_SLOT_CANDIDATE" "$ACTIVE_SLOT_FILE"
+ACTIVE_SLOT_CANDIDATE=""
+MAINTENANCE_ACTIVE=0
+trap - ERR
+
+echo "Maintenance release completed; traffic opened on $target_slot at port $target_port"
 pm2 status "$target_app_name" --no-color

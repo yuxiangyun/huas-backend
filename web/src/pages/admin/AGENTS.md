@@ -15,7 +15,7 @@ users.tsx: 用户搜索、专业/年级筛选与分页页
 
 架构决策
 后台页面只消费 entities/admin 的 TanStack Query 契约；互不依赖的查询在渲染时并发启动，运行状态复用 Dashboard 已有字段，不直接解析 Prometheus 文本。
-课表来源热策略收敛到 Settings；策略区块仅保存待确认的瞬时目标，PUT 成功后以后端快照直接更新独立 Query cache。Discover/Treehole 内容管理仍由各自管理页承担，设置页不再暴露读取改写开关。
+课表来源热策略收敛到 Settings；策略区块仅保存待确认的瞬时目标，PUT 成功后以后端快照直接更新独立 Query cache。Discover/Treehole 内容管理仍由各自管理页承担。
 后台壳使用中性紧凑工作台：桌面侧栏、移动折叠导航、实心图表与非玻璃提示层共享同一套 shadcn neutral 令牌。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md

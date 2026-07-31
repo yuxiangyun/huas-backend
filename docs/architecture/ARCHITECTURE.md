@@ -130,8 +130,8 @@ src/
 
 `discover` 模块是这条默认工作流之外的一条独立支线：
 
-1. `src/routes/discover/discover.routes.ts` 读取表单 / JSON / query
-2. `DiscoverUserService` / `DiscoverAdminService` 负责 discover 业务读写与管理能力，`DiscoverService` 只保留兼容 facade
+1. `src/modules/discover/http/discover.routes.ts` 读取表单 / JSON / query
+2. `DiscoverApplicationService` 负责 discover 业务读写，Operations 通过公开端口执行管理能力
 3. `DiscoverMediaService` 做图片压缩、存储和读取控制
 4. 数据直接写 `discover_posts` / `discover_post_ratings`
 5. 不经过学校上游，也不依赖 `CacheService`
@@ -503,21 +503,11 @@ portal-first: Portal current → JW current → JW stale → Portal stale
 - `read_at` 为空表示未读
 - `type` 当前为 `post_comment | comment_reply`
 
-### 9.2 启动时数据库初始化
+### 9.2 显式 migration 与启动校验
 
-`initDatabase()` 会做：
+应用启动只打开既有 SQLite 文件，设置 WAL、foreign keys 与 busy timeout，然后只读校验完整 migration 版本序列、name/checksum 与最终 schema fingerprint。数据库文件缺失、版本落后、元数据被改写或结构漂移时，进程在监听端口前失败，不会创建表或修补数据。
 
-- `PRAGMA journal_mode = WAL`
-- `PRAGMA foreign_keys = ON`
-- `PRAGMA busy_timeout = 5000`
-- 创建 10 张表
-- 为旧库补齐缺失列
-- 回填关键时间戳
-- 清理重复 `credentials`
-- 清理重复 `discover_post_ratings`
-- 补索引与唯一索引
-
-结论：当前数据库迁移是“启动时兼容修复”，不是独立 migration 文件流。
+结构演进只允许通过部署阶段显式执行 `bun run db:migrate -- --db <path>`。`0003_social_rearchitecture` 是 contract migration，默认拒绝；只有在停流量、停 writer 和快照完成后，运维入口才可追加 `--allow-destructive`。普通应用、readiness 与 repair 均没有 migration 权限。
 
 ### 9.3 文件态数据
 
@@ -617,12 +607,6 @@ portal-first: Portal current → JW current → JW stale → Portal stale
 | `BUSINESS_RETRY_BASE_DELAY_MS` | `200` | 基础退避 |
 | `BUSINESS_RETRY_MAX_DELAY_MS` | `800` | 最大退避 |
 | `BUSINESS_RETRY_JITTER_MS` | `100` | 抖动 |
-| `DISABLE_UGC` | `false` | UGC 合规模式启动默认值；运行后以后台 `/api/admin/compliance/ugc` 写入的状态文件为准 |
-| `UGC_COMPLIANCE_STATE_FILE` | `data/ugc-compliance-state.json` | UGC normal/compliance 模式与分享美食/神秘角落纯文本 mock 的热更新状态文件 |
-| `UGC_COMPLIANCE_ASNS` | 空字符串 | 逗号/空格分隔的 ASN 自动空态列表，命中后 UGC GET 强制返回空数据 |
-| `UGC_COMPLIANCE_PORTS` | 空字符串 | ASN 自动空态的入口端口限制，空值表示不限端口 |
-| `UGC_COMPLIANCE_ASN_HEADER` | `x-client-asn` | 可信反代注入的来源 ASN 头，支持 `AS132203` 或纯数字 |
-| `UGC_COMPLIANCE_PORT_HEADER` | `x-forwarded-port` | 可信反代注入的入口端口头 |
 | `DISCOVER_STORAGE_ROOT` | `data/discover` | 发现美食图片根目录 |
 | `DISCOVER_MEDIA_BASE_PATH` | `/media/discover` | 图片公开访问前缀 |
 | `DISCOVER_MAX_IMAGES` | `9` | 单帖最大图片数 |
@@ -741,12 +725,11 @@ portal-first: Portal current → JW current → JW stale → Portal stale
 
 只要碰以下任何一个文件，都要回归 `discover` 相关测试与手工链路：
 
-- `src/routes/discover/discover.routes.ts`
-- `src/routes/admin/admin.routes.ts` 中 `/api/admin/discover/*`
-- `src/services/discover/discover-service.ts`
-- `src/services/discover/discover-user-service.ts`
-- `src/services/discover/discover-admin-service.ts`
-- `src/services/discover/media-service.ts`
+- `src/modules/discover/http/discover.routes.ts`
+- `src/modules/operations/http/admin.routes.ts` 中 `/api/admin/discover/*`
+- `src/modules/discover/application/discover-application-service.ts`
+- `src/modules/discover/infrastructure/sqlite-discover-persistence.ts`
+- `src/modules/discover/infrastructure/discover-media-service.ts`
 - `src/utils/discover.ts`
 - `src/index.ts` 中 `/media/discover/*`
 

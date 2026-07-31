@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import { and, eq } from 'drizzle-orm';
 import { sign } from 'hono/jwt';
 import { rmSync } from 'node:fs';
-import { initDatabase, getDb, schema } from '../src/db';
+import { getDb, schema } from '../src/db';
 import { registerRoutes } from '../src/routes';
 import { onAppError } from '../src/middleware/error.middleware';
 import { config } from '../src/config';
@@ -35,7 +35,6 @@ if (!username || !password) {
 
   describe('Live E2E: 登录与凭证重新获取（需要真实账号）', () => {
     beforeAll(async () => {
-      initDatabase();
       app = new Hono();
       app.onError(onAppError);
       registerRoutes(app);

@@ -6,10 +6,8 @@ academic/: Academic 兼容 Facade，旧类名与路径单向再导出 modules/ac
 admin/: Operations 管理服务兼容 Facade，旧 Dashboard/analytics/log 类名单向再导出 canonical 实现
 calendar/: Calendar 兼容 Facade，旧订阅函数单向再导出 modules/calendar canonical 实现
 content/: Operations 公告服务兼容 Facade，旧类名/类型单向再导出 canonical 实现
-discover/: Discover 兼容 Facade，旧类名/类型/媒体路径单向再导出 modules/discover
 infra/: 基础设施服务，封装缓存、上游调用与刷新兜底
 portal/: Portal 兼容 Facade，一卡通/资料归 Campus Integrations，课表归 Academic
-treehole/: Treehole 兼容 Facade，旧类名/类型/媒体路径单向再导出 modules/treehole
 
 架构决策
 服务层只编排业务规则与持久化访问；HTTP 参数解析留在 routes，HTML/JSON 解析留在 parsers，运行态副作用收敛到 infra 或具体媒体服务。
@@ -21,8 +19,7 @@ treehole/: Treehole 兼容 Facade，旧类名/类型/媒体路径单向再导出
 
 变更日志
 2026-07-27: 管理聚合、同步 analytics、日志与公告迁入 Operations，旧 services 路径退化为 Facade。
-2026-07-27: Treehole 业务、SQLite 事务与头像媒体迁入 modules/treehole，旧 services 路径退化为 Facade。
-2026-07-27: Discover 业务与媒体迁入 modules/discover，旧 services/discover 退化为再导出 Facade。
+2026-07-31: Discover/Treehole 旧 services Facade 物理删除，调用方直接依赖各 canonical 模块。
 2026-07-27: Calendar 签名、快照与 ICS 迁入 modules/calendar，旧 services/calendar 退化为再导出 Facade。
 2026-07-27: Academic 业务迁入 modules/academic，旧 services/academic 与 PortalScheduleService 退化为再导出 Facade。
 2026-06-30: 播种 services L2 地图，明确服务层边界与 Discover 子模块文档入口。

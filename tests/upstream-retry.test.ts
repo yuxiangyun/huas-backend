@@ -8,13 +8,14 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { generateKeyPairSync } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
-import { initDatabase, getDb, schema } from '../src/db';
+import { getDb, schema } from '../src/db';
 import { upstream } from '../src/services/infra/upstream';
 import type { HttpClient } from '../src/core/http-client';
 import { TicketExchanger } from '../src/auth/ticket-exchanger';
 import { AuthEngine } from '../src/auth/auth-engine';
 import { CredentialManager } from '../src/modules/campus-integrations/credential-recovery/credential-manager';
 import { AppError, ErrorCode } from '../src/utils/errors';
+import { clearSocialTestData } from './social-database';
 
 const EMPTY_JAR_JSON = JSON.stringify({
   version: 'tough-cookie@5.0.0',
@@ -52,22 +53,9 @@ async function seedUserAndCredential() {
   });
 }
 
-beforeAll(() => {
-  initDatabase();
-});
-
 beforeEach(async () => {
   const db = getDb();
-  await db.delete(schema.treeholeCommentNotifications);
-  await db.delete(schema.treeholePostLikes);
-  await db.delete(schema.treeholeComments);
-  await db.delete(schema.treeholePosts);
-  await db.delete(schema.discoverComments);
-  await db.delete(schema.discoverPostRatings);
-  await db.delete(schema.discoverPosts);
-  await db.delete(schema.credentials);
-  await db.delete(schema.cache);
-  await db.delete(schema.users);
+  await clearSocialTestData(db);
   await seedUserAndCredential();
 });
 

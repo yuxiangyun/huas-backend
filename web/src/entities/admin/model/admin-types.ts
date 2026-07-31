@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖后端管理接口的 dashboard、内容、合规与课表来源策略数据契约
+ * [INPUT]: 依赖后端管理接口的 dashboard、内容、日志与课表来源策略数据契约
  * [OUTPUT]: 提供后台页面与 API 共用的强类型响应、请求载荷和课表来源模式
  * [POS]: entities/admin 的协议模型边界，保证管理 UI 不重新解释后端字段
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -130,16 +130,6 @@ export interface AdminAnalyticsOverview {
   days: 7 | 30 | 90;
   since: string;
   series: Array<Record<string, string | number>>;
-}
-
-export interface AdminComplianceStatus {
-  mode: 'normal' | 'compliance';
-  disabled: boolean;
-  discoverMockText: string;
-  treeholeMockText: string;
-  updatedAt: string;
-  updatedBy: string;
-  stateFile: string;
 }
 
 export type AdminScheduleSourceMode = 'jw-first' | 'portal-first';

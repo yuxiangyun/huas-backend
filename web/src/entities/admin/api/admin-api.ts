@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖共享 apiRequest、后台 Cookie 会话与 entities/admin 的强类型协议
- * [OUTPUT]: 提供 dashboard、内容、合规、日志与课表来源策略的管理 HTTP 命令
+ * [OUTPUT]: 提供 dashboard、内容、日志与课表来源策略的管理 HTTP 命令
  * [POS]: entities/admin 的唯一 HTTP 适配边界，向查询层屏蔽路径、方法与 AbortSignal 细节
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -11,7 +11,6 @@ import type {
   AdminAnnouncementPayload,
   AdminAnnouncementUpdatePayload,
   AdminAnalyticsOverview,
-  AdminComplianceStatus,
   AdminDashboardResponse,
   AdminScheduleSourceMode,
   AdminScheduleSourcePolicy,
@@ -60,20 +59,6 @@ export async function getAdminAnalyticsOverview(
     `/api/admin/analytics/overview?days=${days}`,
     {},
     { auth: false, signal: options?.signal }
-  );
-}
-
-export async function getAdminComplianceStatus(options?: RequestOptions) {
-  return apiRequest<AdminComplianceStatus>('/api/admin/compliance/ugc', {}, { auth: false, signal: options?.signal });
-}
-
-export async function updateAdminComplianceStatus(
-  payload: Pick<AdminComplianceStatus, 'mode' | 'discoverMockText' | 'treeholeMockText'>
-) {
-  return apiRequest<AdminComplianceStatus>(
-    '/api/admin/compliance/ugc',
-    { method: 'PUT', body: JSON.stringify(payload) },
-    { auth: false }
   );
 }
 

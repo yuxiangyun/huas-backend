@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 Hono、LoginApplicationService 生产装配、登录 DTO、登录限流与注入的登录 analytics 观测端口
- * [OUTPUT]: 对外默认提供 `/login` Hono 路由，保持登录契约并透传可操作的验证码失败原因
- * [POS]: identity/http 的薄适配器，只解析/校验 HTTP、挂载限流与观测，并映射应用结果
+ * [INPUT]: 依赖 Hono、注入式登录应用服务、登录 DTO、登录限流与登录 analytics 观测端口
+ * [OUTPUT]: 对外提供 `/login` Hono 路由与其应用服务实例，保持登录契约并透传可操作的验证码失败原因
+ * [POS]: identity/http 的薄适配器，只解析/校验 HTTP；验证码清理由根周期任务注册器统一调度
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -19,12 +19,13 @@ import { appendHttpLogDetail, formatHttpLogDetail } from '../../../utils/http-lo
 import { Logger } from '../../../utils/logger';
 import { error, success } from '../../../utils/response';
 import type { LoginFailure, LoginSuccess } from '../domain/login';
-import { createScheduledLoginApplicationService } from '../infrastructure/login-composition';
+import { createLoginApplicationService } from '../infrastructure/login-composition';
 import { parseLoginRequestDto } from './login.dto';
 import { recordLoginAnalytics } from './login-analytics';
 
 const auth = new Hono();
-const loginService = createScheduledLoginApplicationService();
+export const loginApplicationService = createLoginApplicationService();
+const loginService = loginApplicationService;
 
 auth.use('/login', async (c, next) => {
   await next();
