@@ -35,6 +35,8 @@
 
 所有发布入口共享一条不可绕过的顺序：停流/停 writer → snapshot → `db:migrate --allow-destructive` → 新 Server/Web 本机冒烟 → 开放流量。
 
+> 社交 0003 与旧 Web 契约不兼容。后端重构与独立前端适配尚未同时完成时，禁止执行真实发布；必须把消费统一 author、Discover 点赞、Notifications 和 Messaging 新接口的 Web 与新 Server 放入同一 release，再进入维护窗口。
+
 不再维护以下链路：
 
 - Docker
@@ -371,7 +373,10 @@ npm run build
 ├── public/
 ├── data/
 │   ├── discover/
-│   └── treehole-avatars/
+│   ├── treehole-avatars/
+│   ├── message-media/
+│   ├── snapshots/
+│   └── huas.db
 ├── logs/
 ├── ecosystem.config.cjs
 └── .env
@@ -384,8 +389,9 @@ npm run build
 - `.deploy/releases/` 保存每次维护发布生成的槽位 release
 - `.deploy/logs/<slot>/` 保存槽位级别的 PM2 日志
 - `web/dist` 是 `/m` 前端入口的静态资源来源
-- `public/status.html` 是 `/status` 页面来源
-- `data/` 存数据库、Discover 图片和 Treehole 头像
+- `public/` 只保存无需构建的开发静态资产；后台唯一入口由 `web/dist` 提供于 `/m/admin/*`
+- `data/` 存数据库、Discover 图片、Community 头像、私信媒体和数据库快照
+- `data/message-media/` 只保存 Messaging WebP 文件；数据库保存元数据，普通用户和管理员都必须走鉴权 API，禁止直接配置成 Nginx 静态目录
 - `logs/pm2-out.log` 与 `logs/pm2-error.log` 会被管理仪表盘读取
 
 ## 7. Nginx 反向代理
@@ -403,8 +409,8 @@ npm run build
 
 最少需要保证：
 
-- `/m`、`/api`、`/auth`、`/health`、`/metrics`、`/status`、`/media/*` 都转发到 Bun 服务
-- 请求体大小足够覆盖 Discover 多图上传
+- `/m`、`/api`、`/auth`、`/health`、`/metrics`、`/media/*` 都转发到 Bun 服务
+- 请求体大小必须覆盖 Messaging 单条消息 64MB 原图总量及 multipart 开销；建议 `client_max_body_size` 不低于 `70m`
 - HTTPS 终止在 Nginx 层
 
 ## 8. 日志与数据
@@ -421,7 +427,14 @@ npm run build
 - `data/huas.db`
 - `data/discover/`
 - `data/treehole-avatars/`
+- `data/message-media/`
 - `data/announcements.json`
+
+`treehole-avatars` 是历史目录名，当前所有权属于 Community；Messaging 媒体固定落在 `dirname(DB_PATH)/message-media`，没有独立环境变量可把它与 SQLite 持久目录拆开。备份与迁移数据库时必须同时保留该目录，否则消息元数据仍在但图片永久缺失。
+
+运行期周期维护由同一 registry 管理：Activity Outbox 默认每 5 秒重试；已读通知每天清理一次并保留 90 天；无主私信媒体每小时检查一次，只删除超过 1 小时且没有 `message_images` 引用的候选目录。已引用消息图片永久保留，不属于周期清理对象。
+
+Notifications/Messaging 成功 GET 轮询采用 quiet access log，但 HTTP metrics 仍然统计；4xx/5xx 和发送、已读等写操作继续记录。任何日志都不得包含消息正文、原始文件名或图片内容。
 
 ### 8.1 Database migration
 
@@ -436,6 +449,8 @@ bun run db:migrate -- --db ./data/huas.db --allow-destructive
 对已有库首次采用 baseline 时，执行器会比较表与索引的结构化 fingerprint。只有与 baseline 完全一致才写 adoption 记录；缺表、多表、列或索引定义漂移都会拒绝继续，并输出对象差异与诊断命令。不要通过手写 migration 记录绕过检查。
 
 执行器默认拒绝破坏性 migration；维护发布必须在停流、停 writer 和快照成功后显式传入 `--allow-destructive`。这只是执行授权，不是回滚能力；应用启动只校验 schema version，不再自动改变结构。
+
+`0003_social_rearchitecture` 在同一事务中动态保存并复核 users、credentials、cache、Discover 和 Treehole 八张核心事实表的行数，并把旧昵称/头像元数据迁入 `community_profiles`。旧 Discover 评分不会转换成点赞；旧评分或旧 Treehole 通知只要出现一条，迁移就拒绝删除旧表并完整回滚。运维人员不得通过手写版本记录、临时删行或修改 migration 绕过断言。
 
 ### 8.2 派生计数 repair
 
@@ -470,6 +485,8 @@ bun run db:snapshot -- \
 huas-<UTC时间>-schema-v<版本>-release-<标识>.db
 ```
 
+`db:snapshot` 只复制 SQLite，不复制 `message-media`。停 writer 后的完整灾备必须另行复制整个明确的 `dirname(DB_PATH)/message-media` 目录，并把它与同一 release 的数据库快照成对标记；不要在仍有上传事务运行时单独复制媒体目录。
+
 普通应用启动不会自动快照或迁移。维护发布严格按“maintenance 503 → stop writers → snapshot → `db:migrate --allow-destructive` → Server/Web 本机冒烟 → 开放流量”执行。首次部署若数据库尚不存在，也必须在应用启动前显式执行迁移。
 
 ### 8.4 快照保留与恢复
@@ -482,6 +499,47 @@ huas-<UTC时间>-schema-v<版本>-release-<标识>.db
 
 - `data/`
 - `.env`
+
+### 8.5 临时库迁移与启动演练
+
+发布前先运行自动化 v2 样本演练。该套件只使用内存或系统临时目录，覆盖 destructive flag、核心数据守恒、schema mismatch 启动拒绝、迁移事务回滚、`quick_check` 与外键检查：
+
+```bash
+bun test tests/database-migrations.test.ts
+```
+
+还可用一个全新的临时文件库验证 CLI、运行期只读 schema 门禁与 readiness。以下命令绝不指向 `data/huas.db`：
+
+```bash
+REHEARSAL_ROOT="$(mktemp -d)"
+REHEARSAL_DB="$REHEARSAL_ROOT/social-v3.db"
+REHEARSAL_PORT=31999
+
+bun run db:migrate -- --db "$REHEARSAL_DB" --allow-destructive
+
+DB_PATH="$REHEARSAL_DB" \
+PORT="$REHEARSAL_PORT" \
+NODE_ENV=production \
+bun run src/index.ts >"$REHEARSAL_ROOT/server.log" 2>&1 &
+REHEARSAL_PID=$!
+
+curl --fail "http://127.0.0.1:$REHEARSAL_PORT/health/ready"
+kill "$REHEARSAL_PID"
+wait "$REHEARSAL_PID" || true
+```
+
+若环境禁止监听本地端口，至少执行迁移测试、`bun run db:verify`，并以临时库调用 `assertDatabaseSchemaCurrent`；这不能替代真实发布窗口中的 Server/Web 本机冒烟。
+
+若进程在监听前退出，优先检查 DB 文件是否存在、migration 版本是否落后、name/checksum 是否被改写以及最终 schema fingerprint 是否漂移。`/health/ready` 只报告已经启动进程的本地 readiness，不执行也不修复 migration。
+
+任何候选数据库在开放流量前还必须满足：
+
+```sql
+PRAGMA quick_check;       -- 唯一结果必须是 ok
+PRAGMA foreign_key_check; -- 必须返回空结果
+```
+
+演练完成后只删除已经确认的 `REHEARSAL_ROOT`，禁止使用未解析变量或宽泛 glob 清理数据目录。
 
 ## 9. 更新流程
 

@@ -347,6 +347,7 @@ community 独立拥有 community_profiles 昵称/头像与默认 displayName；�
 discover 与 treehole 是独立业务支线，媒体访问挂载于 /media/*，不经过学校上游；内容事实表不保存公开资料快照。
 Discover/Treehole 的六类有效互动与 activity_outbox 在同一 SQLite 短事务提交；Notifications 以稳定 recipient event_id 幂等投影、仅支持逐条已读，取消点赞在原事务撤销对应通知。
 Messaging 只建一对一唯一会话，首条消息事务内延迟建会话并以 UUID 幂等；私信图片位于 dirname(DB_PATH)/message-media，仅参与者或管理员经鉴权路由读取，Operations 只消费公开只读 port。
+应用启动只有 schema metadata/fingerprint 校验权，结构变更仅由部署阶段显式 migration 执行；进程级清理由统一 PeriodicTaskRegistry 管理并在关闭时等待停止。
 Web 入口为 /m，普通用户默认进入 Treehole；管理端使用独立 HttpOnly Cookie 会话，普通用户 JWT 与后台权限不互通。
 Git push 始终把当前 HEAD 推到 baidu/main，由远端 hook 执行维护发布：release 准备后停流与停全部 writer，再快照、显式 destructive migration、新 Server/Web 本机冒烟并重新开放流量；migration 后失败不得恢复旧 upstream，只能保持停流并 forward-fix。
 </architecture_decisions>
@@ -354,7 +355,7 @@ Git push 始终把当前 HEAD 推到 baidu/main，由远端 hook 执行维护发
 <routes>
 /m、/m/* - Web SPA 入口、静态资源与前端路由回退
 /auth/login - CAS 登录主流程并签发服务 JWT
-/health、/health/ready - 存活与发布 readiness 检查
+/health、/health/live、/health/ready - 兼容健康、存活与发布 readiness 检查
 /api/public/* - 免 Bearer 公共接口
 /api/admin/session - 后台独立会话建立、探测与撤销
 /api/admin/* - HttpOnly Cookie 会话保护的管理接口
@@ -367,7 +368,7 @@ Git push 始终把当前 HEAD 推到 baidu/main，由远端 hook 执行维护发
 /api/messaging/* - 一对一会话、图文消息、阅读游标、未读计数与参与者私有媒体
 /api/admin/messaging/* - 后台 Cookie 会话保护的私信会话、历史与媒体只读入口
 /api/classrooms/* - 管理员账号代查的空教室只读接口
-/media/discover/*、/media/treehole-avatar/* - 静态媒体访问
+/media/discover/*、/media/treehole-avatar/* - Discover 图片与 Community 头像兼容静态媒体路径
 </routes>
 
 <development_rules>
@@ -376,7 +377,7 @@ Git push 始终把当前 HEAD 推到 baidu/main，由远端 hook 执行维护发
 完整质量门禁：bun run check
 前端类型检查与构建：bun run web:typecheck && bun run web:build
 端到端测试：bun run test:e2e
-数据库迁移：bun run db:generate && bun run db:migrate
+数据库迁移：bun run db:migrate -- --db <sqlite-path> [--allow-destructive]
 默认部署：git push baidu HEAD:main
 </development_rules>
 

@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 Bun SQLite、临时目录与 db migration/repair/snapshot/只读校验内核
- * [OUTPUT]: 覆盖 destructive 授权、0003 数据守恒/私信约束、旧事实拒绝、schema fail-closed、repair 与快照边界
+ * [INPUT]: 依赖 Bun SQLite/子进程、临时目录与 db migration CLI/repair/snapshot/只读校验内核
+ * [OUTPUT]: 覆盖 destructive CLI 授权、0003 行数与业务值守恒、SQLite 完整性、旧事实拒绝、schema fail-closed、repair 与快照边界
  * [POS]: tests 的数据库 contract migration 回归，证明破坏性发布必须显式且运行期没有结构变更权
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -22,6 +22,16 @@ import { createDatabaseSnapshot } from '../src/db/snapshot';
 
 const roots: string[] = [];
 const LEGACY_MIGRATIONS = MIGRATIONS.slice(0, 2);
+const CORE_TABLES = [
+  'users',
+  'credentials',
+  'cache',
+  'discover_posts',
+  'discover_comments',
+  'treehole_posts',
+  'treehole_comments',
+  'treehole_post_likes',
+] as const;
 
 function temporaryRoot(): string {
   const root = mkdtempSync(join(tmpdir(), 'huas-db-migration-'));
@@ -39,6 +49,24 @@ function migrateLegacy(database: Database): void {
   migrateDatabase(database, { migrations: LEGACY_MIGRATIONS });
 }
 
+function seedLegacySocialFacts(database: Database): void {
+  database.exec(`
+    INSERT INTO users (student_id, name, class_name, treehole_avatar_url, community_nickname)
+    VALUES ('u-1', '甲', '软工24101班', '/media/treehole-avatar/1.webp?v=7', '山茶'),
+           ('u-2', '乙', '计科24201班', NULL, NULL);
+    INSERT INTO credentials (user_id, system, value) VALUES (1, 'tgc', 'opaque');
+    INSERT INTO cache (key, data, source) VALUES ('schedule:1', '{}', 'jw');
+    INSERT INTO discover_posts
+      (user_id, title, category, storage_key, images_json, tags_json, cover_url)
+    VALUES (1, '保留帖子', '食堂', 'discover-1', '["1.webp"]', '["早餐"]', '/media/discover/1.webp');
+    INSERT INTO discover_comments (post_id, user_id, content) VALUES (1, 2, '保留评论');
+    INSERT INTO treehole_posts (user_id, content, like_count, comment_count)
+    VALUES (2, '保留树洞', 1, 1);
+    INSERT INTO treehole_post_likes (post_id, user_id) VALUES (1, 1);
+    INSERT INTO treehole_comments (post_id, user_id, content) VALUES (1, 1, '保留回复');
+  `);
+}
+
 function objectExists(database: Database, name: string): boolean {
   const row = database.query(
     "SELECT count(*) AS count FROM sqlite_master WHERE name = ?",
@@ -48,6 +76,39 @@ function objectExists(database: Database, name: string): boolean {
 
 function count(database: Database, table: string): number {
   return Number((database.query(`SELECT count(*) AS count FROM ${table}`).get() as { count: number }).count);
+}
+
+function coreCounts(database: Database): Record<string, number> {
+  return Object.fromEntries(CORE_TABLES.map((table) => [table, count(database, table)]));
+}
+
+function preservedBusinessFacts(database: Database): Record<string, unknown> {
+  return {
+    users: database.query(
+      'SELECT id, student_id, name, class_name FROM users ORDER BY id',
+    ).all(),
+    discoverPosts: database.query(`
+      SELECT id, user_id, title, category, storage_key, images_json, tags_json, cover_url
+      FROM discover_posts ORDER BY id
+    `).all(),
+    discoverComments: database.query(
+      'SELECT id, post_id, user_id, content FROM discover_comments ORDER BY id',
+    ).all(),
+    treeholePosts: database.query(
+      'SELECT id, user_id, content, like_count, comment_count FROM treehole_posts ORDER BY id',
+    ).all(),
+    treeholeComments: database.query(
+      'SELECT id, post_id, user_id, content FROM treehole_comments ORDER BY id',
+    ).all(),
+    treeholeLikes: database.query(
+      'SELECT id, post_id, user_id FROM treehole_post_likes ORDER BY id',
+    ).all(),
+  };
+}
+
+function expectSqliteIntegrity(database: Database): void {
+  expect(database.query('PRAGMA quick_check').get()).toEqual({ quick_check: 'ok' });
+  expect(database.query('PRAGMA foreign_key_check').all()).toEqual([]);
 }
 
 afterEach(() => {
@@ -90,40 +151,18 @@ describe('database migrations', () => {
   test('preserves every core v2 fact row and migrates community profile values', () => {
     const database = openMemory();
     migrateLegacy(database);
-    database.exec(`
-      INSERT INTO users (student_id, name, class_name, treehole_avatar_url, community_nickname)
-      VALUES ('u-1', '甲', '软工24101班', '/media/treehole-avatar/1.webp?v=7', '山茶'),
-             ('u-2', '乙', '计科24201班', NULL, NULL);
-      INSERT INTO credentials (user_id, system, value) VALUES (1, 'tgc', 'opaque');
-      INSERT INTO cache (key, data, source) VALUES ('schedule:1', '{}', 'jw');
-      INSERT INTO discover_posts
-        (user_id, title, category, storage_key, images_json, tags_json, cover_url)
-      VALUES (1, '保留帖子', '食堂', 'discover-1', '["1.webp"]', '["早餐"]', '/media/discover/1.webp');
-      INSERT INTO discover_comments (post_id, user_id, content) VALUES (1, 2, '保留评论');
-      INSERT INTO treehole_posts (user_id, content, like_count, comment_count)
-      VALUES (2, '保留树洞', 1, 1);
-      INSERT INTO treehole_post_likes (post_id, user_id) VALUES (1, 1);
-      INSERT INTO treehole_comments (post_id, user_id, content) VALUES (1, 1, '保留回复');
-    `);
-
-    const coreTables = [
-      'users',
-      'credentials',
-      'cache',
-      'discover_posts',
-      'discover_comments',
-      'treehole_posts',
-      'treehole_comments',
-      'treehole_post_likes',
-    ] as const;
-    const before = Object.fromEntries(coreTables.map((table) => [table, count(database, table)]));
+    seedLegacySocialFacts(database);
+    const beforeCounts = coreCounts(database);
+    const beforeFacts = preservedBusinessFacts(database);
 
     expect(() => migrateDatabase(database)).toThrow(/allow-destructive/);
     expect(getCurrentSchemaVersion(database)).toBe(2);
-    expect(Object.fromEntries(coreTables.map((table) => [table, count(database, table)]))).toEqual(before);
+    expect(coreCounts(database)).toEqual(beforeCounts);
+    expect(preservedBusinessFacts(database)).toEqual(beforeFacts);
 
     migrateDatabase(database, { allowDestructive: true });
-    expect(Object.fromEntries(coreTables.map((table) => [table, count(database, table)]))).toEqual(before);
+    expect(coreCounts(database)).toEqual(beforeCounts);
+    expect(preservedBusinessFacts(database)).toEqual(beforeFacts);
     expect(database.query(
       'SELECT user_id, nickname, avatar_url FROM community_profiles ORDER BY user_id',
     ).all()).toEqual([
@@ -140,7 +179,64 @@ describe('database migrations', () => {
       "SELECT count(*) AS count FROM pragma_table_info('users') WHERE name IN ('community_nickname', 'treehole_avatar_url')",
     ).get() as { count: number }).count).toBe(0);
     expect(assertDatabaseSchemaCurrent(database)).toEqual({ version: 3 });
+    expectSqliteIntegrity(database);
     database.close();
+  });
+
+  test('enforces destructive authorization through the file database CLI', () => {
+    const dbPath = join(temporaryRoot(), 'v2.db');
+    const database = new Database(dbPath);
+    database.exec('PRAGMA foreign_keys = ON');
+    migrateLegacy(database);
+    seedLegacySocialFacts(database);
+    const beforeCounts = coreCounts(database);
+    const beforeFacts = preservedBusinessFacts(database);
+    database.close();
+
+    const denied = Bun.spawnSync([
+      process.execPath,
+      'scripts/db-migrate.ts',
+      '--db',
+      dbPath,
+    ], { cwd: process.cwd(), stdout: 'pipe', stderr: 'pipe' });
+    expect(denied.exitCode).not.toBe(0);
+    expect(denied.stderr.toString()).toMatch(/destructive/);
+
+    const unchanged = new Database(dbPath, { create: false, readwrite: true });
+    unchanged.exec('PRAGMA foreign_keys = ON');
+    expect(getCurrentSchemaVersion(unchanged)).toBe(2);
+    expect(coreCounts(unchanged)).toEqual(beforeCounts);
+    expect(preservedBusinessFacts(unchanged)).toEqual(beforeFacts);
+    expect(objectExists(unchanged, 'community_profiles')).toBe(false);
+    unchanged.close();
+
+    const allowed = Bun.spawnSync([
+      process.execPath,
+      'scripts/db-migrate.ts',
+      '--db',
+      dbPath,
+      '--allow-destructive',
+    ], { cwd: process.cwd(), stdout: 'pipe', stderr: 'pipe' });
+    expect(allowed.exitCode, allowed.stderr.toString()).toBe(0);
+    expect(allowed.stdout.toString()).toMatch(/version=3 applied=3 adopted=false/);
+
+    const migrated = new Database(dbPath, { create: false, readwrite: true });
+    migrated.exec('PRAGMA foreign_keys = ON');
+    expect(getCurrentSchemaVersion(migrated)).toBe(3);
+    expect(coreCounts(migrated)).toEqual(beforeCounts);
+    expect(preservedBusinessFacts(migrated)).toEqual(beforeFacts);
+    expect(count(migrated, 'community_profiles')).toBe(count(migrated, 'users'));
+    expectSqliteIntegrity(migrated);
+    migrated.close();
+
+    const repeated = Bun.spawnSync([
+      process.execPath,
+      'scripts/db-migrate.ts',
+      '--db',
+      dbPath,
+    ], { cwd: process.cwd(), stdout: 'pipe', stderr: 'pipe' });
+    expect(repeated.exitCode, repeated.stderr.toString()).toBe(0);
+    expect(repeated.stdout.toString()).toMatch(/version=3 applied=none adopted=false/);
   });
 
   test('refuses to discard a newly appeared legacy rating', () => {

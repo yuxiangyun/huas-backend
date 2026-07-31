@@ -15,7 +15,7 @@ business-flows/: 登录、凭证、课表/日历、缓存与持久化边界的�
 cache-modernization.test.ts: Cache 永久/限时新鲜度、版本 envelope、旧 payload、同意图 singleflight 与 observer 隔离回归测试
 calendar-compat.test.ts: Calendar canonical 实现与 routes/services/auth 旧 Facade 的引用、token 别名与 HMAC 语义兼容测试
 campus-integrations-compat.test.ts: Campus Integrations canonical 实现与 auth/core/parsers/services 旧 Facade 的引用一致性测试
-database-migrations.test.ts: SQLite destructive 授权、0003 数据守恒/旧事实拒绝、启动 schema fail-ready、repair 与快照回归测试
+database-migrations.test.ts: SQLite destructive API/CLI 授权、0003 行数与业务值守恒、完整性/旧事实拒绝、启动 schema fail-ready、repair 与快照回归测试
 deployment-scripts.test.ts: 维护发布脚本的 Bash 语法、停流/停 writer 顺序、destructive migration、本机冒烟与 forward-fix 回归测试
 classroom-free-parser.test.ts: 空教室解析器回归测试
 community.test.ts: Community 默认名称、批量公共资料、HTTP 字段隔离与头像媒体生命周期回归测试

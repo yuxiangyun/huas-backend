@@ -1,124 +1,136 @@
-# HUAS Server 代码—文档可视化核对报告
+# HUAS Server 社交后端重构交付核对报告
 
-> 核对范围：`src/`、`web/src/`、`tests/` 与 `docs/` 现有文档
+> 事实基准：2026-07-31
 >
-> 事实基准：2026-07-18 当前工作区
->
-> 方法：先按代码入口、路由、导入导出、环境变量和持久化结构建立事实，再对照架构、API、前端与运维文档；未运行项目、构建或测试
+> 核对范围：后端代码、SQLite migration、HTTP 契约、测试、运维脚本与 GEB 文档。UI 设计和前端页面实现不在本轮范围。
 
 ## 核心结论
 
-1. 代码的主边界是清楚的：Bun/Hono 同时托管 React SPA、校园上游聚合 API、UGC、管理后台、媒体与日历订阅；校园服务与 UGC 共用身份和 SQLite，但上游依赖彼此隔离。[`src/index.ts`](src/index.ts)、[`src/routes/index.ts`](src/routes/index.ts)
-2. 认证不是单一 CAS 调用，而是“本地快捷登录 / CAS 验证码 / Portal 与 JW 子凭证 / Self JWT”四层协作；凭证恢复还包含 TGC 交换、静默重认证、持久化交互标记和错误降级边界。[`src/routes/auth/auth.routes.ts`](src/routes/auth/auth.routes.ts)、[`src/auth/credential-manager.ts`](src/auth/credential-manager.ts)
-3. 架构与 API 文档的最大漂移在管理面：代码已经从 Basic Auth 和 `/status` 迁移到环境变量账号、HttpOnly Cookie 会话与 `/api/admin/session`，但三份主文档仍描述旧实现。[`src/middleware/admin-session.middleware.ts`](src/middleware/admin-session.middleware.ts)、[`docs/architecture/ARCHITECTURE.md`](docs/architecture/ARCHITECTURE.md)、[`docs/api/API.md`](docs/api/API.md)
-4. SQLite 实际有 12 张表，不是架构文档写的 10 张；新增的两张分析表及 `/api/admin/analytics/overview` 尚未进入主架构和 API 总契约。[`src/db/schema.ts`](src/db/schema.ts)、[`src/services/admin/analytics-service.ts`](src/services/admin/analytics-service.ts)
-5. GEB 文件契约未完全落地：静态扫描的 208 个 TypeScript/TSX 文件中，125 个在文件头含 `[INPUT]`，83 个缺失；后端覆盖 81%，Web 仅 42%，测试 58%。这会削弱代码—文档双向校验能力。[`AGENTS.md`](AGENTS.md)
+社交后端已完成从“用户表混存资料、Discover 评分、匿名 Treehole、模块内提醒”到五个独立纵向切片的破坏性重构：
 
-## 1. 运行时总览
+1. Community 独立拥有公共资料，Identity 只提供校园 className 窄投影。
+2. Discover 物理删除评分能力，改为幂等点赞与基于点赞偏好的推荐。
+3. Treehole 取消匿名，帖子和评论统一返回公共作者。
+4. Notifications 通过 transactional outbox 投影六类活动通知。
+5. Messaging 提供一对一图文私信、幂等、限流、游标未读与私有媒体。
+6. Operations 通过公开 ports 读取社交数据，私信管理入口严格只读。
+7. 应用启动不再拥有 migration 权限；0003 只能在快照、停流和显式 destructive 授权后执行。
 
-总览图只负责导航。业务细节在后续模块图中展开。
+本轮按产品负责人最新范围不修改 Web UI。当前 Web 仍消费旧评分/匿名相关契约，因此本后端提交是“后端完成、整体发布未就绪”：必须等待独立前端任务切换到新 DTO 和路由后，与新 Server/Web 在同一个维护发布中交付，禁止单独部署当前后端。
 
-![HUAS Server 运行时总览](assets/runtime-architecture.svg)
+## 1. 模块与依赖边界
 
-`/m` 的 React 应用和小程序共享同一套 Hono API。Bearer 业务路由下又分为两条性质不同的链：学业/门户服务依赖 CAS、Portal、JW 与凭证缓存；Discover/Treehole 直接访问 SQLite 和本地媒体，不依赖学校上游。管理路由使用独立 Cookie 会话，公开日历使用签名 URL。[`src/index.ts`](src/index.ts)、[`src/routes/index.ts`](src/routes/index.ts)、[`web/src/app/router/router.tsx`](web/src/app/router/router.tsx)
+```text
+Identity ──read port──> Community
+                         │
+                         ├──batch profile reader──> Discover
+                         ├──batch profile reader──> Treehole
+                         ├──batch profile reader──> Notifications
+                         └──batch profile reader──> Messaging
 
-## 2. CAS 登录与本地快捷路径
+Discover/Treehole ──activity ports──> Notifications
+Identity/Discover/Treehole/Messaging ──query ports──> Operations
+```
 
-![CAS 登录完整决策树](assets/cas-login-flow.svg)
+跨模块组合只发生在 `src/composition.ts`。各模块导出构造器、应用服务、route factory 和领域 ports，不导出 concrete singleton。Community 不反向依赖任何社交消费者；Operations 不直接 SQL 查询消费者表。
 
-这条链最重要的三个边界是：
+公共作者统一为：
 
-- 本地快捷登录只在没有 `sessionId`、没有持久化交互标记且 AES 密码匹配时成立；成功后不访问学校系统。
-- 验证码会话存于进程内 `Map`，最多 1000 条、10 分钟 TTL、读取一次即删除；重启或流量切到另一实例后无法继续二次提交。
-- CAS 成功并不等于本服务登录成功。Portal Token 与 JW Session 至少一个必须可用，之后才写用户、学校凭证并签发 Self JWT。
+```json
+{
+  "id": 17,
+  "displayName": "软工同学17",
+  "avatarUrl": null
+}
+```
 
-依据：[`src/routes/auth/auth.routes.ts`](src/routes/auth/auth.routes.ts)、[`src/auth/auth-engine.ts`](src/auth/auth-engine.ts)、[`src/auth/ticket-exchanger.ts`](src/auth/ticket-exchanger.ts)。
+不存在昵称时，Community 读取 Identity className 第一个数字前的前缀；无有效前缀时回退 `文理er {id}`。学号、真实姓名、完整班级、评论历史和点赞历史不进入公共资料 DTO。
 
-## 3. 凭证重构与上游恢复
+## 2. Discover 与 Treehole
 
-![学校凭证重构与上游恢复](assets/credential-recovery.svg)
+Discover 当前事实为帖子、图片元数据、点赞和评论。点赞/取消点赞幂等，作者自赞被拒绝；`popular` 以点赞数和时间排序，`recommended` 从用户点赞过的分类/标签推断，无数据回退 `latest`。评分表、评分字段、评分接口和兼容 Facade 均已删除。
 
-有效子凭证直接使用；子凭证失效时先尝试用 TGC 交换，失败后才用数据库中的 AES 密码重跑 CAS。若 CAS 明确要求验证码，系统会删除三个学校凭证，并在 `credentials` 表写入无 TTL 的 `interactive_login_required` 标记，阻止后续静默流程绕过人工验证。
+Treehole 只保留产品名称，不再提供匿名语义。帖子和评论显式绑定 `users.id`，作者资料由 Community 批量投影；旧头像/profile/通知职责不再属于 Treehole。公共用户内容由 Discover 与 Treehole 各自的 `/users/:userId/posts` 接口提供。
 
-业务上游遇到瞬时网络错误会按配置退避重试；遇到 `SESSION_EXPIRED` 会删除目标凭证并重构一次。最终的 `3003` 是硬边界：[`fallbackOnRefreshFailure()`](src/services/infra/refresh-fallback.ts) 明确禁止用旧缓存掩盖需要重新登录的事实。
+## 3. Activity Outbox 与 Notifications
 
-依据：[`src/auth/credential-manager.ts`](src/auth/credential-manager.ts)、[`src/services/infra/upstream.ts`](src/services/infra/upstream.ts)、[`src/services/infra/refresh-fallback.ts`](src/services/infra/refresh-fallback.ts)。
+Discover/Treehole 的有效点赞、评论和回复在原领域 SQLite 短事务内同时提交互动事实、派生计数与 Outbox 事件。事件只保存稳定引用，不复制帖子、评论正文，也不建立跨领域内容外键。
 
-## 4. 课表双源、缓存与回退
+六类通知为 Discover/Treehole 各自的 like、comment、comment_reply。eventId 包含 recipient，支持同一回复向父评论作者和不同的帖子作者分别幂等投影；自我互动过滤，重复 recipient 去重。取消点赞会在原事务撤销 pending/processed Outbox 和已投影通知。
 
-![课表双源与回退决策树](assets/schedule-fallback.svg)
+请求提交后立即尝试投影，失败由周期任务退避重试。通知只支持逐条已读；Messaging 未读完全独立，不写活动通知。
 
-两个入口不是同一路径换名字：
+## 4. Messaging
 
-- `/api/schedule` 以 JW 为主，失败时用同一自然周的 Portal 数据回退。
-- `/api/v1/schedule` 以 Portal 为主；只有查询范围恰好是自然周时，Portal 失败才允许回退 JW，任意日期区间失败则返回原错误。
-- “课表未公布”被规范化为 `200` 空课表。两源都失败后才选择错误；非 `3003` 错误且存在旧缓存时可以返回 `stale=true`，`3003` 不允许降级。
+Messaging 数据模型针对一对一会话：
 
-依据：[`src/services/academic/schedule-facade.ts`](src/services/academic/schedule-facade.ts)、[`src/services/academic/schedule-service.ts`](src/services/academic/schedule-service.ts)、[`src/services/portal/portal-schedule-service.ts`](src/services/portal/portal-schedule-service.ts)。
+- `conversations` 对有序用户对建立唯一约束和双边阅读游标；
+- `messages` 以 `(sender_user_id, client_message_id)` 保证客户端 UUID 幂等；
+- `message_images` 约束 0–8 序位和 `image/webp` 元数据；
+- 会话只在首条消息成功事务内创建，不存在空会话命令；
+- 发送速率由持久消息事实按用户计算，限制 30 条/分钟；
+- 未读数由消息 ID 与当前用户游标计算，不写冗余通知事实。
 
-## 5. 管理员会话
+消息允许文字、图片或二者同时存在。文字上限 1000 Unicode code point；图片最多 9 张，单张原图 32MB、合计 64MB。图片在事务外完成真实格式识别、旋转、缩放和 WebP 转换，SQLite 短事务只提交消息与元数据；失败补偿删除整批候选媒体。
 
-![管理员 Cookie 会话生命周期](assets/admin-session.svg)
+普通媒体读取必须证明 Bearer 用户属于会话；管理员读取必须通过后台 Cookie，并且只能消费 `MessagingOperationsQueryPort`。两条路径都返回 `private, no-store`，没有任何编辑、撤回、删除消息或删除会话接口。
 
-代码当前使用 `ADMIN_USERNAME` / `ADMIN_PASSWORD` 校验并签发 HttpOnly、SameSite=Strict Cookie；服务端只在进程内保存随机令牌。会话有 30 分钟空闲 TTL、8 小时绝对 TTL 和 128 条上限。前端收到管理 API 的 `401` 后清空管理 Query 缓存并回到登录表单。
+## 5. 数据库 contract migration
 
-这带来一个文档未记录的部署事实：蓝绿切换、PM2 重启或请求落到另一实例会丢失管理员会话，即使浏览器 Cookie 还在。它不影响普通 Self JWT 用户，但会要求管理员重新登录。[`src/middleware/admin-session.middleware.ts`](src/middleware/admin-session.middleware.ts)、[`web/src/pages/admin/layout.tsx`](web/src/pages/admin/layout.tsx)
+`0003_social_rearchitecture` 完成以下结构变化：
 
-## 6. 状态持久化边界
+- 建立 `community_profiles` 并迁移旧昵称/头像元数据；
+- 从 `users` 删除 `community_nickname/treehole_avatar_url`；
+- 删除空的 `discover_post_ratings`、评分聚合列和旧 Treehole 通知表；
+- 建立 Discover 点赞、Activity Outbox、Notifications 与 Messaging 表；
+- 动态保存并复核 users、credentials、cache、Discover/Treehole 八张核心事实表行数；
+- 旧评分或旧通知出现新事实时拒绝迁移并回滚。
 
-![应用状态持久化边界](assets/state-boundaries.svg)
+当前 Drizzle 类型相共有 17 张业务表。运行期数据库入口只打开已有文件并验证完整 migration metadata 与 schema fingerprint；v2、缺失库、被篡改 checksum 或结构漂移都会在监听端口前失败。
 
-| 边界 | 当前内容 | 可靠性含义 |
+## 6. 运行态与可观测性
+
+`src/index.ts` 只负责 schema 校验、监听和生命周期；`src/app.ts` 只构造 Hono；`src/composition.ts` 是唯一跨模块组合根。
+
+`PeriodicTaskRegistry` 收敛凭证、缓存、验证码会话、Outbox 重试、已读通知清理和无主私信媒体清理，保证具名、可停止、失败隔离与同任务不重叠。
+
+成功的 Notifications/Messaging 轮询不写访问日志，但仍计入 HTTP metrics；失败和写操作保留日志。发送日志只记录对象 ID、图片数和原图总字节数，不记录正文、原文件名或图片内容。
+
+## 7. 发布门禁
+
+0003 不是在线 expand migration。发布顺序固定为：
+
+```text
+maintenance 503
+  -> stop all writers
+  -> SQLite snapshot
+  -> db:migrate --allow-destructive
+  -> PRAGMA quick_check / foreign_key_check
+  -> new Server/Web local smoke
+  -> reopen traffic
+```
+
+迁移后失败不得恢复旧 upstream，因为旧版本与 contract schema 已不兼容；必须保持停流、停 writer 并 forward-fix。真实 `data/huas.db` 不用于开发演练，所有迁移验证都在内存或系统临时目录完成。
+
+## 8. 证据索引
+
+| 能力 | 机器相 | 主要验证 |
 |---|---|---|
-| SQLite | `users`、`credentials`、`cache`；Discover 3 表；Treehole 4 表；Analytics 2 表，共 12 表 | 可跨进程重启；启动时通过兼容 SQL 建表和补列，不是独立 migration 流 |
-| 本地文件 | `announcements.json`、Discover 图片、Treehole 头像、业务与 PM2 日志 | 单机稳定；多实例需要共享盘或外部存储 |
-| 进程内存 | 验证码会话、管理员会话、登录失败限流、静默重认证冷却 | 重启即丢失；多实例间不共享 |
+| Community | `src/modules/community/` | `tests/community.test.ts` |
+| Discover | `src/modules/discover/` | `tests/discover.test.ts` |
+| Treehole | `src/modules/treehole/` | `tests/treehole.test.ts` |
+| Outbox/Notifications | `src/modules/notifications/` | `tests/notifications.test.ts`、`tests/activity-outbox-integration.test.ts` |
+| Messaging | `src/modules/messaging/` | `tests/messaging.test.ts`、`tests/messaging-admin.test.ts` |
+| app/composition/runtime | `src/app.ts`、`src/composition.ts`、`src/runtime/` | `tests/app-factory.test.ts`、`tests/periodic-tasks.test.ts` |
+| migration/deploy | `src/db/migrations/0003_social_rearchitecture.ts`、`scripts/` | `tests/database-migrations.test.ts`、`tests/deployment-scripts.test.ts` |
 
-依据：[`src/db/index.ts`](src/db/index.ts)、[`src/db/schema.ts`](src/db/schema.ts)、[`src/services/content/announcement-service.ts`](src/services/content/announcement-service.ts)。
+最终后端门禁为：
 
-## 7. 代码—文档一致性
+```bash
+bun run typecheck
+bun run test
+bun run db:verify
+git diff --check
+```
 
-| 文档 | 仍与代码一致 | 已确认漂移 |
-|---|---|---|
-| [`docs/architecture/ARCHITECTURE.md`](docs/architecture/ARCHITECTURE.md) | Bun/Hono 分层、校园凭证恢复、缓存语义、社区媒体边界 | 仍写 `/status`、Basic Auth、硬编码管理员口令；数据库仍写 10 表，漏掉 2 张 Analytics 表；测试清单漏掉管理员会话和分析测试 |
-| [`docs/architecture/WEB_ARCHITECTURE.md`](docs/architecture/WEB_ARCHITECTURE.md) | React/Query/Zustand 分层、`/m` 托管、业务页守卫 | 管理认证仍写 Basic Auth；管理路由仍是旧的 `/admin/announcements` 等路径，代码已拆成 `/admin/users`、`/admin/content`、`/admin/manage/*`、`/admin/system/*` |
-| [`docs/api/API.md`](docs/api/API.md) | 统一 envelope、缓存 `_meta`、课表/社区/媒体主契约 | 管理接口整章仍写 Basic Auth；不存在的 `/status` 仍在矩阵；缺 `/api/admin/session`、`/api/admin/analytics/overview`；总矩阵缺 classrooms/evaluations；错误码表缺 `3005` 和 `4004` |
-| [`docs/api/CLASSROOM_FREE_QUERY_REQUIREMENTS.md`](docs/api/CLASSROOM_FREE_QUERY_REQUIREMENTS.md) | 只读查询、管理员上游账号、无缓存、过滤特殊场地 | “下个会话开发重点”已经全部落地；文档写死具体账号，代码已改为 `CLASSROOM_ADMIN_STUDENT_ID`；应转为已实现决策记录而非待办 |
-| [`docs/api/CLASSROOM_FREE_QUERY_FRONTEND.md`](docs/api/CLASSROOM_FREE_QUERY_FRONTEND.md) | 两个接口、参数和无缓存语义与实现一致 | 错误表未列服务账号未配置的 `3005/503` |
-| [`docs/api/EVALUATION_API.md`](docs/api/EVALUATION_API.md) | 发现、状态、预检与提交主流程存在 | 独立文档记录了 `4004`，但主 API 文档没有把评教路由和错误码纳入总契约 |
-| [`docs/ops/DEPLOY.md`](docs/ops/DEPLOY.md) | Bun、PM2、前端构建、蓝绿与 Git push 发布链仍存在 | Nginx 路由仍要求 `/status`；最小环境配置未包含管理账号；未提示管理会话在切槽后失效 |
-
-## 8. GEB 同构缺口
-
-静态扫描结果：
-
-| 区域 | TS/TSX 文件 | 缺 L3 | 覆盖率 |
-|---|---:|---:|---:|
-| `src/` | 86 | 16 | 81% |
-| `web/src/` | 105 | 60 | 42% |
-| `tests/` | 17 | 7 | 58% |
-| 合计 | 208 | 83 | 60% |
-
-缺口不是均匀分布：后端主要集中在若干基础工具、Calendar 路由和管理服务；Web 则覆盖请求层、状态、页面、widgets 和 shared UI。现有部分 L3 还是“相邻类型、API 与应用基础设施”这类泛化描述，虽然形式存在，但不能帮助后续 Agent 恢复真实依赖方向。
-
-这与根协议“L3 是代码逻辑的折叠”不完全同构。修复时应按模块批次补齐，并同时核对相邻 `AGENTS.md`，不应一次机械插入 83 个模板头。
-
-## 9. 建议的文档修复顺序
-
-1. 先统一管理认证真相：同步改架构、API、Web、部署四处，删除 `/status` 与 Basic Auth 旧叙述，补 `/api/admin/session` 和内存会话限制。
-2. 更新数据库与分析契约：12 表、`analytics_daily_*`、`/api/admin/analytics/overview`、`3005/4004`。
-3. 以 [`web/src/app/router/paths.ts`](web/src/app/router/paths.ts) 为唯一清单重写 Web 管理路由章节。
-4. 将空教室需求备忘改成“已实现决策 + 仍未实现事项”，删除具体人员信息和过期待办。
-5. 补部署状态边界：管理员会话切槽失效与完整必需环境变量。
-6. 按 `src` → `web/src/entities|app` → `web/src/pages|widgets` → `tests` 的顺序修复 GEB L3；先补架构枢纽，再补叶子组件。
-
-## 证据索引
-
-- [`src/index.ts`](src/index.ts)、[`src/routes/index.ts`](src/routes/index.ts)：进程入口、路由边界与 SPA/媒体托管。
-- [`src/routes/auth/auth.routes.ts`](src/routes/auth/auth.routes.ts)、[`src/auth/credential-manager.ts`](src/auth/credential-manager.ts)：登录、验证码、学校凭证与交互恢复状态。
-- [`src/services/academic/schedule-facade.ts`](src/services/academic/schedule-facade.ts)：JW/Portal 双源优先级与自然周回退约束。
-- [`src/middleware/admin-session.middleware.ts`](src/middleware/admin-session.middleware.ts)：当前管理员 Cookie 会话真相。
-- [`src/db/schema.ts`](src/db/schema.ts)、[`src/db/index.ts`](src/db/index.ts)：12 表 Schema 与启动时兼容初始化。
-- [`web/src/app/router/paths.ts`](web/src/app/router/paths.ts)、[`web/src/app/router/router.tsx`](web/src/app/router/router.tsx)：当前真实前端路由。
-- [`src/utils/errors.ts`](src/utils/errors.ts)：`3005`、`4004` 与 HTTP 状态映射。
-- [`tests/admin-session.test.ts`](tests/admin-session.test.ts)、[`tests/admin-dashboard-activity.test.ts`](tests/admin-dashboard-activity.test.ts)：新管理会话与分析能力已有测试证据。
+文档完成标准不是“描述看起来合理”，而是 API、架构、运维、L1/L2/L3 与上述机器相逐项一致。
