@@ -1,11 +1,11 @@
 /**
  * [INPUT]: 依赖构造注入的 Drizzle db、community_profiles schema 与 Community 仓储端口
- * [OUTPUT]: 对外提供 SQLiteCommunityProfileRepository，批量读取、字段级原子 patch 并校验头像引用
+ * [OUTPUT]: 对外提供 SQLiteCommunityProfileRepository，批量读取、字段级原子 patch、单条校验与批量列出头像引用
  * [POS]: modules/community/infrastructure 的资料事实 adapter，以 SQLite 短事务返回被替换头像且不覆盖并发字段
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { eq, inArray, like, or } from 'drizzle-orm';
+import { eq, inArray, isNotNull, like, or } from 'drizzle-orm';
 import { schema } from '../../../db';
 import type { getDb } from '../../../db';
 import type { StoredCommunityProfile } from '../domain/community';
@@ -103,5 +103,12 @@ export class SQLiteCommunityProfileRepository implements CommunityProfileReposit
       ))
       .limit(1);
     return (rows[0]?.avatarUrl?.split('?')[0] || '') === publicPath;
+  }
+
+  async listPublishedAvatarUrls(): Promise<string[]> {
+    const rows = await this.db.select({ avatarUrl: schema.communityProfiles.avatarUrl })
+      .from(schema.communityProfiles)
+      .where(isNotNull(schema.communityProfiles.avatarUrl));
+    return rows.flatMap((row) => row.avatarUrl ? [row.avatarUrl] : []);
   }
 }

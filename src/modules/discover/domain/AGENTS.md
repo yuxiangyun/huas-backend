@@ -3,7 +3,7 @@
 
 成员清单
 discover.ts: Discover 帖子/评论/点赞 DTO、分类/标签常量、校验/分页规则与 CommunityProfile 响应映射纯函数
-ports.ts: 帖子、用户帖子、点赞、评论持久化与媒体存储两个真实外部边界契约
+ports.ts: 帖子、用户帖子、点赞、评论持久化与含孤儿回收能力的媒体存储两个真实外部边界契约
 operations-query.ts: 面向 Operations 的帖子/点赞汇总与最新管理列表只读契约
 
 架构决策

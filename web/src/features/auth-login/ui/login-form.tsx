@@ -178,6 +178,7 @@ export function LoginForm() {
           <input
             autoComplete="username"
             className="field-control"
+            placeholder="学号"
             {...register('username')}
           />
           <FieldMessage message={errors.username?.message} />
@@ -188,6 +189,7 @@ export function LoginForm() {
           <input
             autoComplete="current-password"
             className="field-control"
+            placeholder="智慧文理密码"
             type="password"
             {...register('password')}
           />

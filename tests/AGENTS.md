@@ -16,12 +16,12 @@ cache-modernization.test.ts: Cache 永久/限时新鲜度、版本 envelope、�
 calendar-compat.test.ts: Calendar canonical 实现与 routes/services/auth 旧 Facade 的引用、token 别名与 HMAC 语义兼容测试
 campus-integrations-compat.test.ts: Campus Integrations canonical 实现与 auth/core/parsers/services 旧 Facade 的引用一致性测试
 database-migrations.test.ts: SQLite destructive 授权、0003 核心守恒、非空旧评分/通知直接丢弃、索引/完整性、schema fail-ready、repair 与快照测试
-deployment-scripts.test.ts: 维护发布脚本的 Bash 语法、PM2 直接 Bun 启动、停流/停 writer 顺序、destructive migration、本机冒烟与 forward-fix 回归测试
+deployment-scripts.test.ts: 维护发布脚本的 Bash 语法、release 保留、停流前磁盘门禁、PM2 直接 Bun 启动、destructive migration、本机冒烟与 forward-fix 回归测试
 classroom-free-parser.test.ts: 空教室解析器回归测试
-community.test.ts: Community 缺省名称、昵称校验、DTO 隔离、并发字段 patch、头像引用保护与媒体生命周期回归测试
+community.test.ts: Community 缺省名称、昵称校验、DTO 隔离、并发字段 patch、头像引用保护、宽限期孤儿回收与媒体生命周期回归测试
 discover.test.ts: Discover 薄聚合入口，在单进程内装配 discover/ 媒体、推荐、评论与管理用例
 discover/: Discover HTTP/媒体共享支架及按业务能力细分的回归用例
-discover-application.test.ts: Discover application 媒体补偿与删除清理失败语义回归测试
+discover-application.test.ts: Discover application 媒体补偿、删除清理失败语义与孤儿清理委托回归测试
 e2e.live.test.ts: 真实上游端到端验证入口
 e2e.setup.ts: 真实上游测试隔离环境与临时 SQLite 显式迁移入口
 evaluation-parser.test.ts: 教评解析、actionable/blocked 状态、有界续批、提交响应与抗重排批末回查测试
@@ -33,7 +33,7 @@ notifications.test.ts: Notifications 差异回复事件、Outbox 幂等/撤销/�
 messaging.test.ts: Messaging 延迟会话/目标定位、会话高水位、严格 UUID 图文幂等、压缩前事实限流、三态消息、未读与私有媒体测试
 messaging-upload.test.ts: Messaging HTTP 上传边界，锁定 Content-Length/流式请求体的解析前 413 与坏 multipart 的稳定 400
 social-upload-limits.test.ts: Discover/Community HTTP 上传边界，锁定声明长度、流式及无关字段请求在 formData 前统一返回 413
-messaging-admin.test.ts: 管理员 Cookie 会话增量/三态消息/图片只读、三类隐私安全审计、禁止写命令与参与者媒体权限测试
+messaging-admin.test.ts: 管理员 Cookie 会话增量/三态消息/图片只读、三类隐私安全审计、禁止写命令、参与者媒体权限与三类清理任务装配测试
 operations-application.test.ts: Operations Dashboard 构造注入与纯端口聚合隔离测试
 operations-compat.test.ts: Operations canonical 与旧 routes/services/runtime/middleware Facade 引用及依赖方向测试
 periodic-tasks.test.ts: Runtime 轻量周期任务注册、幂等启停、失败隔离与同任务防重叠回归测试

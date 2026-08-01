@@ -1,11 +1,11 @@
 /**
  * [INPUT]: 依赖 Discover 无限列表/点赞 hooks、筛选控件、媒体 URL 与社区资料投影
- * [OUTPUT]: 对外提供 DiscoverFeed，以首张图片真实比例主图、失效媒体兜底、作者栏、互动栏和精简摘要呈现好饭信息流
- * [POS]: widgets/discover-feed 的单列沉浸式信息流容器，拥有列表内互动但不持有发布和路由状态
+ * [OUTPUT]: 对外提供 DiscoverFeed，以预留稳定比例的首张主图、失效媒体兜底、作者栏、互动栏和精简摘要呈现好饭信息流
+ * [POS]: widgets/discover-feed 的单列沉浸式信息流容器，约束媒体加载前后尺寸稳定并拥有列表内互动，不持有发布和路由状态
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Heart, Image, MessageCircle, Plus, Send } from 'lucide-react';
 import {
   useDiscoverInfinitePostsQuery,
@@ -60,46 +60,36 @@ interface PrimaryImageProps {
 
 function PrimaryImage({ image, imageUrl, alt, eager }: PrimaryImageProps) {
   const [failed, setFailed] = useState(false);
-  const [naturalSize, setNaturalSize] = useState<{ width: number; height: number } | null>(null);
-
-  useEffect(() => {
-    setFailed(false);
-    setNaturalSize(null);
-  }, [imageUrl]);
-
-  if (failed || !imageUrl) {
-    return (
-      <span className="grid h-48 w-full place-items-center text-muted sm:h-56" aria-label="图片加载失败">
-        <Image aria-hidden="true" className="size-8" />
-      </span>
-    );
-  }
-
-  const width = naturalSize?.width || image?.width;
-  const height = naturalSize?.height || image?.height;
+  const width = image?.width;
+  const height = image?.height;
+  const aspectRatio = width && height ? `${width} / ${height}` : '4 / 5';
 
   return (
-    <img
-      alt={alt}
-      className="h-auto max-h-[min(72dvh,42rem)] max-w-full object-contain"
-      decoding="async"
-      fetchPriority={eager ? 'high' : 'auto'}
-      height={image?.height}
-      loading={eager ? 'eager' : 'lazy'}
-      src={buildMediaUrl(imageUrl)}
+    <span
+      className="grid max-h-[min(72dvh,42rem)] max-w-full place-items-center overflow-hidden text-muted"
       style={{
-        aspectRatio: width && height ? `${width} / ${height}` : undefined,
+        aspectRatio,
         width: primaryImageDisplayWidth(width),
       }}
-      width={image?.width}
-      onError={() => setFailed(true)}
-      onLoad={(event) => {
-        const { naturalHeight, naturalWidth } = event.currentTarget;
-        if (naturalWidth > 0 && naturalHeight > 0) {
-          setNaturalSize({ width: naturalWidth, height: naturalHeight });
-        }
-      }}
-    />
+    >
+      {failed || !imageUrl ? (
+        <span className="grid size-full place-items-center bg-tint-soft" aria-label="图片加载失败">
+          <Image aria-hidden="true" className="size-8" />
+        </span>
+      ) : (
+        <img
+          alt={alt}
+          className="size-full object-contain"
+          decoding="async"
+          fetchPriority={eager ? 'high' : 'auto'}
+          height={height}
+          loading={eager ? 'eager' : 'lazy'}
+          src={buildMediaUrl(imageUrl)}
+          width={width}
+          onError={() => setFailed(true)}
+        />
+      )}
+    </span>
   );
 }
 
@@ -206,7 +196,7 @@ export function DiscoverFeed({
           <article
             key={post.id}
             className="border-b border-line bg-white pb-1 last:border-b-0"
-            style={{ contentVisibility: 'auto', containIntrinsicSize: '680px' }}
+            style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 680px' }}
           >
             <header className="flex items-center gap-3 px-4 py-3">
               <button className="flex min-w-0 items-center gap-3 text-left" type="button" onClick={() => onOpenProfile(post.author.id)}>
@@ -225,6 +215,7 @@ export function DiscoverFeed({
 
             <button className="relative flex w-full justify-center overflow-hidden bg-white" type="button" onClick={() => onOpenPost(post.id)}>
               <PrimaryImage
+                key={primaryImageUrl}
                 alt={post.title || '好饭主图'}
                 eager={postIndex === 0}
                 image={primaryImage}

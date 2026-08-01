@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # [INPUT]: 依赖本地 rsync/ssh 与百度服务器 .deploy 控制目录。
-# [OUTPUT]: 对外提供本地工作区快照的维护发布入口，上传 release 并委托远端停流、快照、迁移与冒烟门禁。
+# [OUTPUT]: 对外提供本地工作区快照的维护发布入口，上传 release 并委托远端执行保留清理、磁盘门禁、停流、快照、迁移与冒烟。
 # [POS]: scripts 的本地维护发布编排器，保留历史文件名但不再承诺零停机。
 # [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
 
@@ -16,6 +16,8 @@ INSTALL_WEB_DEPS="${INSTALL_WEB_DEPS:-1}"
 WEB_PACKAGE_MANAGER="${WEB_PACKAGE_MANAGER:-auto}"
 NPM_REGISTRY="${NPM_REGISTRY:-https://registry.npmjs.org}"
 RELEASE_MODE="${RELEASE_MODE:-maintenance}"
+RELEASE_RETENTION_COUNT="${RELEASE_RETENTION_COUNT:-6}"
+MIN_FREE_DISK_MB="${MIN_FREE_DISK_MB:-2048}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -69,6 +71,6 @@ rsync "${RSYNC_ARGS[@]}" "$ROOT_DIR/" "$REMOTE_HOST:$REMOTE_INCOMING_DIR/"
 
 echo "Starting maintenance release; production traffic and writers will be stopped before migration"
 ssh "$REMOTE_HOST" \
-  "APP_ROOT='$APP_ROOT' CONTROL_DIR='$CONTROL_DIR' APP_NAME_BASE='$APP_NAME_BASE' RELEASE_SOURCE_DIR='$REMOTE_INCOMING_DIR' RELEASE_ID='$RELEASE_ID' INSTALL_SERVER_DEPS='$INSTALL_SERVER_DEPS' BUILD_WEB='$BUILD_WEB' INSTALL_WEB_DEPS='$INSTALL_WEB_DEPS' WEB_PACKAGE_MANAGER='$WEB_PACKAGE_MANAGER' NPM_REGISTRY='$NPM_REGISTRY' RELEASE_MODE='$RELEASE_MODE' bash '$REMOTE_INCOMING_DIR/scripts/remote-blue-green-deploy.sh'"
+  "APP_ROOT='$APP_ROOT' CONTROL_DIR='$CONTROL_DIR' APP_NAME_BASE='$APP_NAME_BASE' RELEASE_SOURCE_DIR='$REMOTE_INCOMING_DIR' RELEASE_ID='$RELEASE_ID' INSTALL_SERVER_DEPS='$INSTALL_SERVER_DEPS' BUILD_WEB='$BUILD_WEB' INSTALL_WEB_DEPS='$INSTALL_WEB_DEPS' WEB_PACKAGE_MANAGER='$WEB_PACKAGE_MANAGER' NPM_REGISTRY='$NPM_REGISTRY' RELEASE_MODE='$RELEASE_MODE' RELEASE_RETENTION_COUNT='$RELEASE_RETENTION_COUNT' MIN_FREE_DISK_MB='$MIN_FREE_DISK_MB' bash '$REMOTE_INCOMING_DIR/scripts/remote-blue-green-deploy.sh'"
 
 echo "Maintenance release finished and traffic is open on the verified target slot."

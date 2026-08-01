@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 Tailwind CSS 主题层与浏览器视口、安全区、焦点及动效偏好
- * [OUTPUT]: 提供白色应用基底的 shadcn neutral 设计令牌、响应式应用壳、表单与可访问交互基线
+ * [INPUT]: 依赖 Tailwind CSS 主题层与浏览器视口、安全区、焦点、滚动条及动效偏好
+ * [OUTPUT]: 提供白色应用基底的 shadcn neutral 设计令牌、稳定滚动与轻量动效、与底部 Tab 精确对齐的响应式应用壳、表单与可访问交互基线
  * [POS]: app/styles 的全局规范入口，只定义跨页面视觉规则，不承载业务装饰
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -41,12 +41,12 @@
   --layout-sheet-max: 680px;
   --space-shell-x: 1rem;
   --space-shell-top: calc(1rem + env(safe-area-inset-top));
-  --space-shell-bottom: calc(5rem + env(safe-area-inset-bottom));
+  --space-tab-height: 3.25rem;
+  --space-shell-bottom: calc(var(--space-tab-height) + 0.25rem + 1px + env(safe-area-inset-bottom));
   --space-page-stack: 1.25rem;
   --space-page-header-top: 0;
   --space-card-padding: 1rem;
   --space-sheet-y: 1rem;
-  --space-tab-height: 3.25rem;
   --control-height-xs: 2rem;
   --control-height-sm: 2.25rem;
   --control-height-md: 2.5rem;
@@ -78,6 +78,12 @@ html {
   background: var(--color-shell);
 }
 
+@media (min-width: 640px) {
+  html {
+    scrollbar-gutter: stable;
+  }
+}
+
 body {
   margin: 0;
   background: var(--color-shell);
@@ -101,6 +107,16 @@ select {
 button {
   appearance: none;
   -webkit-tap-highlight-color: transparent;
+}
+
+button,
+a,
+[role="button"] {
+  touch-action: manipulation;
+}
+
+img {
+  display: block;
 }
 
 button,
@@ -204,6 +220,99 @@ select {
 
 .scrollbar-hidden::-webkit-scrollbar {
   display: none;
+}
+
+@keyframes skeleton-soft-pulse {
+  0%,
+  100% {
+    opacity: 0.58;
+  }
+
+  50% {
+    opacity: 0.92;
+  }
+}
+
+.animate-pulse {
+  animation: skeleton-soft-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes toast-lifecycle {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, -0.75rem, 0) scale(0.98);
+  }
+
+  6%,
+  90% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate3d(0, -0.5rem, 0) scale(0.99);
+  }
+}
+
+.toast-item {
+  animation: toast-lifecycle 3200ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  will-change: opacity, transform;
+}
+
+@keyframes dialog-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes dialog-overlay-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes dialog-surface-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 0.5rem, 0) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes dialog-surface-out {
+  from {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: translate3d(0, 0.35rem, 0) scale(0.99);
+  }
+}
+
+.dialog-overlay[data-state="open"] {
+  animation: dialog-overlay-in 160ms ease-out both;
+}
+
+.dialog-overlay[data-state="closed"] {
+  animation: dialog-overlay-out 120ms ease-in both;
+}
+
+.dialog-surface[data-state="open"] {
+  animation: dialog-surface-in 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.dialog-surface[data-state="closed"] {
+  animation: dialog-surface-out 120ms ease-in both;
+}
+
+.dialog-overlay[data-state],
+.dialog-surface[data-state] {
+  will-change: opacity, transform;
 }
 
 @media (prefers-reduced-motion: reduce) {

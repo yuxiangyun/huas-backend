@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # [INPUT]: 依赖本地 git/ssh、百度服务器 SSH 别名与远端蓝绿目录结构。
-# [OUTPUT]: 对外提供 Git push 维护发布初始化器，创建 baidu remote、裸仓库与受 contract migration 门禁保护的 post-receive hook。
+# [OUTPUT]: 对外提供 Git push 维护发布初始化器，创建 baidu remote、裸仓库与受 release 保留、磁盘及 contract migration 门禁保护的 post-receive hook。
 # [POS]: scripts 的 Git 发布入口，连接本地提交与 remote-blue-green-deploy.sh 维护窗口。
 # [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
 
@@ -19,6 +19,8 @@ INSTALL_WEB_DEPS="${INSTALL_WEB_DEPS:-1}"
 WEB_PACKAGE_MANAGER="${WEB_PACKAGE_MANAGER:-auto}"
 NPM_REGISTRY="${NPM_REGISTRY:-https://registry.npmjs.org}"
 CONTROL_DIR="${CONTROL_DIR:-${APP_DIR}/.deploy}"
+RELEASE_RETENTION_COUNT="${RELEASE_RETENTION_COUNT:-6}"
+MIN_FREE_DISK_MB="${MIN_FREE_DISK_MB:-2048}"
 
 REMOTE_GIT_URL="${REMOTE_HOST}:${BARE_REPO_DIR}"
 
@@ -118,6 +120,8 @@ WEB_PACKAGE_MANAGER='$WEB_PACKAGE_MANAGER'
 NPM_REGISTRY='$NPM_REGISTRY'
 CONTROL_DIR='$CONTROL_DIR'
 RELEASE_MODE='maintenance'
+RELEASE_RETENTION_COUNT='$RELEASE_RETENTION_COUNT'
+MIN_FREE_DISK_MB='$MIN_FREE_DISK_MB'
 ZERO_OID='0000000000000000000000000000000000000000'
 
 deploy_rev=''
@@ -160,6 +164,8 @@ INSTALL_WEB_DEPS="\$INSTALL_WEB_DEPS" \\
 WEB_PACKAGE_MANAGER="\$WEB_PACKAGE_MANAGER" \\
 NPM_REGISTRY="\$NPM_REGISTRY" \\
 RELEASE_MODE="\$RELEASE_MODE" \\
+RELEASE_RETENTION_COUNT="\$RELEASE_RETENTION_COUNT" \\
+MIN_FREE_DISK_MB="\$MIN_FREE_DISK_MB" \\
 bash "\$tmpdir/scripts/remote-blue-green-deploy.sh"
 EOF
 }

@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖上层注入的 Drizzle db、CommunityProfileReader、Notifications Outbox/投影 ports，以及模块内 application/infrastructure 和运行配置
- * [OUTPUT]: 对外提供 createDiscoverModule(dependencies)，返回 service、routes、media 与 Operations query 实例
+ * [OUTPUT]: 对外提供 createDiscoverModule(dependencies)，返回含孤儿媒体回收用例的 service、routes、media 与 Operations query 实例
  * [POS]: modules/discover 的局部组合根，只组装本纵向切片，不创建跨模块 concrete singleton
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */

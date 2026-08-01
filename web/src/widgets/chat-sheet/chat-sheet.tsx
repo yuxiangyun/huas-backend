@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 Messaging 用户目标定位、历史/增量/发送/已读 hooks、TaskDialog、动作菜单与私有媒体原语
- * [OUTPUT]: 对外提供 ChatSheet，以纯白对话基底支持 userId 唯一定位、空会话首发、分组图文气泡、历史分页和实时增量
- * [POS]: widgets/chat-sheet 的私信任务容器，只持有目标用户范围内的编辑与消息状态，不接受独立会话事实
+ * [OUTPUT]: 对外提供 ChatSheet，以稳定滚动的浅色对话基底支持 userId 唯一定位、空会话首发、分组图文气泡、历史分页和实时增量
+ * [POS]: widgets/chat-sheet 的私信任务容器，只持有目标用户范围内的编辑、消息与贴底阅读状态，不接受独立会话事实
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -98,7 +98,7 @@ function bubbleShapeClass(incoming: boolean, position: BubbleGroupPosition) {
 function bubbleTailClass(incoming: boolean, hasTail: boolean) {
   if (!hasTail) return '';
   return incoming
-    ? "after:absolute after:bottom-0 after:-left-[6px] after:size-0 after:border-r-[8px] after:border-t-[8px] after:border-r-white after:border-t-transparent after:content-['']"
+    ? "after:absolute after:bottom-0 after:-left-[6px] after:size-0 after:border-r-[8px] after:border-t-[8px] after:border-r-[#f1f2f4] after:border-t-transparent after:content-['']"
     : "after:absolute after:bottom-0 after:-right-[6px] after:size-0 after:border-l-[8px] after:border-t-[8px] after:border-l-[#2aabee] after:border-t-transparent after:content-['']";
 }
 
@@ -116,8 +116,11 @@ export function ChatSheet({ userId, onClose, onOpenProfile }: ChatSheetProps) {
   const markReadMutation = useMarkConversationReadMutation();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const scrollViewportRef = useRef<HTMLDivElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   const lastMarkedReadRef = useRef(0);
+  const previousLastMessageIdRef = useRef(0);
+  const keepPinnedToBottomRef = useRef(true);
   const imagesRef = useRef<ImageDraft[]>([]);
   const sendAttemptRef = useRef<SendAttempt | null>(null);
   const [draft, setDraft] = useState('');
@@ -144,6 +147,8 @@ export function ChatSheet({ userId, onClose, onOpenProfile }: ChatSheetProps) {
     setMessageChanges(new Map());
     setMessageWatermark(null);
     lastMarkedReadRef.current = 0;
+    previousLastMessageIdRef.current = 0;
+    keepPinnedToBottomRef.current = true;
     sendAttemptRef.current = null;
   }, [userId]);
 
@@ -187,9 +192,33 @@ export function ChatSheet({ userId, onClose, onOpenProfile }: ChatSheetProps) {
   }, [effectiveConversationId, lastMessageId, markReadMutation]);
 
   useEffect(() => {
-    if (messages.length === 0) return;
-    requestAnimationFrame(() => endRef.current?.scrollIntoView({ block: 'end' }));
-  }, [messages.length]);
+    if (lastMessageId === 0 || lastMessageId <= previousLastMessageIdRef.current) return;
+    const initialPosition = previousLastMessageIdRef.current === 0;
+    previousLastMessageIdRef.current = lastMessageId;
+    if (!initialPosition && !keepPinnedToBottomRef.current) return;
+
+    requestAnimationFrame(() => {
+      endRef.current?.scrollIntoView({
+        block: 'end',
+        behavior: initialPosition || window.matchMedia('(prefers-reduced-motion: reduce)').matches
+          ? 'auto'
+          : 'smooth',
+      });
+    });
+  }, [lastMessageId]);
+
+  const loadEarlierMessages = async () => {
+    const viewport = scrollViewportRef.current;
+    const previousHeight = viewport?.scrollHeight ?? 0;
+    const previousTop = viewport?.scrollTop ?? 0;
+    await messagesQuery.fetchNextPage();
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (!viewport) return;
+        viewport.scrollTop = previousTop + viewport.scrollHeight - previousHeight;
+      });
+    });
+  };
 
   const removeImage = (index: number) => {
     setImages((current) => {
@@ -247,6 +276,7 @@ export function ChatSheet({ userId, onClose, onOpenProfile }: ChatSheetProps) {
         text,
         images: files,
       });
+      keepPinnedToBottomRef.current = true;
       sendAttemptRef.current = null;
       setMessageChanges((current) => new Map(current).set(message.id, message));
       setMessageWatermark((current) => Math.max(current ?? 0, message.id));
@@ -350,20 +380,27 @@ export function ChatSheet({ userId, onClose, onOpenProfile }: ChatSheetProps) {
       title={target?.displayName ?? '私信'}
       onClose={onClose}
     >
-      <div className="flex h-full min-h-0 flex-col bg-white">
+      <div className="flex h-full min-h-0 flex-col bg-[#f7f8fa]">
         {targetQuery.isLoading ? <div className="h-1 w-full animate-pulse bg-line" aria-hidden="true" /> : null}
         {targetQuery.isError ? <EmptyState title="用户资料加载失败" /> : null}
-        <div className="scrollbar-hidden min-h-0 flex-1 overflow-y-auto bg-white px-[13px] pb-[22px] pt-[14px]">
+        <div
+          ref={scrollViewportRef}
+          className="scrollbar-hidden min-h-0 flex-1 overflow-y-auto bg-[#f7f8fa] px-[13px] pb-[22px] pt-[14px]"
+          onScroll={(event) => {
+            const viewport = event.currentTarget;
+            keepPinnedToBottomRef.current = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 96;
+          }}
+        >
           {effectiveConversationId && messagesQuery.hasNextPage ? (
             <div className="flex justify-center">
-              <Button disabled={messagesQuery.isFetchingNextPage} size="xs" variant="ghost" onClick={() => void messagesQuery.fetchNextPage()}>
+              <Button disabled={messagesQuery.isFetchingNextPage} size="xs" variant="ghost" onClick={() => void loadEarlierMessages()}>
                 {messagesQuery.isFetchingNextPage ? '加载中…' : '更早消息'}
               </Button>
             </div>
           ) : null}
           {messagesQuery.isLoading ? (
             <div className="space-y-2.5 pt-8" aria-hidden="true">
-              <div className="h-10 w-2/3 animate-pulse rounded-[18px] bg-white" />
+              <div className="h-10 w-2/3 animate-pulse rounded-[18px] bg-[#f1f2f4]" />
               <div className="ml-auto h-10 w-3/5 animate-pulse rounded-[18px] bg-[#2aabee]/25" />
             </div>
           ) : messagesQuery.isError ? (
@@ -385,7 +422,7 @@ export function ChatSheet({ userId, onClose, onOpenProfile }: ChatSheetProps) {
                   </div>
                 ) : null}
                 <div className={`flex w-full ${incoming ? 'justify-start' : 'justify-end'} ${samePrevious ? 'mt-0.5' : 'mt-2.5'}`}>
-                  <div className={`relative min-w-14 max-w-[79%] px-[11px] py-2 text-sm leading-[1.5] shadow-[0_1px_1px_rgba(0,0,0,0.04)] ${bubbleShapeClass(incoming, position)} ${incoming ? 'bg-white text-[#111]' : 'bg-[#2aabee] text-white'} ${bubbleTailClass(incoming, hasTail)}`}>
+                  <div className={`relative min-w-14 max-w-[79%] px-[11px] py-2 text-sm leading-[1.5] shadow-[0_1px_1px_rgba(0,0,0,0.04)] ${bubbleShapeClass(incoming, position)} ${incoming ? 'bg-[#f1f2f4] text-[#111]' : 'bg-[#2aabee] text-white'} ${bubbleTailClass(incoming, hasTail)}`}>
                     {message.images.length > 0 ? (
                       <div className={`mb-2 grid gap-1.5 ${message.images.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
                         {message.images.map((image) => (

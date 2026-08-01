@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Identity 只读端口、Community 资料仓储/头像端口与纯领域规则
- * [OUTPUT]: 对外提供 CommunityApplicationService，完成公共/当前资料投影、字段级资料更新与头像补偿
+ * [OUTPUT]: 对外提供 CommunityApplicationService，完成公共/当前资料投影、字段级资料更新、头像补偿与孤儿头像回收
  * [POS]: modules/community/application 的唯一用例服务，以资料 patch 隔离并发字段并在引用确认后清理旧头像
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -115,6 +115,10 @@ export class CommunityApplicationService implements CommunityProfileReader {
 
   clearAvatar(userId: number) {
     return this.updateProfile(userId, { clearAvatar: true });
+  }
+
+  cleanupOrphanAvatars(before: Date) {
+    return this.avatars.cleanupOrphans(before);
   }
 
   private async removeAvatarIfUnpublished(userId: number, avatarUrl: string) {

@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖普通 Bearer/后台 Cookie 二进制请求、React 生命周期与受保护媒体路径
- * [OUTPUT]: 对外提供 PrivateMediaImage，以 URL+认证模式去重请求并回收共享 Blob URL
- * [POS]: shared/ui 的私有媒体适配原语，统一参与者与管理员不能直接写入 img src 的鉴权资源
+ * [OUTPUT]: 对外提供 PrivateMediaImage，以 URL+认证模式去重请求、隔离切源帧并回收共享 Blob URL
+ * [POS]: shared/ui 的私有媒体适配原语，统一参与者与管理员不能直接写入 img src 的鉴权资源，禁止新地址短暂复用旧图
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -66,36 +66,42 @@ function acquireMedia(src: string, authMode: 'bearer' | 'admin') {
 }
 
 export function PrivateMediaImage({ src, alt, className, authMode = 'bearer', ...props }: PrivateMediaImageProps) {
-  const [objectUrl, setObjectUrl] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
+  const cacheKey = `${authMode}:${src}`;
+  const [mediaState, setMediaState] = useState<{
+    cacheKey: string;
+    failed: boolean;
+    objectUrl: string | null;
+  }>(() => ({ cacheKey, failed: false, objectUrl: null }));
+  const currentState = mediaState.cacheKey === cacheKey
+    ? mediaState
+    : { cacheKey, failed: false, objectUrl: null };
 
   useEffect(() => {
     let active = true;
-    setFailed(false);
-    setObjectUrl(null);
+    setMediaState({ cacheKey, failed: false, objectUrl: null });
     const media = acquireMedia(src, authMode);
 
     void media.promise
       .then((url) => {
-        if (active) setObjectUrl(url);
+        if (active) setMediaState({ cacheKey, failed: false, objectUrl: url });
       })
       .catch(() => {
-        if (active) setFailed(true);
+        if (active) setMediaState({ cacheKey, failed: true, objectUrl: null });
       });
 
     return () => {
       active = false;
       media.release();
     };
-  }, [authMode, src]);
+  }, [authMode, cacheKey, src]);
 
-  if (!objectUrl) {
+  if (!currentState.objectUrl) {
     return (
-      <span className={cn('grid min-h-24 place-items-center bg-shell-strong text-muted', className)} aria-label={failed ? '图片加载失败' : '图片加载中'}>
-        {failed ? <ImageOff aria-hidden="true" className="size-5" /> : <span className="size-5 animate-pulse rounded bg-line" />}
+      <span className={cn('grid min-h-24 place-items-center bg-shell-strong text-muted', className)} aria-label={currentState.failed ? '图片加载失败' : '图片加载中'}>
+        {currentState.failed ? <ImageOff aria-hidden="true" className="size-5" /> : <span className="size-5 animate-pulse rounded bg-line" />}
       </span>
     );
   }
 
-  return <img alt={alt} className={className} src={objectUrl} {...props} />;
+  return <img alt={alt} className={className} src={currentState.objectUrl} {...props} />;
 }

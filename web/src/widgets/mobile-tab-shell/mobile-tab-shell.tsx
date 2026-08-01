@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 React Router、Social 四个主路由、消息/通知未读读模型与共享徽标
- * [OUTPUT]: 对外提供 MobileTabShell，以连续白色页面基底在移动端呈现四项底部 Tab、桌面端呈现固定社交侧栏
- * [POS]: widgets/mobile-tab-shell 的普通用户应用壳，只承载品牌、一级导航和聚合未读
+ * [INPUT]: 依赖 React Router、Social 四个主路由及其意图预载器、消息/通知未读读模型与共享徽标
+ * [OUTPUT]: 对外提供 MobileTabShell，以连续白色页面基底在移动端呈现四项底部 Tab、桌面端呈现固定社交侧栏，并在交互意图出现时预载目标页
+ * [POS]: widgets/mobile-tab-shell 的普通用户应用壳，只承载品牌、一级导航、目标页预热和聚合未读
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -14,10 +14,10 @@ import { cn } from '@/shared/lib/cn';
 import { UnreadBadge } from '@/shared/ui/unread-badge';
 
 const tabs = [
-  { to: appRoutes.treehole, label: '树洞', icon: MessageCircle },
-  { to: appRoutes.discover, label: '好饭', icon: Utensils },
-  { to: appRoutes.messages, label: '消息', icon: Send },
-  { to: appRoutes.me, label: '我的', icon: UserRound },
+  { to: appRoutes.treehole, label: '树洞', icon: MessageCircle, preload: () => import('@/pages/treehole') },
+  { to: appRoutes.discover, label: '好饭', icon: Utensils, preload: () => import('@/pages/discover') },
+  { to: appRoutes.messages, label: '消息', icon: Send, preload: () => import('@/pages/messages') },
+  { to: appRoutes.me, label: '我的', icon: UserRound, preload: () => import('@/pages/me') },
 ] as const;
 
 export function MobileTabShell() {
@@ -42,6 +42,8 @@ export function MobileTabShell() {
                       isActive ? 'bg-tint-soft text-ink' : 'text-muted hover:bg-tint-soft hover:text-ink'
                     )}
                     to={tab.to}
+                    onFocus={() => void tab.preload()}
+                    onPointerEnter={() => void tab.preload()}
                   >
                     <Icon aria-hidden="true" className="size-[1.125rem]" strokeWidth={1.9} />
                     <span className="flex-1">{tab.label}</span>
@@ -74,6 +76,8 @@ export function MobileTabShell() {
                 isActive ? 'text-ink' : 'text-ink active:bg-tint-soft'
               )}
               to={tab.to}
+              onFocus={() => void tab.preload()}
+              onPointerDown={() => void tab.preload()}
             >
               {({ isActive }) => (
                 <>

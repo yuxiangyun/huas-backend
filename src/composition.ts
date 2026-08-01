@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖各 canonical 模块公开构造器/ports、唯一数据库实例、运行配置、观测器、媒体端口与周期任务注册器
- * [OUTPUT]: 对外提供 createApplicationComposition，集中生成 HTTP/社交/Operations、Outbox 重试、媒体清理与关闭钩子
- * [POS]: src 的唯一跨模块组合根；通知只注册投影重试，不注册已读清理或归档任务
+ * [OUTPUT]: 对外提供 createApplicationComposition，集中生成 HTTP/社交/Operations、Outbox 重试、三类孤儿媒体清理与关闭钩子
+ * [POS]: src 的唯一跨模块组合根；通知只注册投影重试，Discover/Community/Messaging 媒体分别注册独立清理任务
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -168,6 +168,22 @@ export function createApplicationComposition(): ApplicationComposition {
     intervalMs: 60 * 60_000,
     async run() {
       await messaging.orphanMediaCleanup.runOnce();
+    },
+  });
+  periodicTasks.register({
+    name: 'orphan-discover-media-cleanup',
+    intervalMs: config.cleanupInterval,
+    async run() {
+      const before = new Date(Date.now() - config.discover.orphanMediaGraceMs);
+      await discover.service.cleanupOrphanMedia(before);
+    },
+  });
+  periodicTasks.register({
+    name: 'orphan-community-avatar-cleanup',
+    intervalMs: config.cleanupInterval,
+    async run() {
+      const before = new Date(Date.now() - config.community.orphanMediaGraceMs);
+      await community.cleanupOrphanAvatars(before);
     },
   });
 

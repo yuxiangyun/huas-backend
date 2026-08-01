@@ -1,11 +1,12 @@
 /**
  * [INPUT]: 依赖 Discover 媒体测试支架与图片编码能力
- * [OUTPUT]: 验证发帖媒体压缩、HEIF/HEIC、大图与动图处理契约
+ * [OUTPUT]: 验证发帖媒体压缩、HEIF/HEIC、大图、动图处理与引用/宽限期孤儿目录回收契约
  * [POS]: tests/discover 的 Discover 媒体摄取与规范化细分用例，失败时直接定位该业务能力
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { describe, expect, it } from 'bun:test';
+import { mkdir, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   authorId,
@@ -19,9 +20,46 @@ import {
   authHeaderFor,
   sharp,
   config,
+  createDiscoverPost,
+  createTestDiscoverModule,
 } from './harness';
 
 describe('Discover 媒体摄取与规范化', () => {
+  it('只清理超过宽限期且未被有效帖子引用的 UUID 媒体目录', async () => {
+    const module = createTestDiscoverModule();
+    const app = createApp(module);
+    const active = await createDiscoverPost(app, {
+      userId: authorId,
+      studentId: '2023001001',
+      title: '仍被引用的媒体',
+    });
+    const activeStorageKey = active.images[0].url
+      .replace(`${config.discover.mediaBasePath}/`, '')
+      .split('/')[0];
+    const oldOrphanKey = '22222222-2222-4222-8222-222222222222';
+    const freshOrphanKey = '33333333-3333-4333-8333-333333333333';
+    const oldOrphanDir = join(config.discover.storageRoot, oldOrphanKey);
+    const freshOrphanDir = join(config.discover.storageRoot, freshOrphanKey);
+    const oldOrphanFile = join(oldOrphanDir, '01.webp');
+    const freshOrphanFile = join(freshOrphanDir, '01.webp');
+    await Promise.all([
+      mkdir(oldOrphanDir, { recursive: true }),
+      mkdir(freshOrphanDir, { recursive: true }),
+    ]);
+    await Promise.all([
+      writeFile(oldOrphanFile, 'old-orphan'),
+      writeFile(freshOrphanFile, 'fresh-orphan'),
+    ]);
+    const now = Date.now();
+    const old = new Date(now - 2 * 60 * 60 * 1000);
+    await utimes(oldOrphanDir, old, old);
+
+    await expect(module.service.cleanupOrphanMedia(new Date(now - 60 * 60 * 1000))).resolves.toBe(1);
+    expect(await Bun.file(join(config.discover.storageRoot, activeStorageKey, '01.webp')).exists()).toBe(true);
+    expect(await Bun.file(oldOrphanFile).exists()).toBe(false);
+    expect(await Bun.file(freshOrphanFile).exists()).toBe(true);
+  });
+
   it('发帖后直接发布，图片压缩为单份 webp，并可在我的帖子中看到', async () => {
     const app = createApp();
     const form = new FormData();

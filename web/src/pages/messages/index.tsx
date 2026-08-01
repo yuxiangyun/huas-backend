@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖消息中心、聊天弹层、活动通知逐条已读与 React Router 查询参数
- * [OUTPUT]: 对外提供 MessagesPage，以 userId 唯一深链编排私信/互动分段及原内容导航
- * [POS]: pages/messages 的路由级组装器，只持有目标用户 URL 状态，会话 ID 由 Messaging 定位结果拥有
+ * [INPUT]: 依赖消息中心、按需聊天弹层、活动通知逐条已读与 React Router 查询参数
+ * [OUTPUT]: 对外提供 MessagesPage，以 userId 唯一深链编排私信/互动分段、按需加载聊天及原内容导航
+ * [POS]: pages/messages 的路由级组装器，只持有目标用户 URL 状态并把聊天代码推迟到真实会话意图后，会话 ID 由 Messaging 定位结果拥有
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -13,8 +13,13 @@ import type { Conversation } from '@/entities/messaging/model/messaging-types';
 import { useMarkNotificationReadMutation } from '@/entities/notifications/api/notification-queries';
 import type { ActivityNotification } from '@/entities/notifications/model/notification-types';
 import { selectMessageTarget } from '@/pages/social-route-state';
-import { ChatSheet } from '@/widgets/chat-sheet/chat-sheet';
 import { MessageCenter, type MessageSection } from '@/widgets/message-center/message-center';
+
+const loadChatSheet = () => import('@/widgets/chat-sheet/chat-sheet');
+const LazyChatSheet = lazy(async () => {
+  const module = await loadChatSheet();
+  return { default: module.ChatSheet };
+});
 
 const loadPublicProfileDialog = () => import('@/widgets/public-profile-dialog/public-profile-dialog');
 const LazyPublicProfileDialog = lazy(async () => {
@@ -40,6 +45,11 @@ export function MessagesPage() {
   useEffect(() => setActiveTab('messages'), [setActiveTab]);
 
   useEffect(() => {
+    if (userId === null) return;
+    void loadChatSheet();
+  }, [userId]);
+
+  useEffect(() => {
     if (profileUserId === null) return;
     setProfileDialogRequested(true);
     void loadPublicProfileDialog();
@@ -54,6 +64,7 @@ export function MessagesPage() {
   }
 
   const openConversation = (conversation: Conversation) => {
+    void loadChatSheet();
     patchSearchParams((params) => {
       selectMessageTarget(params, conversation.otherUser.id);
       params.delete('tab');
@@ -86,20 +97,25 @@ export function MessagesPage() {
           else params.delete('tab');
         })}
       />
-      <ChatSheet
-        userId={userId}
-        onClose={() => patchSearchParams((params) => {
-          params.delete('conversationId');
-          params.delete('userId');
-        })}
-        onOpenProfile={openProfile}
-      />
+      {userId !== null ? (
+        <Suspense fallback={null}>
+          <LazyChatSheet
+            userId={userId}
+            onClose={() => patchSearchParams((params) => {
+              params.delete('conversationId');
+              params.delete('userId');
+            })}
+            onOpenProfile={openProfile}
+          />
+        </Suspense>
+      ) : null}
       {profileDialogRequested ? (
         <Suspense fallback={null}>
           <LazyPublicProfileDialog
             userId={profileUserId}
             onClose={() => patchSearchParams((params) => params.delete('profileUserId'))}
             onMessage={(nextUserId) => patchSearchParams((params) => {
+              void loadChatSheet();
               selectMessageTarget(params, nextUserId);
               params.delete('profileUserId');
               params.delete('tab');

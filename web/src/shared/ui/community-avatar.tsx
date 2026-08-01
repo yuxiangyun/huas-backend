@@ -1,11 +1,11 @@
 /**
- * [INPUT]: 依赖媒体 URL 构造、cn 与 React 图片失败状态
- * [OUTPUT]: 对外提供 CommunityAvatar，可显示社区头像、通用用户占位或按领域隐藏
+ * [INPUT]: 依赖媒体 URL 构造、cn 与按资源地址隔离的 React 图片失败状态
+ * [OUTPUT]: 对外提供 CommunityAvatar，可无旧资源闪帧地显示社区头像、通用用户占位或按领域隐藏
  * [POS]: shared/ui 的社区头像视觉原语，不决定昵称或内容归属等业务语义
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useState } from 'react';
 import { UserRound } from 'lucide-react';
 import { buildMediaUrl } from '@/shared/api/media';
 import { cn } from '@/shared/lib/cn';
@@ -23,16 +23,8 @@ export function CommunityAvatar({
   className,
   fallbackLabel = '',
 }: CommunityAvatarProps) {
-  const [broken, setBroken] = useState(false);
-
-  useEffect(() => {
-    setBroken(false);
-  }, [src]);
-
-  const displaySrc = useMemo(
-    () => (!broken && src ? buildMediaUrl(src) : ''),
-    [broken, src]
-  );
+  const [brokenSrc, setBrokenSrc] = useState<string | null>(null);
+  const displaySrc = src && brokenSrc !== src ? buildMediaUrl(src) : '';
 
   if (!displaySrc && fallbackLabel === null) return null;
 
@@ -47,7 +39,7 @@ export function CommunityAvatar({
           alt={alt}
           className="size-full object-cover"
           src={displaySrc}
-          onError={() => setBroken(true)}
+          onError={() => setBrokenSrc(src)}
         />
       ) : (
         fallbackLabel

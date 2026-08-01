@@ -108,7 +108,7 @@ export function TreeholeFeed({ onComposeClick, onOpenPost, onOpenProfile }: Tree
             <article
               key={post.id}
               className="px-4 py-5 sm:px-5"
-              style={{ contentVisibility: 'auto', containIntrinsicSize: '230px' }}
+              style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 230px' }}
             >
               <button
                 aria-label={`查看 ${post.author.displayName} 的个人主页`}

@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 Radix Dialog 的焦点管理、Portal 与浏览器对话框语义
- * [OUTPUT]: 对外提供 BottomSheet，移动端呈现短任务底部抽屉，桌面端呈现居中对话框
+ * [INPUT]: 依赖 Radix Dialog 的焦点管理、Portal、全局轻量弹层动效与浏览器对话框语义
+ * [OUTPUT]: 对外提供 BottomSheet，以稳定进退场在移动端呈现短任务底部抽屉、桌面端呈现居中对话框
  * [POS]: shared/ui 的模态交互原语，负责遮罩、Esc、焦点锁定与安全区，不承载长表单
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -38,7 +38,7 @@ export function BottomSheet({
       <Dialog.Portal>
         <Dialog.Overlay
           className={cn(
-            'fixed inset-0 z-40 bg-black/40 data-[state=closed]:animate-out data-[state=open]:animate-in data-[state=closed]:fade-out data-[state=open]:fade-in',
+            'dialog-overlay fixed inset-0 z-40 bg-black/40',
             overlayClassName
           )}
         />
@@ -51,7 +51,7 @@ export function BottomSheet({
           <Dialog.Content
             aria-describedby={undefined}
             className={cn(
-              'pointer-events-auto max-h-[92dvh] w-full overflow-hidden rounded-t-[1rem] border border-line bg-white shadow-[0_20px_60px_rgba(0,0,0,0.18)] outline-none sm:max-w-[var(--layout-sheet-max)] sm:rounded-[0.875rem]',
+              'dialog-surface pointer-events-auto max-h-[92dvh] w-full overflow-hidden rounded-t-[1rem] border border-line bg-white shadow-[0_20px_60px_rgba(0,0,0,0.18)] outline-none sm:max-w-[var(--layout-sheet-max)] sm:rounded-[0.875rem]',
               sheetClassName
             )}
           >

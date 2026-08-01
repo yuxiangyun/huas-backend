@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Discover 领域 DTO，不依赖任何具体数据库、资料或文件实现
- * [OUTPUT]: 对外提供 DiscoverPersistence 与 DiscoverMediaStorage 两个真实外部边界端口
+ * [OUTPUT]: 对外提供 DiscoverPersistence 与含孤儿回收能力的 DiscoverMediaStorage 两个真实外部边界端口
  * [POS]: modules/discover/domain 的依赖倒置契约，隔离 application 与 SQLite/媒体副作用
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -38,4 +38,5 @@ export interface DiscoverPersistence {
 export interface DiscoverMediaStorage {
   storeImages(files: File[]): Promise<StoredDiscoverMedia>;
   removeStorage(storageKey: string): Promise<void>;
+  cleanupOrphans(before: Date): Promise<number>;
 }

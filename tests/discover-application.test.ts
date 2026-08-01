@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 DiscoverApplicationService 与内存 persistence/media/activity projection port doubles
- * [OUTPUT]: 验证发帖数据库失败的媒体补偿、软删除后媒体清理失败语义，以及互动提交后的投影触发边界
+ * [OUTPUT]: 验证发帖数据库失败的媒体补偿、软删除后媒体清理失败语义、孤儿清理委托，以及互动提交后的投影触发边界
  * [POS]: tests 的 Discover application 边界回归，补足文件副作用、数据库事实与提交后通知投影之间的失败语义证明
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -37,6 +37,7 @@ describe('DiscoverApplicationService media compensation', () => {
         images: [],
       }),
       removeStorage: async (storageKey) => { removedKeys.push(storageKey); },
+      cleanupOrphans: async () => 0,
     };
     const service = new DiscoverApplicationService(persistence, media, policy, { async attempt() {} });
 
@@ -60,9 +61,32 @@ describe('DiscoverApplicationService media compensation', () => {
     const media = {
       storeImages: async () => { throw new Error('unused'); },
       removeStorage: async () => { throw new Error('filesystem unavailable'); },
+      cleanupOrphans: async () => 0,
     } satisfies DiscoverMediaStorage;
     const service = new DiscoverApplicationService(persistence, media, policy, { async attempt() {} });
 
     await expect(service.deletePost(7, 1)).resolves.toEqual({ id: 7 });
+  });
+
+  it('将孤儿媒体宽限截止时间原样委托给媒体端口', async () => {
+    const cutoff = new Date('2026-08-01T01:00:00.000Z');
+    let received: Date | null = null;
+    const media = {
+      storeImages: async () => { throw new Error('unused'); },
+      removeStorage: async () => undefined,
+      cleanupOrphans: async (before: Date) => {
+        received = before;
+        return 2;
+      },
+    } satisfies DiscoverMediaStorage;
+    const service = new DiscoverApplicationService(
+      {} as DiscoverPersistence,
+      media,
+      policy,
+      { async attempt() {} },
+    );
+
+    await expect(service.cleanupOrphanMedia(cutoff)).resolves.toBe(2);
+    expect(received).toBe(cutoff);
   });
 });

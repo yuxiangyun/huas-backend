@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 Radix Dialog 的焦点与 Portal 能力、React 组合内容和 shared 样式规范
- * [OUTPUT]: 对外提供 TaskDialog，为编辑任务提供可替换头部的居中弹窗或移动全屏容器
+ * [INPUT]: 依赖 Radix Dialog 的焦点与 Portal 能力、React 组合内容和 shared 轻量弹层样式规范
+ * [OUTPUT]: 对外提供 TaskDialog，为编辑任务提供边界与进退场统一、可替换头部的居中弹窗或移动全屏容器
  * [POS]: shared/ui 的表单与裁切任务原语，与只承载短操作的 BottomSheet 形成明确边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -45,7 +45,7 @@ export function TaskDialog({
       if (!nextOpen) onClose();
     }}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/40" />
+        <Dialog.Overlay className="dialog-overlay fixed inset-0 z-40 bg-black/40" />
         <div className={cn(
           'pointer-events-none fixed inset-0 z-50 flex justify-center',
           presentation === 'modal'
@@ -56,7 +56,7 @@ export function TaskDialog({
           <Dialog.Content
             aria-describedby={undefined}
             className={cn(
-              'pointer-events-auto flex min-h-0 w-full flex-col bg-white outline-none',
+              'dialog-surface pointer-events-auto flex min-h-0 w-full flex-col overflow-hidden bg-white outline-none',
               presentation === 'modal'
                 ? 'max-h-[min(88dvh,48rem)] max-w-[46rem] rounded-[0.875rem] border border-line shadow-[0_20px_60px_rgba(0,0,0,0.18)]'
                 : 'sm:max-h-[min(90dvh,52rem)] sm:max-w-[46rem] sm:rounded-[0.875rem] sm:border sm:border-line sm:shadow-[0_20px_60px_rgba(0,0,0,0.18)]',

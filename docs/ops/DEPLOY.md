@@ -33,7 +33,7 @@
 3. 本地通过 `scripts/deploy-huas-zero-downtime.sh` 上传 release，远端显式停流与停 writer 后执行 contract migration
 4. 本地通过 `git push baidu HEAD:main` 推送到服务器裸仓库，由 `post-receive` hook 执行同一维护发布
 
-所有发布入口共享一条不可绕过的顺序：停流/停 writer → snapshot → `db:migrate --allow-destructive` → 新 Server/Web 本机冒烟 → 开放流量。
+所有发布入口共享一条不可绕过的顺序：保护活动槽并淘汰超额非活动 release → 准备候选 release → 停流前磁盘门禁 → 停流/停 writer → snapshot → `db:migrate --allow-destructive` → 新 Server/Web 本机冒烟 → 开放流量。
 
 > 社交 0003 与旧 Web 契约不兼容。后端重构与独立前端适配尚未同时完成时，禁止执行真实发布；必须把消费统一 author、Discover 点赞、Notifications 和 Messaging 新接口的 Web 与新 Server 放入同一 release，再进入维护窗口。
 
@@ -119,6 +119,8 @@ openssl rand -base64 32
 | `AUTH_LOGIN_RATE_LIMIT_BLOCK_MS` | `600000` | 登录失败触发限流后的封禁时长 |
 | `SCHEDULE_SOURCE_MODE` | `jw-first` | 首次没有有效状态文件时的课表来源顺序；仅支持 `jw-first` / `portal-first` |
 | `SCHEDULE_SOURCE_POLICY_FILE` | `dirname(DB_PATH)/schedule-source-policy.json` | 通常不要覆盖；`DB_PATH` 必须位于蓝绿槽共享持久目录，若覆盖则只能使用 release 外绝对共享路径 |
+| `DISCOVER_ORPHAN_MEDIA_GRACE_MS` | `3600000` | Discover 未引用 UUID 媒体目录的回收宽限期；保护事务外仍在写入或等待落库的候选媒体 |
+| `COMMUNITY_AVATAR_ORPHAN_GRACE_MS` | `3600000` | Community 未引用白名单头像文件的回收宽限期；保护尚未完成资料切换的候选头像 |
 
 ### 3.5 安装依赖并启动
 
@@ -206,6 +208,8 @@ REMOTE_HOST=your-server scripts/deploy-huas.sh --dry-run
 | `INSTALL_WEB_DEPS` | `1` | 为 `0` 时跳过本地 `web` 依赖安装 |
 | `INSTALL_SERVER_DEPS` | `1` | 为 `0` 时跳过远程 `bun install --production` |
 | `WEB_PACKAGE_MANAGER` | `auto` | 本地前端构建包管理器，默认按锁文件自动判断 |
+| `RELEASE_RETENTION_COUNT` | `6` | 额外保留的非活动历史 release 数量；当前 blue/green 指向与本次目标始终保护，不计入上限 |
+| `MIN_FREE_DISK_MB` | `2048` | 停流前最低可用磁盘；实际门槛取该值与当前 SQLite 文件大小 3 倍的较大值 |
 
 ### 4.5 远端 PM2 与 writer 行为
 
@@ -223,14 +227,16 @@ scripts/deploy-huas-zero-downtime.sh
 
 这条链路会执行：
 
-1. 将当前代码上传到远端 release，安装依赖并构建新 `web/`
-2. 将 nginx 切入 503 maintenance，确认不再把用户请求转发给应用
-3. 停止 blue、green 与 legacy PM2 进程，持久化停 writer 状态
-4. 对共享 `DB_PATH` 创建 SQLite 一致性快照
-5. 显式执行 `db:migrate --allow-destructive`
-6. 只启动目标槽新 Server，本机检查 `/health/ready`
-7. 本机请求 `/m` 验证新 Web 产物能由新 Server 托管
-8. 两项冒烟都通过后，才把 nginx 指向目标槽并原子更新 `active-slot`
+1. 解析 current blue/green 指向并硬保护，按修改时间只淘汰 `.deploy/releases` 中超额的非活动直接子目录
+2. 将当前代码上传到远端 release，安装依赖并构建新 `web/`
+3. 检查 release、`DB_PATH` 与 `data/snapshots` 所在文件系统；任一可用空间不足时在停流前安全退出
+4. 将 nginx 切入 503 maintenance，确认不再把用户请求转发给应用
+5. 停止 blue、green 与 legacy PM2 进程，持久化停 writer 状态
+6. 对共享 `DB_PATH` 创建 SQLite 一致性快照
+7. 显式执行 `db:migrate --allow-destructive`
+8. 只启动目标槽新 Server，本机检查 `/health/ready`
+9. 本机请求 `/m` 验证新 Web 产物能由新 Server 托管
+10. 两项冒烟都通过后，才把 nginx 指向目标槽并原子更新 `active-slot`
 
 当前服务器默认槽位：
 
@@ -240,6 +246,8 @@ scripts/deploy-huas-zero-downtime.sh
 维护状态一旦成功开启，任何后续失败都会重写 maintenance 503、停止全部 writer 并保持停流。迁移可能已提交，所以不得恢复旧 upstream，不得重启旧槽应用；必须修复新 release 并 forward-fix。
 
 `.env`、`data/`、`logs/`、`reports/` 仍位于 release 外的共享目录。
+
+release 回收不会跟随符号链接删除目录，也不会触碰 `.deploy/releases` 之外的路径。`data/snapshots/` 不自动清理：业务快照的保留期必须由人工制定，发布脚本只通过磁盘门禁阻止低余量进入停流窗口。
 
 ### 4.7 Git Push 发布
 
@@ -256,6 +264,7 @@ scripts/setup-huas-git-deploy.sh
 - 远程裸仓库默认 HEAD 指向 `main`
 - 远程为裸仓库安装 `post-receive` hook
 - 每次把当前 `HEAD` 推送到 `baidu` 的 `main` 时，自动把 commit 导出为候选 release
+- hook 固化初始化时的 `RELEASE_RETENTION_COUNT` 与 `MIN_FREE_DISK_MB`，如需修改必须重新运行初始化脚本
 - 候选 release 准备完成后明确进入停流维护窗口
 - 只在 destructive migration 与 Server/Web 本机冒烟成功后重新开放 nginx 流量
 
@@ -286,10 +295,11 @@ git push baidu HEAD:main
 hook 会自动执行维护发布：
 
 1. 将推送的 `main` commit 导出为候选 release
-2. 排除并保留 `.env`、`data`、`logs` 等共享内容
-3. 执行停流/停 writer、snapshot 和 `db:migrate --allow-destructive`
-4. 启动目标槽并执行 `/health/ready` 与 `/m` 本机冒烟
-5. 冒烟通过后开放 nginx 流量；失败则继续 maintenance 并 forward-fix
+2. 保护活动槽、回收超额非活动 release，并排除 `.env`、`data`、`logs` 等共享内容
+3. 构建候选后执行 release/DB/snapshots 磁盘余量门禁，失败则在停流前退出
+4. 执行停流/停 writer、snapshot 和 `db:migrate --allow-destructive`
+5. 启动目标槽并执行 `/health/ready` 与 `/m` 本机冒烟
+6. 冒烟通过后开放 nginx 流量；失败则继续 maintenance 并 forward-fix
 
 如果需要自定义远程参数，可以在初始化时传环境变量：
 
@@ -299,6 +309,8 @@ BARE_REPO_DIR=/www/git/huas-server.git \
 APP_DIR=/www/wwwroot/huas-server \
 APP_NAME=huas-server \
 DEPLOY_BRANCH=main \
+RELEASE_RETENTION_COUNT=6 \
+MIN_FREE_DISK_MB=2048 \
 scripts/setup-huas-git-deploy.sh
 ```
 
@@ -432,7 +444,7 @@ npm run build
 
 `treehole-avatars` 是历史目录名，当前所有权属于 Community；Messaging 媒体固定落在 `dirname(DB_PATH)/message-media`，没有独立环境变量可把它与 SQLite 持久目录拆开。备份与迁移数据库时必须同时保留该目录，否则消息元数据仍在但图片永久缺失。
 
-运行期周期维护由同一 registry 管理：Activity Outbox 默认每 5 秒重试；通知第一版永久保留，不注册已读清理或归档；无主私信媒体每小时检查一次，只删除超过 1 小时且没有 `message_images` 引用的候选目录。已引用消息图片永久保留，不属于周期清理对象。
+运行期周期维护由同一 registry 管理：Activity Outbox 默认每 5 秒重试；通知第一版永久保留，不注册已读清理或归档。Discover、Community 头像与 Messaging 分别注册每小时孤儿媒体任务，默认都用 1 小时宽限期：Discover 只删除无有效帖子引用的严格 UUID 目录，Community 只删除无已发布资料 URL 引用的 `{id}.webp` / `{id}-{uuid}.webp` 文件，Messaging 只删除没有 `message_images` 引用的候选目录。三个任务相互隔离，任何有效引用都优先于文件年龄。
 
 Notifications/Messaging 成功 GET 轮询采用 quiet access log，但 HTTP metrics 仍然统计；4xx/5xx 和发送、已读等写操作继续记录。任何日志都不得包含消息正文、原始文件名或图片内容。
 
@@ -487,7 +499,34 @@ huas-<UTC时间>-schema-v<版本>-release-<标识>.db
 
 `db:snapshot` 只复制 SQLite，不复制 `message-media`。停 writer 后的完整灾备必须另行复制整个明确的 `dirname(DB_PATH)/message-media` 目录，并把它与同一 release 的数据库快照成对标记；不要在仍有上传事务运行时单独复制媒体目录。
 
-普通应用启动不会自动快照或迁移。维护发布严格按“maintenance 503 → stop writers → snapshot → `db:migrate --allow-destructive` → Server/Web 本机冒烟 → 开放流量”执行。首次部署若数据库尚不存在，也必须在应用启动前显式执行迁移。
+普通应用启动不会自动快照或迁移。维护发布严格按“release 保留/候选构建 → 停流前磁盘门禁 → maintenance 503 → stop writers → snapshot → `db:migrate --allow-destructive` → Server/Web 本机冒烟 → 开放流量”执行。首次部署若数据库尚不存在，也必须在应用启动前显式执行迁移。
+
+#### 8.3.1 把生产数据库与业务媒体备份到本机
+
+从开发电脑运行：
+
+```bash
+scripts/backup-data-local.sh
+```
+
+脚本默认通过 SSH 别名 `baidu` 连接 `/www/wwwroot/huas-server`，在远端临时目录复用当前 release 的 `db-snapshot`：先执行 `PRAGMA quick_check`，再以 `VACUUM INTO` 生成在线一致性副本。数据库与三类业务资源通过同一 SSH 数据流传回，本机分别执行 SQLite 与 tar 完整性检查后落到：
+
+```text
+/Users/xiangyun/workspace/backups/database/huas-<UTC时间>.db
+/Users/xiangyun/workspace/backups/media/huas-<UTC时间>-media.tar.gz
+```
+
+自定义连接与本机目录：
+
+```bash
+REMOTE_HOST=your-server \
+APP_ROOT=/www/wwwroot/huas-server \
+LOCAL_BACKUP_DIR=/absolute/local/backup/path \
+LOCAL_MEDIA_BACKUP_DIR=/absolute/local/media-backup/path \
+scripts/backup-data-local.sh
+```
+
+媒体压缩包固定包含 `media/discover/`、`media/treehole-avatars/` 与 `media/message-media/`，分别对应 Discover 图片、Community 头像和私信图片。该入口不读取或复制 `logs/`、`.env` 与运行策略文件；远端快照只存在于受控临时目录，传输结束或失败时都会清理，脚本也不会自动删除任何既有本机备份。
 
 ### 8.4 快照保留与恢复
 
@@ -595,6 +634,7 @@ curl https://api.huas-api.top/health/ready
 - 重装了 `huas` 服务器
 - 删除了远端裸仓库 `/www/git/huas-server.git`
 - 想重新生成 `baidu` remote 或 `post-receive` hook
+- 修改了要固化进 hook 的 `RELEASE_RETENTION_COUNT` 或 `MIN_FREE_DISK_MB`
 
 初始化命令：
 
@@ -610,6 +650,8 @@ BARE_REPO_DIR=/www/git/huas-server.git \
 APP_DIR=/www/wwwroot/huas-server \
 APP_NAME=huas-server \
 DEPLOY_BRANCH=main \
+RELEASE_RETENTION_COUNT=6 \
+MIN_FREE_DISK_MB=2048 \
 scripts/setup-huas-git-deploy.sh
 ```
 
@@ -621,7 +663,7 @@ scripts/setup-huas-git-deploy.sh
 scripts/deploy-huas-zero-downtime.sh
 ```
 
-这条链路与 Git hook 执行同一停流、停 writer、快照、destructive migration 和本机冒烟流程。
+这条链路与 Git hook 执行同一 release 保留、停流前磁盘门禁、停流、停 writer、快照、destructive migration 和本机冒烟流程。
 
 ### 9.4 历史快速文件名
 

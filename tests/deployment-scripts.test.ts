@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖四条维护中的 Bash 部署脚本与 docs/ops/DEPLOY.md
- * [OUTPUT]: 验证脚本语法、维护发布顺序、destructive migration 授权、Server/Web 冒烟与 forward-fix 契约
- * [POS]: tests 的部署静态回归套件，阻止 contract migration 链路在失败后恢复旧 upstream
+ * [OUTPUT]: 验证脚本语法、release 保留/磁盘门禁、维护发布顺序、destructive migration 授权、Server/Web 冒烟与 forward-fix 契约
+ * [POS]: tests 的部署静态回归套件，阻止 release 膨胀或低磁盘进入停流窗口，并禁止 contract migration 失败后恢复旧 upstream
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -49,6 +49,37 @@ describe('deployment scripts', () => {
     expect(steps).toEqual([...steps].sort((left, right) => left - right));
     expect(blueGreen).toContain('active_slot_dir="$(dirname "$ACTIVE_SLOT_FILE")"');
     expect(blueGreen).toContain('mktemp "$active_slot_dir/.active-slot.XXXXXX"');
+  });
+
+  it('prunes only inactive releases and checks disk headroom before traffic stops', async () => {
+    const localDeploy = await source('scripts/deploy-huas-zero-downtime.sh');
+    const setup = await source('scripts/setup-huas-git-deploy.sh');
+    const blueGreen = await source('scripts/remote-blue-green-deploy.sh');
+
+    expect(blueGreen).toContain('RELEASE_RETENTION_COUNT="${RELEASE_RETENTION_COUNT:-6}"');
+    expect(blueGreen).toContain('MIN_FREE_DISK_MB="${MIN_FREE_DISK_MB:-2048}"');
+    expect(blueGreen).toContain('prune_inactive_releases "$target_release_dir"');
+    expect(blueGreen.lastIndexOf('prune_inactive_releases "$target_release_dir"'))
+      .toBeLessThan(blueGreen.lastIndexOf('prepare_release_dir "$target_slot"'));
+    expect(blueGreen).toContain('"$CURRENT_DIR/$BLUE_SLOT" "$CURRENT_DIR/$GREEN_SLOT"');
+    expect(blueGreen).toContain('protected_releases+=("$target_canonical")');
+    expect(blueGreen).toContain('[[ "$candidate_canonical" != "$releases_root/"* ]]');
+    expect(blueGreen).toContain("find \"$RELEASES_DIR\" -mindepth 1 -maxdepth 1 -type d");
+
+    expect(blueGreen).toContain('assert_deployment_disk_headroom "$target_release_dir"');
+    expect(blueGreen.lastIndexOf('assert_deployment_disk_headroom "$target_release_dir"'))
+      .toBeLessThan(blueGreen.lastIndexOf('prepare_active_slot_record "$target_slot"'));
+    expect(blueGreen.lastIndexOf('assert_deployment_disk_headroom "$target_release_dir"'))
+      .toBeLessThan(blueGreen.lastIndexOf('enter_maintenance_mode'));
+    expect(blueGreen).toContain('df -Pk "$path"');
+    expect(blueGreen).toContain('database_bytes * 3');
+    expect(blueGreen).toContain('"database filesystem"');
+    expect(blueGreen).toContain('"snapshot filesystem"');
+
+    for (const script of [localDeploy, setup, blueGreen]) {
+      expect(script).toContain('RELEASE_RETENTION_COUNT');
+      expect(script).toContain('MIN_FREE_DISK_MB');
+    }
   });
 
   it('chooses the Web package manager deterministically from lock files', async () => {

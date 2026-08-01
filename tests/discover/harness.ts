@@ -38,6 +38,7 @@ export function createProfileReader() {
     {
       async storeAvatar() { throw new Error('测试资料读取器不处理头像写入'); },
       async removeAvatar() {},
+      async cleanupOrphans() { return 0; },
     },
   );
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # [INPUT]: 依赖含数据库运维脚本的 release 源目录、共享 .env/data/logs 与 SQLite/nginx/PM2/Bun 运行环境。
-# [OUTPUT]: 对外提供停流与停 writer、SQLite 快照、destructive migration、目标槽 Server/Web 本机冒烟和重新开放流量的维护发布能力。
+# [OUTPUT]: 对外提供 release 安全保留、停流前磁盘门禁、停流与停 writer、SQLite 快照、destructive migration、目标槽 Server/Web 本机冒烟和重新开放流量的维护发布能力。
 # [POS]: scripts 的远端 contract release 内核；migration 后失败必须保持 maintenance 与停 writer，只允许 forward-fix。
 # [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
 
@@ -18,6 +18,8 @@ INSTALL_WEB_DEPS="${INSTALL_WEB_DEPS:-1}"
 WEB_PACKAGE_MANAGER="${WEB_PACKAGE_MANAGER:-auto}"
 NPM_REGISTRY="${NPM_REGISTRY:-https://registry.npmjs.org}"
 RELEASE_MODE="${RELEASE_MODE:-maintenance}"
+RELEASE_RETENTION_COUNT="${RELEASE_RETENTION_COUNT:-6}"
+MIN_FREE_DISK_MB="${MIN_FREE_DISK_MB:-2048}"
 BLUE_SLOT="${BLUE_SLOT:-blue}"
 GREEN_SLOT="${GREEN_SLOT:-green}"
 BLUE_PORT="${BLUE_PORT:-3000}"
@@ -465,6 +467,112 @@ prepare_release_dir() {
   ln -sfn "$APP_ROOT/reports" "$release_dir/reports"
 }
 
+prune_inactive_releases() {
+  local target_release_dir="$1"
+  local releases_root target_canonical current_link current_canonical candidate candidate_canonical
+  local retained_count=0
+  local -a protected_releases=()
+
+  mkdir -p "$RELEASES_DIR" "$CURRENT_DIR"
+  releases_root="$(readlink -f "$RELEASES_DIR")"
+  target_canonical="$(readlink -m "$target_release_dir")"
+  protected_releases+=("$target_canonical")
+
+  for current_link in "$CURRENT_DIR/$BLUE_SLOT" "$CURRENT_DIR/$GREEN_SLOT"; do
+    if [[ -L "$current_link" ]] && current_canonical="$(readlink -f "$current_link")"; then
+      protected_releases+=("$current_canonical")
+    fi
+  done
+
+  while IFS= read -r -d '' candidate; do
+    candidate="${candidate#* }"
+    if ! candidate_canonical="$(readlink -f "$candidate")"; then
+      echo "Skipping release that cannot be resolved safely: $candidate" >&2
+      continue
+    fi
+    if [[ "$candidate_canonical" != "$releases_root/"* ]]; then
+      echo "Refusing to prune release outside $releases_root: $candidate_canonical" >&2
+      exit 1
+    fi
+
+    local protected=0 protected_release
+    for protected_release in "${protected_releases[@]}"; do
+      if [[ "$candidate_canonical" == "$protected_release" ]]; then
+        protected=1
+        break
+      fi
+    done
+    if [[ "$protected" == "1" ]]; then
+      continue
+    fi
+
+    if (( retained_count < RELEASE_RETENTION_COUNT )); then
+      retained_count=$((retained_count + 1))
+      continue
+    fi
+
+    echo "Pruning inactive release: $candidate_canonical"
+    rm -rf -- "$candidate_canonical"
+  done < <(find "$RELEASES_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\0' | sort -z -nr)
+}
+
+resolve_database_path() {
+  local configured_db_path
+  configured_db_path="$({
+    set -a
+    . "$APP_ROOT/.env"
+    set +a
+    printf '%s\n' "${DB_PATH:-./data/huas.db}"
+  })"
+
+  if [[ "$configured_db_path" == /* ]]; then
+    printf '%s\n' "$configured_db_path"
+  else
+    printf '%s\n' "$APP_ROOT/${configured_db_path#./}"
+  fi
+}
+
+assert_path_disk_headroom() {
+  local label="$1"
+  local path="$2"
+  local required_kb="$3"
+  local available_kb
+
+  available_kb="$(df -Pk "$path" | awk 'NR == 2 { print $4 }')"
+  if [[ ! "$available_kb" =~ ^[0-9]+$ ]]; then
+    echo "Could not determine free disk space for $label at $path" >&2
+    exit 1
+  fi
+  if (( available_kb < required_kb )); then
+    echo "Insufficient disk headroom for $label at $path: ${available_kb}KB available, ${required_kb}KB required" >&2
+    exit 1
+  fi
+}
+
+assert_deployment_disk_headroom() {
+  local target_release_dir="$1"
+  local database_path snapshot_dir database_bytes database_required_kb configured_required_kb required_kb
+
+  database_path="$(resolve_database_path)"
+  snapshot_dir="$APP_ROOT/data/snapshots"
+  mkdir -p "$(dirname "$database_path")" "$snapshot_dir"
+
+  database_bytes=0
+  if [[ -f "$database_path" ]]; then
+    database_bytes="$(stat -c '%s' "$database_path")"
+  fi
+  configured_required_kb=$((MIN_FREE_DISK_MB * 1024))
+  database_required_kb=$(((database_bytes * 3 + 1023) / 1024))
+  required_kb="$configured_required_kb"
+  if (( database_required_kb > required_kb )); then
+    required_kb="$database_required_kb"
+  fi
+
+  assert_path_disk_headroom "release filesystem" "$target_release_dir" "$required_kb"
+  assert_path_disk_headroom "database filesystem" "$(dirname "$database_path")" "$required_kb"
+  assert_path_disk_headroom "snapshot filesystem" "$snapshot_dir" "$required_kb"
+}
+
 snapshot_database() {
   local release_source="$1"
   if [[ ! -f "$APP_ROOT/.env" ]]; then
@@ -509,11 +617,22 @@ if [[ "$BUILD_WEB" != "1" ]]; then
   exit 1
 fi
 
+if [[ ! "$RELEASE_RETENTION_COUNT" =~ ^[0-9]+$ || ! "$MIN_FREE_DISK_MB" =~ ^[0-9]+$ ]]; then
+  echo "RELEASE_RETENTION_COUNT and MIN_FREE_DISK_MB must be non-negative integers" >&2
+  exit 1
+fi
+
 require_command rsync
 require_command bun
 require_command pm2
 require_command curl
 require_command perl
+require_command find
+require_command readlink
+require_command sort
+require_command stat
+require_command df
+require_command awk
 
 if [[ ! -x "$NGINX_BIN" ]]; then
   echo "Missing nginx binary: $NGINX_BIN" >&2
@@ -544,6 +663,7 @@ target_app_name="$(slot_app_name "$target_slot")"
 target_release_dir="$RELEASES_DIR/${RELEASE_ID}-${target_slot}"
 target_current_link="$CURRENT_DIR/$target_slot"
 
+prune_inactive_releases "$target_release_dir"
 prepare_release_dir "$target_slot" "$target_release_dir"
 
 if [[ "$INSTALL_SERVER_DEPS" == "1" ]]; then
@@ -566,6 +686,7 @@ fi
 
 runtime_env="$(ensure_runtime_env "$target_slot" "$target_port")"
 attach_runtime_env_to_release "$runtime_env" "$target_release_dir"
+assert_deployment_disk_headroom "$target_release_dir"
 ACTIVE_SLOT_CANDIDATE="$(prepare_active_slot_record "$target_slot")"
 
 enter_maintenance_mode

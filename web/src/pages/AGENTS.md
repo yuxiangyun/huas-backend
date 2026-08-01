@@ -6,7 +6,7 @@ admin/: `/m/admin` 后台页面集合，共享独立会话壳并以桌面优先�
 discover/: Discover 移动端信息流页面，以共享 Social 字标和紧凑发布动作组合详情与评论 widgets
 login/: 普通用户校园身份登录页面
 me/: 当前用户资料与个人内容入口，复用普通用户主 Tab 字标与顶部节奏
-messages/: 私信与活动通知双读模型页面，只持有目标 userId URL 状态并深链原内容
+messages/: 私信与活动通知双读模型页面，只持有目标 userId URL 状态并深链原内容，聊天运行时代码仅在打开会话后加载
 me-discover/: 当前用户 Discover 内容管理页面
 me-treehole/: 当前用户 Treehole 内容管理页面
 treehole/: 树洞移动端连续白色单面板信息流页面，以共享 Social 字标和紧凑发布动作组合社区资料与评论 widgets

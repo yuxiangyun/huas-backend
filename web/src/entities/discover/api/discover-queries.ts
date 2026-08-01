@@ -1,11 +1,11 @@
 /**
  * [INPUT]: 依赖 Discover HTTP adapter、查询键、写后缓存策略与 TanStack Query
- * [OUTPUT]: 对外提供公开/本人/指定用户帖子、评论与写入缓存编排 hooks
- * [POS]: entities/discover 的客户端缓存层，局部反馈后由服务端重算排序与评论分页事实
+ * [OUTPUT]: 对外提供公开/本人/指定用户帖子、评论与写入缓存编排 hooks，筛选切换时保留上一帧列表
+ * [POS]: entities/discover 的客户端缓存层，以稳定占位衔接查询键切换，局部反馈后由服务端重算排序与评论分页事实
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   createDiscoverComment,
   createDiscoverPost,
@@ -54,6 +54,7 @@ export function useDiscoverInfinitePostsQuery(params: Omit<DiscoverListParams, '
         page: pageParam,
       }, { signal }),
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
+    placeholderData: keepPreviousData,
   });
 }
 

@@ -2,7 +2,7 @@
 > L2 | 父级: /Users/xiangyun/workspace/huas-wechat-app/huas-server/web/AGENTS.md
 
 成员清单
-index.css: Tailwind 主题与全局响应式基线，以纯白页面基底统一 shadcn neutral 令牌、标准底部 Tab 避让、安全区、卡片触发器、文本截断和移动表单行为
+index.css: Tailwind 主题与全局响应式基线，以纯白页面基底统一 shadcn neutral 令牌、稳定滚动条、柔和骨架、轻量反馈/弹层动效、按真实 Tab 高度推导的底部避让、安全区、卡片触发器、文本截断和移动表单行为
 
 架构决策
 全局样式只承载跨页且与业务无关的浏览器基线；卡片内容布局仍由对应 widget 就近定义，避免全局选择器透传业务偶合。

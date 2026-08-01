@@ -9,13 +9,13 @@ middleware/: Hono 中间件，处理认证、限流、日志、错误与后台 C
 modules/: 按业务能力组织的纵向切片，承载 Identity、Community、Campus Integrations、Academic、Cache、Calendar 与各社交/运维业务实现
 parsers/: 学校解析器兼容 Facade，canonical 纯解析器位于 modules/campus-integrations
 routes/: Hono 协议与认证边界，接收根组合注入的 Community/Discover/Treehole/Notifications/Messaging/Operations 路由实例
-runtime/: 进程运行态，承载就绪判定、轻量指标与有界关闭 hooks
+runtime/: 进程运行态，承载就绪判定、轻量指标、有界关闭 hooks 与三类独立孤儿媒体周期任务
 services/: 学校业务与 Operations 的迁移期兼容层；Discover/Treehole 旧 Facade 已物理删除
 types/: 第三方库声明补丁，隔离外部类型缺口
 utils/: 共享无状态工具，封装响应、错误、日志、时间、加密、请求体门禁与跨媒体图片转换
-config.ts: 运行时配置入口，从环境变量生成强类型配置对象，包含课表来源策略默认模式与共享状态路径
+config.ts: 运行时配置入口，从环境变量生成强类型配置对象，包含课表来源策略、共享状态路径与 Discover/Community 孤儿媒体宽限期
 app.ts: 注入式 Hono 应用工厂，装配全局中间件、路由、静态 Web 与媒体端点但不监听端口
-composition.ts: 唯一跨模块组合根，用同一 DB 实例连接 Community、Discover、Treehole、Notifications、Messaging 与 Operations 公开 ports，并集中装配 HTTP、私有/公共媒体、观测器、周期任务与关闭钩子
+composition.ts: 唯一跨模块组合根，用同一 DB 实例连接 Community、Discover、Treehole、Notifications、Messaging 与 Operations 公开 ports，并集中装配 HTTP、私有/公共媒体、观测器、三类独立孤儿媒体周期任务与关闭钩子
 index.ts: 纯进程入口，只执行只读 schema 校验、Bun.serve、周期任务启停、信号与有界关闭
 
 架构决策
@@ -37,6 +37,7 @@ src 是应用机器相核心；新业务按 modules 纵向切片，旧 routes �
 2026-07-31: Treehole 取消匿名与资料/头像职责，Discover 以幂等点赞替代评分；二者统一通过 Community 批量投影公共作者并由根组合实例化。
 2026-07-31: Discover/Treehole 互动事务接入 Notifications Outbox，请求后即时投影并由 periodic registry 重试；通知事实不自动清理。
 2026-07-31: 新增 Messaging 一对一私信切片，根组合连接 Community/Operations、私有媒体与无主目录周期清理。
+2026-08-01: Discover 与 Community 增加引用/宽限期孤儿媒体回收，根组合分别注册任务，避免单模块失败阻断另一模块。
 2026-07-27: 新增 Calendar 纵向切片，签名、周快照与 ICS 统一迁入 modules/calendar。
 2026-07-27: 新增 Academic 纵向切片，课表、成绩、评教与空教室旧服务退化为单向兼容 Facade。
 2026-07-27: 新增 Campus Integrations 纵向切片，旧 auth/core/parsers 与 Portal 资料服务退化为兼容 Facade。

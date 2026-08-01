@@ -34,7 +34,7 @@ export function MyPostsPanel({ hasMore = false, loading = false, loadingMore = f
   return (
     <div className="space-y-3">
       {posts.map((post) => (
-        <button key={post.id} className="feed-card-trigger" style={{ contentVisibility: 'auto', containIntrinsicSize: '280px' }} type="button" onClick={() => onOpenPost?.(post.id)}>
+        <button key={post.id} className="feed-card-trigger" style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 280px' }} type="button" onClick={() => onOpenPost?.(post.id)}>
           <Card className="overflow-hidden p-0 transition-colors hover:border-[#d4d4d4] sm:grid sm:grid-cols-[11rem_minmax(0,1fr)]">
             {post.coverUrl ? <img alt={post.title || '推荐图片'} className="aspect-[16/10] h-full w-full object-cover sm:aspect-square" loading="lazy" src={buildMediaUrl(post.coverUrl)} /> : <div className="aspect-[16/10] bg-tint-soft sm:aspect-square" />}
             <div className="min-w-0 space-y-3 p-4">

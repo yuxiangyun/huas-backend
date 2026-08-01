@@ -1,12 +1,12 @@
 /**
  * [INPUT]: 依赖 Community/Identity 构造注入 adapters、Hono 路由 factory、隔离 SQLite、sharp 与临时头像目录
- * [OUTPUT]: 覆盖默认 displayName、昵称校验、公共 DTO、并发字段 patch、头像引用保护与媒体生命周期
+ * [OUTPUT]: 覆盖默认 displayName、昵称校验、公共 DTO、并发字段 patch、头像引用保护、宽限期孤儿回收与媒体生命周期
  * [POS]: tests 的 Community 纵向切片专项回归，锁定本人编辑并发安全与公共身份最小披露边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { beforeEach, describe, expect, test } from 'bun:test';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, rm, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Hono } from 'hono';
 import sharp from 'sharp';
@@ -202,6 +202,7 @@ describe('Community avatar media', () => {
           return candidateAvatarUrl;
         },
         async removeAvatar(avatarUrl) { removed.push(avatarUrl); },
+        async cleanupOrphans() { return 0; },
       },
     );
 
@@ -233,6 +234,7 @@ describe('Community avatar media', () => {
       {
         async storeAvatar() { return candidateAvatarUrl; },
         async removeAvatar(avatarUrl) { removed.push(avatarUrl); },
+        async cleanupOrphans() { return 0; },
       },
     );
 
@@ -254,10 +256,12 @@ describe('Community avatar media', () => {
         getMany: async () => new Map(),
         patch: async () => { throw writeError; },
         isAvatarPublished: async () => false,
+        listPublishedAvatarUrls: async () => [],
       },
       {
         storeAvatar: async () => '/media/treehole-avatar/candidate.webp',
         removeAvatar: async () => { throw new Error('cleanup failed'); },
+        cleanupOrphans: async () => 0,
       },
     );
 
@@ -312,5 +316,34 @@ describe('Community avatar media', () => {
     });
 
     expect(await avatars.getPublicFile(publicPath)).not.toBeNull();
+  });
+
+  test('removes only unreferenced avatar files older than the grace cutoff', async () => {
+    await mkdir(config.community.avatarStorageRoot, { recursive: true });
+    const activeName = `${currentUserId}-11111111-1111-4111-8111-111111111111.webp`;
+    const oldOrphanName = `${otherUserId}-22222222-2222-4222-8222-222222222222.webp`;
+    const freshOrphanName = `${otherUserId}-33333333-3333-4333-8333-333333333333.webp`;
+    const activePath = join(config.community.avatarStorageRoot, activeName);
+    const oldOrphanPath = join(config.community.avatarStorageRoot, oldOrphanName);
+    const freshOrphanPath = join(config.community.avatarStorageRoot, freshOrphanName);
+    await Promise.all([
+      writeFile(activePath, 'active'),
+      writeFile(oldOrphanPath, 'old-orphan'),
+      writeFile(freshOrphanPath, 'fresh-orphan'),
+    ]);
+    const now = Date.now();
+    const old = new Date(now - 2 * 60 * 60 * 1000);
+    await Promise.all([
+      utimes(activePath, old, old),
+      utimes(oldOrphanPath, old, old),
+    ]);
+    await profiles.patch(currentUserId, {
+      avatarUrl: `${config.community.avatarMediaBasePath}/${activeName}?v=active`,
+    });
+
+    await expect(service.cleanupOrphanAvatars(new Date(now - 60 * 60 * 1000))).resolves.toBe(1);
+    expect(await Bun.file(activePath).exists()).toBe(true);
+    expect(await Bun.file(oldOrphanPath).exists()).toBe(false);
+    expect(await Bun.file(freshOrphanPath).exists()).toBe(true);
   });
 });

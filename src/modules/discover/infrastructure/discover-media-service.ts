@@ -1,12 +1,12 @@
 /**
  * [INPUT]: 依赖共享 image 转换器、构造注入的 Drizzle db、Node 文件系统与 Discover 媒体配置
- * [OUTPUT]: 对外提供 DiscoverMediaService 图片存储/删除/公开读取能力与缓存头常量
+ * [OUTPUT]: 对外提供 DiscoverMediaService 图片存储/删除/公开读取、按引用与宽限期回收孤儿目录的能力及缓存头常量
  * [POS]: modules/discover/infrastructure 的媒体 adapter，只拥有 Discover 文件路径、可见性和生命周期
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { and, eq, isNull } from 'drizzle-orm';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { config } from '../../../config';
@@ -38,6 +38,7 @@ const DEFAULT_MEDIA_OPTIONS: DiscoverMediaOptions = {
 };
 
 export const DISCOVER_MEDIA_CACHE_CONTROL = 'public, max-age=31536000, immutable';
+const DISCOVER_STORAGE_KEY_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export class DiscoverMediaService implements DiscoverMediaStorage {
   private readonly storageRoot: string;
@@ -80,6 +81,37 @@ export class DiscoverMediaService implements DiscoverMediaStorage {
     const target = resolve(this.storageRoot, storageKey);
     if (!target.startsWith(`${this.storageRoot}${sep}`)) return;
     await rm(target, { recursive: true, force: true });
+  }
+
+  async cleanupOrphans(before: Date): Promise<number> {
+    await mkdir(this.storageRoot, { recursive: true });
+    const referencedRows = await this.db.select({ storageKey: schema.discoverPosts.storageKey })
+      .from(schema.discoverPosts)
+      .where(isNull(schema.discoverPosts.deletedAt));
+    const referenced = new Set(referencedRows.map((row) => row.storageKey).filter(Boolean));
+    const entries = await readdir(this.storageRoot, { withFileTypes: true });
+    const failures: unknown[] = [];
+    let removed = 0;
+
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !DISCOVER_STORAGE_KEY_PATTERN.test(entry.name) || referenced.has(entry.name)) {
+        continue;
+      }
+      const target = resolve(this.storageRoot, entry.name);
+      try {
+        const metadata = await stat(target);
+        if (metadata.mtime > before) continue;
+        await rm(target, { recursive: true });
+        removed += 1;
+      } catch (error: any) {
+        if (error?.code !== 'ENOENT') failures.push(error);
+      }
+    }
+
+    if (failures.length > 0) {
+      throw new AggregateError(failures, `Discover 孤儿媒体清理失败 count=${failures.length}`);
+    }
+    return removed;
   }
 
   async getPublicFile(requestPath: string): Promise<ReturnType<typeof Bun.file> | null> {

@@ -30,6 +30,7 @@ const profileRepository = new SQLiteCommunityProfileRepository(db);
 const unusedAvatarStorage: CommunityAvatarStorage = {
   async storeAvatar() { throw new Error('Treehole 测试不写头像'); },
   async removeAvatar() {},
+  async cleanupOrphans() { return 0; },
 };
 const communityService = new CommunityApplicationService(
   new SQLiteCommunityIdentityReader(db),
