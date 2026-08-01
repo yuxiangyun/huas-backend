@@ -14,7 +14,7 @@ my-posts-panel/: 当前用户 Discover 发布列表，只消费调用方数据�
 my-treehole-posts-panel/: 当前用户 Treehole 图文发布列表，以 Bearer 首图缩略图组合调用方数据和打开动作
 public-profile-dialog/: Community 公共用户资料与其 Discover/Treehole 图文内容聚合入口，将关闭资料和目标导航的原子状态变换委托给 pages
 treehole-compose-sheet/: Treehole 移动全屏图文发布器，编排动态限制、顺序选图、预处理、预览、失败保稿、放弃确认与 multipart mutation
-treehole-detail-sheet/: Treehole 移动优先全屏详情，只挂载当前/相邻私有图片并以帖子身份隔离异步互动回写，以首批 20 条评论和固定输入器编排滑动、全屏、点赞、分享、私信与删除
+treehole-detail-sheet/: Treehole 移动优先全屏详情，只挂载当前/相邻私有图片并以帖子身份隔离异步互动回写；移动端有图帖正文仅与图片保持额外上间距，无图帖保留原正文流，以首批 20 条评论和固定输入器编排滑动、全屏、点赞、分享、私信与删除
 treehole-feed/: Treehole 双形态信息流，有图帖使用 Instagram 首图层级且正文不重复作者标识、纯文字帖将正文独占排列在作者栏下方，两类帖子统一使用昵称加相对时间作者栏与共享同行计数互动栏
 
 架构决策

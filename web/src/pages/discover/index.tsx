@@ -168,7 +168,7 @@ export function DiscoverPage() {
         action={(
           <IconButton
             className="-mr-1 text-ink hover:bg-[#f2f2f2]"
-            icon={<Plus aria-hidden="true" className="size-6" strokeWidth={1.8} />}
+            icon={<Plus aria-hidden="true" className="size-7" strokeWidth={2.2} />}
             label="发布好饭"
             size="md"
             variant="ghost"

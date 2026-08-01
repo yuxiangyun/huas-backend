@@ -16,7 +16,7 @@ lazy-task-fallback.tsx: 路由分块任务占位外壳，在弱网首次打开�
 page-header.tsx: 页级标题原语，统一标题与操作区的垂直中线，允许页面传入组合字标并为窄屏保留换行能力
 private-media-image.tsx: Bearer/Cookie 私有媒体适配原语，按 URL、认证模式与身份代次使用 10 分钟/24MB 会话 LRU，支持调用方滚动根内的近视口请求、显式清空和切源隔离
 segmented-control.tsx: 分段选择原语，支持等宽/内容宽排布与可选尾部操作
-social-page-title.tsx: Social 主 Tab 的文字/品牌标题原语，统一中文楷体字标或品牌图片字标的显示尺寸与裁切且不引入外部字体请求
+social-page-title.tsx: Social 主 Tab 的文字/品牌标题原语，统一中文楷体字标或品牌图片字标的显示尺寸、完整裁切与信息流左边界且不引入外部字体请求
 social-count-action.tsx: Social 互动计数按钮原语，统一图标触控尺寸、弱化数字格式与可选激活态，不持有业务 mutation
 task-dialog.tsx: 表单与裁切任务容器，基于 Radix Dialog 提供边界统一、轻量进退场的居中/移动全屏展示及业务可替换头尾布局协议
 toast-viewport.tsx: 全局消息视口，消费 toast store 并用 CSS 生命周期动效在壳层安全区内呈现反馈，不把动画运行时带入首屏
@@ -24,5 +24,8 @@ unread-badge.tsx: 导航、分段控件与会话列表共享的固定高度未�
 
 架构决策
 shared/ui 不调用业务 API 也不持有路由语义；组件只暴露可组合的视觉与交互协议，业务判断由 pages/features/widgets 上层完成。
+
+变更日志
+2026-08-01: ImageViewer 明确分离全屏遮罩与内容交互层级，确保关闭按钮始终位于遮罩之上并可响应点击。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md

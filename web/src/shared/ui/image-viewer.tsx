@@ -128,10 +128,10 @@ export function ImageViewer({
   return createPortal(
     <AnimatePresence>
       {isOpen && activeItem ? (
-        <div className="fixed inset-0 z-[100] bg-black">
+        <div aria-label="图片预览" className="fixed inset-0 z-[100] bg-black" role="dialog">
           <motion.button
             aria-label="关闭图片预览"
-            className="absolute inset-0 bg-black"
+            className="absolute inset-0 z-0 bg-black"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -141,14 +141,14 @@ export function ImageViewer({
           />
 
           <motion.div
-            className="absolute inset-0 mx-auto flex w-full max-w-[96rem] transform-gpu flex-col px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-6"
+            className="pointer-events-none absolute inset-0 z-10 mx-auto flex w-full max-w-[96rem] transform-gpu flex-col px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-6"
             initial={panelMotion.initial}
             animate={{ y: 0, opacity: 1 }}
             exit={panelMotion.exit}
             style={{ willChange: 'transform, opacity' }}
             transition={panelTransition}
           >
-            <div className="flex min-h-0 flex-1 flex-col gap-3 text-white">
+            <div className="pointer-events-auto flex min-h-0 flex-1 flex-col gap-3 text-white">
               <div className="flex h-10 shrink-0 items-center justify-between gap-3">
                 <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs font-medium text-white/80">
                   {activeIndex + 1} / {items.length}

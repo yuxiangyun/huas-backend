@@ -7,7 +7,7 @@ api/treehole-api.ts: `/api/treehole` 图文帖子、multipart 发布、评论、
 api/treehole-queries.ts: TanStack Query 查询和 mutation 编排，保持公共/本人/指定用户列表与详情缓存同构，并为幂等点赞提供跨缓存乐观反馈与失败回滚
 model/treehole-query-keys.ts: Treehole 元信息、三类帖子列表、详情与评论缓存键命名源
 model/treehole-types.ts: Treehole 私有图片、帖子、评论、分页与服务端上传限制的前端契约
-ui/treehole-post-media.tsx: Treehole 鉴权媒体展示边界，首页只挂载近视口首图，详情按首图比例只挂载当前与相邻滑动图
+ui/treehole-post-media.tsx: Treehole 鉴权媒体展示边界，首页只挂载近视口首图，详情按首图比例只挂载当前与相邻滑动图且轮播只负责横向切图，纵向手势回到详情滚动层
 
 架构决策
 

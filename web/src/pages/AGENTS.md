@@ -15,6 +15,6 @@ social-share.ts: Social 帖子系统分享与剪贴板降级规则，统一生�
 
 架构决策
 pages 只编排实体查询、feature 动作与 widgets，不直接实现 HTTP 协议或持久状态；普通页面与后台页面均保持路由级懒加载。
-树洞、好饭、消息与我的使用同一 PageHeader 顶部节奏与 SocialPageTitle 字标；树洞和好饭的移动发布动作共享尺寸、线宽与垂直留白；Treehole 分享统一生成 `postId` canonical 深链，帖子详情与公共资料保持 URL 互斥，私信路由只保存目标 userId。
+树洞、好饭、消息与我的使用同一 PageHeader 顶部节奏与 SocialPageTitle 字标；树洞和好饭的移动发布动作共享与品牌字标重量匹配的尺寸、线宽与垂直留白；Treehole 分享统一生成 `postId` canonical 深链，帖子详情与公共资料保持 URL 互斥，私信路由只保存目标 userId。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md

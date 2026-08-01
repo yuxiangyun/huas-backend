@@ -339,7 +339,13 @@ export function TreeholeDetailSheet({ postId, onClose, onMessageAuthor, onOpenPr
                     </div>
                   ) : <DetailAuthor post={post} onOpenProfile={onOpenProfile} />}
 
-                  <p className="break-words text-[1rem] leading-7 whitespace-pre-wrap text-ink [overflow-wrap:anywhere]">{post.content}</p>
+                  <p
+                    className={post.images.length > 0
+                      ? 'mt-4 break-words text-[1rem] leading-7 whitespace-pre-wrap text-ink [overflow-wrap:anywhere] lg:mt-0'
+                      : 'break-words text-[1rem] leading-7 whitespace-pre-wrap text-ink [overflow-wrap:anywhere]'}
+                  >
+                    {post.content}
+                  </p>
 
                   <TreeholeActionBar
                     likeBusy={likeBusy}

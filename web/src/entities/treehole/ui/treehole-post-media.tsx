@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 Treehole 私有图片元数据、Bearer 媒体原语与浏览器视口/原生滚动能力
- * [OUTPUT]: 对外提供首页首图 TreeholePrimaryMedia 与只挂载当前/相邻图的详情滑动多图 TreeholeMediaCarousel
- * [POS]: entities/treehole 的鉴权媒体展示边界，首页延迟首图请求且详情用滑动窗口约束一次最多三个 Blob 请求
+ * [OUTPUT]: 对外提供首页首图 TreeholePrimaryMedia 与只挂载当前/相邻图的详情滑动多图 TreeholeMediaCarousel，详情纵向手势交给外层页面
+ * [POS]: entities/treehole 的鉴权媒体展示边界，首页延迟首图请求且详情用滑动窗口约束一次最多三个 Blob 请求，轮播只允许横向滚动
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -141,7 +141,7 @@ export function TreeholeMediaCarousel({ images, alt, onOpenImage }: TreeholeMedi
         <div
           ref={viewportRef}
           aria-label={`帖子图片，共 ${images.length} 张`}
-          className="flex size-full snap-x snap-mandatory overflow-x-auto overscroll-x-contain scroll-smooth"
+          className="flex size-full snap-x snap-mandatory overflow-x-auto overflow-y-hidden overscroll-x-contain scroll-smooth"
           onScroll={handleScroll}
         >
           {images.map((image, imageIndex) => {
@@ -159,6 +159,7 @@ export function TreeholeMediaCarousel({ images, alt, onOpenImage }: TreeholeMedi
                   alt={`${alt} · 第 ${imageIndex + 1} 张`}
                   className="size-full object-contain"
                   decoding="async"
+                  draggable={false}
                   height={image.height}
                   src={image.url}
                   width={image.width}

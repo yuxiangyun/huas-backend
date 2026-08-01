@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 React 的 children 类型
  * [OUTPUT]: 对外提供 SocialPageTitle，为普通用户主 Tab 提供中文楷体字标或统一品牌图片字标
- * [POS]: shared/ui 的 Social 标题视觉原语，收敛文字/品牌资产的显示尺寸与裁切，不持有页面布局或路由语义
+ * [POS]: shared/ui 的 Social 标题视觉原语，收敛文字/品牌资产的尺寸、完整裁切与信息流左边界校准，不持有路由语义
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -20,12 +20,12 @@ export function SocialPageTitle({ children, variant = 'text' }: SocialPageTitleP
     return (
       <span
         aria-label={label}
-        className="relative inline-flex h-10 w-[10.5rem] items-center overflow-hidden sm:h-11 sm:w-[12rem]"
+        className="relative inline-flex h-11 w-[10.5rem] items-center overflow-hidden sm:h-12 sm:w-[12rem]"
         role="img"
       >
         <img
           alt={label}
-          className="absolute left-[48%] top-[62%] w-[145%] max-w-none -translate-x-1/2 -translate-y-1/2"
+          className="absolute left-[40%] top-[64%] w-[145%] max-w-none -translate-x-1/2 -translate-y-1/2"
           decoding="async"
           src={BRAND_LOGO_SRC}
         />
