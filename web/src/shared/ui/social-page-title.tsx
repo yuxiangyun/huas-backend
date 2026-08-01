@@ -1,13 +1,12 @@
 /**
- * [INPUT]: 依赖 React 的 children 类型
+ * [INPUT]: 依赖 React 的 children 类型，依赖本地 huas-community-logo.png 由 Vite 生成内容哈希 URL
  * [OUTPUT]: 对外提供 SocialPageTitle，为普通用户主 Tab 提供中文楷体字标或统一品牌图片字标
  * [POS]: shared/ui 的 Social 标题视觉原语，收敛文字/品牌资产的尺寸、完整裁切与信息流左边界校准，不持有路由语义
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import type { ReactNode } from 'react';
-
-const BRAND_LOGO_SRC = `${import.meta.env.BASE_URL}brand/huas-community-logo.png`;
+import brandLogoUrl from './huas-community-logo.png';
 
 interface SocialPageTitleProps {
   children: ReactNode;
@@ -27,7 +26,7 @@ export function SocialPageTitle({ children, variant = 'text' }: SocialPageTitleP
           alt={label}
           className="absolute left-[40%] top-[64%] w-[145%] max-w-none -translate-x-1/2 -translate-y-1/2"
           decoding="async"
-          src={BRAND_LOGO_SRC}
+          src={brandLogoUrl}
         />
       </span>
     );

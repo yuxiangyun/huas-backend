@@ -3,7 +3,7 @@
 
 成员清单
 
-brand/huas-community-logo.png: 树洞与好饭顶部共享的透明品牌字标，仅由前端公开静态引用，不承载鉴权或业务数据。
+当前无前端业务静态资源成员；品牌字标已迁移至 `../src/shared/ui/huas-community-logo.png`，由 Vite 构建为内容哈希资源。
 
 法则：公开资产最小化·路径稳定·与组件显示契约同构
 
