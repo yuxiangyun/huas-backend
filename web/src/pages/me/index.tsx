@@ -8,7 +8,6 @@
 import { Bell, CalendarDays, ChevronRight, LogOut, MessageCircle, Pencil, Send, Utensils } from 'lucide-react';
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQueryClient } from '@tanstack/react-query';
 import { appRoutes } from '@/app/router/paths';
 import { useToastStore } from '@/app/state/toast-store';
 import { useUiStore } from '@/app/state/ui-store';
@@ -40,7 +39,6 @@ async function copyText(text: string) {
 export function MePage() {
   const { unreadSummary } = useSocialShellContext();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const pushToast = useToastStore((state) => state.pushToast);
   const setActiveTab = useUiStore((state) => state.setActiveTab);
   const profileDialogOpen = useUiStore((state) => state.communityProfileDialogOpen);
@@ -79,7 +77,6 @@ export function MePage() {
 
   const handleLogout = () => {
     clearSocialTabScrollPositions();
-    queryClient.clear();
     logout();
     navigate(appRoutes.login, { replace: true });
   };

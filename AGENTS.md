@@ -354,6 +354,7 @@ Messaging 只建一对一唯一会话，首条消息事务内延迟建会话并�
 应用启动只有 schema metadata/fingerprint 校验权，结构变更仅由部署阶段显式 migration 执行；进程级清理由统一 PeriodicTaskRegistry 管理并在关闭时等待停止。
 所有 bun test 调用默认先 preload 临时 SQLite 环境，禁止测试清理逻辑接触 data/huas.db；真实 E2E 使用专用 CLI preload 覆盖默认 setup。
 Web 入口为 /m，普通用户默认进入 Treehole；管理端使用独立 HttpOnly Cookie 会话，普通用户 JWT 与后台权限不互通。
+Web 缓存只保留一个事实源：HTML 与非哈希静态文件持久化后以弱 ETag 每次重验证，Vite `/m/assets/*` 内容哈希产物和版本化公开媒体使用一年 immutable；鉴权 API/私有媒体禁止浏览器持久缓存，分别由 TanStack Query 分级内存策略和 10 分钟/24MB Blob LRU 复用，JWT 变化同步清空 Query 与 Bearer Blob。
 普通用户 Social Web 固定使用 Treehole、Discover、Messages、Me 四 Tab；Community 统一作者资料与用户内容入口，私信与活动通知保持独立未读和高水位增量协议，后台提供 Cookie 鉴权的私信只读审计页。
 Social Web 的导航角标只轮询 `/api/social/unread-summary` 聚合读模型，Messaging 与 Notifications 事实仍独立；普通 Tab 60 秒、消息页 15 秒、聊天只以 5 秒消息高水位作为实时主循环。
 私有媒体保持服务端 `no-store`，客户端按认证会话使用 10 分钟/24MB 内存 LRU；Treehole 轮播只挂载当前与相邻图片，聊天媒体接近视口才请求，注销或 token 切换立即清空 Blob。

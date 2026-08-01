@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 Notifications HTTP adapter、领域/Social 摘要查询键与 TanStack Query
- * [OUTPUT]: 对外提供通知分页/增量、兼容未读摘要与逐条已读 hooks，写后同步失效聚合摘要
- * [POS]: entities/notifications 的缓存编排层；常规导航摘要由 Social 壳拥有，领域摘要 hook 仅保留兼容能力
+ * [INPUT]: 依赖 Notifications HTTP adapter、领域/Social 摘要查询键、共享轮询时间策略与 TanStack Query
+ * [OUTPUT]: 对外提供通知分页/短命高水位增量、兼容未读摘要与逐条已读 hooks，写后同步失效聚合摘要
+ * [POS]: entities/notifications 的缓存编排层；常规导航摘要由 Social 壳拥有，增量游标键按轮询窗口有界回收
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -14,6 +14,7 @@ import {
 } from '@/entities/notifications/api/notification-api';
 import { notificationQueryKeys } from '@/entities/notifications/model/notification-query-keys';
 import { socialSummaryQueryKeys } from '@/entities/social/model/social-summary-query-keys';
+import { liveQueryCachePolicy } from '@/shared/api/query-cache-policy';
 
 export function useNotificationsInfiniteQuery(pageSize = 30, enabled = true) {
   return useInfiniteQuery({
@@ -30,8 +31,7 @@ export function useNotificationChangesQuery(afterNotificationId: number | null, 
     queryKey: notificationQueryKeys.changes(afterNotificationId ?? 0),
     queryFn: ({ signal }) => getNotificationChanges(afterNotificationId ?? 0, 100, { signal }),
     enabled: enabled && afterNotificationId !== null,
-    refetchInterval: 15_000,
-    staleTime: 0,
+    ...liveQueryCachePolicy(15_000),
   });
 }
 
@@ -39,8 +39,7 @@ export function useNotificationUnreadCountQuery() {
   return useQuery({
     queryKey: notificationQueryKeys.unreadCount(),
     queryFn: ({ signal }) => getNotificationUnreadCount({ signal }),
-    refetchInterval: 15_000,
-    staleTime: 5_000,
+    ...liveQueryCachePolicy(15_000),
   });
 }
 

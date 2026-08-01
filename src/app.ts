@@ -1,11 +1,11 @@
 /**
  * [INPUT]: 依赖 Hono、注入的路由装配、媒体读取端口、全局错误/日志中间件与运行指标
- * [OUTPUT]: 对外提供 createApp(dependencies)，构造不监听端口的完整 HTTP 应用
- * [POS]: src 的 HTTP 应用工厂，把可测试协议装配与 index.ts 的进程生命周期彻底分离
+ * [OUTPUT]: 对外提供 createApp(dependencies)，构造含 Web 分层缓存与私有 API no-store 边界的不监听 HTTP 应用
+ * [POS]: src 的 HTTP 应用工厂，把可测试协议装配、静态资源缓存语义与 index.ts 的进程生命周期彻底分离
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { Hono, type Context } from 'hono';
+import { Hono, type Context, type Next } from 'hono';
 import { cors } from 'hono/cors';
 import { serveStatic } from 'hono/bun';
 import { resolve, sep } from 'node:path';
@@ -31,13 +31,63 @@ export interface CreateAppOptions {
   appRoot?: string;
 }
 
-function fileResponse(file: ReturnType<typeof Bun.file>, cacheControl: string) {
-  return new Response(file, {
-    headers: {
-      'Cache-Control': cacheControl,
-      'Content-Type': file.type || 'application/octet-stream',
-    },
+const WEB_DOCUMENT_CACHE_CONTROL = 'public, max-age=0, must-revalidate';
+const WEB_HASHED_ASSET_CACHE_CONTROL = 'public, max-age=31536000, immutable';
+const PRIVATE_DATA_CACHE_CONTROL = 'private, no-store';
+
+function buildWeakFileEtag(file: ReturnType<typeof Bun.file>) {
+  return `W/"${file.size.toString(16)}-${file.lastModified.toString(16)}"`;
+}
+
+function matchesEtag(ifNoneMatch: string | undefined, etag: string) {
+  if (!ifNoneMatch) return false;
+  const normalizedEtag = etag.replace(/^W\//, '');
+  return ifNoneMatch.split(',').some((candidate) => {
+    const normalizedCandidate = candidate.trim().replace(/^W\//, '');
+    return normalizedCandidate === '*' || normalizedCandidate === normalizedEtag;
   });
+}
+
+function isViteHashedAsset(requestPath: string) {
+  if (!requestPath.startsWith('assets/')) return false;
+  const fileName = requestPath.split('/').at(-1) || '';
+  return /-[A-Za-z0-9_-]{8,}(?:\.[A-Za-z0-9]+)+$/.test(fileName);
+}
+
+function fileResponse(
+  file: ReturnType<typeof Bun.file>,
+  cacheControl: string,
+  options: { etag?: string } = {},
+) {
+  const headers = new Headers({
+    'Cache-Control': cacheControl,
+  });
+  headers.set('Content-Type', file.type || 'application/octet-stream');
+  if (options.etag) headers.set('ETag', options.etag);
+
+  return new Response(file, {
+    headers,
+  });
+}
+
+function revalidatedFileResponse(c: Context, file: ReturnType<typeof Bun.file>) {
+  const etag = buildWeakFileEtag(file);
+  if (matchesEtag(c.req.header('If-None-Match'), etag)) {
+    return new Response(null, {
+      status: 304,
+      headers: {
+        'Cache-Control': WEB_DOCUMENT_CACHE_CONTROL,
+        ETag: etag,
+      },
+    });
+  }
+
+  return fileResponse(file, WEB_DOCUMENT_CACHE_CONTROL, { etag });
+}
+
+async function privateDataNoStore(c: Context, next: Next) {
+  await next();
+  c.header('Cache-Control', PRIVATE_DATA_CACHE_CONTROL);
 }
 
 export function createApp(dependencies: AppDependencies, options: CreateAppOptions = {}) {
@@ -57,7 +107,7 @@ export function createApp(dependencies: AppDependencies, options: CreateAppOptio
 
   async function serveWebIndex(c: Context) {
     const file = await resolveWebDistFile('/m/index.html');
-    return file ? fileResponse(file, 'no-store') : c.notFound();
+    return file ? revalidatedFileResponse(c, file) : c.notFound();
   }
 
   app.onError((error, context) => {
@@ -75,6 +125,8 @@ export function createApp(dependencies: AppDependencies, options: CreateAppOptio
     }
   });
   app.use('*', loggingMiddleware);
+  app.use('/api/*', privateDataNoStore);
+  app.use('/auth/*', privateDataNoStore);
 
   for (const endpoint of dependencies.media) {
     app.get(`${endpoint.basePath}/*`, async (c) => {
@@ -87,10 +139,13 @@ export function createApp(dependencies: AppDependencies, options: CreateAppOptio
   app.get('/m/', serveWebIndex);
   app.get('/m/*', async (c) => {
     const pathAfterBase = c.req.path.replace(/^\/m\/?/, '');
-    if (pathAfterBase.includes('.')) {
-      const file = await resolveWebDistFile(c.req.path);
-      return file ? fileResponse(file, 'public, max-age=31536000, immutable') : c.notFound();
+    const file = await resolveWebDistFile(c.req.path);
+    if (file) {
+      return isViteHashedAsset(pathAfterBase)
+        ? fileResponse(file, WEB_HASHED_ASSET_CACHE_CONTROL)
+        : revalidatedFileResponse(c, file);
     }
+    if (pathAfterBase.startsWith('assets/') || pathAfterBase.includes('.')) return c.notFound();
     return serveWebIndex(c);
   });
 

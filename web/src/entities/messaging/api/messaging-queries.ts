@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 Messaging HTTP adapter、领域/Social 摘要查询键与 TanStack Query
- * [OUTPUT]: 对外提供会话分页/增量、目标、20 条消息历史、未读、发送与已读 hooks，写后同步聚合摘要
- * [POS]: entities/messaging 的缓存编排层，以用户定位结果作为会话唯一事实，发送结果进入高水位而不重取最新历史
+ * [INPUT]: 依赖 Messaging HTTP adapter、领域/Social 摘要查询键、共享轮询时间策略与 TanStack Query
+ * [OUTPUT]: 对外提供会话分页/短命增量、目标、20 条消息历史、未读、发送与已读 hooks，写后同步聚合摘要
+ * [POS]: entities/messaging 的缓存编排层，以用户定位结果作为会话唯一事实，发送结果进入高水位且旧游标键有界回收
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -21,6 +21,7 @@ import { messagingQueryKeys } from '@/entities/messaging/model/messaging-query-k
 import type { ConversationTarget, Message, MessageListResponse } from '@/entities/messaging/model/messaging-types';
 import { socialSummaryQueryKeys } from '@/entities/social/model/social-summary-query-keys';
 import { mergeMessagesIntoHistoryData } from '@/entities/messaging/api/messaging-cache-policy';
+import { liveQueryCachePolicy } from '@/shared/api/query-cache-policy';
 
 export function useConversationsInfiniteQuery(pageSize = 30, enabled = true) {
   return useInfiniteQuery({
@@ -37,8 +38,7 @@ export function useConversationChangesQuery(afterMessageId: number | null, enabl
     queryKey: messagingQueryKeys.conversationChanges(afterMessageId ?? 0),
     queryFn: ({ signal }) => getConversationChanges(afterMessageId ?? 0, 100, { signal }),
     enabled: enabled && afterMessageId !== null,
-    refetchInterval: 10_000,
-    staleTime: 0,
+    ...liveQueryCachePolicy(10_000),
   });
 }
 
@@ -73,8 +73,7 @@ export function useMessageChangesQuery(conversationId: number | null, afterMessa
       { signal }
     ),
     enabled: conversationId !== null && afterMessageId !== null,
-    refetchInterval: 5_000,
-    staleTime: 0,
+    ...liveQueryCachePolicy(5_000),
   });
 }
 
@@ -82,8 +81,7 @@ export function useMessagingUnreadCountQuery() {
   return useQuery({
     queryKey: messagingQueryKeys.unreadCount(),
     queryFn: ({ signal }) => getMessagingUnreadCount({ signal }),
-    refetchInterval: 15_000,
-    staleTime: 5_000,
+    ...liveQueryCachePolicy(15_000),
   });
 }
 

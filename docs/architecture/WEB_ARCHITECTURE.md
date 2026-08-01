@@ -1,15 +1,16 @@
 # 文理小助手 Web 架构
 
-> 当前基线：2026-07-29
+> 当前基线：2026-08-02
 > 代码位置：`web/`
 > 生产入口：`/m`
 
 ## 1. 产品边界
 
-Web 前端是移动端优先的校园应用，普通用户只保留三个一级入口：
+Web 前端是移动端优先的校园应用，普通用户只保留四个一级入口：
 
 - `树洞`：文字优先的社区信息流，是登录后默认页。
 - `好饭`：图片优先的食堂推荐信息流。
+- `消息`：私信与互动通知，两类未读事实保持独立。
 - `我的`：社区资料、个人内容、日历订阅与退出入口。
 
 代码与 API 仍使用 `Discover` / `Treehole` 作为稳定领域名，用户可见文案统一为“好饭”/“树洞”。当前不支持游客态，未登录用户只能进入 `/m/login`。
@@ -37,6 +38,7 @@ Web 前端是移动端优先的校园应用，普通用户只保留三个一级�
 | `/m/login` | 校园账号登录与验证码二段提交 |
 | `/m/treehole` | 树洞信息流，默认入口 |
 | `/m/discover` | 好饭信息流 |
+| `/m/messages` | 私信、互动通知与一对一聊天 |
 | `/m/me` | 我的 |
 | `/m/me/discover` | 我的好饭 |
 | `/m/me/treehole` | 我的树洞 |
@@ -107,7 +109,7 @@ Radix 负责模态焦点、Esc、Portal 和 aria 语义。`env(safe-area-inset-t
 
 登录页的“记住密码”保持当前实现：选中后，成功登录将学号和密码写入 `localStorage` 的 `huas-web.remembered-credentials`，下次打开登录页时直接回填；取消选中则删除该键。
 
-请求层统一注入 `Authorization: Bearer <token>`，收到 `401` 后清理普通用户会话并回到登录页。
+请求层统一注入 `Authorization: Bearer <token>`，收到 `401` 后清理普通用户会话并回到登录页；token 的登录、注销、失效或换号变化会同步清空全部 Query cache 与 Bearer Blob cache，旧身份数据不得跨会话存活。
 
 ### 6.2 后台用户
 
@@ -124,7 +126,29 @@ Radix 负责模态焦点、Esc、Portal 和 aria 语义。`env(safe-area-inset-t
 
 `pages` 只编排路由和页面状态；`widgets` 组合查询与动作；`entities/*/api` 维护领域 HTTP 契约；`shared/api/http-client.ts` 处理 Bearer Token、统一 envelope 和 `401`。页面与组件不得直接写 `fetch`。
 
-## 8. 目录职责
+## 8. 缓存与失效边界
+
+缓存按资源可变性与隐私边界分层，禁止浏览器 HTTP cache、TanStack Query 和组件本地状态同时拥有同一份失效事实。
+
+| 数据类别 | 存储层 | 新鲜时间 | 保留/失效规则 |
+|---|---|---:|---|
+| `/m` HTML 与非哈希固定文件 | 浏览器 HTTP cache | 0 秒 | 保存字节但每次以弱 ETag 重验证，确保发布切槽后立即发现新入口 |
+| `/m/assets/*` Vite 哈希产物 | 浏览器 HTTP cache | 1 年 | 目录与文件名哈希格式同时命中才声明 `immutable`；URL 内容哈希变化即自然失效，固定文件即使位于 assets 也必须重验证 |
+| Discover、Community、首页弹窗版本化公开媒体 | 浏览器 HTTP cache | 1 年 | `immutable`；换内容必须生成新 URL，删除只影响服务端可见性事实 |
+| API JSON | TanStack Query 内存 | 60 秒 | 默认 15 分钟无观察者回收，窗口重新聚焦或网络恢复后仅在陈旧时重验证 |
+| Discover/Treehole 元数据 | TanStack Query 内存 | 6 小时 | 12 小时无观察者回收；服务端规则仍是最终校验边界 |
+| 后台管理快照 | TanStack Query 内存 | 15 秒 | 5 分钟无观察者回收；mutation 成功直接写回或失效对应资源 |
+| `refresh=true` 强制刷新 | TanStack Query 在途合并 | 0 秒 | 旁路键 0 秒回收；必须真实访问服务端，成功结果只写回普通资源键 |
+| 私信/通知高水位轮询 | TanStack Query 内存 | 等于轮询周期 | 旧游标键保留两周期且至少 30 秒，禁止继承普通查询的分钟级保留时间 |
+| Treehole/Messaging 私有图片 | 会话内 Blob LRU | 10 分钟 | 总量 24MB；服务端与 fetch 均 `no-store`，按 URL、认证模式和身份代次隔离 |
+
+API fetch 统一使用 `cache: 'no-store'`，服务端 `/api/*` 与 `/auth/*` 同时返回 `private, no-store`。这是隐私边界，不等于应用不缓存：成功 JSON 由 Query cache 去重、复用与写后失效，私有媒体由 Blob LRU 复用。Query cache 不写入 localStorage，避免敏感内容落盘、跨账号串读和前端版本升级后的旧 schema 恢复。
+
+蓝绿切槽后，已经打开的旧页面可能首次请求一个旧哈希懒 chunk，而新槽只提供新资源图。入口监听 Vite `vite:preloadError`，仅在 sessionStorage 成功写入恢复闸门后，一分钟内至多自动刷新一次；刷新得到经过 ETag 重验证的新 HTML，使入口和 chunk 回到同一发布版本。闸门不可用或新版本自身仍缺 chunk 时错误继续抛出，禁止无限刷新掩盖部署损坏。
+
+轮询只在对应页面分区激活，`refetchIntervalInBackground=false`；窗口重新可见后，TanStack Query 根据新鲜度立即校准。任何新增缓存必须先归类到上表，再定义写入后的精确失效键，不能在页面组件内散落新的时间常量。
+
+## 9. 目录职责
 
 ```text
 web/src/
@@ -139,7 +163,7 @@ web/src/
 
 普通用户路由级页面懒加载；图片查看器、发布弹窗与资料编辑器按需加载。长列表卡片使用 `content-visibility: auto` 降低屏外渲染成本。
 
-## 9. 验证基线
+## 10. 验证基线
 
 前端修改至少执行：
 

@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 admin API、稳定 query keys、后台会话与 TanStack Query 缓存原语
- * [OUTPUT]: 提供后台资源查询/变更 hooks，包含私信游标读取、课表策略与首页弹窗三态设置快照写回
- * [POS]: entities/admin 的服务器状态编排层，页面只组合查询结果和用户动作
+ * [INPUT]: 依赖 admin API、稳定 query keys、后台会话、共享后台/轮询时间策略与 TanStack Query 缓存原语
+ * [OUTPUT]: 提供 15 秒后台快照查询/变更 hooks，包含短命私信游标、课表策略与首页弹窗三态设置写回
+ * [POS]: entities/admin 的服务器状态编排层，页面只组合查询结果和用户动作，高水位键不继承普通后台保留期
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -33,11 +33,13 @@ import type {
   AdminAnnouncementPayload,
   AdminAnnouncementUpdatePayload,
 } from '@/entities/admin/model/admin-types';
+import { liveQueryCachePolicy, QUERY_CACHE_POLICY } from '@/shared/api/query-cache-policy';
 
 export function useAdminAnalyticsQuery(session: AdminSession | null, days: 7 | 30 | 90) {
   return useQuery({
     queryKey: adminQueryKeys.analytics(days),
     queryFn: ({ signal }) => getAdminAnalyticsOverview(days, { signal }),
+    ...QUERY_CACHE_POLICY.admin,
     enabled: session !== null,
   });
 }
@@ -46,6 +48,7 @@ export function useAdminScheduleSourcePolicyQuery(session: AdminSession | null) 
   return useQuery({
     queryKey: adminQueryKeys.scheduleSourcePolicy(),
     queryFn: ({ signal }) => getAdminScheduleSourcePolicy({ signal }),
+    ...QUERY_CACHE_POLICY.admin,
     enabled: session !== null,
   });
 }
@@ -65,6 +68,7 @@ export function useAdminIndexPopupSettingsQuery(session: AdminSession | null) {
   return useQuery({
     queryKey: adminQueryKeys.indexPopupSettings(),
     queryFn: ({ signal }) => getAdminIndexPopupSettings({ signal }),
+    ...QUERY_CACHE_POLICY.admin,
     enabled: session !== null,
   });
 }
@@ -87,6 +91,7 @@ export function useAdminDashboardQuery(
   return useQuery({
     queryKey: adminQueryKeys.dashboard(params),
     queryFn: ({ signal }) => getAdminDashboard(params, { signal }),
+    ...QUERY_CACHE_POLICY.admin,
     enabled: session !== null,
   });
 }
@@ -98,6 +103,7 @@ export function useAdminDiscoverQuery(
   return useQuery({
     queryKey: adminQueryKeys.discover(params),
     queryFn: ({ signal }) => getAdminDashboard(params, { signal }),
+    ...QUERY_CACHE_POLICY.admin,
     enabled: session !== null,
     select: (data) => data.discover,
   });
@@ -107,6 +113,7 @@ export function useAdminAnnouncementsQuery(session: AdminSession | null) {
   return useQuery({
     queryKey: adminQueryKeys.announcementsAll(),
     queryFn: ({ signal }) => getAdminAnnouncements({ signal }),
+    ...QUERY_CACHE_POLICY.admin,
     enabled: session !== null,
   });
 }
@@ -143,6 +150,7 @@ export function useAdminTreeholePostsQuery(
   return useQuery({
     queryKey: adminQueryKeys.treeholePosts(params),
     queryFn: ({ signal }) => getAdminTreeholePosts(params, { signal }),
+    ...QUERY_CACHE_POLICY.admin,
     enabled: session !== null,
   });
 }
@@ -154,6 +162,7 @@ export function useAdminMessagingConversationsQuery(
   return useQuery({
     queryKey: adminQueryKeys.messagingConversations(params),
     queryFn: ({ signal }) => getAdminMessagingConversations(params, { signal }),
+    ...QUERY_CACHE_POLICY.admin,
     enabled: session !== null,
   });
 }
@@ -165,9 +174,8 @@ export function useAdminMessagingConversationChangesQuery(
   return useQuery({
     queryKey: adminQueryKeys.messagingConversationChanges(afterMessageId ?? 0),
     queryFn: ({ signal }) => getAdminMessagingConversationChanges(afterMessageId ?? 0, 100, { signal }),
+    ...liveQueryCachePolicy(10_000),
     enabled: session !== null && afterMessageId !== null,
-    refetchInterval: 10_000,
-    staleTime: 0,
   });
 }
 
@@ -184,6 +192,7 @@ export function useAdminMessagingMessagesInfiniteQuery(
       { signal }
     ),
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.beforeMessageId ?? undefined : undefined),
+    ...QUERY_CACHE_POLICY.admin,
     enabled: session !== null && conversationId !== null,
   });
 }
@@ -200,9 +209,8 @@ export function useAdminMessagingMessageChangesQuery(
       { afterMessageId: afterMessageId!, limit: 100 },
       { signal }
     ),
+    ...liveQueryCachePolicy(5_000),
     enabled: session !== null && conversationId !== null && afterMessageId !== null,
-    refetchInterval: 5_000,
-    staleTime: 0,
   });
 }
 
@@ -214,6 +222,7 @@ export function useAdminTreeholeCommentsQuery(
   return useQuery({
     queryKey: adminQueryKeys.treeholeComments(postId ?? 0, params),
     queryFn: ({ signal }) => getAdminTreeholeComments(postId!, params, { signal }),
+    ...QUERY_CACHE_POLICY.admin,
     enabled: session !== null && postId !== null,
   });
 }
@@ -238,6 +247,7 @@ export function useAdminTerminalLogsQuery(
   return useQuery({
     queryKey: adminQueryKeys.logs(params),
     queryFn: ({ signal }) => getAdminTerminalLogs(params, { signal }),
+    ...QUERY_CACHE_POLICY.admin,
     enabled: session !== null && (options?.enabled ?? true),
     refetchInterval: options?.refetchInterval,
   });

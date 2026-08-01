@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖普通用户认证状态、站内登录重定向与 API 基地址
- * [OUTPUT]: 对外提供 JSON envelope、ApiError、Bearer 与后台 Cookie 两类二进制请求
- * [POS]: shared/api 的统一 HTTP 边界，业务实体和两类私有媒体不得绕过此处裸写 fetch
+ * [OUTPUT]: 对外提供 no-store JSON envelope、ApiError、Bearer 与后台 Cookie 两类二进制请求
+ * [POS]: shared/api 的统一 HTTP 边界，鉴权网络响应不进入浏览器持久缓存，业务实体和两类私有媒体不得绕过此处裸写 fetch
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -75,7 +75,7 @@ export async function authenticatedFetch(path: string, init: RequestInit = {}) {
   const token = useAuthStore.getState().token;
   if (token) headers.set('Authorization', `Bearer ${token}`);
 
-  const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
+  const response = await fetch(`${API_BASE_URL}${path}`, { ...init, cache: 'no-store', headers });
   handleUnauthorized(response);
   if (!response.ok) {
     throw new ApiError(response.status, null, '私有媒体加载失败');
@@ -88,6 +88,7 @@ export async function adminSessionFetch(path: string, init: RequestInit = {}) {
   headers.set('X-Client-Platform', 'web');
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
+    cache: 'no-store',
     credentials: 'include',
     headers,
   });
@@ -119,6 +120,7 @@ export async function requestEnvelope<T>(
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
+    cache: 'no-store',
     headers,
     signal: options.signal ?? init.signal,
   });

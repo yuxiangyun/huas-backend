@@ -3,7 +3,7 @@
 
 成员清单
 api/admin-api.ts: 后台 HTTP 适配边界，统一管理会话、业务资源、首页弹窗底部动作三态 multipart 设置、私信只读与运行查询的路径和传输契约
-api/admin-queries.ts: TanStack Query 服务器状态编排层，向后台页面提供稳定查询、首页弹窗三态快照写回、私信游标与 mutation hooks
+api/admin-queries.ts: TanStack Query 服务器状态编排层，以 15 秒新鲜/5 分钟保留读取后台快照，向页面提供首页弹窗三态写回、短命私信游标与 mutation hooks
 model/admin-query-keys.ts: 后台资源缓存命名边界，隔离内容、首页弹窗三态设置、私信会话/消息和运行状态身份
 model/admin-types.ts: 后端管理接口的协议模型，包含首页弹窗底部动作三态、Community 参与者、Treehole 私有图片和 Messaging 只读 DTO
 

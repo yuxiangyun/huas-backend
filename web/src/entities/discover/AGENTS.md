@@ -4,7 +4,7 @@
 成员清单
 api/discover-api.ts: `/api/discover` 元数据、帖子、评论、幂等点赞与图文写入传输边界
 api/discover-cache-policy.ts: 点赞原位乐观/服务端确认与评论创建分页失效的集中缓存协调策略
-api/discover-queries.ts: TanStack Query 查询和 mutation 编排，Feed 使用 90 秒新鲜度/30 分钟回访缓存，点赞原位乐观且不立即重排，评论写入失效重取分页
+api/discover-queries.ts: TanStack Query 查询和 mutation 编排，Feed 使用共享 60 秒新鲜度/15 分钟回访缓存、元数据使用 6 小时引用策略，点赞原位乐观且不立即重排，评论写入失效重取分页
 model/discover-query-keys.ts: Discover 公共/本人/指定用户帖子、详情与评论缓存键命名源
 model/discover-types.ts: Discover 分类、帖子、评论、分页与写入响应的前端契约
 

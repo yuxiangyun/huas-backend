@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 Treehole HTTP adapter、查询键与 TanStack Query
- * [OUTPUT]: 对外提供公开/本人/指定用户图文帖子、评论与含回滚的乐观点赞缓存编排 hooks
+ * [INPUT]: 依赖 Treehole HTTP adapter、查询键、共享时间策略与 TanStack Query
+ * [OUTPUT]: 对外提供引用元数据、60 秒公开 Feed、本人/指定用户图文帖子、评论与含回滚的乐观点赞缓存编排 hooks
  * [POS]: entities/treehole 的客户端缓存层，保持 multipart 创建结果、详情和三类列表在互动前后同构
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -25,13 +25,13 @@ import {
 } from '@/entities/treehole/api/treehole-api';
 import { treeholeQueryKeys } from '@/entities/treehole/model/treehole-query-keys';
 import type { TreeholePost } from '@/entities/treehole/model/treehole-types';
+import { QUERY_CACHE_POLICY } from '@/shared/api/query-cache-policy';
 
 export function useTreeholeMetaQuery() {
   return useQuery({
     queryKey: treeholeQueryKeys.meta(),
     queryFn: ({ signal }) => getTreeholeMeta({ signal }),
-    staleTime: 6 * 60 * 60_000,
-    gcTime: 12 * 60 * 60_000,
+    ...QUERY_CACHE_POLICY.reference,
   });
 }
 
@@ -45,8 +45,7 @@ export function useTreeholeInfinitePostsQuery(params: Omit<TreeholeListParams, '
         page: pageParam,
       }, { signal }),
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
-    staleTime: 90_000,
-    gcTime: 30 * 60_000,
+    ...QUERY_CACHE_POLICY.standard,
   });
 }
 

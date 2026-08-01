@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 Discover HTTP adapter、查询键、写后缓存策略与 TanStack Query
- * [OUTPUT]: 对外提供公开/本人/指定用户帖子、评论与写入缓存编排 hooks，筛选切换时保留上一帧列表
+ * [INPUT]: 依赖 Discover HTTP adapter、查询键、共享时间策略、写后缓存策略与 TanStack Query
+ * [OUTPUT]: 对外提供引用元数据、60 秒 Feed、本人/指定用户帖子、评论与写入缓存编排 hooks，筛选切换时保留上一帧列表
  * [POS]: entities/discover 的客户端缓存层，以稳定占位衔接查询键切换，局部反馈后由服务端重算排序与评论分页事实
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -30,13 +30,13 @@ import {
   optimisticallyReconcileDiscoverLike,
 } from '@/entities/discover/api/discover-cache-policy';
 import { discoverQueryKeys } from '@/entities/discover/model/discover-query-keys';
+import { QUERY_CACHE_POLICY } from '@/shared/api/query-cache-policy';
 
 export function useDiscoverMetaQuery() {
   return useQuery({
     queryKey: discoverQueryKeys.meta(),
     queryFn: ({ signal }) => getDiscoverMeta({ signal }),
-    staleTime: 6 * 60 * 60_000,
-    gcTime: 12 * 60 * 60_000,
+    ...QUERY_CACHE_POLICY.reference,
   });
 }
 
@@ -58,8 +58,7 @@ export function useDiscoverInfinitePostsQuery(params: Omit<DiscoverListParams, '
       }, { signal }),
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
     placeholderData: keepPreviousData,
-    staleTime: 90_000,
-    gcTime: 30 * 60_000,
+    ...QUERY_CACHE_POLICY.standard,
   });
 }
 

@@ -4,7 +4,7 @@
 成员清单
 
 api/social-summary-api.ts: `/api/social/unread-summary` 跨 Social 只读摘要传输边界，一次返回私信与互动未读及通知总量
-api/social-summary-query.ts: Social 摘要唯一轮询 hook，由应用壳按当前 Tab 选择频率
+api/social-summary-query.ts: Social 摘要唯一轮询 hook，由应用壳按当前 Tab 选择频率并复用共享轮询新鲜/回收策略
 model/social-summary-query-keys.ts: Social 聚合读模型缓存键命名源，供消息和通知写后统一失效
 model/social-summary-types.ts: 私信未读、互动未读与通知总量的稳定前端契约
 

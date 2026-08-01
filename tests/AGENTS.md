@@ -8,7 +8,7 @@ admin-dashboard-activity.test.ts: 管理后台活跃度、显式渠道优先级�
 admin-session.test.ts: 后台 HttpOnly Cookie 会话建立、保护与撤销回归测试
 analytics-batch.test.ts: Analytics 内存聚合、active user 去重、单事务 flush、失败回并重试与 shutdown 回归测试
 auth-login-rate-limit.test.ts: 登录失败限流策略回归测试
-app-factory.test.ts: 注入式 Hono 应用工厂、媒体端口与启动入口无隐式 migration 回归测试
+app-factory.test.ts: 注入式 Hono 应用工厂、Web 分层缓存、私有 API no-store、媒体端口与启动入口无隐式 migration 回归测试
 activity-outbox-integration.test.ts: Discover 点赞与 Treehole 评论的事实/计数/Outbox 同事务失败回滚，以及提交后投影失败重试门禁
 business-flows.test.ts: 核心业务流薄聚合入口，在独立 Bun 进程内装配 business-flows/ 能力用例并维持模块 mock 隔离
 business-flows/: 登录、凭证、课表/日历、缓存与持久化边界的共享支架和细分能力用例
@@ -51,6 +51,7 @@ social-database.ts: 跨 Community/Discover/Treehole/Notifications/Messaging 套�
 treehole.test.ts: Treehole 薄聚合入口，在单进程内装配 treehole/ 公共作者、低内存私有媒体、交互与管理用例
 treehole/: Treehole HTTP/事务/Community 作者投影与私有图片共享支架，按帖子、媒体、交互和管理能力细分回归用例
 web-social-state.test.ts: 无 DOM 验证私信单一目标/历史合并、资料/详情 URL 互斥、basename 归一化、上传格式、Discover 排序/分页失效与通知 total 校准规则
+web-cache-policy.test.ts: Web 标准/引用/后台/强刷 Query 时间层级及高水位键有界回收策略测试
 upstream-retry.test.ts: 上游请求/凭证恢复的次数与 deadline、成绩临时错误分类、非重试错误、CAS 结构化验证码/凭证拒绝、HTTP 维护页及 Portal 换票瞬态网络语义回归测试
 
 架构决策
