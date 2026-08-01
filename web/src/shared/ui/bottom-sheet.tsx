@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Radix Dialog 的焦点管理、Portal、全局轻量弹层动效、可选固定尾部与浏览器对话框语义
- * [OUTPUT]: 对外提供 BottomSheet，以独立滚动内容和固定尾部在移动端呈现短任务抽屉、桌面端呈现居中对话框
+ * [OUTPUT]: 对外提供 BottomSheet，以独立滚动内容和固定尾部呈现短任务抽屉；fullScreen 模式提供占满视口的详情/任务容器
  * [POS]: shared/ui 的模态交互原语，负责遮罩、Esc、焦点锁定、安全区与输入器停靠，不承载业务表单语义
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -13,6 +13,7 @@ interface BottomSheetProps extends PropsWithChildren {
   open: boolean;
   onClose: () => void;
   closeLabel?: string;
+  fullScreen?: boolean;
   contentClassName?: string;
   overlayClassName?: string;
   sheetClassName?: string;
@@ -26,6 +27,7 @@ export function BottomSheet({
   open,
   onClose,
   closeLabel = '关闭',
+  fullScreen = false,
   contentClassName,
   overlayClassName,
   sheetClassName,
@@ -43,12 +45,14 @@ export function BottomSheet({
         <Dialog.Overlay
           className={cn(
             'dialog-overlay fixed inset-0 z-40 bg-black/40',
+            fullScreen && 'bg-black/35',
             overlayClassName
           )}
         />
         <div
           className={cn(
             'pointer-events-none fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6',
+            fullScreen && 'items-stretch sm:p-0',
             viewportClassName
           )}
         >
@@ -56,11 +60,12 @@ export function BottomSheet({
             aria-describedby={undefined}
             className={cn(
               'dialog-surface pointer-events-auto flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-[1rem] border border-line bg-white shadow-[0_20px_60px_rgba(0,0,0,0.18)] outline-none sm:max-w-[var(--layout-sheet-max)] sm:rounded-[0.875rem]',
+              fullScreen && 'h-[100dvh] max-h-none max-w-none rounded-none border-0 shadow-none sm:max-w-none sm:rounded-none',
               sheetClassName
             )}
           >
             <Dialog.Title className="sr-only">{closeLabel}</Dialog.Title>
-            {showHandle ? (
+            {showHandle && !fullScreen ? (
               <div className="flex shrink-0 justify-center pb-1 pt-2.5 sm:hidden">
                 <span className="h-1 w-9 rounded-full bg-black/15" />
               </div>

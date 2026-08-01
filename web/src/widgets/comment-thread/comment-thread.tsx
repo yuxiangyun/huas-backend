@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 shared/ui 的 Button、Card、CommunityAvatar 与调用方提供的评论状态/动作
- * [OUTPUT]: 对外提供常规/停靠式可聚焦编辑器、默认折叠回复的嵌套评论树及分页尾部
+ * [OUTPUT]: 对外提供常规/停靠式可聚焦编辑器、可选外部 inputId、默认折叠回复的嵌套评论树及分页尾部
  * [POS]: widgets 的跨社区评论交互组件，在客户端组织父子关系并让详情容器选择内容内或固定底部输入形态
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -35,6 +35,7 @@ interface CommentComposerProps {
   maxLength: number;
   pending: boolean;
   replyTarget: CommentReplyTarget | null;
+  inputId?: string;
   onCancelReply: () => void;
   onDraftChange: (value: string) => void;
   onSubmit: () => void;
@@ -48,6 +49,7 @@ export function CommentComposer({
   maxLength,
   pending,
   replyTarget,
+  inputId,
   onCancelReply,
   onDraftChange,
   onSubmit,
@@ -76,6 +78,7 @@ export function CommentComposer({
             autoFocus={autoFocus}
             aria-label="评论内容"
             className="field-control max-h-24 min-h-10 flex-1 resize-none rounded-[1.25rem] px-3 py-2 text-sm"
+            id={inputId}
             maxLength={maxLength}
             placeholder={replyTarget ? `回复 ${replyTarget.authorLabel}` : '写评论…'}
             rows={1}

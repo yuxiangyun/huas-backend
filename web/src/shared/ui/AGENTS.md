@@ -3,7 +3,7 @@
 
 成员清单
 action-menu.tsx: 次级与危险动作菜单，基于 Radix Dropdown Menu 收纳低频操作并保留键盘语义
-bottom-sheet.tsx: 模态底部弹层容器，统一锁滚动、Esc、遮罩、安全区、独立内容滚动与可选固定尾部
+bottom-sheet.tsx: 模态底部弹层与 fullScreen 详情容器，统一锁滚动、Esc、遮罩、安全区、独立内容滚动与可选固定尾部
 button.tsx: 按钮视觉原语，将语义变体、尺寸、全宽与纯图标行为收敛到统一交互基线
 card.tsx: 卡片容器原语，负责响应式圆角、边界、背景与层次阴影
 community-avatar.tsx: Community 公共头像原语，统一媒体地址、按资源隔离图片失败状态与用户占位，切源不复用旧失败帧
@@ -16,7 +16,7 @@ lazy-task-fallback.tsx: 路由分块任务占位外壳，在弱网首次打开�
 page-header.tsx: 页级标题原语，统一标题与操作区的垂直中线，允许页面传入组合字标并为窄屏保留换行能力
 private-media-image.tsx: Bearer/Cookie 私有媒体适配原语，按 URL、认证模式与身份代次使用 10 分钟/24MB 会话 LRU，支持调用方滚动根内的近视口请求、显式清空和切源隔离
 segmented-control.tsx: 分段选择原语，支持等宽/内容宽排布与可选尾部操作
-social-page-title.tsx: Social 四个主 Tab 的中文楷体字标原语，统一字号、字重与字距且不引入外部字体请求
+social-page-title.tsx: Social 主 Tab 的文字/品牌标题原语，统一中文楷体字标或品牌图片字标的显示尺寸与裁切且不引入外部字体请求
 social-count-action.tsx: Social 互动计数按钮原语，统一图标触控尺寸、弱化数字格式与可选激活态，不持有业务 mutation
 task-dialog.tsx: 表单与裁切任务容器，基于 Radix Dialog 提供边界统一、轻量进退场的居中/移动全屏展示及业务可替换头尾布局协议
 toast-viewport.tsx: 全局消息视口，消费 toast store 并用 CSS 生命周期动效在壳层安全区内呈现反馈，不把动画运行时带入首屏

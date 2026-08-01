@@ -250,68 +250,68 @@ export function DiscoverComposeSheet() {
 
             <fieldset className="space-y-3 border-t border-line pt-5">
               <legend className="text-sm font-medium">图片</legend>
-              <p className="text-xs text-muted">上传顺序中的第一张图片将作为信息流主图。</p>
-              <label className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-[0.625rem] border border-line bg-white px-3 text-sm font-medium shadow-card hover:bg-tint-soft">
-                {processingImages ? <LoaderCircle aria-hidden="true" className="size-4 animate-spin" /> : <ImagePlus aria-hidden="true" className="size-4" />}
-                {processingImages ? '处理图片中' : '添加图片'}
-                <input
-                  accept={DISCOVER_IMAGE_ACCEPT}
-                  className="sr-only"
-                  disabled={processingImages || createMutation.isPending}
-                  multiple
-                  type="file"
-                  onChange={(event) => {
-                    const nextFiles = Array.from(event.target.files || []);
-                    event.target.value = '';
-                    if (nextFiles.length > maxImages) {
-                      setSelectionError(`每条好饭最多添加 ${maxImages} 张图片`);
-                      return;
-                    }
-                    const preparationGeneration = imagePreparationGenerationRef.current + 1;
-                    imagePreparationGenerationRef.current = preparationGeneration;
-                    setProcessingImages(true);
-                    setSelectionError(null);
-                    void prepareUploadImages(nextFiles, {
-                      maxFiles: maxImages,
-                      maxInputBytes: MAX_DISCOVER_IMAGE_BYTES,
-                      maxTotalBytes: maxImages * TARGET_DISCOVER_IMAGE_BYTES,
-                      maxPixels: 16_000_000,
-                      maxOutputBytes: TARGET_DISCOVER_IMAGE_BYTES,
-                      maxDimension: 2048,
-                      quality: 0.82,
-                    }).then((prepared) => {
-                      if (imagePreparationGenerationRef.current !== preparationGeneration) return;
-                      setSelectedFiles(prepared);
-                      setActivePreviewIndex(null);
-                    }).catch((error) => {
-                      if (imagePreparationGenerationRef.current !== preparationGeneration) return;
-                      setSelectionError(error instanceof Error ? error.message : '图片处理失败，请重新选择');
-                    }).finally(() => {
-                      if (imagePreparationGenerationRef.current === preparationGeneration) setProcessingImages(false);
-                    });
-                  }}
-                />
-              </label>
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                <label className="relative flex aspect-square cursor-pointer flex-col items-center justify-center overflow-hidden rounded-[0.75rem] border border-dashed border-line bg-white text-center text-muted transition-colors hover:border-ink hover:text-ink">
+                  <span className="pointer-events-none flex flex-col items-center justify-center gap-2 text-center text-xs font-medium">
+                    {processingImages ? <LoaderCircle aria-hidden="true" className="size-6 animate-spin" /> : <ImagePlus aria-hidden="true" className="size-6" />}
+                    {processingImages ? '处理图片中' : '添加图片'}
+                  </span>
+                  <input
+                    accept={DISCOVER_IMAGE_ACCEPT}
+                    aria-label="选择要发布的图片"
+                    className="absolute inset-0 z-10 size-full cursor-pointer opacity-0 disabled:cursor-wait"
+                    disabled={processingImages || createMutation.isPending}
+                    multiple
+                    type="file"
+                    onChange={(event) => {
+                      const nextFiles = Array.from(event.target.files || []);
+                      event.target.value = '';
+                      if (nextFiles.length > maxImages) {
+                        setSelectionError(`每条好饭最多添加 ${maxImages} 张图片`);
+                        return;
+                      }
+                      const preparationGeneration = imagePreparationGenerationRef.current + 1;
+                      imagePreparationGenerationRef.current = preparationGeneration;
+                      setProcessingImages(true);
+                      setSelectionError(null);
+                      void prepareUploadImages(nextFiles, {
+                        maxFiles: maxImages,
+                        maxInputBytes: MAX_DISCOVER_IMAGE_BYTES,
+                        maxTotalBytes: maxImages * TARGET_DISCOVER_IMAGE_BYTES,
+                        maxPixels: 16_000_000,
+                        maxOutputBytes: TARGET_DISCOVER_IMAGE_BYTES,
+                        maxDimension: 2048,
+                        quality: 0.82,
+                      }).then((prepared) => {
+                        if (imagePreparationGenerationRef.current !== preparationGeneration) return;
+                        setSelectedFiles(prepared);
+                        setActivePreviewIndex(null);
+                      }).catch((error) => {
+                        if (imagePreparationGenerationRef.current !== preparationGeneration) return;
+                        setSelectionError(error instanceof Error ? error.message : '图片处理失败，请重新选择');
+                      }).finally(() => {
+                        if (imagePreparationGenerationRef.current === preparationGeneration) setProcessingImages(false);
+                      });
+                    }}
+                  />
+                </label>
 
-              {previewUrls.length > 0 ? (
-                <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-                  {previewUrls.map((item, itemIndex) => (
-                    <div key={`${item.file.name}-${item.file.lastModified}`} className="relative overflow-hidden rounded-[0.625rem] border border-line bg-tint-soft">
-                      {itemIndex === 0 ? <span className="absolute left-1.5 top-1.5 z-10 rounded-full bg-black/70 px-2 py-1 text-[10px] font-medium text-white">主图</span> : null}
-                      <button className="block w-full" type="button" onClick={() => setActivePreviewIndex(itemIndex)}>
-                        <img alt={item.file.name} className="aspect-square w-full object-cover" src={item.url} />
-                      </button>
-                      <IconButton
-                        className="absolute right-1 top-1 bg-black/70 text-white hover:bg-black"
-                        icon={<X aria-hidden="true" className="size-3.5" />}
-                        label="移除图片"
-                        size="xs"
-                        onClick={() => setSelectedFiles((current) => current.filter((_, index) => index !== itemIndex))}
-                      />
-                    </div>
-                  ))}
-                </div>
-              ) : null}
+                {previewUrls.map((item, itemIndex) => (
+                  <div key={`${item.file.name}-${item.file.lastModified}`} className="relative overflow-hidden rounded-[0.625rem] border border-line bg-tint-soft">
+                    {itemIndex === 0 ? <span className="absolute left-1.5 top-1.5 z-10 rounded-full bg-black/70 px-2 py-1 text-[10px] font-medium text-white">主图</span> : null}
+                    <button className="block w-full" type="button" onClick={() => setActivePreviewIndex(itemIndex)}>
+                      <img alt={item.file.name} className="aspect-square w-full object-cover" src={item.url} />
+                    </button>
+                    <IconButton
+                      className="absolute right-1 top-1 bg-black/70 text-white hover:bg-black"
+                      icon={<X aria-hidden="true" className="size-3.5" />}
+                      label="移除图片"
+                      size="xs"
+                      onClick={() => setSelectedFiles((current) => current.filter((_, index) => index !== itemIndex))}
+                    />
+                  </div>
+                ))}
+              </div>
             </fieldset>
 
             {selectionError ? <p className="text-sm text-error">{selectionError}</p> : null}

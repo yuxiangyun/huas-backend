@@ -175,9 +175,9 @@ export function DiscoverPage() {
             onClick={handleOpenComposeSheet}
           />
         )}
-        className="mx-auto w-full max-w-[34rem] px-4 py-3 sm:px-0 sm:py-4"
+        className="mx-auto w-full max-w-[34rem] px-4 pb-3 pt-0 sm:px-0 sm:pb-4 sm:pt-0"
         compact
-        title={<SocialPageTitle>好饭</SocialPageTitle>}
+        title={<SocialPageTitle variant="brand">好饭</SocialPageTitle>}
       />
       <DiscoverFeed
         categories={metaQuery.data?.categories ?? DISCOVER_CATEGORIES}

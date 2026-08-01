@@ -273,19 +273,15 @@ export function TreeholeComposeSheet() {
               placeholder="分享此刻的想法"
               {...register('content')}
             />
-            <span className="flex items-center justify-between gap-3 text-xs text-muted">
-              <span>正文为必填内容</span>
+            <span className="flex items-center justify-end gap-3 text-xs text-muted">
               <span>{content.length}/{limits?.maxPostLength ?? '—'}</span>
             </span>
             {errors.content ? <p className="text-sm text-error">{errors.content.message}</p> : null}
           </label>
 
           <section className="space-y-3 border-t border-line pt-5" aria-labelledby="treehole-images-label">
-            <div className="flex items-end justify-between gap-3">
-              <div>
-                <h3 className="text-sm font-semibold" id="treehole-images-label">图片</h3>
-                <p className="mt-1 text-xs leading-5 text-muted">第一张是首页首图，选择顺序就是详情浏览顺序。</p>
-              </div>
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold" id="treehole-images-label">图片</h3>
               <span className="shrink-0 text-xs text-muted">{images.length + queuedSourceFiles.length}/{limits?.maxImagesPerPost ?? '—'}</span>
             </div>
 
@@ -311,8 +307,8 @@ export function TreeholeComposeSheet() {
               ))}
 
               {!imageLimits || images.length < imageLimits.maxImagesPerPost ? (
-                <label className="relative grid aspect-square cursor-pointer place-items-center overflow-hidden rounded-[0.75rem] border border-dashed border-line bg-white text-muted transition-colors hover:border-ink hover:text-ink">
-                  <span className="pointer-events-none flex flex-col items-center gap-2 text-xs font-medium">
+                <label className="relative flex aspect-square cursor-pointer flex-col items-center justify-center overflow-hidden rounded-[0.75rem] border border-dashed border-line bg-white text-center text-muted transition-colors hover:border-ink hover:text-ink">
+                  <span className="pointer-events-none flex flex-col items-center justify-center gap-2 text-center text-xs font-medium">
                     {processingImages ? <LoaderCircle aria-hidden="true" className="size-6 animate-spin" /> : <ImagePlus aria-hidden="true" className="size-6" />}
                     {processingImages ? '处理中' : '添加图片'}
                   </span>

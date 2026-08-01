@@ -1,17 +1,38 @@
 /**
  * [INPUT]: 依赖 React 的 children 类型
- * [OUTPUT]: 对外提供 SocialPageTitle，为普通用户四个主 Tab 提供统一中文楷体字标
- * [POS]: shared/ui 的 Social 标题视觉原语，只约束字形、字号与字距，不持有页面布局或路由语义
+ * [OUTPUT]: 对外提供 SocialPageTitle，为普通用户主 Tab 提供中文楷体字标或统一品牌图片字标
+ * [POS]: shared/ui 的 Social 标题视觉原语，收敛文字/品牌资产的显示尺寸与裁切，不持有页面布局或路由语义
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import type { ReactNode } from 'react';
 
+const BRAND_LOGO_SRC = `${import.meta.env.BASE_URL}brand/huas-community-logo.png`;
+
 interface SocialPageTitleProps {
   children: ReactNode;
+  variant?: 'text' | 'brand';
 }
 
-export function SocialPageTitle({ children }: SocialPageTitleProps) {
+export function SocialPageTitle({ children, variant = 'text' }: SocialPageTitleProps) {
+  if (variant === 'brand') {
+    const label = typeof children === 'string' ? children : '文理社区';
+    return (
+      <span
+        aria-label={label}
+        className="relative inline-flex h-10 w-[10.5rem] items-center overflow-hidden sm:h-11 sm:w-[12rem]"
+        role="img"
+      >
+        <img
+          alt={label}
+          className="absolute left-[48%] top-[62%] w-[145%] max-w-none -translate-x-1/2 -translate-y-1/2"
+          decoding="async"
+          src={BRAND_LOGO_SRC}
+        />
+      </span>
+    );
+  }
+
   return (
     <span
       className="inline-block text-[1.7rem] font-semibold leading-none tracking-[-0.02em]"

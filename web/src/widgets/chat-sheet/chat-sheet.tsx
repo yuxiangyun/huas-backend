@@ -410,7 +410,7 @@ export function ChatSheet({ userId, onClose, onOpenProfile }: ChatSheetProps) {
         onClick={() => target && onOpenProfile(target.id)}
       >
         <CommunityAvatar
-          className="size-[42px] bg-[linear-gradient(145deg,#f4f4f5,#e4e4e7)] ring-0 [&>span]:text-[15px] [&>span]:font-extrabold [&>span]:text-[#61616a]"
+          className="size-[34px] bg-[linear-gradient(145deg,#f4f4f5,#e4e4e7)] ring-0 [&>span]:text-[13px] [&>span]:font-extrabold [&>span]:text-[#61616a]"
           fallbackLabel={targetInitial}
           src={target?.avatarUrl}
         />
