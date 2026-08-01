@@ -2,7 +2,7 @@
 > L2 | 父级: /src/modules/messaging/AGENTS.md
 
 成员清单
-sqlite-messaging-repository.ts: 构造注入 Drizzle db 的 Messaging 事实 adapter，承载有序用户对、会话 lastMessageId 增量、三态消息、双重限流与未读
+sqlite-messaging-repository.ts: 构造注入 Drizzle db 的 Messaging 事实 adapter，承载有序用户对、单调会话时间/lastMessageId、三态消息、双重限流与未读
 messaging-media-storage.ts: message-media 候选目录、规范化 WebP 幂等比对、补偿/安全路径、参与者读取及带 conversationId 的管理读取 adapter
 
 架构决策

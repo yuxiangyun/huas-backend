@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 Discover 无限列表/点赞 hooks、筛选控件、媒体 URL 与社区资料投影
- * [OUTPUT]: 对外提供 DiscoverFeed，以预留稳定比例的首张主图、失效媒体兜底、作者栏、互动栏和精简摘要呈现好饭信息流
+ * [INPUT]: 依赖 Discover 无限列表/点赞 hooks、共享计数互动原语、筛选控件、媒体 URL 与社区资料投影
+ * [OUTPUT]: 对外提供 DiscoverFeed，以预留稳定比例的首张主图、失效媒体兜底、作者栏、同行计数互动栏和精简摘要呈现好饭信息流
  * [POS]: widgets/discover-feed 的单列沉浸式信息流容器，约束媒体加载前后尺寸稳定并拥有列表内互动，不持有发布和路由状态
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -20,6 +20,7 @@ import { ActionMenu } from '@/shared/ui/action-menu';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
 import { CommunityAvatar } from '@/shared/ui/community-avatar';
+import { SocialCountAction } from '@/shared/ui/social-count-action';
 
 interface DiscoverFeedProps {
   categories: readonly DiscoverCategory[];
@@ -227,38 +228,38 @@ export function DiscoverFeed({
             </button>
 
             <div className="flex items-center gap-4 px-4 pt-3.5">
-              <button
+              <SocialCountAction
+                active={post.likedByMe}
                 aria-label={post.likedByMe ? '取消点赞' : '点赞'}
-                className={post.likedByMe ? 'text-error' : 'text-ink'}
+                aria-pressed={post.likedByMe}
+                className="-ml-2"
+                count={post.likeCount}
                 disabled={post.isMine || pendingLikePostId === post.id}
-                type="button"
+                icon={<Heart aria-hidden="true" className="size-6" fill={post.likedByMe ? 'currentColor' : 'none'} strokeWidth={1.9} />}
                 onClick={() => void toggleLike(post)}
-              >
-                <Heart aria-hidden="true" className="size-6" fill={post.likedByMe ? 'currentColor' : 'none'} strokeWidth={1.9} />
-              </button>
-              <button aria-label="查看评论" type="button" onClick={() => onOpenPost(post.id)}>
-                <MessageCircle aria-hidden="true" className="size-6" strokeWidth={1.9} />
-              </button>
+              />
+              <SocialCountAction
+                aria-label={`查看 ${post.commentCount} 条评论`}
+                count={post.commentCount}
+                icon={<MessageCircle aria-hidden="true" className="size-6" strokeWidth={1.9} />}
+                onClick={() => onOpenPost(post.id)}
+              />
               {!post.isMine ? (
-                <button aria-label="私信作者" type="button" onClick={() => onMessageAuthor(post.author.id)}>
+                <button aria-label="私信作者" className="grid size-10 place-items-center rounded-full transition-opacity hover:opacity-60" type="button" onClick={() => onMessageAuthor(post.author.id)}>
                   <Send aria-hidden="true" className="size-6" strokeWidth={1.9} />
                 </button>
               ) : null}
             </div>
 
-            <div className="px-4 pb-4 pt-2.5">
-              <p className="text-sm font-bold">{post.likeCount} 个赞</p>
-              <button className="mt-2 block w-full text-left" type="button" onClick={() => onOpenPost(post.id)}>
+            <div className="px-4 pb-4 pt-1">
+              <button className="block w-full text-left" type="button" onClick={() => onOpenPost(post.id)}>
                 <span className="text-clamp-2 break-words text-sm leading-6 [overflow-wrap:anywhere]">
                   <strong>{post.title}</strong>
                   {post.content ? <span> · {post.content}</span> : null}
                 </span>
               </button>
-              <div className="mt-2 flex min-w-0 items-center justify-between gap-3 text-xs text-muted">
+              <div className="mt-2 min-w-0 text-xs text-muted">
                 <span className="truncate">{postMeta(post)}</span>
-                {post.commentCount > 0 ? (
-                  <button className="shrink-0" type="button" onClick={() => onOpenPost(post.id)}>{post.commentCount} 条评论</button>
-                ) : null}
               </div>
             </div>
           </article>

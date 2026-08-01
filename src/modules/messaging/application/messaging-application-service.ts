@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 MessagingRepository/MessageMediaStorage ports、CommunityProfileReader 与领域校验/映射规则
- * [OUTPUT]: 对外提供 MessagingApplicationService，编排会话定位/增量、严格幂等发送、三态历史、未读游标和参与者媒体
+ * [OUTPUT]: 对外提供 MessagingApplicationService，编排会话定位/增量、媒体完成后定时的严格幂等发送、三态历史与未读游标
  * [POS]: modules/messaging/application 的用户用例核心，以 lastMessageId 增量隔离会话轮询与普通 offset 翻页
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -74,8 +74,7 @@ export class MessagingApplicationService {
 
     const recipient = (await this.profiles.getMany([input.recipientUserId])).get(input.recipientUserId);
     if (!recipient) throw new AppError(ErrorCode.PARAM_ERROR, '接收用户不存在');
-    const createdAt = this.now();
-    await this.repository.assertCanSend(input.senderUserId, clientMessageId, createdAt);
+    await this.repository.assertCanSend(input.senderUserId, clientMessageId, this.now());
 
     let prepared = null;
     let committed;
@@ -87,7 +86,7 @@ export class MessagingApplicationService {
         clientMessageId,
         text,
         media: prepared,
-        createdAt,
+        createdAt: this.now(),
       });
 
     } catch (error) {

@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Treehole HTTP 支架、Operations 只读 query、管理命令用例与 Community 公共资料
- * [OUTPUT]: 验证作者删除、管理公共作者查询、汇总、软删除及认证/参数边界
+ * [OUTPUT]: 验证作者删除、管理公共作者查询、LIKE 元字符搜索、软删除及认证/参数边界
  * [POS]: tests/treehole 的生命周期与管理细分用例，确保审核面不泄露校园敏感身份
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -71,10 +71,12 @@ describe('Treehole 生命周期与管理面', () => {
     expect(comments?.items.map((item) => item.author.id)).toEqual([thirdUserId, authorId]);
   });
 
-  it('管理搜索把百分号和下划线视为字面字符', async () => {
+  it('管理搜索把反斜杠、百分号和下划线视为字面字符', async () => {
     const app = createApp();
     await createTreeholePost(app, authorId, '2023002001', '数据库命中率 100%_ok。');
     await createTreeholePost(app, otherUserId, '2023002002', '数据库命中率 100xAok。');
+    await createTreeholePost(app, authorId, '2023002001', 'Windows 路径 a\\b。');
+    await createTreeholePost(app, otherUserId, '2023002002', 'Windows 路径 ab。');
 
     const result = await treeholeOperationsQuery.listPosts({
       page: 1,
@@ -84,6 +86,14 @@ describe('Treehole 生命周期与管理面', () => {
 
     expect(result.total).toBe(1);
     expect(result.items[0]!.content).toContain('100%_ok');
+
+    const backslash = await treeholeOperationsQuery.listPosts({
+      page: 1,
+      pageSize: 10,
+      keyword: 'a\\b',
+    });
+    expect(backslash.total).toBe(1);
+    expect(backslash.items[0]!.content).toContain('a\\b');
   });
 
   it('管理命令仍可软删除评论和帖子并刷新计数', async () => {

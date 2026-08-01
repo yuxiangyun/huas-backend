@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 Notifications HTTP adapter、查询键与 TanStack Query
- * [OUTPUT]: 对外提供通知分页/增量、未读/总量摘要与逐条已读 hooks
- * [POS]: entities/notifications 的缓存编排层，摘要轮询为上层暴露撤销校准信号且不轮询 offset 列表
+ * [INPUT]: 依赖 Notifications HTTP adapter、领域/Social 摘要查询键与 TanStack Query
+ * [OUTPUT]: 对外提供通知分页/增量、兼容未读摘要与逐条已读 hooks，写后同步失效聚合摘要
+ * [POS]: entities/notifications 的缓存编排层；常规导航摘要由 Social 壳拥有，领域摘要 hook 仅保留兼容能力
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -13,6 +13,7 @@ import {
   markNotificationRead,
 } from '@/entities/notifications/api/notification-api';
 import { notificationQueryKeys } from '@/entities/notifications/model/notification-query-keys';
+import { socialSummaryQueryKeys } from '@/entities/social/model/social-summary-query-keys';
 
 export function useNotificationsInfiniteQuery(pageSize = 30, enabled = true) {
   return useInfiniteQuery({
@@ -24,11 +25,11 @@ export function useNotificationsInfiniteQuery(pageSize = 30, enabled = true) {
   });
 }
 
-export function useNotificationChangesQuery(afterNotificationId: number | null) {
+export function useNotificationChangesQuery(afterNotificationId: number | null, enabled = true) {
   return useQuery({
     queryKey: notificationQueryKeys.changes(afterNotificationId ?? 0),
     queryFn: ({ signal }) => getNotificationChanges(afterNotificationId ?? 0, 100, { signal }),
-    enabled: afterNotificationId !== null,
+    enabled: enabled && afterNotificationId !== null,
     refetchInterval: 15_000,
     staleTime: 0,
   });
@@ -50,6 +51,7 @@ export function useMarkNotificationReadMutation() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: notificationQueryKeys.lists() });
       queryClient.invalidateQueries({ queryKey: notificationQueryKeys.unreadCount() });
+      queryClient.invalidateQueries({ queryKey: socialSummaryQueryKeys.unread() });
     },
   });
 }

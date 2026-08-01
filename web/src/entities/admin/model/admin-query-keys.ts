@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖后台内容、私信、运行状态的资源边界与筛选/游标参数
- * [OUTPUT]: 提供 dashboard、内容、私信、日志与课表策略的稳定 TanStack Query key
+ * [OUTPUT]: 提供 dashboard、内容、私信、日志、课表策略与首页弹窗三态设置的稳定 TanStack Query key
  * [POS]: entities/admin 的缓存命名边界，让查询、mutation 和会话清理共享同一资源身份
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -13,6 +13,7 @@ export const adminQueryKeys = {
     [...adminQueryKeys.dashboardAll(), params] as const,
   analytics: (days: 7 | 30 | 90) => ['admin', 'analytics', days] as const,
   scheduleSourcePolicy: () => ['admin', 'academic', 'schedule-source-policy'] as const,
+  indexPopupSettings: () => ['admin', 'index-popup'] as const,
 
   announcementsAll: () => ['admin', 'announcements'] as const,
 

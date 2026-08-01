@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖当前用户 Treehole 列表、个人树洞面板、发布、详情与 Social 导航
- * [OUTPUT]: 对外提供 MeTreeholePage，展示当前用户的树洞动态列表
- * [POS]: pages/me-treehole 的路由编排器，统一提醒已读与详情查询参数
+ * [INPUT]: 依赖当前用户 Treehole 列表、个人图文面板、发布/详情、分享反馈与 Social 导航
+ * [OUTPUT]: 对外提供 MeTreeholePage，展示并分享当前用户的树洞图文动态
+ * [POS]: pages/me-treehole 的路由编排器，统一详情查询参数与 canonical 分享
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -9,8 +9,11 @@ import { ArrowLeft, Plus } from 'lucide-react';
 import { startTransition, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { appRoutes } from '@/app/router/paths';
+import { useToastStore } from '@/app/state/toast-store';
 import { useUiStore } from '@/app/state/ui-store';
 import { useMyTreeholeInfinitePostsQuery } from '@/entities/treehole/api/treehole-queries';
+import type { TreeholePost } from '@/entities/treehole/model/treehole-types';
+import { shareSocialPost } from '@/pages/social-share';
 import { Button } from '@/shared/ui/button';
 import { IconButton } from '@/shared/ui/icon-button';
 import { PageHeader } from '@/shared/ui/page-header';
@@ -20,6 +23,7 @@ import { TreeholeDetailSheet } from '@/widgets/treehole-detail-sheet/treehole-de
 
 export function MeTreeholePage() {
   const navigate = useNavigate();
+  const pushToast = useToastStore((state) => state.pushToast);
   const [searchParams, setSearchParams] = useSearchParams();
   const setActiveTab = useUiStore((state) => state.setActiveTab);
   const openComposeSheet = useUiStore((state) => state.openTreeholeComposeSheet);
@@ -37,6 +41,15 @@ export function MeTreeholePage() {
       if (!nextParams.get('postId')) nextParams.delete('postId');
       setSearchParams(nextParams);
     });
+  }
+
+  async function handleSharePost(post: TreeholePost) {
+    try {
+      const result = await shareSocialPost({ path: appRoutes.treehole, postId: post.id, text: post.content, title: '树洞动态' });
+      if (result === 'copied') pushToast({ title: '帖子链接已复制', variant: 'success' });
+    } catch {
+      pushToast({ title: '分享失败，请重试', variant: 'error' });
+    }
   }
 
   return (
@@ -69,6 +82,7 @@ export function MeTreeholePage() {
         onClose={() => patchSearchParams((params) => params.delete('postId'))}
         onMessageAuthor={(userId) => navigate(`${appRoutes.messages}?userId=${userId}`)}
         onOpenProfile={(userId) => navigate(`${appRoutes.treehole}?profileUserId=${userId}`)}
+        onSharePost={(post) => void handleSharePost(post)}
       />
     </div>
   );

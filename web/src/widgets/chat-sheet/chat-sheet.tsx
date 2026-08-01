@@ -1,33 +1,38 @@
 /**
- * [INPUT]: 依赖 Messaging 用户目标定位、历史/增量/发送/已读 hooks、TaskDialog、动作菜单与私有媒体原语
- * [OUTPUT]: 对外提供 ChatSheet，以稳定滚动的浅色对话基底支持 userId 唯一定位、空会话首发、分组图文气泡、历史分页和实时增量
- * [POS]: widgets/chat-sheet 的私信任务容器，只持有目标用户范围内的编辑、消息与贴底阅读状态，不接受独立会话事实
+ * [INPUT]: 依赖 Messaging 用户目标定位、20 条历史/增量/发送/已读 hooks、共享图片预处理、TaskDialog 与近视口私有媒体
+ * [OUTPUT]: 对外提供 ChatSheet，以稳定滚动对话基底支持 userId 唯一定位、1MB 目标图、可见媒体、before 历史和 5 秒增量
+ * [POS]: widgets/chat-sheet 的私信任务容器，只持有目标用户代次内的编辑、异步结果、消息、媒体视口与贴底阅读状态，不接受独立会话事实
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import type { ChangeEvent, KeyboardEvent } from 'react';
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, Send, X } from 'lucide-react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { ChevronLeft, LoaderCircle, Send, X } from 'lucide-react';
 import {
+  mergeMessagesIntoHistoryCache,
   useConversationTargetQuery,
   useMarkConversationReadMutation,
   useMessageChangesQuery,
   useMessagesInfiniteQuery,
   useSendMessageMutation,
 } from '@/entities/messaging/api/messaging-queries';
+import { useQueryClient } from '@tanstack/react-query';
 import type { Message } from '@/entities/messaging/model/messaging-types';
 import { ActionMenu } from '@/shared/ui/action-menu';
 import { Button } from '@/shared/ui/button';
 import { CommunityAvatar } from '@/shared/ui/community-avatar';
 import { EmptyState } from '@/shared/ui/empty-state';
-import { PrivateMediaImage } from '@/shared/ui/private-media-image';
+import { DeferredPrivateMediaImage } from '@/shared/ui/private-media-image';
+import { prepareUploadImages, SOCIAL_IMAGE_ACCEPT } from '@/shared/lib/image-upload-processing';
 import { TaskDialog } from '@/shared/ui/task-dialog';
 
 const MAX_IMAGES = 9;
 const MAX_TEXT_LENGTH = 1_000;
 const MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 const MAX_TOTAL_IMAGE_BYTES = 64 * 1024 * 1024;
-const MESSAGE_IMAGE_ACCEPT = 'image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,image/avif,image/tiff,.jpg,.jpeg,.png,.webp,.gif,.heic,.heif,.avif,.tif,.tiff';
+const MESSAGE_IMAGE_ACCEPT = SOCIAL_IMAGE_ACCEPT;
+const MESSAGE_PREPARED_IMAGE_BYTES = 1024 * 1024;
+const MESSAGE_PREPARED_TOTAL_BYTES = MAX_IMAGES * MESSAGE_PREPARED_IMAGE_BYTES;
 
 interface ImageDraft {
   file: File;
@@ -109,11 +114,13 @@ function mergeMessages(base: Message[], changes: ReadonlyMap<number, Message>) {
 }
 
 export function ChatSheet({ userId, onClose, onOpenProfile }: ChatSheetProps) {
+  const queryClient = useQueryClient();
   const targetQuery = useConversationTargetQuery(userId);
   const effectiveConversationId = targetQuery.data?.conversationId ?? null;
   const messagesQuery = useMessagesInfiniteQuery(effectiveConversationId);
   const sendMutation = useSendMessageMutation();
   const markReadMutation = useMarkConversationReadMutation();
+  const markConversationRead = markReadMutation.mutate;
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
@@ -123,8 +130,12 @@ export function ChatSheet({ userId, onClose, onOpenProfile }: ChatSheetProps) {
   const keepPinnedToBottomRef = useRef(true);
   const imagesRef = useRef<ImageDraft[]>([]);
   const sendAttemptRef = useRef<SendAttempt | null>(null);
+  const imagePreparationGenerationRef = useRef(0);
+  const activeUserIdRef = useRef(userId);
+  const chatGenerationRef = useRef(0);
   const [draft, setDraft] = useState('');
   const [images, setImages] = useState<ImageDraft[]>([]);
+  const [processingImages, setProcessingImages] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [messageWatermark, setMessageWatermark] = useState<number | null>(null);
   const [messageChanges, setMessageChanges] = useState<Map<number, Message>>(() => new Map());
@@ -137,7 +148,16 @@ export function ChatSheet({ userId, onClose, onOpenProfile }: ChatSheetProps) {
   const messages = useMemo(() => mergeMessages(baseMessages, messageChanges), [baseMessages, messageChanges]);
   const lastMessageId = messages.at(-1)?.id ?? 0;
 
+  useLayoutEffect(() => {
+    if (activeUserIdRef.current === userId) return;
+    activeUserIdRef.current = userId;
+    chatGenerationRef.current += 1;
+    imagePreparationGenerationRef.current += 1;
+  }, [userId]);
+
   useEffect(() => {
+    imagePreparationGenerationRef.current += 1;
+    setProcessingImages(false);
     setDraft('');
     setImages((current) => {
       current.forEach((image) => URL.revokeObjectURL(image.previewUrl));
@@ -157,6 +177,7 @@ export function ChatSheet({ userId, onClose, onOpenProfile }: ChatSheetProps) {
   }, [images]);
 
   useEffect(() => () => {
+    imagePreparationGenerationRef.current += 1;
     imagesRef.current.forEach((image) => URL.revokeObjectURL(image.previewUrl));
   }, []);
 
@@ -174,7 +195,10 @@ export function ChatSheet({ userId, onClose, onOpenProfile }: ChatSheetProps) {
 
   useEffect(() => {
     const data = messageChangesQuery.data;
-    if (!data) return;
+    if (!data || data.conversationId !== effectiveConversationId) return;
+    if (data.items.length > 0) {
+      mergeMessagesIntoHistoryCache(queryClient, effectiveConversationId, data.items);
+    }
     if (data.items.length > 0) {
       setMessageChanges((current) => {
         const next = new Map(current);
@@ -183,13 +207,23 @@ export function ChatSheet({ userId, onClose, onOpenProfile }: ChatSheetProps) {
       });
     }
     setMessageWatermark((current) => Math.max(current ?? 0, data.afterMessageId ?? 0));
-  }, [messageChangesQuery.data]);
+  }, [effectiveConversationId, messageChangesQuery.data, queryClient]);
 
   useEffect(() => {
     if (!effectiveConversationId || lastMessageId <= lastMarkedReadRef.current) return;
+    const previousMarkedRead = lastMarkedReadRef.current;
     lastMarkedReadRef.current = lastMessageId;
-    markReadMutation.mutate({ conversationId: effectiveConversationId, throughMessageId: lastMessageId });
-  }, [effectiveConversationId, lastMessageId, markReadMutation]);
+    markConversationRead(
+      { conversationId: effectiveConversationId, throughMessageId: lastMessageId },
+      {
+        onError: () => {
+          if (lastMarkedReadRef.current === lastMessageId) {
+            lastMarkedReadRef.current = previousMarkedRead;
+          }
+        },
+      },
+    );
+  }, [effectiveConversationId, lastMessageId, markConversationRead]);
 
   useEffect(() => {
     if (lastMessageId === 0 || lastMessageId <= previousLastMessageIdRef.current) return;
@@ -228,7 +262,7 @@ export function ChatSheet({ userId, onClose, onOpenProfile }: ChatSheetProps) {
     });
   };
 
-  const selectImages = (event: ChangeEvent<HTMLInputElement>) => {
+  const selectImages = async (event: ChangeEvent<HTMLInputElement>) => {
     const selected = Array.from(event.target.files ?? []);
     event.target.value = '';
     const nextFiles = [...images.map((image) => image.file), ...selected];
@@ -236,30 +270,50 @@ export function ChatSheet({ userId, onClose, onOpenProfile }: ChatSheetProps) {
       setActionMessage(`每条消息最多发送 ${MAX_IMAGES} 张图片`);
       return;
     }
-    if (selected.some((image) => image.size > MAX_IMAGE_BYTES)) {
-      setActionMessage('单张图片不能超过 32MB');
-      return;
-    }
-    if (nextFiles.reduce((total, image) => total + image.size, 0) > MAX_TOTAL_IMAGE_BYTES) {
-      setActionMessage('图片总大小不能超过 64MB');
-      return;
-    }
+    const preparationGeneration = imagePreparationGenerationRef.current + 1;
+    imagePreparationGenerationRef.current = preparationGeneration;
+    setProcessingImages(true);
     setActionMessage(null);
-    setImages((current) => [
-      ...current,
-      ...selected.map((file) => ({ file, previewUrl: URL.createObjectURL(file) })),
-    ]);
+    try {
+      const prepared = await prepareUploadImages(selected, {
+        maxFiles: MAX_IMAGES,
+        maxInputBytes: MAX_IMAGE_BYTES,
+        maxTotalBytes: MAX_TOTAL_IMAGE_BYTES,
+        maxPixels: 16_000_000,
+        maxOutputBytes: MESSAGE_PREPARED_IMAGE_BYTES,
+        maxDimension: 2048,
+        quality: 0.82,
+      });
+      const preparedTotal = images.reduce((total, image) => total + image.file.size, 0)
+        + prepared.reduce((total, image) => total + image.size, 0);
+      if (preparedTotal > MESSAGE_PREPARED_TOTAL_BYTES) {
+        throw new Error(`处理后的图片总量不能超过 ${MAX_IMAGES}MB`);
+      }
+      if (imagePreparationGenerationRef.current !== preparationGeneration) return;
+      setImages((current) => [
+        ...current,
+        ...prepared.map((file) => ({ file, previewUrl: URL.createObjectURL(file) })),
+      ]);
+    } catch (error) {
+      if (imagePreparationGenerationRef.current !== preparationGeneration) return;
+      setActionMessage(error instanceof Error ? error.message : '图片处理失败，请重新选择');
+    } finally {
+      if (imagePreparationGenerationRef.current === preparationGeneration) setProcessingImages(false);
+    }
   };
 
   const submit = async () => {
-    if (!userId || !target || (!draft.trim() && images.length === 0) || sendMutation.isPending) return;
+    if (!userId || !target || (!draft.trim() && images.length === 0) || sendMutation.isPending || processingImages) return;
     if (Array.from(draft.trim()).length > MAX_TEXT_LENGTH) {
       setActionMessage(`消息不能超过 ${MAX_TEXT_LENGTH} 个字符`);
       return;
     }
 
     const text = draft.trim();
-    const files = images.map((image) => image.file);
+    const submittedDraft = draft;
+    const submittedImages = images;
+    const files = submittedImages.map((image) => image.file);
+    const chatGeneration = chatGenerationRef.current;
     const previousAttempt = sendAttemptRef.current;
     const canRetry = previousAttempt
       && previousAttempt.text === text
@@ -276,16 +330,21 @@ export function ChatSheet({ userId, onClose, onOpenProfile }: ChatSheetProps) {
         text,
         images: files,
       });
+      if (chatGenerationRef.current !== chatGeneration || activeUserIdRef.current !== userId) return;
       keepPinnedToBottomRef.current = true;
-      sendAttemptRef.current = null;
+      if (sendAttemptRef.current?.clientMessageId === clientMessageId) sendAttemptRef.current = null;
       setMessageChanges((current) => new Map(current).set(message.id, message));
       setMessageWatermark((current) => Math.max(current ?? 0, message.id));
-      setDraft('');
+      setDraft((current) => current === submittedDraft ? '' : current);
       setImages((current) => {
-        current.forEach((image) => URL.revokeObjectURL(image.previewUrl));
-        return [];
+        const submitted = new Set(submittedImages);
+        current.forEach((image) => {
+          if (submitted.has(image)) URL.revokeObjectURL(image.previewUrl);
+        });
+        return current.filter((image) => !submitted.has(image));
       });
     } catch (error) {
+      if (chatGenerationRef.current !== chatGeneration || activeUserIdRef.current !== userId) return;
       setActionMessage(error instanceof Error ? error.message : '发送失败，请重试');
     }
   };
@@ -311,7 +370,7 @@ export function ChatSheet({ userId, onClose, onOpenProfile }: ChatSheetProps) {
         </div>
       ) : null}
       {actionMessage ? <p className="mb-2 text-xs text-error">{actionMessage}</p> : null}
-      <input ref={fileInputRef} accept={MESSAGE_IMAGE_ACCEPT} className="sr-only" multiple type="file" onChange={selectImages} />
+      <input ref={fileInputRef} accept={MESSAGE_IMAGE_ACCEPT} className="sr-only" disabled={processingImages} multiple type="file" onChange={(event) => void selectImages(event)} />
       <div className="flex items-end gap-2">
         <textarea
           ref={textareaRef}
@@ -328,11 +387,11 @@ export function ChatSheet({ userId, onClose, onOpenProfile }: ChatSheetProps) {
         <button
           aria-label="发送"
           className="grid size-[42px] shrink-0 place-items-center rounded-full bg-[#2aabee] text-white transition-opacity active:opacity-65 disabled:opacity-45"
-          disabled={sendMutation.isPending}
+          disabled={sendMutation.isPending || processingImages}
           type="button"
           onClick={() => void submit()}
         >
-          <Send aria-hidden="true" className="size-[21px]" />
+          {processingImages ? <LoaderCircle aria-hidden="true" className="size-[21px] animate-spin" /> : <Send aria-hidden="true" className="size-[21px]" />}
         </button>
       </div>
     </div>
@@ -426,7 +485,15 @@ export function ChatSheet({ userId, onClose, onOpenProfile }: ChatSheetProps) {
                     {message.images.length > 0 ? (
                       <div className={`mb-2 grid gap-1.5 ${message.images.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
                         {message.images.map((image) => (
-                          <PrivateMediaImage key={image.id} alt="私信图片" className="max-h-64 w-full rounded-[10px] object-cover" src={image.url} />
+                          <DeferredPrivateMediaImage
+                            key={image.id}
+                            alt="私信图片"
+                            className="min-h-24 max-h-64 w-full rounded-[10px]"
+                            containerStyle={{ aspectRatio: `${image.width} / ${image.height}` }}
+                            imageClassName="size-full object-cover"
+                            rootRef={scrollViewportRef}
+                            src={image.url}
+                          />
                         ))}
                       </div>
                     ) : null}

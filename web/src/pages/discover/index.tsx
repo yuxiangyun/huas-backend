@@ -22,6 +22,7 @@ import { DiscoverFeed } from '@/widgets/discover-feed/discover-feed';
 import { IconButton } from '@/shared/ui/icon-button';
 import { PageHeader } from '@/shared/ui/page-header';
 import { SocialPageTitle } from '@/shared/ui/social-page-title';
+import { LazyTaskFallback } from '@/shared/ui/lazy-task-fallback';
 import { selectSocialPost } from '@/pages/social-route-state';
 
 const loadDiscoverComposeSheet = () => import('@/widgets/discover-compose-sheet/discover-compose-sheet');
@@ -211,13 +212,13 @@ export function DiscoverPage() {
       ) : null}
 
       {composeSheetRequested ? (
-        <Suspense fallback={null}>
+        <Suspense fallback={composeSheetOpen ? <LazyTaskFallback label="发布好饭" /> : null}>
           <LazyDiscoverComposeSheet />
         </Suspense>
       ) : null}
 
       {detailSheetRequested ? (
-        <Suspense fallback={null}>
+        <Suspense fallback={postId !== null ? <LazyTaskFallback label="好饭详情" /> : null}>
           <LazyDiscoverDetailSheet
             postId={postId}
             onMessageAuthor={(userId) => navigate(`${appRoutes.messages}?userId=${userId}`)}
@@ -232,7 +233,7 @@ export function DiscoverPage() {
       ) : null}
 
       {profileDialogRequested ? (
-        <Suspense fallback={null}>
+        <Suspense fallback={profileUserId !== null ? <LazyTaskFallback label="用户资料" /> : null}>
           <LazyPublicProfileDialog
             userId={profileUserId}
             onClose={() => patchSearchParams((params) => params.delete('profileUserId'))}

@@ -1,13 +1,13 @@
 /**
- * [INPUT]: 依赖 Discover 元数据/创建 hooks、React Hook Form、图片预览与发布弹层状态
- * [OUTPUT]: 对外提供 DiscoverComposeSheet，以首张图片作为主图的可滚动弹窗提交好饭推荐
- * [POS]: widgets/discover-compose-sheet 的长表单容器，只显示必要校验与失败反馈
+ * [INPUT]: 依赖 Discover 元数据/创建 hooks、React Hook Form、共享图片预处理、图片预览与发布弹层状态
+ * [OUTPUT]: 对外提供 DiscoverComposeSheet，以失败保稿、元数据刷新不重置和 1MB 目标图提交好饭推荐
+ * [POS]: widgets/discover-compose-sheet 的长表单容器，表单生命周期只跟随打开边沿而不跟随查询对象变化
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { ImagePlus, X } from 'lucide-react';
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { ImagePlus, LoaderCircle, X } from 'lucide-react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useUiStore } from '@/app/state/ui-store';
 import { useCreateDiscoverPostMutation, useDiscoverMetaQuery } from '@/entities/discover/api/discover-queries';
@@ -16,6 +16,7 @@ import { Button } from '@/shared/ui/button';
 import { FilterChip } from '@/shared/ui/filter-chip';
 import { IconButton } from '@/shared/ui/icon-button';
 import { TaskDialog } from '@/shared/ui/task-dialog';
+import { prepareUploadImages, SOCIAL_IMAGE_ACCEPT } from '@/shared/lib/image-upload-processing';
 
 const loadImageViewer = () => import('@/shared/ui/image-viewer');
 const FORM_ID = 'discover-compose-form';
@@ -32,25 +33,31 @@ function parseCustomTags(raw: string | undefined) {
     .filter(Boolean);
 }
 
-const DISCOVER_IMAGE_ACCEPT =
-  'image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,image/avif,image/tiff,.jpg,.jpeg,.png,.webp,.gif,.heic,.heif,.avif,.tif,.tiff';
+const DISCOVER_IMAGE_ACCEPT = SOCIAL_IMAGE_ACCEPT;
 const MAX_DISCOVER_IMAGE_BYTES = 32 * 1024 * 1024;
+const TARGET_DISCOVER_IMAGE_BYTES = 1024 * 1024;
 
 export function DiscoverComposeSheet() {
   const composeSheetOpen = useUiStore((state) => state.discoverComposeSheetOpen);
   const closeComposeSheet = useUiStore((state) => state.closeDiscoverComposeSheet);
   const metaQuery = useDiscoverMetaQuery();
   const createMutation = useCreateDiscoverPostMutation();
+  const resetCreateMutation = createMutation.reset;
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [selectionError, setSelectionError] = useState<string | null>(null);
   const [activePreviewIndex, setActivePreviewIndex] = useState<number | null>(null);
   const [imageViewerRequested, setImageViewerRequested] = useState(false);
+  const [processingImages, setProcessingImages] = useState(false);
+  const previousOpenRef = useRef(false);
+  const imagePreparationGenerationRef = useRef(0);
 
   const {
     register,
     handleSubmit,
+    getValues,
     reset,
+    setValue,
     formState: { errors },
   } = useForm<CreatePostFormValues>({
     resolver: zodResolver(createPostSchema),
@@ -73,9 +80,12 @@ export function DiscoverComposeSheet() {
   const maxTagLength = metaQuery.data?.limits.maxTagLength ?? 12;
 
   useEffect(() => {
-    if (!composeSheetOpen || !metaQuery.data?.categories.length) return;
+    const opened = composeSheetOpen && !previousOpenRef.current;
+    previousOpenRef.current = composeSheetOpen;
+    if (!opened) return;
+    resetCreateMutation();
     reset({
-      category: metaQuery.data.categories[0],
+      category: metaQuery.data?.categories[0] ?? '',
       title: '',
       storeName: '',
       priceText: '',
@@ -86,7 +96,17 @@ export function DiscoverComposeSheet() {
     setSelectedFiles([]);
     setSelectionError(null);
     setActivePreviewIndex(null);
-  }, [composeSheetOpen, metaQuery.data, reset]);
+  }, [composeSheetOpen, metaQuery.data?.categories, reset, resetCreateMutation]);
+
+  useEffect(() => () => {
+    imagePreparationGenerationRef.current += 1;
+  }, []);
+
+  useEffect(() => {
+    const firstCategory = metaQuery.data?.categories[0];
+    if (!composeSheetOpen || !firstCategory || getValues('category')) return;
+    setValue('category', firstCategory, { shouldDirty: false, shouldValidate: true });
+  }, [composeSheetOpen, getValues, metaQuery.data?.categories, setValue]);
 
   useEffect(() => {
     if (activePreviewIndex === null) return;
@@ -133,6 +153,7 @@ export function DiscoverComposeSheet() {
         tags: uniqueTags,
         images: selectedFiles,
       });
+      imagePreparationGenerationRef.current += 1;
       closeComposeSheet();
     } catch {
       // mutation 状态在表单内提供可重试反馈。
@@ -145,16 +166,23 @@ export function DiscoverComposeSheet() {
     key: `${item.file.name}-${item.file.lastModified}`,
   }));
 
+  const handleClose = () => {
+    if (createMutation.isPending) return;
+    imagePreparationGenerationRef.current += 1;
+    setProcessingImages(false);
+    closeComposeSheet();
+  };
+
   return (
     <>
       <TaskDialog
         open={composeSheetOpen}
         presentation="modal"
         title="发布推荐"
-        onClose={closeComposeSheet}
+        onClose={handleClose}
         footer={(
-          <Button disabled={createMutation.isPending || metaQuery.isLoading} form={FORM_ID} fullWidth size="lg" type="submit">
-            {createMutation.isPending ? '发布中…' : '发布'}
+          <Button disabled={createMutation.isPending || metaQuery.isLoading || processingImages} form={FORM_ID} fullWidth size="lg" type="submit">
+            {createMutation.isPending ? '发布中…' : processingImages ? '处理图片中…' : '发布'}
           </Button>
         )}
       >
@@ -224,11 +252,12 @@ export function DiscoverComposeSheet() {
               <legend className="text-sm font-medium">图片</legend>
               <p className="text-xs text-muted">上传顺序中的第一张图片将作为信息流主图。</p>
               <label className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-[0.625rem] border border-line bg-white px-3 text-sm font-medium shadow-card hover:bg-tint-soft">
-                <ImagePlus aria-hidden="true" className="size-4" />
-                添加图片
+                {processingImages ? <LoaderCircle aria-hidden="true" className="size-4 animate-spin" /> : <ImagePlus aria-hidden="true" className="size-4" />}
+                {processingImages ? '处理图片中' : '添加图片'}
                 <input
                   accept={DISCOVER_IMAGE_ACCEPT}
                   className="sr-only"
+                  disabled={processingImages || createMutation.isPending}
                   multiple
                   type="file"
                   onChange={(event) => {
@@ -238,13 +267,28 @@ export function DiscoverComposeSheet() {
                       setSelectionError(`每条好饭最多添加 ${maxImages} 张图片`);
                       return;
                     }
-                    if (nextFiles.some((file) => file.size > MAX_DISCOVER_IMAGE_BYTES)) {
-                      setSelectionError('单张图片不能超过 32MB');
-                      return;
-                    }
-                    setSelectedFiles(nextFiles);
+                    const preparationGeneration = imagePreparationGenerationRef.current + 1;
+                    imagePreparationGenerationRef.current = preparationGeneration;
+                    setProcessingImages(true);
                     setSelectionError(null);
-                    setActivePreviewIndex(null);
+                    void prepareUploadImages(nextFiles, {
+                      maxFiles: maxImages,
+                      maxInputBytes: MAX_DISCOVER_IMAGE_BYTES,
+                      maxTotalBytes: maxImages * TARGET_DISCOVER_IMAGE_BYTES,
+                      maxPixels: 16_000_000,
+                      maxOutputBytes: TARGET_DISCOVER_IMAGE_BYTES,
+                      maxDimension: 2048,
+                      quality: 0.82,
+                    }).then((prepared) => {
+                      if (imagePreparationGenerationRef.current !== preparationGeneration) return;
+                      setSelectedFiles(prepared);
+                      setActivePreviewIndex(null);
+                    }).catch((error) => {
+                      if (imagePreparationGenerationRef.current !== preparationGeneration) return;
+                      setSelectionError(error instanceof Error ? error.message : '图片处理失败，请重新选择');
+                    }).finally(() => {
+                      if (imagePreparationGenerationRef.current === preparationGeneration) setProcessingImages(false);
+                    });
                   }}
                 />
               </label>

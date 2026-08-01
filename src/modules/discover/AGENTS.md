@@ -13,7 +13,7 @@ composition.ts: 局部模块组合根，接收 db/CommunityProfileReader/Notific
 点赞事实与 likeCount/Outbox、评论事实与 commentCount/Outbox 的一致性由 SQLite 短事务维护；发帖失败媒体补偿、提交后即时投影与软删除后媒体清理由 application 编排。
 Discover 媒体周期回收只删除未被有效帖子引用、严格 UUID 命名且早于宽限截止时间的目录，覆盖软删除即时清理失败与写库补偿失败，不触碰未知目录。
 帖子、评论与 Operations 查询只读取 Discover 自有事实，再经 CommunityProfileReader.getMany 批量投影作者，禁止 JOIN users/community_profiles。
-推荐偏好仅来源于当前用户点赞过帖子的分类与标签；无点赞偏好或无匹配候选时退化 latest，popular 固定按 likeCount、publishedAt、id 排序。
+推荐偏好仅来源于当前用户点赞过帖子的分类与标签；完整匹配集按分数、点赞、发布时间、ID 建立唯一顺序后分页，无偏好或无匹配候选时退化 latest，popular 固定按 likeCount、publishedAt、id 排序。
 
 变更日志
 2026-07-31: 删除评分与静态 singleton，加入幂等点赞、popular/点赞偏好推荐、公共用户帖子和 Community 批量作者投影。

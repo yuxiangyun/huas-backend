@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 Discover/Treehole SQLite 写 adapters、真实 Notifications Outbox writer、隔离 SQLite 与失败注入
+ * [INPUT]: 依赖 Discover/Treehole SQLite 写 adapters、Treehole 媒体 URL stub、真实 Notifications Outbox writer、隔离 SQLite 与失败注入
  * [OUTPUT]: 证明点赞/评论事实、派生计数和 activity_outbox 在 writer 失败时共同回滚，并验证提交后投影失败可由重试恢复
  * [POS]: tests 的跨模块 transactional Outbox 原子性门禁，直接验证内容事务而不经过 HTTP 或异步 projector
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -16,6 +16,7 @@ import {
 } from '../src/modules/discover/infrastructure/sqlite-discover-post-service';
 import { createNotificationsModule } from '../src/modules/notifications/composition';
 import type { ActivityOutboxWriter } from '../src/modules/notifications/domain/ports';
+import type { TreeholeMediaReader } from '../src/modules/treehole/domain/ports';
 import { SQLiteTreeholeUserPersistence } from '../src/modules/treehole/infrastructure/sqlite-treehole-user-persistence';
 import type { TreeholeTransaction } from '../src/modules/treehole/infrastructure/sqlite-treehole-support';
 import type { DiscoverTransaction } from '../src/modules/discover/infrastructure/discover-mapping';
@@ -26,6 +27,12 @@ const profiles: CommunityProfileReader = {
   async getMany(userIds) {
     return new Map(userIds.map((id) => [id, { id, displayName: `用户${id}`, avatarUrl: null }]));
   },
+};
+const treeholeMediaReader: TreeholeMediaReader = {
+  userUrlFor(mediaKey, fileName) { return `/api/treehole/media/${mediaKey}/${fileName}`; },
+  adminUrlFor(mediaKey, fileName) { return `/api/admin/treehole/media/${mediaKey}/${fileName}`; },
+  async getForUser() { return null; },
+  async getForAdmin() { return null; },
 };
 async function createUser(studentId: string): Promise<number> {
   const now = new Date();
@@ -115,6 +122,7 @@ describe('transactional activity outbox integration', () => {
     const persistence = new SQLiteTreeholeUserPersistence(
       db,
       profiles,
+      treeholeMediaReader,
       failingAfterRealEnqueue<TreeholeTransaction>(notifications.outboxWriter),
     );
 

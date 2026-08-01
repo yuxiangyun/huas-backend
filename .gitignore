@@ -13,6 +13,8 @@ data/schedule-source-policy.json
 data/schedule-source-policy.json.lock/
 data/schedule-source-policy.json.*.tmp
 data/discover/
+data/index-popup/
 data/message-media/
 data/treehole-avatars/
+data/treehole-post-media/
 .DS_Store

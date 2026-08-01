@@ -1,10 +1,10 @@
 # HUAS Server Operations API 契约
 
-> 基线：2026-07-31 当前后端实现
+> 基线：2026-08-01 当前后端实现
 > Base URL：`http://localhost:3000`
 > 通用响应包、错误码与时间格式见 [API.md](./API.md)；社交用户 DTO 见 [SOCIAL_API.md](./SOCIAL_API.md)
 
-本文描述公共公告和 `/api/admin/*` 管理入口。管理端使用独立 HttpOnly Cookie，会话与普通用户 Bearer JWT 不互通。
+本文描述公共公告、首页弹窗和 `/api/admin/*` 管理入口。管理端使用独立 HttpOnly Cookie，会话与普通用户 Bearer JWT 不互通。
 
 ## 1. 后台会话
 
@@ -252,6 +252,14 @@ interface AdminTreeholePostList {
   items: Array<{
     id: number;
     content: string;
+    images: Array<{
+      url: string;
+      width: number;
+      height: number;
+      sizeBytes: number;
+      mimeType: 'image/webp';
+    }>;
+    imageCount: number;
     stats: { likeCount: number; commentCount: number };
     author: CommunityProfile;
     publishedAt: string;
@@ -266,6 +274,15 @@ interface AdminTreeholePostList {
 ```
 
 评论项含 `id/postId/content/author/createdAt/updatedAt`。作者只使用 `{ id, displayName, avatarUrl }`，不返回学号、真实姓名或完整班级。
+
+管理帖子中的图片元数据与用户侧同构，但 `url` 固定为管理读取入口：
+
+```http
+GET /api/admin/treehole/media/:mediaKey/:fileName
+Cookie: huas_admin_session=...
+```
+
+管理前端以 `credentials: 'include'` 请求图片 Blob，再使用 Object URL 展示。普通用户 Bearer JWT 不能代替后台 Cookie；图片必须仍被未删除帖子引用，帖子软删除后返回 404。响应使用 `Content-Type: image/webp`、`Cache-Control: private, no-store` 和 `X-Content-Type-Options: nosniff`。
 
 ### 7.3 Treehole 删除
 
@@ -339,3 +356,62 @@ Operations 只依赖 `MessagingOperationsQueryPort`，不直接查询 `conversat
 - 图片：管理员身份、`conversationId`、稳定 `storageKey`、`read_message_media`。
 
 审计日志不得包含消息正文、图片二进制、原始文件名、学号、真实姓名或其他隐私内容；列表/增量审计也不枚举参与者。
+
+## 9. 首页弹窗
+
+首页弹窗是单配置展示能力，不复用公告列表，不包含人群、排序或曝光统计。服务端管理海报、三态底栏与投放状态；小程序只在 `public_account` 状态把底栏点击导向“文理校园圈”公众号。
+
+```ts
+type IndexPopupFrequency = 'once' | 'daily' | 'startup';
+type IndexPopupActionType = 'public_account' | 'text' | 'none';
+
+interface PublicIndexPopup {
+  version: string;
+  imageUrl: string;
+  actionType: IndexPopupActionType;
+  actionText: string;
+  frequency: IndexPopupFrequency;
+}
+
+interface AdminIndexPopupSettings {
+  enabled: boolean;
+  version: string | null;
+  imageUrl: string | null;
+  actionType: IndexPopupActionType;
+  actionText: string;
+  frequency: IndexPopupFrequency;
+  startsAt: string | null;
+  endsAt: string | null;
+  updatedAt: string | null;
+}
+```
+
+### 9.1 `GET /api/public/index-popup`
+
+无需认证。服务端先判断 `enabled`，再以 `[startsAt, endsAt)` 半开时间窗过滤；开始或结束时间为空表示该方向无边界。没有有效投放时仍返回成功响应：
+
+```json
+{ "success": true, "data": null }
+```
+
+有效时 `data` 严格只有 `version/imageUrl/actionType/actionText/frequency`。底栏语义固定为：`public_account` 显示可点击 `actionText` 并由小程序跳公众号；`text` 只显示不可点击文字；`none` 不显示底栏，返回的 `actionText` 仅为保留配置，客户端必须忽略。`imageUrl` 是 host-agnostic 相对路径 `/media/index-popup/<version>.webp`，媒体响应为 `image/webp`，使用 `public, max-age=31536000, immutable`；客户端不得拼写固定服务域名。媒体目录有界保留最近三个不可变版本并允许读取，避免配置切换期间已取得旧 DTO 的客户端访问 404。
+
+### 9.2 `GET /api/admin/index-popup`
+
+需要后台 Cookie，返回完整 `AdminIndexPopupSettings`。尚未配置时返回关闭状态、`frequency: "daily"`、`actionType: "public_account"` 与默认 `actionText: "了解更多"`，其余可空字段为 `null`。读取旧 `settings.json` 时，缺失 `actionType` 也按 `public_account` 兼容。
+
+### 9.3 `PUT /api/admin/index-popup`
+
+需要后台 Cookie，请求必须是 `multipart/form-data`，不要手写 `Content-Type`，字段如下：
+
+| 字段 | 规则 |
+|---|---|
+| `enabled` | 必填字符串 `true | false` |
+| `frequency` | 必填 `once | daily | startup` |
+| `actionType` | `public_account | text | none`；旧调用方省略时沿用当前值 |
+| `actionText` | `public_account/text` 必须为去除首尾空白后的 1–20 个字符且无控制字符；`none` 省略或传空字符串时保留已存文案 |
+| `startsAt` | 可选 ISO 日期时间；空字符串清除开始时间，无时区的 datetime-local 按北京时间解释 |
+| `endsAt` | 可选 ISO 日期时间；空字符串清除结束时间，必须晚于 `startsAt` |
+| `image` | 可选图片；启用且此前没有图片时必填 |
+
+上传图片经共享安全门禁读取并按原比例缩小为静态 WebP，不裁切；输入最大 10 MiB、24MP，最长边最多 2560，成品最大 2 MiB。提交新 `image`、修改 `actionType` 或修改有效 `actionText` 都生成新的 UUID `version`，使本机频控把它识别为新内容；只修改开关、时间或频率不会换版本。仅修改动作内容时服务端以新版本复制当前不可变 WebP，设置 JSON 仍使用同目录临时文件与原子 rename；配置切换失败会清理候选图片并保留旧有效配置。

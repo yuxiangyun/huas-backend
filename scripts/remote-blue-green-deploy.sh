@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# [INPUT]: 依赖含数据库运维脚本的 release 源目录、共享 .env/data/logs 与 SQLite/nginx/PM2/Bun 运行环境。
-# [OUTPUT]: 对外提供 release 安全保留、停流前磁盘门禁、停流与停 writer、SQLite 快照、destructive migration、目标槽 Server/Web 本机冒烟和重新开放流量的维护发布能力。
+# [INPUT]: 依赖含数据库运维脚本的 release 源目录、共享 .env 中数据库/媒体根、持久 data/logs 与 SQLite/nginx/PM2/Bun 运行环境。
+# [OUTPUT]: 对外提供 release 安全保留、数据库快照与四类媒体存量感知的停流前磁盘门禁、停流停 writer、migration 和目标槽冒烟开放流量能力。
 # [POS]: scripts 的远端 contract release 内核；migration 后失败必须保持 maintenance 与停 writer，只允许 forward-fix。
 # [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
 
@@ -516,20 +516,123 @@ prune_inactive_releases() {
   done < <(find "$RELEASES_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\0' | sort -z -nr)
 }
 
-resolve_database_path() {
-  local configured_db_path
-  configured_db_path="$({
-    set -a
-    . "$APP_ROOT/.env"
-    set +a
-    printf '%s\n' "${DB_PATH:-./data/huas.db}"
-  })"
+resolve_runtime_path() {
+  local path_value="$1"
+  local absolute_path
 
-  if [[ "$configured_db_path" == /* ]]; then
-    printf '%s\n' "$configured_db_path"
+  if [[ "$path_value" == /* ]]; then
+    absolute_path="$path_value"
   else
-    printf '%s\n' "$APP_ROOT/${configured_db_path#./}"
+    absolute_path="$APP_ROOT/${path_value#./}"
   fi
+
+  readlink -m -- "$absolute_path"
+}
+
+assert_safe_media_root() {
+  local label="$1"
+  local storage_root="$2"
+  local canonical_app_root
+
+  canonical_app_root="$(readlink -m -- "$APP_ROOT")"
+  if [[ "$storage_root" != /* || "$storage_root" == "/" \
+    || "$storage_root" == "$canonical_app_root" \
+    || "$canonical_app_root" == "$storage_root"/* \
+    || "$RUNTIME_DATABASE_PATH" == "$storage_root" \
+    || "$RUNTIME_DATABASE_PATH" == "$storage_root"/* ]]; then
+    echo "Refusing unsafe $label media root: $storage_root" >&2
+    exit 1
+  fi
+  case "$storage_root" in
+    /bin|/boot|/dev|/etc|/home|/proc|/root|/run|/sbin|/sys|/tmp|/usr|/var)
+      echo "Refusing broad system directory as $label media root: $storage_root" >&2
+      exit 1
+      ;;
+  esac
+}
+
+assert_distinct_media_roots() {
+  local roots=("$@")
+  local left right
+
+  for ((left = 0; left < ${#roots[@]}; left += 1)); do
+    for ((right = left + 1; right < ${#roots[@]}; right += 1)); do
+      if [[ "${roots[$left]}" == "${roots[$right]}" \
+        || "${roots[$left]}" == "${roots[$right]}"/* \
+        || "${roots[$right]}" == "${roots[$left]}"/* ]]; then
+        echo "Refusing overlapping media roots: ${roots[$left]} and ${roots[$right]}" >&2
+        exit 1
+      fi
+    done
+  done
+}
+
+load_runtime_storage_paths() {
+  local configured_database_path database_dir
+
+  if [[ ! -f "$APP_ROOT/.env" ]]; then
+    echo "Missing required remote file: $APP_ROOT/.env" >&2
+    exit 1
+  fi
+
+  unset DB_PATH DISCOVER_STORAGE_ROOT COMMUNITY_AVATAR_STORAGE_ROOT TREEHOLE_STORAGE_ROOT
+  set -a
+  # shellcheck disable=SC1090
+  . "$APP_ROOT/.env"
+  set +a
+
+  configured_database_path="${DB_PATH:-./data/huas.db}"
+  RUNTIME_DATABASE_PATH="$(resolve_runtime_path "$configured_database_path")"
+  database_dir="$(dirname "$RUNTIME_DATABASE_PATH")"
+  RUNTIME_DISCOVER_STORAGE_ROOT="$(resolve_runtime_path "${DISCOVER_STORAGE_ROOT:-$database_dir/discover}")"
+  RUNTIME_COMMUNITY_AVATAR_STORAGE_ROOT="$(resolve_runtime_path "${COMMUNITY_AVATAR_STORAGE_ROOT:-$database_dir/treehole-avatars}")"
+  RUNTIME_TREEHOLE_STORAGE_ROOT="$(resolve_runtime_path "${TREEHOLE_STORAGE_ROOT:-$database_dir/treehole-post-media}")"
+  RUNTIME_MESSAGING_STORAGE_ROOT="$database_dir/message-media"
+
+  assert_safe_media_root Discover "$RUNTIME_DISCOVER_STORAGE_ROOT"
+  assert_safe_media_root Community "$RUNTIME_COMMUNITY_AVATAR_STORAGE_ROOT"
+  assert_safe_media_root Treehole "$RUNTIME_TREEHOLE_STORAGE_ROOT"
+  assert_safe_media_root Messaging "$RUNTIME_MESSAGING_STORAGE_ROOT"
+  assert_distinct_media_roots \
+    "$RUNTIME_DISCOVER_STORAGE_ROOT" \
+    "$RUNTIME_COMMUNITY_AVATAR_STORAGE_ROOT" \
+    "$RUNTIME_TREEHOLE_STORAGE_ROOT" \
+    "$RUNTIME_MESSAGING_STORAGE_ROOT"
+}
+
+disk_probe_path() {
+  local candidate="$1"
+  local parent
+
+  while [[ ! -e "$candidate" && ! -L "$candidate" ]]; do
+    parent="$(dirname "$candidate")"
+    if [[ "$parent" == "$candidate" ]]; then
+      break
+    fi
+    candidate="$parent"
+  done
+
+  if [[ -e "$candidate" ]] && readlink -f -- "$candidate"; then
+    return
+  fi
+  printf '%s\n' "$candidate"
+}
+
+path_disk_usage_bytes() {
+  local path="$1"
+  local used_kb
+
+  if [[ ! -e "$path" ]]; then
+    printf '0\n'
+    return
+  fi
+
+  used_kb="$(du -sk --dereference-args -- "$path" | awk 'NR == 1 { print $1 }')"
+  if [[ ! "$used_kb" =~ ^[0-9]+$ ]]; then
+    echo "Could not determine disk usage at $path" >&2
+    exit 1
+  fi
+  printf '%s\n' "$((used_kb * 1024))"
 }
 
 assert_path_disk_headroom() {
@@ -551,26 +654,37 @@ assert_path_disk_headroom() {
 
 assert_deployment_disk_headroom() {
   local target_release_dir="$1"
-  local database_path snapshot_dir database_bytes database_required_kb configured_required_kb required_kb
+  local snapshot_dir database_bytes media_bytes storage_required_kb configured_required_kb required_kb
+  local discover_media_bytes community_avatar_bytes treehole_media_bytes messaging_media_bytes
 
-  database_path="$(resolve_database_path)"
+  load_runtime_storage_paths
   snapshot_dir="$APP_ROOT/data/snapshots"
-  mkdir -p "$(dirname "$database_path")" "$snapshot_dir"
+  mkdir -p "$(dirname "$RUNTIME_DATABASE_PATH")" "$snapshot_dir"
 
   database_bytes=0
-  if [[ -f "$database_path" ]]; then
-    database_bytes="$(stat -c '%s' "$database_path")"
+  if [[ -f "$RUNTIME_DATABASE_PATH" ]]; then
+    database_bytes="$(stat -c '%s' "$RUNTIME_DATABASE_PATH")"
   fi
+  discover_media_bytes="$(path_disk_usage_bytes "$RUNTIME_DISCOVER_STORAGE_ROOT")"
+  community_avatar_bytes="$(path_disk_usage_bytes "$RUNTIME_COMMUNITY_AVATAR_STORAGE_ROOT")"
+  treehole_media_bytes="$(path_disk_usage_bytes "$RUNTIME_TREEHOLE_STORAGE_ROOT")"
+  messaging_media_bytes="$(path_disk_usage_bytes "$RUNTIME_MESSAGING_STORAGE_ROOT")"
+  media_bytes=$((discover_media_bytes + community_avatar_bytes + treehole_media_bytes + messaging_media_bytes))
   configured_required_kb=$((MIN_FREE_DISK_MB * 1024))
-  database_required_kb=$(((database_bytes * 3 + 1023) / 1024))
+  storage_required_kb=$(((database_bytes * 3 + media_bytes + 1023) / 1024))
   required_kb="$configured_required_kb"
-  if (( database_required_kb > required_kb )); then
-    required_kb="$database_required_kb"
+  if (( storage_required_kb > required_kb )); then
+    required_kb="$storage_required_kb"
   fi
 
-  assert_path_disk_headroom "release filesystem" "$target_release_dir" "$required_kb"
-  assert_path_disk_headroom "database filesystem" "$(dirname "$database_path")" "$required_kb"
-  assert_path_disk_headroom "snapshot filesystem" "$snapshot_dir" "$required_kb"
+  echo "Disk headroom gate requires ${required_kb}KB (database snapshot safety plus four media roots)"
+  assert_path_disk_headroom "release filesystem" "$(disk_probe_path "$target_release_dir")" "$required_kb"
+  assert_path_disk_headroom "database filesystem" "$(disk_probe_path "$(dirname "$RUNTIME_DATABASE_PATH")")" "$required_kb"
+  assert_path_disk_headroom "snapshot filesystem" "$(disk_probe_path "$snapshot_dir")" "$required_kb"
+  assert_path_disk_headroom "Discover media filesystem" "$(disk_probe_path "$RUNTIME_DISCOVER_STORAGE_ROOT")" "$required_kb"
+  assert_path_disk_headroom "Community avatar filesystem" "$(disk_probe_path "$RUNTIME_COMMUNITY_AVATAR_STORAGE_ROOT")" "$required_kb"
+  assert_path_disk_headroom "Treehole post media filesystem" "$(disk_probe_path "$RUNTIME_TREEHOLE_STORAGE_ROOT")" "$required_kb"
+  assert_path_disk_headroom "Messaging media filesystem" "$(disk_probe_path "$RUNTIME_MESSAGING_STORAGE_ROOT")" "$required_kb"
 }
 
 snapshot_database() {
@@ -631,6 +745,7 @@ require_command find
 require_command readlink
 require_command sort
 require_command stat
+require_command du
 require_command df
 require_command awk
 

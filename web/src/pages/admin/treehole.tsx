@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖后台实体查询、管理 API、共享 UI 与后台会话上下文
- * [OUTPUT]: 提供 treehole.tsx 对应的后台路由页面
- * [POS]: pages/admin 的管理或运行页面，由 AdminLayout 承载
+ * [INPUT]: 依赖 Treehole 管理查询/删除、Cookie 私有图片、共享 UI 与后台会话上下文
+ * [OUTPUT]: 对外提供 AdminTreeholeSubPage，查询、预览并删除 Treehole 图文帖子与评论
+ * [POS]: pages/admin 的 Treehole 内容审核页，图片只经管理 Cookie 读取且不复用普通用户 Bearer
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -21,6 +21,7 @@ import { ApiError } from '@/shared/api/http-client';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
 import { ConfirmSheet } from '@/shared/ui/confirm-sheet';
+import { PrivateMediaImage } from '@/shared/ui/private-media-image';
 
 const fieldClassName =
   'field-control h-11 min-h-11 py-2 text-sm';
@@ -325,7 +326,22 @@ export function AdminTreeholeSubPage() {
                     <td className="px-4 py-3 text-muted">
                       {post.author.displayName}
                     </td>
-                    <td className="px-4 py-3 text-ink">{post.content}</td>
+                    <td className="px-4 py-3 text-ink">
+                      <div className="flex gap-2.5">
+                        {post.images[0] ? (
+                          <PrivateMediaImage
+                            alt="帖子首图"
+                            authMode="admin"
+                            className="size-14 min-h-0 shrink-0 rounded-[0.5rem] object-cover"
+                            src={post.images[0].url}
+                          />
+                        ) : null}
+                        <span className="min-w-0">
+                          <span className="text-clamp-3 block break-words">{post.content}</span>
+                          {post.imageCount > 0 ? <span className="mt-1 block text-xs text-muted">{post.imageCount} 张图片</span> : null}
+                        </span>
+                      </div>
+                    </td>
                     <td className="px-4 py-3 text-muted">{post.stats.likeCount} / {post.stats.commentCount}</td>
                     <td className="px-4 py-3 text-muted">{formatDateTime(post.publishedAt)}</td>
                     <td className="px-4 py-3">
@@ -416,7 +432,23 @@ export function AdminTreeholeSubPage() {
           ) : (
             <>
               <div className="border-b border-line/70 px-4 py-3 text-sm text-muted">
-                {selectedPost.author.displayName}
+                <p>{selectedPost.author.displayName}</p>
+                <p className="mt-2 break-words leading-6 text-ink whitespace-pre-wrap">{selectedPost.content}</p>
+                {selectedPost.images.length > 0 ? (
+                  <div className="mt-3 grid grid-cols-3 gap-2">
+                    {selectedPost.images.map((image, imageIndex) => (
+                      <PrivateMediaImage
+                        key={image.url}
+                        alt={`帖子第 ${imageIndex + 1} 张图片`}
+                        authMode="admin"
+                        className="aspect-square w-full rounded-[0.5rem] object-contain"
+                        height={image.height}
+                        src={image.url}
+                        width={image.width}
+                      />
+                    ))}
+                  </div>
+                ) : null}
               </div>
 
               {commentsQuery.isError && !(commentsQuery.error instanceof ApiError && commentsQuery.error.httpStatus === 404) ? <div className="px-4 py-4 text-sm text-error">评论加载失败，请重试</div> : null}

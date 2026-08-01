@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖共享 apiRequest、后台 Cookie 会话与 entities/admin 的强类型协议
- * [OUTPUT]: 提供 dashboard、内容、日志、课表策略与私信只读的管理 HTTP 边界
+ * [OUTPUT]: 提供 dashboard、内容、日志、课表策略、含底部三态动作的首页弹窗 multipart 设置与私信只读管理边界
  * [POS]: entities/admin 的唯一 HTTP 适配边界，向查询层屏蔽路径、方法与 AbortSignal 细节
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -12,6 +12,8 @@ import type {
   AdminAnnouncementUpdatePayload,
   AdminAnalyticsOverview,
   AdminDashboardResponse,
+  AdminIndexPopupSettings,
+  AdminIndexPopupSettingsPayload,
   AdminScheduleSourceMode,
   AdminScheduleSourcePolicy,
   AdminTerminalLogResponse,
@@ -77,6 +79,31 @@ export async function updateAdminScheduleSourcePolicy(mode: AdminScheduleSourceM
   return apiRequest<AdminScheduleSourcePolicy>(
     '/api/admin/academic/schedule-source-policy',
     { method: 'PUT', body: JSON.stringify({ mode }) },
+    { auth: false }
+  );
+}
+
+export async function getAdminIndexPopupSettings(options?: RequestOptions) {
+  return apiRequest<AdminIndexPopupSettings>(
+    '/api/admin/index-popup',
+    {},
+    { auth: false, signal: options?.signal }
+  );
+}
+
+export async function updateAdminIndexPopupSettings(payload: AdminIndexPopupSettingsPayload) {
+  const form = new FormData();
+  form.set('enabled', String(payload.enabled));
+  form.set('actionType', payload.actionType);
+  form.set('actionText', payload.actionText);
+  form.set('frequency', payload.frequency);
+  form.set('startsAt', payload.startsAt ?? '');
+  form.set('endsAt', payload.endsAt ?? '');
+  if (payload.image) form.set('image', payload.image);
+
+  return apiRequest<AdminIndexPopupSettings>(
+    '/api/admin/index-popup',
+    { method: 'PUT', body: form },
     { auth: false }
   );
 }

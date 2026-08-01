@@ -3,7 +3,7 @@
 
 成员清单
 admin-dashboard-service.ts: 构造注入身份、Discover、公告、日志与系统端口，保持 Dashboard 响应聚合契约
-community-admin-service.ts: 构造注入 Treehole 只读 query port 与 Discover/Treehole 命令端口，编排后台社区管理
+community-admin-service.ts: 构造注入 Treehole 只读/私有媒体 ports 与 Discover/Treehole 命令端口，编排后台社区管理与帖子图片读取
 messaging-admin-service.ts: 只依赖 MessagingOperationsQueryPort 的会话翻页/增量、消息与带审计上下文私有媒体只读用例
 
 架构决策

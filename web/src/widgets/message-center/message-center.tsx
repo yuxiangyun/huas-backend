@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 Messaging/Notifications 分页、高水位与通知总量摘要、共享头像/状态原语及上层导航动作
- * [OUTPUT]: 对外提供 MessageCenter，以服务端排序快照呈现私信和互动，并在新增或撤销时校准通知列表
- * [POS]: widgets/message-center 的聚合读容器，不自行复制通知排序或只追加生命周期模型
+ * [INPUT]: 依赖 Messaging/Notifications 分页、高水位、壳层聚合未读摘要、轮询暂停信号与上层导航动作
+ * [OUTPUT]: 对外提供 MessageCenter，只轮询当前分区并以服务端排序快照呈现私信和互动、校准通知撤销
+ * [POS]: widgets/message-center 的聚合读容器，聊天打开时暂停后台变化请求，不自行复制通知排序或生命周期模型
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -10,15 +10,14 @@ import { Bell, MessageCircle } from 'lucide-react';
 import {
   useConversationChangesQuery,
   useConversationsInfiniteQuery,
-  useMessagingUnreadCountQuery,
 } from '@/entities/messaging/api/messaging-queries';
 import type { Conversation } from '@/entities/messaging/model/messaging-types';
 import {
   useNotificationChangesQuery,
   useNotificationsInfiniteQuery,
-  useNotificationUnreadCountQuery,
 } from '@/entities/notifications/api/notification-queries';
 import type { ActivityNotification, NotificationType } from '@/entities/notifications/model/notification-types';
+import type { SocialUnreadSummary } from '@/entities/social/model/social-summary-types';
 import { shouldReconcileNotificationSnapshot } from '@/entities/notifications/model/notification-reconciliation';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
@@ -37,6 +36,9 @@ interface MessageCenterProps {
   onOpenConversation: (conversation: Conversation) => void;
   onOpenNotification: (notification: ActivityNotification) => void;
   onOpenProfile: (userId: number) => void;
+  unreadSummary: SocialUnreadSummary;
+  unreadSummaryReady?: boolean;
+  pollingPaused?: boolean;
 }
 
 const notificationLabels: Record<NotificationType, string> = {
@@ -95,11 +97,9 @@ function ListSkeleton() {
   );
 }
 
-export function MessageCenter({ section, onSectionChange, onOpenConversation, onOpenNotification, onOpenProfile }: MessageCenterProps) {
+export function MessageCenter({ section, onSectionChange, onOpenConversation, onOpenNotification, onOpenProfile, unreadSummary, unreadSummaryReady = false, pollingPaused = false }: MessageCenterProps) {
   const conversationsQuery = useConversationsInfiniteQuery(30, section === 'conversations');
   const notificationsQuery = useNotificationsInfiniteQuery(30, section === 'notifications');
-  const messagingUnreadQuery = useMessagingUnreadCountQuery();
-  const notificationUnreadQuery = useNotificationUnreadCountQuery();
   const baseConversations = useMemo(
     () => conversationsQuery.data?.pages.flatMap((page) => page.items) ?? [],
     [conversationsQuery.data]
@@ -111,8 +111,16 @@ export function MessageCenter({ section, onSectionChange, onOpenConversation, on
   const [conversationWatermark, setConversationWatermark] = useState<number | null>(null);
   const [notificationWatermark, setNotificationWatermark] = useState<number | null>(null);
   const [conversationChanges, setConversationChanges] = useState<Map<number, Conversation>>(() => new Map());
-  const conversationChangesQuery = useConversationChangesQuery(conversationWatermark);
-  const notificationChangesQuery = useNotificationChangesQuery(notificationWatermark);
+  const conversationPollingEnabled = section === 'conversations' && !pollingPaused;
+  const notificationPollingEnabled = section === 'notifications' && !pollingPaused;
+  const conversationChangesQuery = useConversationChangesQuery(
+    conversationWatermark,
+    conversationPollingEnabled,
+  );
+  const notificationChangesQuery = useNotificationChangesQuery(
+    notificationWatermark,
+    notificationPollingEnabled,
+  );
   const refetchNotifications = notificationsQuery.refetch;
 
   useEffect(() => {
@@ -126,6 +134,7 @@ export function MessageCenter({ section, onSectionChange, onOpenConversation, on
   }, [baseNotifications, notificationWatermark, notificationsQuery.isSuccess]);
 
   useEffect(() => {
+    if (!conversationPollingEnabled || conversationWatermark === null) return;
     const data = conversationChangesQuery.data;
     if (!data) return;
     if (data.items.length > 0) {
@@ -136,30 +145,32 @@ export function MessageCenter({ section, onSectionChange, onOpenConversation, on
       });
     }
     setConversationWatermark((current) => Math.max(current ?? 0, data.afterMessageId));
-  }, [conversationChangesQuery.data]);
+  }, [conversationChangesQuery.data, conversationPollingEnabled, conversationWatermark]);
 
   useEffect(() => {
+    if (!notificationPollingEnabled || notificationWatermark === null) return;
     const data = notificationChangesQuery.data;
     if (!data) return;
     if (data.items.length > 0) void refetchNotifications();
     setNotificationWatermark((current) => Math.max(current ?? 0, data.afterNotificationId));
-  }, [notificationChangesQuery.data, refetchNotifications]);
+  }, [notificationChangesQuery.data, notificationPollingEnabled, notificationWatermark, refetchNotifications]);
 
   const notificationSnapshotTotal = notificationsQuery.data?.pages[0]?.total ?? null;
-  const notificationSummaryTotal = notificationUnreadQuery.data?.total ?? null;
+  const notificationSummaryTotal = unreadSummaryReady ? unreadSummary.notificationTotal : null;
 
   useEffect(() => {
+    if (!notificationPollingEnabled) return;
     if (!shouldReconcileNotificationSnapshot(notificationSnapshotTotal, notificationSummaryTotal)) return;
     void refetchNotifications();
-  }, [notificationSnapshotTotal, notificationSummaryTotal, refetchNotifications]);
+  }, [notificationPollingEnabled, notificationSnapshotTotal, notificationSummaryTotal, refetchNotifications]);
 
   const conversations = useMemo(
     () => mergeConversations(baseConversations, conversationChanges),
     [baseConversations, conversationChanges]
   );
   const notifications = baseNotifications;
-  const messagingUnread = messagingUnreadQuery.data?.unreadCount ?? 0;
-  const notificationUnread = notificationUnreadQuery.data?.unreadCount ?? 0;
+  const messagingUnread = unreadSummary.messagingUnreadCount;
+  const notificationUnread = unreadSummary.notificationUnreadCount;
 
   return (
     <div className="page-stack-mobile">

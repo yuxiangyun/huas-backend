@@ -15,8 +15,8 @@ business-flows/: 登录、凭证、课表/日历、缓存与持久化边界的�
 cache-modernization.test.ts: Cache 永久/限时新鲜度、版本 envelope、旧 payload、同意图 singleflight 与 observer 隔离回归测试
 calendar-compat.test.ts: Calendar canonical 实现与 routes/services/auth 旧 Facade 的引用、token 别名与 HMAC 语义兼容测试
 campus-integrations-compat.test.ts: Campus Integrations canonical 实现与 auth/core/parsers/services 旧 Facade 的引用一致性测试
-database-migrations.test.ts: SQLite destructive 授权、0003 核心守恒、非空旧评分/通知直接丢弃、索引/完整性、schema fail-ready、repair 与快照测试
-deployment-scripts.test.ts: 维护发布脚本的 Bash 语法、release 保留、停流前磁盘门禁、PM2 直接 Bun 启动、destructive migration、本机冒烟与 forward-fix 回归测试
+database-migrations.test.ts: SQLite destructive 授权、0003 核心守恒/旧事实丢弃、0004 Treehole 媒体列与唯一索引、schema fail-ready、repair 与快照测试
+deployment-scripts.test.ts: 维护发布脚本的 Bash 语法、首页弹窗成组备份白名单、release 保留、停流前磁盘门禁、PM2 直接 Bun 启动、destructive migration、本机冒烟与 forward-fix 回归测试
 classroom-free-parser.test.ts: 空教室解析器回归测试
 community.test.ts: Community 缺省名称、昵称校验、DTO 隔离、并发字段 patch、头像引用保护、宽限期孤儿回收与媒体生命周期回归测试
 discover.test.ts: Discover 薄聚合入口，在单进程内装配 discover/ 媒体、推荐、评论与管理用例
@@ -28,12 +28,15 @@ evaluation-parser.test.ts: 教评解析、actionable/blocked 状态、有界续�
 fixtures/: 测试二进制样本目录，包含 HEIC 图片
 grade-parser.test.ts: 成绩表结构、合法空表、错误页拒绝与评教门禁回归测试
 identity-login-application.test.ts: Identity/Login 应用编排、验证码固定周期清理、CAS 提交耗时、Portal/JW 分支与 SQLite 用户凭证原子回滚测试
-image.test.ts: 共享图片真实格式识别、输入边界、EXIF 旋转、缩放裁切、动画保留、HEIC fallback 与 WebP 输出回归测试
+image.test.ts: 共享图片 sharp 无缓存单线程资源策略、真实格式识别、输入/像素/页数边界、EXIF 清理、动画策略、安全 HEIC fallback 与严格输出上限回归测试
+index-popup.test.ts: 首页弹窗启停/时间窗、三态底栏/旧配置兼容、动作内容版本、multipart 校验、公开 null、原子设置与最近三版不可变媒体回归测试
 notifications.test.ts: Notifications 差异回复事件、Outbox 幂等/撤销/退避/双层失败隔离、ID 增量、摘要校准与永久保留回归测试
-messaging.test.ts: Messaging 延迟会话/目标定位、会话高水位、严格 UUID 图文幂等、压缩前事实限流、三态消息、未读与私有媒体测试
-messaging-upload.test.ts: Messaging HTTP 上传边界，锁定 Content-Length/流式请求体的解析前 413 与坏 multipart 的稳定 400
+messaging.test.ts: Messaging 延迟会话/目标定位、会话高水位、严格 UUID 图文幂等、三态消息、未读与私有媒体测试
+messaging-timestamps.test.ts: Messaging 慢图片/快文本并发提交时间与 repository 会话时间单调回归测试
+messaging-upload.test.ts: Messaging HTTP 上传边界，锁定混合字段图片线序、解析前 413 与坏 multipart 的稳定 400
 social-upload-limits.test.ts: Discover/Community HTTP 上传边界，锁定声明长度、流式及无关字段请求在 formData 前统一返回 413
-messaging-admin.test.ts: 管理员 Cookie 会话增量/三态消息/图片只读、三类隐私安全审计、禁止写命令、参与者媒体权限与三类清理任务装配测试
+social-summary-routes.test.ts: Social 私信/互动未读单请求并行聚合与稳定响应字段回归测试
+messaging-admin.test.ts: 管理员 Cookie 会话增量/三态消息/图片只读、三类隐私安全审计、禁止写命令、参与者媒体权限与四类清理任务装配测试
 operations-application.test.ts: Operations Dashboard 构造注入与纯端口聚合隔离测试
 operations-compat.test.ts: Operations canonical 与旧 routes/services/runtime/middleware Facade 引用及依赖方向测试
 periodic-tasks.test.ts: Runtime 轻量周期任务注册、幂等启停、失败隔离与同任务防重叠回归测试
@@ -45,9 +48,9 @@ schedule-parser.test.ts: JW 真实结构、非教学周、登录页与嵌套课�
 schedule-source-policy.test.ts: 课表来源热策略、请求快照、current/stale 固定顺序、legacy 错误优先级、持久化锁接管与管理鉴权回归测试
 setup.ts: 单元与业务流测试环境初始化，并在模块装载前显式迁移隔离 SQLite
 social-database.ts: 跨 Community/Discover/Treehole/Notifications/Messaging 套件的外键有序清理 helper，显式解除会话游标循环引用后清空社交与身份事实
-treehole.test.ts: Treehole 薄聚合入口，在单进程内装配 treehole/ 公共作者、交互与管理用例
-treehole/: Treehole HTTP/事务/Community 作者投影共享支架及按业务能力细分的回归用例
-web-social-state.test.ts: 无 DOM 验证私信单一目标、资料/详情 URL 互斥、Discover 排序/分页失效与通知 total 校准规则
+treehole.test.ts: Treehole 薄聚合入口，在单进程内装配 treehole/ 公共作者、低内存私有媒体、交互与管理用例
+treehole/: Treehole HTTP/事务/Community 作者投影与私有图片共享支架，按帖子、媒体、交互和管理能力细分回归用例
+web-social-state.test.ts: 无 DOM 验证私信单一目标/历史合并、资料/详情 URL 互斥、basename 归一化、上传格式、Discover 排序/分页失效与通知 total 校准规则
 upstream-retry.test.ts: 上游请求/凭证恢复的次数与 deadline、成绩临时错误分类、非重试错误、CAS 结构化验证码/凭证拒绝、HTTP 维护页及 Portal 换票瞬态网络语义回归测试
 
 架构决策
@@ -61,6 +64,9 @@ upstream-retry.test.ts: 上游请求/凭证恢复的次数与 deadline、成绩�
 新增、删除或重命名测试文件时同步更新本地图。
 
 变更日志
+2026-08-01: 首页弹窗补齐 public_account/text/none 三态底栏、旧配置兼容、动作内容版本与公开 DTO 端到端契约测试。
+2026-08-01: 共享图片测试补齐 sharp 无缓存单线程资源策略、总解码像素、动图/页数拒绝、元数据清理、严格输出上限的成功自适应与有限失败语义。
+2026-08-01: 新增 Treehole multipart-only 私有图片、低内存压缩门禁、双认证读取、失败补偿与孤儿回收回归。
 2026-08-01: 新增 Discover/Community 上传解析前门禁、Community 并发字段 patch/头像引用保护与 Outbox 失败写回隔离回归。
 2026-08-01: 项目级 Bun 测试配置默认加载隔离 SQLite setup，阻止直接执行单测时误清理 data/huas.db。
 2026-07-31: 新增 Community 专项测试，锁定重复昵称、默认 displayName、公共 DTO 与不可变头像媒体边界。

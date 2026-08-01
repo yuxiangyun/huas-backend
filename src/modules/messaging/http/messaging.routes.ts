@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 Hono、注入的 MessagingApplicationService/策略、共享 multipart 请求上限、统一响应/HTTP 日志与 Logger
- * [OUTPUT]: 对外提供 createMessagingRoutes(service, policy)，映射会话翻页/增量、定位、三态历史、流式请求上限与私有媒体
+ * [INPUT]: 依赖 Hono、注入的 MessagingApplicationService/策略、共享 multipart 请求上限、私有媒体响应、统一响应/HTTP 日志与 Logger
+ * [OUTPUT]: 对外提供 createMessagingRoutes(service, policy)，按 multipart 线序映射会话翻页/增量、三态历史、受限上传与私有媒体
  * [POS]: modules/messaging/http 的认证后协议 adapter，以 afterMessageId 高水位轮询并在 multipart 解析前统一执行 413 门禁
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -9,6 +9,7 @@ import { Hono } from 'hono';
 import { ErrorCode } from '../../../utils/errors';
 import { appendHttpLogDetail, formatHttpLogDetail } from '../../../utils/http-log';
 import { Logger } from '../../../utils/logger';
+import { privateMediaResponse } from '../../../utils/private-media-response';
 import { isBodyLimitError, requestBodyLimit } from '../../../utils/request-body-limit';
 import { error, success } from '../../../utils/response';
 import type { MessagingApplicationService } from '../application/messaging-application-service';
@@ -108,7 +109,10 @@ export function createMessagingRoutes(
       if (textEntry !== null && typeof textEntry !== 'string') {
         return error(c, ErrorCode.PARAM_ERROR, '消息文字不合法', 400);
       }
-      const imageEntries = [...form.getAll('images'), ...form.getAll('images[]')];
+      const imageEntries: unknown[] = [];
+      form.forEach((value, field) => {
+        if (field === 'images' || field === 'images[]') imageEntries.push(value);
+      });
       if (imageEntries.some((entry) => !(entry instanceof File) || entry.size <= 0)) {
         return error(c, ErrorCode.PARAM_ERROR, '图片文件不合法', 400);
       }
@@ -176,13 +180,7 @@ export function createMessagingRoutes(
     const storageKey = `${c.req.param('batchKey')}/${c.req.param('fileName')}`;
     const file = await service.getMedia(c.get('userId'), storageKey);
     if (!file) return error(c, ErrorCode.PARAM_ERROR, '私信图片不存在或无权访问', 404);
-    return new Response(file, {
-      headers: {
-        'Content-Type': 'image/webp',
-        'Cache-Control': 'private, no-store',
-        'X-Content-Type-Options': 'nosniff',
-      },
-    });
+    return privateMediaResponse(file);
   });
 
   return routes;

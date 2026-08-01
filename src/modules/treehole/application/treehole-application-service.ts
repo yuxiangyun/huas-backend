@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 Treehole 纯领域规则、构造注入的 persistence port 与 Notifications 提交后投影触发器
- * [OUTPUT]: 对外提供 TreeholeApplicationService，编排公开内容、用户帖子、活动投影与管理用例
+ * [INPUT]: 依赖 Treehole 纯领域规则、构造注入的 persistence/media ports 与 Notifications 提交后投影触发器
+ * [OUTPUT]: 对外提供 TreeholeApplicationService，编排图文帖子、用户/管理删除补偿、私有媒体读取、孤儿回收与活动投影用例
  * [POS]: modules/treehole/application 的唯一用例服务，不知道 Hono、Drizzle、Bun、Notifications 实现或文件系统
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -15,6 +15,7 @@ import {
   getTreeholeMeta,
   normalizeCommentContent,
   normalizePostContent,
+  validateTreeholeImages,
   type AdminTreeholeCommentListOptions,
   type AdminTreeholePostListOptions,
   type CreateTreeholeCommentInput,
@@ -22,11 +23,18 @@ import {
   type ListOptions,
   type TreeholePolicy,
 } from '../domain/treehole';
-import type { TreeholePersistence } from '../domain/ports';
+import type {
+  TreeholeMediaReader,
+  TreeholeMediaStorage,
+  TreeholePersistence,
+} from '../domain/ports';
+
+type TreeholeMediaPort = TreeholeMediaStorage & Pick<TreeholeMediaReader, 'getForUser'>;
 
 export class TreeholeApplicationService {
   constructor(
     private readonly persistence: TreeholePersistence,
+    private readonly media: TreeholeMediaPort,
     private readonly policy: TreeholePolicy,
     private readonly activityProjection: ActivityProjectionTrigger,
   ) {}
@@ -63,11 +71,20 @@ export class TreeholeApplicationService {
     });
   }
 
-  createPost(input: CreateTreeholePostInput) {
-    return this.persistence.createPost({
-      userId: input.userId,
-      content: normalizePostContent(input.content, this.policy),
-    });
+  async createPost(input: CreateTreeholePostInput) {
+    const content = normalizePostContent(input.content, this.policy);
+    validateTreeholeImages(input.images, this.policy);
+    const media = await this.media.prepare(input.images);
+    try {
+      return await this.persistence.createPost({ userId: input.userId, content, media });
+    } catch (error) {
+      try {
+        await this.media.removeStorage(media?.mediaKey ?? null);
+      } catch (cleanupError) {
+        Logger.error('TreeholeMedia', '帖子写库失败后媒体补偿也失败', cleanupError);
+      }
+      throw error;
+    }
   }
 
   getPostDetail(userId: number, postId: number) {
@@ -105,8 +122,9 @@ export class TreeholeApplicationService {
     return result;
   }
 
-  deletePost(postId: number, userId: number) {
-    return this.persistence.deletePost(postId, userId);
+  async deletePost(postId: number, userId: number) {
+    const removed = await this.persistence.deletePost(postId, userId);
+    return this.cleanupDeletedPostMedia(removed);
   }
 
   deleteComment(commentId: number, userId: number) {
@@ -128,12 +146,33 @@ export class TreeholeApplicationService {
     });
   }
 
-  adminDeletePost(postId: number) {
-    return this.persistence.adminDeletePost(postId);
+  async adminDeletePost(postId: number) {
+    const removed = await this.persistence.adminDeletePost(postId);
+    return this.cleanupDeletedPostMedia(removed);
   }
 
   adminDeleteComment(commentId: number) {
     return this.persistence.adminDeleteComment(commentId);
+  }
+
+  getMedia(mediaKey: string, fileName: string) {
+    return this.media.getForUser(mediaKey, fileName);
+  }
+
+  cleanupOrphanMedia(before: Date) {
+    return this.media.cleanupOrphans(before);
+  }
+
+  private async cleanupDeletedPostMedia(
+    removed: { id: number; mediaKey: string | null } | null,
+  ) {
+    if (!removed) return null;
+    try {
+      await this.media.removeStorage(removed.mediaKey);
+    } catch (error) {
+      Logger.error('TreeholeMedia', `帖子 ${removed.id} 删除后清理图片失败`, error);
+    }
+    return { id: removed.id };
   }
 
   private async attemptActivityProjection(): Promise<void> {

@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖后台 Cookie 会话、React Router Outlet/位置、应用路径、QueryClient 与全局 Toast
- * [OUTPUT]: 提供 AdminLayout、AdminOutletContextValue 与 useAdminOutletContext，统一后台认证和分组导航
- * [POS]: pages/admin 的桌面优先工作台壳，移动端保留完整导航与退出能力
+ * [INPUT]: 依赖后台 Cookie 会话、React Router Outlet/位置、应用路径、QueryClient、后台私有媒体缓存与全局 Toast
+ * [OUTPUT]: 提供 AdminLayout、AdminOutletContextValue 与 useAdminOutletContext，统一后台认证、Cookie Blob 清理和分组导航
+ * [POS]: pages/admin 的桌面优先工作台壳，登录身份变化、失效或退出时同步清空后台媒体，移动端保留完整能力
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -17,6 +17,7 @@ import { ApiError } from '@/shared/api/http-client';
 import { buildAppPath } from '@/shared/config/env';
 import { Button } from '@/shared/ui/button';
 import { IconButton } from '@/shared/ui/icon-button';
+import { clearPrivateMediaCache } from '@/shared/ui/private-media-image';
 
 const navGroups = [
   { label: '业务', items: [
@@ -76,6 +77,7 @@ export function AdminLayout() {
 
   useEffect(() => {
     const handleExpired = () => {
+      clearPrivateMediaCache('admin');
       void clearAdminSession().catch(() => undefined);
       queryClient.removeQueries({ queryKey: adminQueryKeys.all() });
       setSession(null);
@@ -90,6 +92,7 @@ export function AdminLayout() {
   const login = useMutation({
     mutationFn: () => createAdminSession(username, password),
     onSuccess: (value) => {
+      clearPrivateMediaCache('admin');
       queryClient.removeQueries({ queryKey: adminQueryKeys.all() });
       setSession(value);
       setPassword('');
@@ -99,6 +102,7 @@ export function AdminLayout() {
   });
 
   function clearSession(nextMessage?: string) {
+    clearPrivateMediaCache('admin');
     void clearAdminSession().catch(() => undefined);
     queryClient.removeQueries({ queryKey: adminQueryKeys.all() });
     setSession(null);

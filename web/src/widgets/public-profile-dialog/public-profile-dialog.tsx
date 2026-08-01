@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 Community 公共资料、Discover/Treehole 指定用户帖子查询与上层导航动作
- * [OUTPUT]: 对外提供 PublicProfileDialog，展示用户资料、两类公开内容并委托上层原子进入私信或帖子详情
- * [POS]: widgets/public-profile-dialog 的跨领域只读任务容器，不组合关闭弹层与路由跳转两份状态写入
+ * [INPUT]: 依赖 Community 公共资料、Discover/Treehole 指定用户图文查询、私有首图与上层导航动作
+ * [OUTPUT]: 对外提供 PublicProfileDialog，展示用户资料、两类图文内容并委托上层原子进入私信或帖子详情
+ * [POS]: widgets/public-profile-dialog 的跨领域只读任务容器，Treehole 缩略图仍遵守 Bearer 私有媒体边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -14,6 +14,7 @@ import { buildMediaUrl } from '@/shared/api/media';
 import { Button } from '@/shared/ui/button';
 import { CommunityAvatar } from '@/shared/ui/community-avatar';
 import { EmptyState } from '@/shared/ui/empty-state';
+import { PrivateMediaImage } from '@/shared/ui/private-media-image';
 import { SegmentedControl } from '@/shared/ui/segmented-control';
 import { TaskDialog } from '@/shared/ui/task-dialog';
 
@@ -131,12 +132,17 @@ export function PublicProfileDialog({
             ) : (
               <div className="divide-y divide-line">
                 {treeholePosts.map((post) => (
-                  <button key={post.id} className="block w-full px-4 py-3.5 text-left hover:bg-tint-soft" type="button" onClick={() => onOpenTreeholePost(post.id)}>
-                    <span className="text-clamp-3 block break-words text-sm leading-6">{post.content}</span>
-                    <span className="mt-2 flex items-center gap-3 text-xs text-muted">
-                      <span>{formatPublishedAt(post.publishedAt)}</span>
-                      <span className="inline-flex items-center gap-1"><Heart aria-hidden="true" className="size-3.5" />{post.stats.likeCount}</span>
-                      <span className="inline-flex items-center gap-1"><MessageCircle aria-hidden="true" className="size-3.5" />{post.stats.commentCount}</span>
+                  <button key={post.id} className="flex w-full gap-3 px-4 py-3.5 text-left hover:bg-tint-soft" type="button" onClick={() => onOpenTreeholePost(post.id)}>
+                    {post.images[0] ? (
+                      <PrivateMediaImage alt="帖子首图" className="size-16 min-h-0 shrink-0 rounded-[0.5rem] object-cover" src={post.images[0].url} />
+                    ) : null}
+                    <span className="min-w-0 flex-1">
+                      <span className="text-clamp-3 block break-words text-sm leading-6">{post.content}</span>
+                      <span className="mt-2 flex items-center gap-3 text-xs text-muted">
+                        <span>{formatPublishedAt(post.publishedAt)}</span>
+                        <span className="inline-flex items-center gap-1"><Heart aria-hidden="true" className="size-3.5" />{post.stats.likeCount}</span>
+                        <span className="inline-flex items-center gap-1"><MessageCircle aria-hidden="true" className="size-3.5" />{post.stats.commentCount}</span>
+                      </span>
                     </span>
                   </button>
                 ))}

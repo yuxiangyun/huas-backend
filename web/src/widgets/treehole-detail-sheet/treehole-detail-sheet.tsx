@@ -1,12 +1,12 @@
 /**
- * [INPUT]: 依赖 Treehole 查询/写入 hooks、可折叠评论线程、BottomSheet、ConfirmSheet 与社区头像
- * [OUTPUT]: 对外提供 TreeholeDetailSheet，展示树洞详情并编排点赞、评论与删除
- * [POS]: widgets/treehole-detail-sheet 的业务容器，保留社区数据与 mutation 语义，复用无请求评论 UI
+ * [INPUT]: 依赖 Treehole 查询/写入、私有多图轮播、按需全屏查看器、可折叠评论线程与短任务弹层
+ * [OUTPUT]: 对外提供 TreeholeDetailSheet，以邻近图片、首批 20 条评论和固定底部输入器编排阅读与互动
+ * [POS]: widgets/treehole-detail-sheet 的图文阅读容器，以帖子身份约束异步反馈，把媒体/评论请求窗口与输入器位置约束在小流量场景
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { useEffect, useState } from 'react';
-import { Heart, Send } from 'lucide-react';
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Heart, Send, Share2 } from 'lucide-react';
 import {
   useCreateTreeholeCommentMutation,
   useDeleteTreeholeCommentMutation,
@@ -17,23 +17,38 @@ import {
   useTreeholePostDetailQuery,
   useUnlikeTreeholePostMutation,
 } from '@/entities/treehole/api/treehole-queries';
+import type { TreeholePost } from '@/entities/treehole/model/treehole-types';
+import { TreeholeMediaCarousel } from '@/entities/treehole/ui/treehole-post-media';
 import { BottomSheet } from '@/shared/ui/bottom-sheet';
 import { ActionMenu } from '@/shared/ui/action-menu';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
 import { ConfirmSheet } from '@/shared/ui/confirm-sheet';
 import { CommunityAvatar } from '@/shared/ui/community-avatar';
+import { PrivateMediaImage } from '@/shared/ui/private-media-image';
+import type { ImageViewerRenderContext } from '@/shared/ui/image-viewer';
 import {
   CommentComposer,
   CommentThread,
   type CommentReplyTarget,
 } from '@/widgets/comment-thread/comment-thread';
 
+const loadImageViewer = () => import('@/shared/ui/image-viewer');
+const LazyImageViewer = lazy(async () => {
+  const module = await loadImageViewer();
+  return { default: module.ImageViewer };
+});
+
 interface TreeholeDetailSheetProps {
   postId: number | null;
   onClose: () => void;
   onMessageAuthor: (userId: number) => void;
   onOpenProfile: (userId: number) => void;
+  onSharePost: (post: TreeholePost) => void;
+}
+
+function renderPrivateImage({ item, className, thumbnail }: ImageViewerRenderContext) {
+  return <PrivateMediaImage alt={item.alt} className={thumbnail ? `${className} min-h-0` : className} src={item.src} />;
 }
 
 function formatPublishedAt(value: string) {
@@ -45,9 +60,9 @@ function formatPublishedAt(value: string) {
   });
 }
 
-export function TreeholeDetailSheet({ postId, onClose, onMessageAuthor, onOpenProfile }: TreeholeDetailSheetProps) {
+export function TreeholeDetailSheet({ postId, onClose, onMessageAuthor, onOpenProfile, onSharePost }: TreeholeDetailSheetProps) {
   const postQuery = useTreeholePostDetailQuery(postId);
-  const commentsQuery = useTreeholeInfiniteCommentsQuery(postId, { pageSize: 50 });
+  const commentsQuery = useTreeholeInfiniteCommentsQuery(postId, { pageSize: 20 });
   const metaQuery = useTreeholeMetaQuery();
   const likeMutation = useLikeTreeholePostMutation();
   const unlikeMutation = useUnlikeTreeholePostMutation();
@@ -58,23 +73,38 @@ export function TreeholeDetailSheet({ postId, onClose, onMessageAuthor, onOpenPr
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [replyTarget, setReplyTarget] = useState<CommentReplyTarget | null>(null);
-  const [composerExpanded, setComposerExpanded] = useState(false);
+  const [activeImageIndex, setActiveImageIndex] = useState<number | null>(null);
+  const [imageViewerRequested, setImageViewerRequested] = useState(false);
+  const activePostIdRef = useRef(postId);
   const post = postQuery.data;
   const comments = commentsQuery.data?.pages.flatMap((page) => page.items) ?? [];
   const maxCommentLength = metaQuery.data?.limits.maxCommentLength ?? 200;
   const likeBusy = likeMutation.isPending || unlikeMutation.isPending;
+
+  useLayoutEffect(() => {
+    activePostIdRef.current = postId;
+  }, [postId]);
 
   useEffect(() => {
     setCommentDraft('');
     setActionMessage(null);
     setDeleteConfirmOpen(false);
     setReplyTarget(null);
-    setComposerExpanded(false);
+    setActiveImageIndex(null);
   }, [postId]);
+
+  useEffect(() => {
+    if (activeImageIndex === null) return;
+    setImageViewerRequested(true);
+    void loadImageViewer();
+  }, [activeImageIndex]);
 
   const submitComment = async () => {
     if (!postId) return;
 
+    const requestedPostId = postId;
+    const submittedDraft = commentDraft;
+    const submittedReplyId = replyTarget?.id ?? null;
     const content = commentDraft.trim();
     if (!content) {
       setActionMessage('先写点评论内容再发送');
@@ -88,14 +118,15 @@ export function TreeholeDetailSheet({ postId, onClose, onMessageAuthor, onOpenPr
     try {
       setActionMessage(null);
       await createCommentMutation.mutateAsync({
-        postId,
+        postId: requestedPostId,
         content,
-        parentCommentId: replyTarget?.id ?? null,
+        parentCommentId: submittedReplyId,
       });
-      setCommentDraft('');
-      setReplyTarget(null);
-      setComposerExpanded(false);
+      if (activePostIdRef.current !== requestedPostId) return;
+      setCommentDraft((current) => current === submittedDraft ? '' : current);
+      setReplyTarget((current) => (current?.id ?? null) === submittedReplyId ? null : current);
     } catch (error) {
+      if (activePostIdRef.current !== requestedPostId) return;
       setActionMessage(error instanceof Error ? error.message : '评论发送失败，请稍后重试');
     }
   };
@@ -103,14 +134,16 @@ export function TreeholeDetailSheet({ postId, onClose, onMessageAuthor, onOpenPr
   const handleToggleLike = async () => {
     if (!post) return;
 
+    const requestedPostId = post.id;
     try {
       setActionMessage(null);
       if (post.viewer.liked) {
-        await unlikeMutation.mutateAsync({ postId: post.id });
+        await unlikeMutation.mutateAsync({ postId: requestedPostId });
       } else {
-        await likeMutation.mutateAsync({ postId: post.id });
+        await likeMutation.mutateAsync({ postId: requestedPostId });
       }
     } catch (error) {
+      if (activePostIdRef.current !== requestedPostId) return;
       setActionMessage(error instanceof Error ? error.message : '操作失败，请稍后重试');
     }
   };
@@ -118,19 +151,40 @@ export function TreeholeDetailSheet({ postId, onClose, onMessageAuthor, onOpenPr
   const handleDeletePost = async () => {
     if (!postId) return;
 
+    const requestedPostId = postId;
     try {
       setActionMessage(null);
-      await deletePostMutation.mutateAsync({ postId });
+      await deletePostMutation.mutateAsync({ postId: requestedPostId });
+      if (activePostIdRef.current !== requestedPostId) return;
       setDeleteConfirmOpen(false);
       onClose();
     } catch (error) {
+      if (activePostIdRef.current !== requestedPostId) return;
       setActionMessage(error instanceof Error ? error.message : '删除失败，请稍后重试');
     }
   };
 
   return (
     <>
-      <BottomSheet open={Boolean(postId)} closeLabel="关闭树洞详情" contentClassName="space-y-4" onClose={onClose}>
+      <BottomSheet
+        open={Boolean(postId)}
+        closeLabel="关闭树洞详情"
+        contentClassName="space-y-5"
+        footer={post ? (
+          <CommentComposer
+            compact
+            autoFocus={Boolean(replyTarget)}
+            draft={commentDraft}
+            maxLength={maxCommentLength}
+            pending={createCommentMutation.isPending}
+            replyTarget={replyTarget}
+            onCancelReply={() => setReplyTarget(null)}
+            onDraftChange={setCommentDraft}
+            onSubmit={() => void submitComment()}
+          />
+        ) : undefined}
+        onClose={onClose}
+      >
       {postQuery.isLoading ? (
         <div className="space-y-4">
           <div className="h-7 w-40 animate-pulse rounded bg-shell-strong" />
@@ -168,8 +222,16 @@ export function TreeholeDetailSheet({ postId, onClose, onMessageAuthor, onOpenPr
             </Button>
           </div>
 
+          {post.images.length > 0 ? (
+            <TreeholeMediaCarousel
+              alt={`${post.author.displayName} 发布的图片`}
+              images={post.images}
+              onOpenImage={setActiveImageIndex}
+            />
+          ) : null}
+
           <Card className="space-y-4">
-            <p className="break-words text-sm leading-7 whitespace-pre-wrap text-ink [overflow-wrap:anywhere]">{post.content}</p>
+            <p className="break-words text-[0.98rem] leading-7 whitespace-pre-wrap text-ink [overflow-wrap:anywhere]">{post.content}</p>
             <div className="flex flex-wrap items-center gap-3 text-sm text-muted">
               <span>{post.stats.likeCount} 个赞</span>
               <span>{post.stats.commentCount} 条评论</span>
@@ -177,7 +239,7 @@ export function TreeholeDetailSheet({ postId, onClose, onMessageAuthor, onOpenPr
             <div className="flex flex-wrap gap-2">
               <Button
                 className="min-w-[6rem]"
-                disabled={likeBusy}
+                disabled={likeBusy || post.viewer.isMine}
                 size="sm"
                 type="button"
                 variant={post.viewer.liked ? 'subtle' : 'secondary'}
@@ -192,6 +254,10 @@ export function TreeholeDetailSheet({ postId, onClose, onMessageAuthor, onOpenPr
                   私信
                 </Button>
               ) : null}
+              <Button size="sm" type="button" variant="secondary" onClick={() => onSharePost(post)}>
+                <Share2 aria-hidden="true" className="size-4" />
+                分享
+              </Button>
               {post.viewer.isMine ? (
                 <ActionMenu items={[{
                   label: '删除',
@@ -227,12 +293,15 @@ export function TreeholeDetailSheet({ postId, onClose, onMessageAuthor, onOpenPr
             onAuthorClick={onOpenProfile}
             endMessage={null}
             onDelete={(commentId) => {
+              const requestedPostId = postId;
               setActionMessage(null);
               deleteCommentMutation.mutate(
                 { commentId },
                 {
                   onError: (error) => {
-                    setActionMessage(error instanceof Error ? error.message : '删除评论失败，请稍后重试');
+                    if (activePostIdRef.current === requestedPostId) {
+                      setActionMessage(error instanceof Error ? error.message : '删除评论失败，请稍后重试');
+                    }
                   },
                 }
               );
@@ -240,7 +309,6 @@ export function TreeholeDetailSheet({ postId, onClose, onMessageAuthor, onOpenPr
             onLoadMore={() => void commentsQuery.fetchNextPage()}
             onReply={(target) => {
               setReplyTarget(target);
-              setComposerExpanded(true);
             }}
           />
 
@@ -250,32 +318,6 @@ export function TreeholeDetailSheet({ postId, onClose, onMessageAuthor, onOpenPr
             </div>
           ) : null}
 
-          {composerExpanded ? (
-            <CommentComposer
-              autoFocus
-              draft={commentDraft}
-              maxLength={maxCommentLength}
-              pending={createCommentMutation.isPending}
-              replyTarget={replyTarget}
-              onCancelReply={() => setReplyTarget(null)}
-              onCollapse={() => {
-                setComposerExpanded(false);
-                setReplyTarget(null);
-              }}
-              onDraftChange={setCommentDraft}
-              onSubmit={() => void submitComment()}
-            />
-          ) : (
-            <Button
-              className="w-full"
-              size="sm"
-              type="button"
-              variant="secondary"
-              onClick={() => setComposerExpanded(true)}
-            >
-              写评论
-            </Button>
-          )}
         </>
       ) : null}
 
@@ -291,6 +333,23 @@ export function TreeholeDetailSheet({ postId, onClose, onMessageAuthor, onOpenPr
         onClose={() => setDeleteConfirmOpen(false)}
         onConfirm={() => void handleDeletePost()}
       />
+
+      {imageViewerRequested ? (
+        <Suspense fallback={null}>
+          <LazyImageViewer
+            index={activeImageIndex}
+            items={post?.images.map((image, imageIndex) => ({
+              src: image.url,
+              alt: `${post.author.displayName} 发布的第 ${imageIndex + 1} 张图片`,
+              key: image.url,
+            })) ?? []}
+            renderImage={renderPrivateImage}
+            thumbnailWindow={1}
+            onClose={() => setActiveImageIndex(null)}
+            onIndexChange={setActiveImageIndex}
+          />
+        </Suspense>
+      ) : null}
     </>
   );
 }

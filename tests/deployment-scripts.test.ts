@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖四条维护中的 Bash 部署脚本与 docs/ops/DEPLOY.md
- * [OUTPUT]: 验证脚本语法、release 保留/磁盘门禁、维护发布顺序、destructive migration 授权、Server/Web 冒烟与 forward-fix 契约
- * [POS]: tests 的部署静态回归套件，阻止 release 膨胀或低磁盘进入停流窗口，并禁止 contract migration 失败后恢复旧 upstream
+ * [INPUT]: 依赖四条维护部署脚本、本机成组备份脚本与 docs/ops/DEPLOY.md
+ * [OUTPUT]: 验证脚本语法、四媒体加首页弹窗白名单备份、媒体存量磁盘门禁、maintenance/migration/冒烟顺序与 forward-fix 契约
+ * [POS]: tests 的部署静态回归套件，阻止备份越界、release/持久媒体挤满磁盘或 contract migration 失败后恢复旧 upstream
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -14,6 +14,8 @@ const DEPLOY_SCRIPTS = [
   'scripts/remote-blue-green-deploy.sh',
   'scripts/setup-huas-git-deploy.sh',
 ] as const;
+const BACKUP_SCRIPT = 'scripts/backup-data-local.sh';
+const BASH_SCRIPTS = [BACKUP_SCRIPT, ...DEPLOY_SCRIPTS] as const;
 
 async function source(path: string) {
   return readFile(path, 'utf8');
@@ -21,7 +23,7 @@ async function source(path: string) {
 
 describe('deployment scripts', () => {
   it('keeps every maintained Bash entry syntactically valid', () => {
-    for (const script of DEPLOY_SCRIPTS) {
+    for (const script of BASH_SCRIPTS) {
       const result = Bun.spawnSync(['bash', '-n', script]);
       expect(result.exitCode, `${script}: ${result.stderr.toString()}`).toBe(0);
     }
@@ -75,11 +77,77 @@ describe('deployment scripts', () => {
     expect(blueGreen).toContain('database_bytes * 3');
     expect(blueGreen).toContain('"database filesystem"');
     expect(blueGreen).toContain('"snapshot filesystem"');
+    expect(blueGreen).toContain('unset DB_PATH DISCOVER_STORAGE_ROOT COMMUNITY_AVATAR_STORAGE_ROOT TREEHOLE_STORAGE_ROOT');
+    expect(blueGreen).toContain('RUNTIME_DATABASE_PATH="$(resolve_runtime_path "$configured_database_path")"');
+    expect(blueGreen).toContain('RUNTIME_DISCOVER_STORAGE_ROOT="$(resolve_runtime_path "${DISCOVER_STORAGE_ROOT:-$database_dir/discover}")"');
+    expect(blueGreen).toContain('RUNTIME_COMMUNITY_AVATAR_STORAGE_ROOT="$(resolve_runtime_path "${COMMUNITY_AVATAR_STORAGE_ROOT:-$database_dir/treehole-avatars}")"');
+    expect(blueGreen).toContain('RUNTIME_TREEHOLE_STORAGE_ROOT="$(resolve_runtime_path "${TREEHOLE_STORAGE_ROOT:-$database_dir/treehole-post-media}")"');
+    expect(blueGreen).toContain('RUNTIME_MESSAGING_STORAGE_ROOT="$database_dir/message-media"');
+    expect(blueGreen).toContain('readlink -m -- "$absolute_path"');
+    expect(blueGreen).toContain('disk_probe_path "$RUNTIME_TREEHOLE_STORAGE_ROOT"');
+    expect(blueGreen).toContain('treehole_media_bytes="$(path_disk_usage_bytes "$RUNTIME_TREEHOLE_STORAGE_ROOT")"');
+    expect(blueGreen).toContain('database_bytes * 3 + media_bytes');
+    expect(blueGreen).toContain('assert_safe_media_root Treehole "$RUNTIME_TREEHOLE_STORAGE_ROOT"');
+    expect(blueGreen).toContain('assert_distinct_media_roots');
+    expect(blueGreen).toContain('Refusing broad system directory as $label media root');
+    for (const label of [
+      'Discover media filesystem',
+      'Community avatar filesystem',
+      'Treehole post media filesystem',
+      'Messaging media filesystem',
+    ]) {
+      expect(blueGreen).toContain(`"${label}"`);
+    }
 
     for (const script of [localDeploy, setup, blueGreen]) {
       expect(script).toContain('RELEASE_RETENTION_COUNT');
       expect(script).toContain('MIN_FREE_DISK_MB');
     }
+  });
+
+  it('backs up only the database, four named business-media roots and index popup state', async () => {
+    const backup = await source(BACKUP_SCRIPT);
+    const gitignore = await source('.gitignore');
+    const whitelist = backup.slice(
+      backup.indexOf('assert_bundle_archive_whitelist()'),
+      backup.indexOf('cleanup()')
+    );
+
+    expect(backup).toContain('TREEHOLE_STORAGE_ROOT');
+    expect(backup).toContain('readlink -m -- "$absolute_path"');
+    expect(backup).toContain('${TREEHOLE_STORAGE_ROOT:-$database_dir/treehole-post-media}');
+    for (const stagedRoot of [
+      'stage_media_directory discover "$discover_storage_root"',
+      'stage_media_directory treehole-avatars "$community_avatar_storage_root"',
+      'stage_media_directory treehole-post-media "$treehole_storage_root"',
+      'stage_media_directory message-media "$messaging_media_storage_root"',
+      'stage_media_directory index-popup "$index_popup_storage_root"',
+    ]) {
+      expect(backup).toContain(stagedRoot);
+    }
+    expect(backup).toContain('index_popup_storage_root="$database_dir/index-popup"');
+    expect(backup).toContain('for media_dir in discover treehole-avatars treehole-post-media message-media index-popup; do');
+    expect(backup).toContain('assert_bundle_archive_whitelist "$BUNDLE_PARTIAL"');
+    expect(backup).toContain('assert_safe_media_root Treehole "$treehole_storage_root"');
+    expect(backup).toContain('assert_safe_media_root IndexPopup "$index_popup_storage_root"');
+    expect(backup).toContain('assert_distinct_media_roots');
+    expect(backup).toContain('Refusing $archive_name media root containing symbolic links');
+    expect(backup.indexOf('assert_bundle_archive_whitelist "$BUNDLE_PARTIAL"'))
+      .toBeLessThan(backup.indexOf('tar -xzf "$BUNDLE_PARTIAL"'));
+    for (const entry of [
+      'media/discover/*',
+      'media/treehole-avatars/*',
+      'media/treehole-post-media/*',
+      'media/message-media/*',
+      'media/index-popup/*',
+    ]) {
+      expect(whitelist).toContain(entry);
+    }
+    expect(whitelist).not.toContain('logs/');
+    expect(whitelist).not.toContain('.env');
+    expect(backup).toContain('tar -tzf "$MEDIA_PARTIAL" >/dev/null');
+    expect(gitignore).toContain('data/treehole-post-media/');
+    expect(gitignore).toContain('data/index-popup/');
   });
 
   it('chooses the Web package manager deterministically from lock files', async () => {
@@ -133,5 +201,9 @@ describe('deployment scripts', () => {
     expect(guide).toContain('不得恢复旧 upstream');
     expect(guide).toContain('forward-fix');
     expect(guide).toContain('`REMOTE_HOST` | `baidu`');
+    expect(guide).toContain('media/treehole-post-media/');
+    expect(guide).toContain('media/index-popup/');
+    expect(guide).toContain('`dirname(DB_PATH)/index-popup/`');
+    expect(guide).toContain('`0004_treehole_post_media`');
   });
 });

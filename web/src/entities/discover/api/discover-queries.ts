@@ -27,6 +27,7 @@ import {
 import {
   reconcileCreatedDiscoverComment,
   reconcileDiscoverLike,
+  optimisticallyReconcileDiscoverLike,
 } from '@/entities/discover/api/discover-cache-policy';
 import { discoverQueryKeys } from '@/entities/discover/model/discover-query-keys';
 
@@ -34,6 +35,8 @@ export function useDiscoverMetaQuery() {
   return useQuery({
     queryKey: discoverQueryKeys.meta(),
     queryFn: ({ signal }) => getDiscoverMeta({ signal }),
+    staleTime: 6 * 60 * 60_000,
+    gcTime: 12 * 60 * 60_000,
   });
 }
 
@@ -55,6 +58,8 @@ export function useDiscoverInfinitePostsQuery(params: Omit<DiscoverListParams, '
       }, { signal }),
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
     placeholderData: keepPreviousData,
+    staleTime: 90_000,
+    gcTime: 30 * 60_000,
   });
 }
 
@@ -138,8 +143,41 @@ function useDiscoverLikeMutation(action: 'like' | 'unlike') {
   const queryClient = useQueryClient();
 
   return useMutation({
+    scope: { id: 'discover-like' },
     mutationFn: ({ postId }: { postId: number }) =>
       action === 'like' ? likeDiscoverPost(postId) : unlikeDiscoverPost(postId),
+    onMutate: async ({ postId }) => {
+      const scopes = [
+        discoverQueryKeys.detail(postId),
+        discoverQueryKeys.lists(),
+        discoverQueryKeys.mines(),
+        discoverQueryKeys.userPostsAll(),
+      ] as const;
+      await Promise.all(scopes.map((queryKey) => queryClient.cancelQueries({ queryKey })));
+      const detail = queryClient.getQueryData<{
+        likedByMe: boolean;
+        likeCount: number;
+      }>(discoverQueryKeys.detail(postId));
+      let previous = detail
+        ? { postId, liked: detail.likedByMe, likeCount: detail.likeCount }
+        : null;
+      if (!previous) {
+        for (const [, data] of queryClient.getQueriesData<{ pages?: Array<{ items?: Array<{ id: number; likedByMe: boolean; likeCount: number }> }> }>({
+          queryKey: discoverQueryKeys.lists(),
+        })) {
+          const post = data?.pages?.flatMap((page) => page.items ?? []).find((item) => item.id === postId);
+          if (post) {
+            previous = { postId, liked: post.likedByMe, likeCount: post.likeCount };
+            break;
+          }
+        }
+      }
+      optimisticallyReconcileDiscoverLike(queryClient, postId, action === 'like');
+      return { previous };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous) reconcileDiscoverLike(queryClient, context.previous);
+    },
     onSuccess: (result) => {
       reconcileDiscoverLike(queryClient, result);
     },

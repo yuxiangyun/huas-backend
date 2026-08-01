@@ -1,12 +1,12 @@
 /**
  * [INPUT]: 依赖 Discover 查询/写入 hooks、点赞、评论、社区资料、媒体查看器与短任务弹层
- * [OUTPUT]: 对外提供 DiscoverDetailSheet，以单一阅读顺序展示好饭详情并编排点赞、私信、评论和删除
- * [POS]: widgets/discover-detail-sheet 的业务容器，保留 Discover mutation 语义并复用无请求评论 UI
+ * [OUTPUT]: 对外提供 DiscoverDetailSheet，以首批 20 条评论和固定底部输入器展示好饭详情并编排互动
+ * [POS]: widgets/discover-detail-sheet 的业务容器，以帖子身份约束异步反馈，保留 Discover mutation 语义并把评论阅读与输入滚动区分离
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { Heart, MessageCircle, Send } from 'lucide-react';
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   useCreateDiscoverCommentMutation,
   useDeleteDiscoverCommentMutation,
@@ -46,7 +46,7 @@ function formatPublishedAt(value: string) {
 export function DiscoverDetailSheet({ postId, onClose, onMessageAuthor, onOpenProfile }: DiscoverDetailSheetProps) {
   const postQuery = useDiscoverPostDetailQuery(postId);
   const metaQuery = useDiscoverMetaQuery();
-  const commentPageSize = metaQuery.data?.pagination.defaultCommentPageSize ?? 50;
+  const commentPageSize = Math.min(20, metaQuery.data?.pagination.maxCommentPageSize ?? 20);
   const commentsQuery = useDiscoverInfiniteCommentsQuery(postId, { pageSize: commentPageSize });
   const likeMutation = useLikeDiscoverPostMutation();
   const unlikeMutation = useUnlikeDiscoverPostMutation();
@@ -63,6 +63,11 @@ export function DiscoverDetailSheet({ postId, onClose, onMessageAuthor, onOpenPr
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [commentDraft, setCommentDraft] = useState('');
   const [replyTarget, setReplyTarget] = useState<CommentReplyTarget | null>(null);
+  const activePostIdRef = useRef(postId);
+
+  useLayoutEffect(() => {
+    activePostIdRef.current = postId;
+  }, [postId]);
 
   useEffect(() => {
     setActionMessage(null);
@@ -80,18 +85,24 @@ export function DiscoverDetailSheet({ postId, onClose, onMessageAuthor, onOpenPr
 
   const handleDelete = async () => {
     if (!postId) return;
+    const requestedPostId = postId;
     try {
       setActionMessage(null);
-      await deleteMutation.mutateAsync({ postId });
+      await deleteMutation.mutateAsync({ postId: requestedPostId });
+      if (activePostIdRef.current !== requestedPostId) return;
       setDeleteConfirmOpen(false);
       onClose();
     } catch {
+      if (activePostIdRef.current !== requestedPostId) return;
       setActionMessage('删除失败，请重试');
     }
   };
 
   const submitComment = async () => {
     if (!postId) return;
+    const requestedPostId = postId;
+    const submittedDraft = commentDraft;
+    const submittedReplyId = replyTarget?.id ?? null;
     const content = commentDraft.trim();
     if (!content) return;
     if (content.length > maxCommentLength) {
@@ -100,21 +111,25 @@ export function DiscoverDetailSheet({ postId, onClose, onMessageAuthor, onOpenPr
     }
     try {
       setActionMessage(null);
-      await createCommentMutation.mutateAsync({ postId, content, parentCommentId: replyTarget?.id ?? null });
-      setCommentDraft('');
-      setReplyTarget(null);
+      await createCommentMutation.mutateAsync({ postId: requestedPostId, content, parentCommentId: submittedReplyId });
+      if (activePostIdRef.current !== requestedPostId) return;
+      setCommentDraft((current) => current === submittedDraft ? '' : current);
+      setReplyTarget((current) => (current?.id ?? null) === submittedReplyId ? null : current);
     } catch {
+      if (activePostIdRef.current !== requestedPostId) return;
       setActionMessage('发送失败，请重试');
     }
   };
 
   const toggleLike = async () => {
     if (!post) return;
+    const requestedPostId = post.id;
     try {
       setActionMessage(null);
-      if (post.likedByMe) await unlikeMutation.mutateAsync({ postId: post.id });
-      else await likeMutation.mutateAsync({ postId: post.id });
+      if (post.likedByMe) await unlikeMutation.mutateAsync({ postId: requestedPostId });
+      else await likeMutation.mutateAsync({ postId: requestedPostId });
     } catch {
+      if (activePostIdRef.current !== requestedPostId) return;
       setActionMessage('操作失败，请重试');
     }
   };
@@ -129,7 +144,25 @@ export function DiscoverDetailSheet({ postId, onClose, onMessageAuthor, onOpenPr
 
   return (
     <>
-      <BottomSheet open={Boolean(postId)} closeLabel="好饭详情" contentClassName="space-y-5" onClose={onClose}>
+      <BottomSheet
+        open={Boolean(postId)}
+        closeLabel="好饭详情"
+        contentClassName="space-y-5"
+        footer={post ? (
+          <CommentComposer
+            compact
+            autoFocus={Boolean(replyTarget)}
+            draft={commentDraft}
+            maxLength={maxCommentLength}
+            pending={createCommentMutation.isPending}
+            replyTarget={replyTarget}
+            onCancelReply={() => setReplyTarget(null)}
+            onDraftChange={setCommentDraft}
+            onSubmit={() => void submitComment()}
+          />
+        ) : undefined}
+        onClose={onClose}
+      >
         {postQuery.isLoading ? (
           <div className="space-y-4" aria-hidden="true">
             <div className="h-7 w-2/3 animate-pulse rounded bg-shell-strong" />
@@ -194,7 +227,7 @@ export function DiscoverDetailSheet({ postId, onClose, onMessageAuthor, onOpenPr
                     type="button"
                     onClick={() => setActiveImageIndex(imageIndex)}
                   >
-                    <img alt={post.title || '推荐图片'} className={cn('w-full object-cover', imageCount === 1 ? 'max-h-[34rem]' : 'aspect-square')} src={buildMediaUrl(image.url)} />
+                    <img alt={post.title || '推荐图片'} className={cn('w-full object-cover', imageCount === 1 ? 'max-h-[34rem]' : 'aspect-square')} decoding="async" loading="lazy" src={buildMediaUrl(image.url)} />
                   </button>
                 ))}
               </div>
@@ -228,20 +261,16 @@ export function DiscoverDetailSheet({ postId, onClose, onMessageAuthor, onOpenPr
                 }))}
                 onAuthorClick={onOpenProfile}
                 onDelete={(commentId) => {
+                  const requestedPostId = postId;
                   setActionMessage(null);
-                  deleteCommentMutation.mutate({ commentId }, { onError: () => setActionMessage('删除评论失败，请重试') });
+                  deleteCommentMutation.mutate({ commentId }, {
+                    onError: () => {
+                      if (activePostIdRef.current === requestedPostId) setActionMessage('删除评论失败，请重试');
+                    },
+                  });
                 }}
                 onLoadMore={() => void commentsQuery.fetchNextPage()}
                 onReply={setReplyTarget}
-              />
-              <CommentComposer
-                draft={commentDraft}
-                maxLength={maxCommentLength}
-                pending={createCommentMutation.isPending}
-                replyTarget={replyTarget}
-                onCancelReply={() => setReplyTarget(null)}
-                onDraftChange={setCommentDraft}
-                onSubmit={() => void submitComment()}
               />
             </section>
 

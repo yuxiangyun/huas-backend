@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Hono、注入的 DiscoverApplicationService/上传策略、共享请求体上限与领域输入解析工具
- * [OUTPUT]: 对外提供 createDiscoverRoutes(service, uploadPolicy)，映射受限 multipart 发帖、评论及幂等点赞协议
+ * [OUTPUT]: 对外提供 createDiscoverRoutes(service, uploadPolicy)，按 multipart 线序映射受限发帖、评论及幂等点赞协议
  * [POS]: modules/discover/http 的注入式协议 adapter，在 formData 前限制声明长度与流式请求体，不持有 composition singleton
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -51,13 +51,21 @@ function parseId(value: string) {
 }
 
 function readTagValues(form: FormData) {
-  return [...form.getAll('tags'), ...form.getAll('tags[]')]
-    .flatMap((value) => typeof value === 'string' ? parseStringArray(value) : []);
+  const tags: string[] = [];
+  form.forEach((value, field) => {
+    if ((field === 'tags' || field === 'tags[]') && typeof value === 'string') {
+      tags.push(...parseStringArray(value));
+    }
+  });
+  return tags;
 }
 
 function readImageFiles(form: FormData) {
-  return [...form.getAll('images'), ...form.getAll('images[]')]
-    .filter((value): value is File => value instanceof File);
+  const files: File[] = [];
+  form.forEach((value, field) => {
+    if ((field === 'images' || field === 'images[]') && value instanceof File) files.push(value);
+  });
+  return files;
 }
 
 export function createDiscoverRoutes(
@@ -106,8 +114,8 @@ export function createDiscoverRoutes(
 
       appendHttpLogDetail(c, formatHttpLogDetail({
         category,
-        titleLength: title?.trim().length || 0,
-        contentLength: content?.trim().length || 0,
+        titleLength: Array.from(title?.trim() || '').length,
+        contentLength: Array.from(content?.trim() || '').length,
         tags: tags.length,
         images: images.length,
       }));

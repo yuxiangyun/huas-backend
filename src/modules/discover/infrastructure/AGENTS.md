@@ -8,7 +8,7 @@ sqlite-discover-comment-service.ts: 构造注入的评论创建/删除、Communi
 sqlite-discover-persistence.ts: 持有帖子/评论/推荐实例图的 DiscoverPersistence 聚合 adapter
 sqlite-discover-operations-query.ts: 构造注入的帖子/点赞管理快照 adapter，经 CommunityProfileReader 批量投影作者
 sqlite-discover-post-service.ts: 帖子/用户帖子查询、popular 排序、点赞事实/计数/Outbox 原子写入与批量作者投影实现
-sqlite-discover-recommendation-service.ts: 基于点赞分类/标签的偏好排序、latest 退化与分页实现
+sqlite-discover-recommendation-service.ts: 基于点赞分类/标签对完整匹配集稳定排序、latest 退化与真实总数分页实现
 
 架构决策
 全部 adapter 以实例协作并构造注入 db；DiscoverPostQuery 只在 infrastructure 内复用，评论和推荐不得反向依赖 application。

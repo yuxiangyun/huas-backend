@@ -1,12 +1,12 @@
 /**
  * [INPUT]: 依赖 drizzle-orm/sqlite-core 的表、列、索引、检查与唯一键构造器
- * [OUTPUT]: 对外提供 Identity、Community、Discover、Treehole、Notifications、Messaging 与 analytics 全部 SQLite 表定义
+ * [OUTPUT]: 对外提供 Identity、Community、Discover、含私有图片元数据的 Treehole、Notifications、Messaging 与 analytics 全部 SQLite 表定义
  * [POS]: db 的全局 Drizzle 类型相；migration 是结构事实源，各纵向模块只消费自己拥有的表
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { sql } from 'drizzle-orm';
-import { check, index, sqliteTable, text, integer, unique } from 'drizzle-orm/sqlite-core';
+import { check, index, sqliteTable, text, integer, unique, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 
 export const users = sqliteTable('users', {
@@ -95,13 +95,19 @@ export const treeholePosts = sqliteTable('treehole_posts', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   userId: integer('user_id').notNull().references(() => users.id),
   content: text('content').notNull(),
+  mediaKey: text('media_key'),
+  imagesJson: text('images_json').notNull().default('[]'),
   likeCount: integer('like_count').notNull().default(0),
   commentCount: integer('comment_count').notNull().default(0),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
   publishedAt: integer('published_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
   deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
-});
+}, (table) => ({
+  mediaKeyUnique: uniqueIndex('uq_treehole_posts_media_key')
+    .on(table.mediaKey)
+    .where(sql`${table.mediaKey} IS NOT NULL`),
+}));
 
 export const treeholePostLikes = sqliteTable('treehole_post_likes', {
   id: integer('id').primaryKey({ autoIncrement: true }),

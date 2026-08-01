@@ -6,11 +6,12 @@ academic/: 教务路由，暴露课表、成绩、评教、空教室 HTTP 接口
 admin/: Operations 管理 HTTP factory 的兼容再导出路径，真实路由实例由根组合创建
 auth/: 登录路由，承接 CAS/验证码登录流程并签发本服务 JWT
 calendar/: Calendar HTTP 兼容 Facade，保持认证 API 与公开 ICS 订阅原挂载路径
-content/: Operations 公共公告 HTTP 兼容 Facade，保持免 Bearer 挂载路径
+content/: Operations 公共公告/首页弹窗 HTTP 兼容 Facade，保持免 Bearer 挂载路径
 portal/: Portal 路由，暴露一卡通、用户资料与 Portal 课表接口
 system/: Operations 健康 HTTP 兼容 Facade，保持 `/health` 挂载路径
 index.ts: 路由协议总装配器，定义 public/auth/calendar 与 /api 认证边界，并挂载根组合注入的 Community/Discover/Treehole/Notifications/Messaging/Operations routes
 schedule-route-log.ts: 双源课表共享日志适配器，记录 policy/primary/source/fallback 低基数摘要但不参与来源决策
+social-summary.routes.ts: `/api/social/unread-summary` 跨域只读聚合器，并行组合 Messaging 未读与 Notifications 摘要窄端口
 
 架构决策
 路由层只做 HTTP 输入解析、认证边界、日志细节和响应包装；业务事实、事务和上游访问必须下沉到 canonical modules。
@@ -26,6 +27,7 @@ schedule-route-log.ts: 双源课表共享日志适配器，记录 policy/primary
 2026-07-31: 总装配器改为接收根组合生成的社交/管理路由实例，不再 import 社交 concrete singleton。
 2026-07-31: 挂载根组合注入的 `/api/notifications` 活动通知路由，沿用统一 Bearer 认证边界。
 2026-07-31: 挂载根组合注入的 `/api/messaging` 私信路由，媒体读取和写操作共用 Bearer 认证边界。
+2026-08-01: 新增 `/api/social/unread-summary` 单请求聚合，减少导航角标轮询但保持 Messaging/Notifications 事实隔离。
 2026-07-27: 管理、公共公告与健康 HTTP 实现迁入 modules/operations/http，旧路径保留单向 Facade。
 2026-07-27: Calendar 路由实现迁入 modules/calendar/http，旧路径保留单向 Facade。
 2026-07-18: 抽取 JW/Portal 双源课表的同构日志映射，业务入口与 fallback 语义继续独立。

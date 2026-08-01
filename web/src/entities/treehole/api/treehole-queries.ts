@@ -1,12 +1,12 @@
 /**
  * [INPUT]: 依赖 Treehole HTTP adapter、查询键与 TanStack Query
- * [OUTPUT]: 对外提供公开/本人/指定用户帖子、评论与写入缓存编排 hooks
- * [POS]: entities/treehole 的客户端缓存层，保持详情和三类列表同构更新
+ * [OUTPUT]: 对外提供公开/本人/指定用户图文帖子、评论与含回滚的乐观点赞缓存编排 hooks
+ * [POS]: entities/treehole 的客户端缓存层，保持 multipart 创建结果、详情和三类列表在互动前后同构
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { InfiniteData } from '@tanstack/react-query';
+import type { InfiniteData, QueryClient } from '@tanstack/react-query';
 import {
   createTreeholeComment,
   createTreeholePost,
@@ -30,6 +30,8 @@ export function useTreeholeMetaQuery() {
   return useQuery({
     queryKey: treeholeQueryKeys.meta(),
     queryFn: ({ signal }) => getTreeholeMeta({ signal }),
+    staleTime: 6 * 60 * 60_000,
+    gcTime: 12 * 60 * 60_000,
   });
 }
 
@@ -43,6 +45,8 @@ export function useTreeholeInfinitePostsQuery(params: Omit<TreeholeListParams, '
         page: pageParam,
       }, { signal }),
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
+    staleTime: 90_000,
+    gcTime: 30 * 60_000,
   });
 }
 
@@ -137,11 +141,86 @@ function patchLikeInListCache(oldData: unknown, postId: number, result: { liked:
   };
 }
 
+function applyOptimisticLike(post: TreeholePost | undefined, liked: boolean) {
+  if (!post || post.viewer.liked === liked) return post;
+  return applyLikeResult(post, {
+    liked,
+    likeCount: Math.max(0, post.stats.likeCount + (liked ? 1 : -1)),
+  });
+}
+
+function patchOptimisticLikeInListCache(oldData: unknown, postId: number, liked: boolean) {
+  if (!oldData || typeof oldData !== 'object' || !('pages' in oldData)) return oldData;
+  const typed = oldData as InfiniteData<{ items: TreeholePost[] }>;
+  return {
+    ...typed,
+    pages: typed.pages.map((page) => ({
+      ...page,
+      items: page.items.map((post) => post.id === postId ? applyOptimisticLike(post, liked)! : post),
+    })),
+  };
+}
+
+interface OptimisticLikeContext {
+  previous: { liked: boolean; likeCount: number } | null;
+}
+
+async function applyOptimisticLikeToCaches(
+  queryClient: QueryClient,
+  postId: number,
+  liked: boolean
+): Promise<OptimisticLikeContext> {
+  const detailKey = treeholeQueryKeys.detail(postId);
+  const scopes = [
+    treeholeQueryKeys.lists(),
+    treeholeQueryKeys.mines(),
+    treeholeQueryKeys.userPostsAll(),
+  ] as const;
+  await Promise.all([
+    queryClient.cancelQueries({ queryKey: detailKey }),
+    ...scopes.map((queryKey) => queryClient.cancelQueries({ queryKey })),
+  ]);
+
+  const detail = queryClient.getQueryData<TreeholePost>(detailKey);
+  let previous = detail
+    ? { liked: detail.viewer.liked, likeCount: detail.stats.likeCount }
+    : null;
+  if (!previous) {
+    for (const [, data] of queryClient.getQueriesData<InfiniteData<{ items: TreeholePost[] }>>({
+      queryKey: treeholeQueryKeys.lists(),
+    })) {
+      const post = data?.pages.flatMap((page) => page.items).find((item) => item.id === postId);
+      if (post) {
+        previous = { liked: post.viewer.liked, likeCount: post.stats.likeCount };
+        break;
+      }
+    }
+  }
+  queryClient.setQueryData<TreeholePost>(detailKey, (post) => applyOptimisticLike(post, liked));
+  scopes.forEach((queryKey) => {
+    queryClient.setQueriesData({ queryKey }, (oldData) => patchOptimisticLikeInListCache(oldData, postId, liked));
+  });
+  return { previous };
+}
+
+function rollbackOptimisticLike(
+  queryClient: QueryClient,
+  postId: number,
+  context: OptimisticLikeContext | undefined,
+) {
+  if (!context?.previous) return;
+  const result = context.previous;
+  queryClient.setQueryData<TreeholePost>(treeholeQueryKeys.detail(postId), (post) => applyLikeResult(post, result));
+  [treeholeQueryKeys.lists(), treeholeQueryKeys.mines(), treeholeQueryKeys.userPostsAll()].forEach((queryKey) => {
+    queryClient.setQueriesData({ queryKey }, (oldData) => patchLikeInListCache(oldData, postId, result));
+  });
+}
+
 export function useCreateTreeholePostMutation() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (payload: { content: string }) => createTreeholePost(payload),
+    mutationFn: (payload: { content: string; images: readonly File[] }) => createTreeholePost(payload),
     onSuccess: (post) => {
       queryClient.setQueryData(treeholeQueryKeys.detail(post.id), post);
       queryClient.invalidateQueries({ queryKey: treeholeQueryKeys.lists() });
@@ -155,7 +234,10 @@ export function useLikeTreeholePostMutation() {
   const queryClient = useQueryClient();
 
   return useMutation({
+    scope: { id: 'treehole-like' },
     mutationFn: ({ postId }: { postId: number }) => likeTreeholePost(postId),
+    onMutate: ({ postId }) => applyOptimisticLikeToCaches(queryClient, postId, true),
+    onError: (_error, variables, context) => rollbackOptimisticLike(queryClient, variables.postId, context),
     onSuccess: (result) => {
       queryClient.setQueryData<TreeholePost>(treeholeQueryKeys.detail(result.postId), (post) => applyLikeResult(post, result));
       queryClient.setQueriesData({ queryKey: treeholeQueryKeys.lists() }, (oldData) =>
@@ -175,7 +257,10 @@ export function useUnlikeTreeholePostMutation() {
   const queryClient = useQueryClient();
 
   return useMutation({
+    scope: { id: 'treehole-like' },
     mutationFn: ({ postId }: { postId: number }) => unlikeTreeholePost(postId),
+    onMutate: ({ postId }) => applyOptimisticLikeToCaches(queryClient, postId, false),
+    onError: (_error, variables, context) => rollbackOptimisticLike(queryClient, variables.postId, context),
     onSuccess: (result) => {
       queryClient.setQueryData<TreeholePost>(treeholeQueryKeys.detail(result.postId), (post) => applyLikeResult(post, result));
       queryClient.setQueriesData({ queryKey: treeholeQueryKeys.lists() }, (oldData) =>

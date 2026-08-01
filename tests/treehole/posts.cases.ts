@@ -1,11 +1,15 @@
 /**
  * [INPUT]: 依赖 Treehole 测试支架、Community 资料事实、帖子/用户帖子 HTTP 与批量 reader 观测
- * [OUTPUT]: 验证统一公共作者、资料实时投影、公共用户帖子接口与列表无 N+1
+ * [OUTPUT]: 验证 Unicode 内容边界、统一公共作者、资料实时投影、公共用户帖子接口与列表无 N+1
  * [POS]: tests/treehole 的帖子读模型细分用例，锁定彻底取消匿名后的公开协议
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { describe, expect, it } from 'bun:test';
+import {
+  normalizeCommentContent,
+  normalizePostContent,
+} from '../../src/modules/treehole/domain/treehole';
 import {
   authorId,
   otherUserId,
@@ -15,9 +19,25 @@ import {
   createTreeholePost,
   profileReader,
   setCommunityProfile,
+  treeholePolicy,
 } from './harness';
 
 describe('Treehole 帖子与公共作者', () => {
+  it('帖子与评论长度按 Unicode code point 计算', () => {
+    expect(normalizePostContent('🙂'.repeat(treeholePolicy.maxPostLength), treeholePolicy))
+      .toBe('🙂'.repeat(treeholePolicy.maxPostLength));
+    expect(normalizeCommentContent('🙂'.repeat(treeholePolicy.maxCommentLength), treeholePolicy))
+      .toBe('🙂'.repeat(treeholePolicy.maxCommentLength));
+    expect(() => normalizePostContent(
+      '🙂'.repeat(treeholePolicy.maxPostLength + 1),
+      treeholePolicy,
+    )).toThrow(String(treeholePolicy.maxPostLength));
+    expect(() => normalizeCommentContent(
+      '🙂'.repeat(treeholePolicy.maxCommentLength + 1),
+      treeholePolicy,
+    )).toThrow(String(treeholePolicy.maxCommentLength));
+  });
+
   it('创建帖子后在详情和列表中返回统一 author 三字段', async () => {
     const app = createApp();
     const postId = await createTreeholePost(app, authorId, '2023002001', '图书馆今天很安静。');

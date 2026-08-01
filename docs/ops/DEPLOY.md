@@ -119,6 +119,9 @@ openssl rand -base64 32
 | `AUTH_LOGIN_RATE_LIMIT_BLOCK_MS` | `600000` | 登录失败触发限流后的封禁时长 |
 | `SCHEDULE_SOURCE_MODE` | `jw-first` | 首次没有有效状态文件时的课表来源顺序；仅支持 `jw-first` / `portal-first` |
 | `SCHEDULE_SOURCE_POLICY_FILE` | `dirname(DB_PATH)/schedule-source-policy.json` | 通常不要覆盖；`DB_PATH` 必须位于蓝绿槽共享持久目录，若覆盖则只能使用 release 外绝对共享路径 |
+| `DISCOVER_STORAGE_ROOT` | `dirname(DB_PATH)/discover` | Discover 帖子图片持久根；相对路径按应用根解析，部署磁盘门禁与备份读取同一变量 |
+| `COMMUNITY_AVATAR_STORAGE_ROOT` | `dirname(DB_PATH)/treehole-avatars` | Community 头像持久根；目录名为历史兼容，不代表 Treehole 所有权 |
+| `TREEHOLE_STORAGE_ROOT` | `dirname(DB_PATH)/treehole-post-media` | Treehole 帖子私有图片持久根；相对路径按应用根解析并纳入媒体备份和磁盘门禁 |
 | `DISCOVER_ORPHAN_MEDIA_GRACE_MS` | `3600000` | Discover 未引用 UUID 媒体目录的回收宽限期；保护事务外仍在写入或等待落库的候选媒体 |
 | `COMMUNITY_AVATAR_ORPHAN_GRACE_MS` | `3600000` | Community 未引用白名单头像文件的回收宽限期；保护尚未完成资料切换的候选头像 |
 
@@ -209,7 +212,7 @@ REMOTE_HOST=your-server scripts/deploy-huas.sh --dry-run
 | `INSTALL_SERVER_DEPS` | `1` | 为 `0` 时跳过远程 `bun install --production` |
 | `WEB_PACKAGE_MANAGER` | `auto` | 本地前端构建包管理器，默认按锁文件自动判断 |
 | `RELEASE_RETENTION_COUNT` | `6` | 额外保留的非活动历史 release 数量；当前 blue/green 指向与本次目标始终保护，不计入上限 |
-| `MIN_FREE_DISK_MB` | `2048` | 停流前最低可用磁盘；实际门槛取该值与当前 SQLite 文件大小 3 倍的较大值 |
+| `MIN_FREE_DISK_MB` | `2048` | 停流前最低可用磁盘；实际门槛取该值与“当前 SQLite 三倍 + 四类业务媒体已用空间”的较大值 |
 
 ### 4.5 远端 PM2 与 writer 行为
 
@@ -229,7 +232,7 @@ scripts/deploy-huas-zero-downtime.sh
 
 1. 解析 current blue/green 指向并硬保护，按修改时间只淘汰 `.deploy/releases` 中超额的非活动直接子目录
 2. 将当前代码上传到远端 release，安装依赖并构建新 `web/`
-3. 检查 release、`DB_PATH` 与 `data/snapshots` 所在文件系统；任一可用空间不足时在停流前安全退出
+3. 解析 `.env` 中数据库及三类可配置媒体根，连同固定 Messaging 根分别检查 release、数据库、snapshots 和四类媒体实际所在文件系统；任一可用空间不足时在停流前安全退出
 4. 将 nginx 切入 503 maintenance，确认不再把用户请求转发给应用
 5. 停止 blue、green 与 legacy PM2 进程，持久化停 writer 状态
 6. 对共享 `DB_PATH` 创建 SQLite 一致性快照
@@ -296,7 +299,7 @@ hook 会自动执行维护发布：
 
 1. 将推送的 `main` commit 导出为候选 release
 2. 保护活动槽、回收超额非活动 release，并排除 `.env`、`data`、`logs` 等共享内容
-3. 构建候选后执行 release/DB/snapshots 磁盘余量门禁，失败则在停流前退出
+3. 构建候选后执行 release/DB/snapshots/四类媒体根磁盘余量门禁，失败则在停流前退出
 4. 执行停流/停 writer、snapshot 和 `db:migrate --allow-destructive`
 5. 启动目标槽并执行 `/health/ready` 与 `/m` 本机冒烟
 6. 冒烟通过后开放 nginx 流量；失败则继续 maintenance 并 forward-fix
@@ -386,7 +389,9 @@ npm run build
 ├── data/
 │   ├── discover/
 │   ├── treehole-avatars/
+│   ├── treehole-post-media/
 │   ├── message-media/
+│   ├── index-popup/
 │   ├── snapshots/
 │   └── huas.db
 ├── logs/
@@ -402,7 +407,9 @@ npm run build
 - `.deploy/logs/<slot>/` 保存槽位级别的 PM2 日志
 - `web/dist` 是 `/m` 前端入口的静态资源来源
 - `public/` 只保存无需构建的开发静态资产；后台唯一入口由 `web/dist` 提供于 `/m/admin/*`
-- `data/` 存数据库、Discover 图片、Community 头像、私信媒体和数据库快照
+- `data/` 存数据库、Discover 图片、Community 头像、Treehole 帖子图片、私信媒体、首页弹窗配置/海报和数据库快照
+- `data/index-popup/` 跟随 `dirname(DB_PATH)` 保存原子 `settings.json` 与最近三个不可变 WebP 版本，蓝绿槽必须共享该目录；它不是 release 构建产物
+- `data/treehole-post-media/` 默认保存 Treehole 私有帖子 WebP；数据库只记录批次键与稳定元数据，用户和管理员读取都必须经过各自鉴权 API
 - `data/message-media/` 只保存 Messaging WebP 文件；数据库保存元数据，普通用户和管理员都必须走鉴权 API，禁止直接配置成 Nginx 静态目录
 - `logs/pm2-out.log` 与 `logs/pm2-error.log` 会被管理仪表盘读取
 
@@ -439,18 +446,20 @@ npm run build
 - `data/huas.db`
 - `data/discover/`
 - `data/treehole-avatars/`
+- `data/treehole-post-media/`
 - `data/message-media/`
+- `data/index-popup/`
 - `data/announcements.json`
 
-`treehole-avatars` 是历史目录名，当前所有权属于 Community；Messaging 媒体固定落在 `dirname(DB_PATH)/message-media`，没有独立环境变量可把它与 SQLite 持久目录拆开。备份与迁移数据库时必须同时保留该目录，否则消息元数据仍在但图片永久缺失。
+`treehole-avatars` 是历史目录名，当前所有权属于 Community；Treehole 帖子图片默认落在 `dirname(DB_PATH)/treehole-post-media`，可由 `TREEHOLE_STORAGE_ROOT` 覆盖；Messaging 媒体固定落在 `dirname(DB_PATH)/message-media`。首页弹窗固定落在 `dirname(DB_PATH)/index-popup`，没有独立环境变量，迁移共享数据库目录时必须连同其配置和海报复制；否则弹窗安全回落为不可用，但后台需要重新上传配置。
 
-运行期周期维护由同一 registry 管理：Activity Outbox 默认每 5 秒重试；通知第一版永久保留，不注册已读清理或归档。Discover、Community 头像与 Messaging 分别注册每小时孤儿媒体任务，默认都用 1 小时宽限期：Discover 只删除无有效帖子引用的严格 UUID 目录，Community 只删除无已发布资料 URL 引用的 `{id}.webp` / `{id}-{uuid}.webp` 文件，Messaging 只删除没有 `message_images` 引用的候选目录。三个任务相互隔离，任何有效引用都优先于文件年龄。
+运行期周期维护由同一 registry 管理：Activity Outbox 默认每 5 秒重试；通知第一版永久保留，不注册已读清理或归档。Discover、Community 头像、Treehole 帖子与 Messaging 分别注册每小时孤儿媒体任务，默认都用 1 小时宽限期：Discover 只删除无有效帖子引用的严格 UUID 目录，Community 只删除无已发布资料 URL 引用的 `{id}.webp` / `{id}-{uuid}.webp` 文件，Treehole 只删除无有效帖子 `media_key` 引用的严格 UUID 批次，Messaging 只删除没有 `message_images` 引用的候选目录。四个任务相互隔离，任何有效引用都优先于文件年龄。
 
 Notifications/Messaging 成功 GET 轮询采用 quiet access log，但 HTTP metrics 仍然统计；4xx/5xx 和发送、已读等写操作继续记录。任何日志都不得包含消息正文、原始文件名或图片内容。
 
 ### 8.1 Database migration
 
-数据库结构以 `src/db/migrations/` 中不可变的编号 migration 为事实源，`0001/0002` 保持不可变，`0003_social_rearchitecture` 是明确的 contract migration。migration 记录写入 `huas_schema_migrations`，每个版本在单独的 SQLite immediate transaction 中执行；单个版本失败时该版本的 DDL/DML 与版本记录一起回滚。
+数据库结构以 `src/db/migrations/` 中不可变的编号 migration 为事实源，`0001/0002` 保持不可变，`0003_social_rearchitecture` 是明确的 contract migration，`0004_treehole_post_media` 是只给 `treehole_posts` 增加媒体批次键与不可变图片元数据的 expand-only migration。migration 记录写入 `huas_schema_migrations`，每个版本在单独的 SQLite immediate transaction 中执行；单个版本失败时该版本的 DDL/DML 与版本记录一起回滚。
 
 对空库初始化：
 
@@ -497,7 +506,7 @@ bun run db:snapshot -- \
 huas-<UTC时间>-schema-v<版本>-release-<标识>.db
 ```
 
-`db:snapshot` 只复制 SQLite，不复制 `message-media`。停 writer 后的完整灾备必须另行复制整个明确的 `dirname(DB_PATH)/message-media` 目录，并把它与同一 release 的数据库快照成对标记；不要在仍有上传事务运行时单独复制媒体目录。
+`db:snapshot` 只复制 SQLite，不复制任何业务媒体或首页弹窗文件。停 writer 后的完整灾备必须另行复制解析后的 Discover、Community 头像、Treehole 帖子、固定 `dirname(DB_PATH)/message-media` 四类目录与 `dirname(DB_PATH)/index-popup`，并把它们与同一 release 的数据库快照成对标记；不要在仍有上传事务运行时单独复制媒体目录。
 
 普通应用启动不会自动快照或迁移。维护发布严格按“release 保留/候选构建 → 停流前磁盘门禁 → maintenance 503 → stop writers → snapshot → `db:migrate --allow-destructive` → Server/Web 本机冒烟 → 开放流量”执行。首次部署若数据库尚不存在，也必须在应用启动前显式执行迁移。
 
@@ -509,7 +518,7 @@ huas-<UTC时间>-schema-v<版本>-release-<标识>.db
 scripts/backup-data-local.sh
 ```
 
-脚本默认通过 SSH 别名 `baidu` 连接 `/www/wwwroot/huas-server`，在远端临时目录复用当前 release 的 `db-snapshot`：先执行 `PRAGMA quick_check`，再以 `VACUUM INTO` 生成在线一致性副本。数据库与三类业务资源通过同一 SSH 数据流传回，本机分别执行 SQLite 与 tar 完整性检查后落到：
+脚本默认通过 SSH 别名 `baidu` 连接 `/www/wwwroot/huas-server`，在远端临时目录复用当前 release 的 `db-snapshot`：先执行 `PRAGMA quick_check`，再以 `VACUUM INTO` 生成在线一致性副本。数据库、四类社交媒体与首页弹窗状态通过同一 SSH 数据流传回，本机先验证 tar 只能包含固定白名单，再分别执行 SQLite 与 tar 完整性检查后落到：
 
 ```text
 /Users/xiangyun/workspace/backups/database/huas-<UTC时间>.db
@@ -526,7 +535,9 @@ LOCAL_MEDIA_BACKUP_DIR=/absolute/local/media-backup/path \
 scripts/backup-data-local.sh
 ```
 
-媒体压缩包固定包含 `media/discover/`、`media/treehole-avatars/` 与 `media/message-media/`，分别对应 Discover 图片、Community 头像和私信图片。该入口不读取或复制 `logs/`、`.env` 与运行策略文件；远端快照只存在于受控临时目录，传输结束或失败时都会清理，脚本也不会自动删除任何既有本机备份。
+资源压缩包固定包含 `media/discover/`、`media/treehole-avatars/`、`media/treehole-post-media/`、`media/message-media/` 与 `media/index-popup/`，最后一项整体保存首页弹窗 `settings.json` 和版本 WebP。源路径读取 `.env` 中 `DB_PATH`、`DISCOVER_STORAGE_ROOT`、`COMMUNITY_AVATAR_STORAGE_ROOT`、`TREEHOLE_STORAGE_ROOT` 并把相对路径按应用根解析；Messaging 与首页弹窗固定跟随数据库目录。备份与部署会拒绝 `/` 等宽泛系统目录、应用根/数据库父级、互相重叠的持久根，备份还会拒绝含符号链接的资源树，避免配置错误扩大读取或磁盘扫描范围。该入口不复制 `logs/`、`.env` 与其他运行策略文件；远端快照只存在于受控临时目录，传输结束或失败时都会清理，脚本也不会自动删除任何既有本机备份。
+
+恢复时保持服务停流与全部 writer 停止：数据库文件恢复到明确的 `DB_PATH`，资源包中的 `media/index-popup/` 必须整体恢复到 `dirname(DB_PATH)/index-popup/`；不要只复制海报而遗漏 `settings.json`，也不要把 tar 内的 `media/` 目录直接暴露给 Nginx。四类社交媒体分别恢复到其解析后的运行根，全部完成后再执行 `PRAGMA quick_check` 与应用 readiness。
 
 ### 8.4 快照保留与恢复
 

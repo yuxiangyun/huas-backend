@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖校园/社区资料、Social 未读、个人内容路由、日历订阅与认证状态
- * [OUTPUT]: 对外提供 MePage，以共享 Social 字标、公开社区身份、内容入口和账户动作组成个人页
+ * [OUTPUT]: 对外提供 MePage，以共享 Social 字标、公开社区身份、弱网资料编辑外壳、内容入口和账户动作组成个人页
  * [POS]: pages/me 的页面编排器，不使用宣传卡片，不持有底层 HTTP 协议
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -14,14 +14,14 @@ import { useToastStore } from '@/app/state/toast-store';
 import { useUiStore } from '@/app/state/ui-store';
 import { useAuthStore } from '@/entities/auth/model/auth-store';
 import { useCommunityProfileQuery } from '@/entities/community/api/community-queries';
-import { useMessagingUnreadCountQuery } from '@/entities/messaging/api/messaging-queries';
-import { useNotificationUnreadCountQuery } from '@/entities/notifications/api/notification-queries';
 import { useCalendarSubscriptionLinkMutation, useUserInfoQuery } from '@/entities/user/api/user-queries';
 import { Card } from '@/shared/ui/card';
 import { PageHeader } from '@/shared/ui/page-header';
 import { CommunityAvatar } from '@/shared/ui/community-avatar';
 import { SocialPageTitle } from '@/shared/ui/social-page-title';
 import { UnreadBadge } from '@/shared/ui/unread-badge';
+import { LazyTaskFallback } from '@/shared/ui/lazy-task-fallback';
+import { clearSocialTabScrollPositions, useSocialShellContext } from '@/widgets/mobile-tab-shell/mobile-tab-shell';
 
 const loadCommunityProfileDialog = () => import('@/widgets/community-profile-dialog/community-profile-dialog');
 const LazyCommunityProfileDialog = lazy(async () => {
@@ -38,6 +38,7 @@ async function copyText(text: string) {
 }
 
 export function MePage() {
+  const { unreadSummary } = useSocialShellContext();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const pushToast = useToastStore((state) => state.pushToast);
@@ -48,11 +49,9 @@ export function MePage() {
   const profileQuery = useUserInfoQuery();
   const communityProfileQuery = useCommunityProfileQuery();
   const calendarLinkMutation = useCalendarSubscriptionLinkMutation();
-  const messagingUnreadQuery = useMessagingUnreadCountQuery();
-  const notificationUnreadQuery = useNotificationUnreadCountQuery();
   const [profileDialogRequested, setProfileDialogRequested] = useState(false);
-  const messagingUnreadCount = messagingUnreadQuery.data?.unreadCount ?? 0;
-  const notificationUnreadCount = notificationUnreadQuery.data?.unreadCount ?? 0;
+  const messagingUnreadCount = unreadSummary.messagingUnreadCount;
+  const notificationUnreadCount = unreadSummary.notificationUnreadCount;
 
   useEffect(() => setActiveTab('me'), [setActiveTab]);
 
@@ -79,6 +78,7 @@ export function MePage() {
   };
 
   const handleLogout = () => {
+    clearSocialTabScrollPositions();
     queryClient.clear();
     logout();
     navigate(appRoutes.login, { replace: true });
@@ -165,7 +165,11 @@ export function MePage() {
         </button>
       </Card>
 
-      {profileDialogRequested ? <Suspense fallback={null}><LazyCommunityProfileDialog /></Suspense> : null}
+      {profileDialogRequested ? (
+        <Suspense fallback={profileDialogOpen ? <LazyTaskFallback label="编辑资料" /> : null}>
+          <LazyCommunityProfileDialog />
+        </Suspense>
+      ) : null}
     </div>
   );
 }

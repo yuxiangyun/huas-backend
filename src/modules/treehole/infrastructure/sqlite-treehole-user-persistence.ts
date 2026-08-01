@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖构造注入的 Drizzle db、CommunityProfileReader、ActivityOutboxWriter、Treehole schema 与模块内 SQL helpers
- * [OUTPUT]: 对 SQLiteTreeholePersistence 提供帖子、用户帖子、幂等点赞、差异回复通知与作者删除事务
- * [POS]: modules/treehole/infrastructure 的用户侧事实 adapter，共享父作者 reply/帖子作者 comment 规则并原子写入 Outbox
+ * [INPUT]: 依赖构造注入的 Drizzle db、CommunityProfileReader、TreeholeMediaReader、ActivityOutboxWriter、Treehole schema 与模块内 SQL helpers
+ * [OUTPUT]: 对 SQLiteTreeholePersistence 提供含图片元数据的帖子、用户帖子、幂等点赞、差异回复通知与返回媒体键的作者删除事务
+ * [POS]: modules/treehole/infrastructure 的用户侧事实 adapter，共享父作者 reply/帖子作者 comment 规则并原子写入 Outbox，图片文件副作用留给 application 补偿
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -11,6 +11,7 @@ import { AppError, ErrorCode } from '../../../utils/errors';
 import type { CommunityProfileReader } from '../../community/domain/ports';
 import { createActivityEvents, createCommentActivityEvents } from '../../notifications/domain/activity';
 import type { ActivityOutboxWriter } from '../../notifications/domain/ports';
+import type { TreeholeMediaReader } from '../domain/ports';
 import {
   toCommentResponse,
   toPostResponse,
@@ -20,6 +21,7 @@ import {
   type TreeholeListResponse,
   type TreeholePostResponse,
   type TreeholePostRow,
+  type StoredTreeholeMedia,
 } from '../domain/treehole';
 import {
   commentSelect,
@@ -39,6 +41,7 @@ export class SQLiteTreeholeUserPersistence {
   constructor(
     private readonly db: TreeholeDatabase,
     private readonly profiles: CommunityProfileReader,
+    private readonly media: TreeholeMediaReader,
     private readonly outbox: ActivityOutboxWriter<TreeholeTransaction>,
   ) {}
 
@@ -60,6 +63,7 @@ export class SQLiteTreeholeUserPersistence {
     return toPostListResponse(
       this.db,
       this.profiles,
+      this.media,
       rows as TreeholePostRow[],
       options.userId,
       page,
@@ -94,6 +98,7 @@ export class SQLiteTreeholeUserPersistence {
     return toPostListResponse(
       this.db,
       this.profiles,
+      this.media,
       rows as TreeholePostRow[],
       options.viewerUserId,
       page,
@@ -102,11 +107,17 @@ export class SQLiteTreeholeUserPersistence {
     );
   }
 
-  async createPost(input: { userId: number; content: string }): Promise<TreeholePostResponse | null> {
+  async createPost(input: {
+    userId: number;
+    content: string;
+    media: StoredTreeholeMedia | null;
+  }): Promise<TreeholePostResponse | null> {
     const now = new Date();
     const inserted = await this.db.insert(schema.treeholePosts).values({
       userId: input.userId,
       content: input.content,
+      mediaKey: input.media?.mediaKey ?? null,
+      imagesJson: JSON.stringify(input.media?.images ?? []),
       likeCount: 0,
       commentCount: 0,
       createdAt: now,
@@ -131,6 +142,7 @@ export class SQLiteTreeholeUserPersistence {
       userId,
       likedMap.has(postId),
       requireCommunityProfile(profileMap, row.userId),
+      (mediaKey, fileName) => this.media.userUrlFor(mediaKey, fileName),
     );
   }
 
@@ -331,8 +343,11 @@ export class SQLiteTreeholeUserPersistence {
         eq(schema.treeholePosts.userId, userId),
         isNull(schema.treeholePosts.deletedAt),
       ))
-      .returning({ id: schema.treeholePosts.id });
-    return updated[0] ? { id: updated[0].id } : null;
+      .returning({
+        id: schema.treeholePosts.id,
+        mediaKey: schema.treeholePosts.mediaKey,
+      });
+    return updated[0] ?? null;
   }
 
   async deleteComment(commentId: number, userId: number) {

@@ -11,7 +11,7 @@ periodic-tasks.ts: 轻量周期任务注册器，统一具名任务启停、错�
 架构决策
 runtime 只承载进程态，不存业务事实；重启可丢失，数据库才是事实源。
 ready 只检查本地进程、SQLite 与 migration，启动前另由 DB 入口完成完整 checksum/fingerprint 校验；禁止因学校上游不可用摘除实例。
-周期任务必须具名、可停止且同任务不重叠；任务异常互相隔离，不能改变 HTTP 主链或业务事实一致性。Notifications 只注册 Outbox 重试，已读通知永久保留；Discover、Community 与 Messaging 无主媒体各自只在组合根注册独立清理任务。
+周期任务必须具名、可停止且同任务不重叠；任务异常互相隔离，不能改变 HTTP 主链或业务事实一致性。Notifications 只注册 Outbox 重试，已读通知永久保留；Discover、Community、Treehole 与 Messaging 无主媒体各自只在组合根注册独立清理任务。
 
 开发规范
 新增运行态必须可重建，不得影响用户数据一致性。

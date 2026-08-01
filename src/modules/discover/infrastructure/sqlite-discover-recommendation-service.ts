@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖构造注入的 Drizzle db、DiscoverPostQuery/PostService、点赞事实与帖子分类/标签
- * [OUTPUT]: 对外提供 SQLiteDiscoverRecommendationService，按当前用户点赞偏好排序并在无偏好时退化 latest
+ * [OUTPUT]: 对外提供 SQLiteDiscoverRecommendationService，对完整匹配集建立稳定偏好顺序并在无偏好时退化 latest
  * [POS]: modules/discover/infrastructure 的推荐 adapter，只从 Discover 自有事实推断偏好，不读取用户资料表
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -12,7 +12,6 @@ import { DiscoverPostQuery, SQLiteDiscoverPostService } from './sqlite-discover-
 import {
   clampPage,
   clampPageSize,
-  clampRecommendedCandidateLimit,
   normalizeCategory,
   postSelect,
   type DiscoverDatabase,
@@ -58,8 +57,7 @@ export class SQLiteDiscoverRecommendationService {
     const candidates = await this.db.select(postSelect())
       .from(schema.discoverPosts)
       .where(and(...filters))
-      .orderBy(desc(schema.discoverPosts.publishedAt), desc(schema.discoverPosts.id))
-      .limit(clampRecommendedCandidateLimit(page, pageSize)) as DiscoverRow[];
+      .orderBy(desc(schema.discoverPosts.publishedAt), desc(schema.discoverPosts.id)) as DiscoverRow[];
     const ranked = candidates
       .map((row) => ({ row, matchScore: this.matchScore(row, tagWeights, categoryWeights) }))
       .filter((item) => item.matchScore > 0)

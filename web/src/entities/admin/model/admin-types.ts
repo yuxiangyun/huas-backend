@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖后端管理接口与 Community/Messaging 公共 DTO
- * [OUTPUT]: 提供 dashboard、内容、日志、课表策略与私信只读的强类型契约
- * [POS]: entities/admin 的协议模型边界，保证管理 UI 不重新解释后端字段
+ * [OUTPUT]: 提供 dashboard、图文内容、日志、课表策略、含底部三态动作的首页弹窗设置与私信只读强类型契约
+ * [POS]: entities/admin 的协议模型边界，保证 Treehole 管理图片与其他后台 UI 不重新解释后端字段
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -142,15 +142,50 @@ export interface AdminScheduleSourcePolicy {
   updatedBy: string;
 }
 
+export type AdminIndexPopupFrequency = 'once' | 'daily' | 'startup';
+export type AdminIndexPopupActionType = 'public_account' | 'text' | 'none';
+
+export interface AdminIndexPopupSettings {
+  enabled: boolean;
+  version: string | null;
+  imageUrl: string | null;
+  actionType: AdminIndexPopupActionType;
+  actionText: string;
+  frequency: AdminIndexPopupFrequency;
+  startsAt: string | null;
+  endsAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface AdminIndexPopupSettingsPayload {
+  enabled: boolean;
+  actionType: AdminIndexPopupActionType;
+  actionText: string;
+  frequency: AdminIndexPopupFrequency;
+  startsAt: string | null;
+  endsAt: string | null;
+  image?: File;
+}
+
 export interface AdminTreeholeAuthor {
   id: number;
   displayName: string;
   avatarUrl: string | null;
 }
 
+export interface AdminTreeholeImage {
+  url: string;
+  width: number;
+  height: number;
+  sizeBytes: number;
+  mimeType: 'image/webp';
+}
+
 export interface AdminTreeholePost {
   id: number;
   content: string;
+  images: AdminTreeholeImage[];
+  imageCount: number;
   stats: {
     likeCount: number;
     commentCount: number;

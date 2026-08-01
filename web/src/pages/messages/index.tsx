@@ -14,6 +14,8 @@ import { useMarkNotificationReadMutation } from '@/entities/notifications/api/no
 import type { ActivityNotification } from '@/entities/notifications/model/notification-types';
 import { selectMessageTarget } from '@/pages/social-route-state';
 import { MessageCenter, type MessageSection } from '@/widgets/message-center/message-center';
+import { useSocialShellContext } from '@/widgets/mobile-tab-shell/mobile-tab-shell';
+import { LazyTaskFallback } from '@/shared/ui/lazy-task-fallback';
 
 const loadChatSheet = () => import('@/widgets/chat-sheet/chat-sheet');
 const LazyChatSheet = lazy(async () => {
@@ -33,6 +35,7 @@ function positiveId(value: string | null) {
 }
 
 export function MessagesPage() {
+  const { unreadSummary, unreadSummaryReady } = useSocialShellContext();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const setActiveTab = useUiStore((state) => state.setActiveTab);
@@ -92,13 +95,16 @@ export function MessagesPage() {
         onOpenConversation={openConversation}
         onOpenNotification={openNotification}
         onOpenProfile={openProfile}
+        pollingPaused={userId !== null}
+        unreadSummary={unreadSummary}
+        unreadSummaryReady={unreadSummaryReady}
         onSectionChange={(nextSection) => patchSearchParams((params) => {
           if (nextSection === 'notifications') params.set('tab', 'notifications');
           else params.delete('tab');
         })}
       />
       {userId !== null ? (
-        <Suspense fallback={null}>
+        <Suspense fallback={<LazyTaskFallback label="私信会话" />}>
           <LazyChatSheet
             userId={userId}
             onClose={() => patchSearchParams((params) => {
@@ -110,7 +116,7 @@ export function MessagesPage() {
         </Suspense>
       ) : null}
       {profileDialogRequested ? (
-        <Suspense fallback={null}>
+        <Suspense fallback={profileUserId !== null ? <LazyTaskFallback label="用户资料" /> : null}>
           <LazyPublicProfileDialog
             userId={profileUserId}
             onClose={() => patchSearchParams((params) => params.delete('profileUserId'))}

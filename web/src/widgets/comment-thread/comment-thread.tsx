@@ -1,11 +1,11 @@
 /**
  * [INPUT]: 依赖 shared/ui 的 Button、Card、CommunityAvatar 与调用方提供的评论状态/动作
- * [OUTPUT]: 对外提供可聚焦编辑器、默认折叠回复的嵌套评论树及分页尾部
- * [POS]: widgets 的跨社区评论交互组件，在客户端组织父子关系并复用回复、删除和分页动作
+ * [OUTPUT]: 对外提供常规/停靠式可聚焦编辑器、默认折叠回复的嵌套评论树及分页尾部
+ * [POS]: widgets 的跨社区评论交互组件，在客户端组织父子关系并让详情容器选择内容内或固定底部输入形态
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
 import { ActionMenu } from '@/shared/ui/action-menu';
@@ -40,6 +40,7 @@ interface CommentComposerProps {
   onSubmit: () => void;
   autoFocus?: boolean;
   onCollapse?: () => void;
+  compact?: boolean;
 }
 
 export function CommentComposer({
@@ -52,7 +53,43 @@ export function CommentComposer({
   onSubmit,
   autoFocus = false,
   onCollapse,
+  compact = false,
 }: CommentComposerProps) {
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    if (autoFocus) textareaRef.current?.focus();
+  }, [autoFocus, replyTarget?.id]);
+
+  if (compact) {
+    return (
+      <div className="space-y-2">
+        {replyTarget ? (
+          <div className="flex items-center justify-between gap-3 rounded-[0.625rem] bg-tint-soft px-3 py-2 text-xs text-ink">
+            <span className="text-clamp-1">回复 {replyTarget.authorLabel}：{replyTarget.preview}</span>
+            <Button size="xs" type="button" variant="ghost" onClick={onCancelReply}>取消</Button>
+          </div>
+        ) : null}
+        <div className="flex items-end gap-2">
+          <textarea
+            ref={textareaRef}
+            autoFocus={autoFocus}
+            aria-label="评论内容"
+            className="field-control max-h-24 min-h-10 flex-1 resize-none rounded-[1.25rem] px-3 py-2 text-sm"
+            maxLength={maxLength}
+            placeholder={replyTarget ? `回复 ${replyTarget.authorLabel}` : '写评论…'}
+            rows={1}
+            value={draft}
+            onChange={(event) => onDraftChange(event.target.value)}
+          />
+          <Button disabled={pending || !draft.trim()} size="sm" type="button" variant="primary" onClick={onSubmit}>
+            {pending ? '发送中…' : '发送'}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <Card className="space-y-3">
       <div className="flex items-start justify-between gap-3">
@@ -77,6 +114,7 @@ export function CommentComposer({
 
       <label className="block space-y-2">
         <textarea
+          ref={textareaRef}
           autoFocus={autoFocus}
           className="field-control min-h-24 resize-y"
           maxLength={maxLength}

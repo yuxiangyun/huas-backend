@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 admin API、稳定 query keys、后台会话与 TanStack Query 缓存原语
- * [OUTPUT]: 提供后台资源查询/变更 hooks，包含私信会话/消息三态读取与课表策略写回
+ * [OUTPUT]: 提供后台资源查询/变更 hooks，包含私信游标读取、课表策略与首页弹窗三态设置快照写回
  * [POS]: entities/admin 的服务器状态编排层，页面只组合查询结果和用户动作
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -16,6 +16,7 @@ import {
   getAdminAnnouncements,
   getAdminAnalyticsOverview,
   getAdminDashboard,
+  getAdminIndexPopupSettings,
   getAdminMessagingConversationChanges,
   getAdminMessagingConversations,
   getAdminMessagingMessages,
@@ -24,6 +25,7 @@ import {
   getAdminTreeholeComments,
   getAdminTreeholePosts,
   updateAdminAnnouncement,
+  updateAdminIndexPopupSettings,
   updateAdminScheduleSourcePolicy,
 } from '@/entities/admin/api/admin-api';
 import { adminQueryKeys } from '@/entities/admin/model/admin-query-keys';
@@ -55,6 +57,25 @@ export function useUpdateAdminScheduleSourcePolicyMutation(_session: AdminSessio
     mutationFn: updateAdminScheduleSourcePolicy,
     onSuccess: (policy) => {
       queryClient.setQueryData(adminQueryKeys.scheduleSourcePolicy(), policy);
+    },
+  });
+}
+
+export function useAdminIndexPopupSettingsQuery(session: AdminSession | null) {
+  return useQuery({
+    queryKey: adminQueryKeys.indexPopupSettings(),
+    queryFn: ({ signal }) => getAdminIndexPopupSettings({ signal }),
+    enabled: session !== null,
+  });
+}
+
+export function useUpdateAdminIndexPopupSettingsMutation(_session: AdminSession | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: updateAdminIndexPopupSettings,
+    onSuccess: (settings) => {
+      queryClient.setQueryData(adminQueryKeys.indexPopupSettings(), settings);
     },
   });
 }

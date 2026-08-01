@@ -25,7 +25,6 @@ export {
   clampCommentPageSize,
   clampPage,
   clampPageSize,
-  clampRecommendedCandidateLimit,
   normalizeCategory,
   safeParseJsonArray,
   toCommentResponse,

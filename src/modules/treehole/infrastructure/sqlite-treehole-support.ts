@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖构造方传入的 Drizzle db、CommunityProfileReader、Treehole schema 与领域映射
- * [OUTPUT]: 对 SQLite adapters 提供数据库/事务类型、事实选择器、批量点赞/作者投影、列表映射与计数刷新 helper
+ * [INPUT]: 依赖构造方传入的 Drizzle db、CommunityProfileReader/TreeholeMediaReader、Treehole schema 与领域映射
+ * [OUTPUT]: 对 SQLite adapters 提供数据库/事务类型、含媒体元数据的事实选择器、批量点赞/作者/用户图片投影、列表映射与计数刷新 helper
  * [POS]: modules/treehole/infrastructure 的无全局状态 SQL 支撑层，禁止读取 users/community_profiles
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -11,6 +11,7 @@ import type { getDb } from '../../../db';
 import { AppError, ErrorCode } from '../../../utils/errors';
 import type { CommunityProfile } from '../../community/domain/community';
 import type { CommunityProfileReader } from '../../community/domain/ports';
+import type { TreeholeMediaReader } from '../domain/ports';
 import {
   toPostResponse,
   type TreeholeListResponse,
@@ -29,6 +30,8 @@ export function postSelect() {
     id: schema.treeholePosts.id,
     userId: schema.treeholePosts.userId,
     content: schema.treeholePosts.content,
+    mediaKey: schema.treeholePosts.mediaKey,
+    imagesJson: schema.treeholePosts.imagesJson,
     likeCount: schema.treeholePosts.likeCount,
     commentCount: schema.treeholePosts.commentCount,
     createdAt: schema.treeholePosts.createdAt,
@@ -84,6 +87,7 @@ export function requireCommunityProfile(
 export async function toPostListResponse(
   db: TreeholeDatabase,
   profileReader: CommunityProfileReader,
+  mediaReader: Pick<TreeholeMediaReader, 'userUrlFor'>,
   rows: TreeholePostRow[],
   userId: number,
   page: number,
@@ -100,6 +104,7 @@ export async function toPostListResponse(
       userId,
       likedMap.has(row.id),
       requireCommunityProfile(profileMap, row.userId),
+      (mediaKey, fileName) => mediaReader.userUrlFor(mediaKey, fileName),
     )),
     page,
     pageSize,

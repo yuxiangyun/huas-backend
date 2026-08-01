@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖共享 apiRequest 与 Treehole 类型契约
- * [OUTPUT]: 对外提供公开/本人/指定用户 Treehole 帖子、评论、点赞与删除请求
- * [POS]: entities/treehole 的传输边界，集中维护 /api/treehole 协议与查询参数序列化
+ * [OUTPUT]: 对外提供公开/本人/指定用户 Treehole 图文帖子、multipart 发布、评论、点赞与删除请求
+ * [POS]: entities/treehole 的传输边界，集中维护 /api/treehole 协议、FormData 与查询参数序列化
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -90,10 +90,14 @@ export async function getTreeholePostDetail(postId: number, options?: RequestOpt
   );
 }
 
-export async function createTreeholePost(payload: { content: string }) {
+export async function createTreeholePost(payload: { content: string; images: readonly File[] }) {
+  const formData = new FormData();
+  formData.set('content', payload.content.trim());
+  payload.images.forEach((image) => formData.append('images', image));
+
   return apiRequest<TreeholePost>('/api/treehole/posts', {
     method: 'POST',
-    body: JSON.stringify({ content: payload.content.trim() }),
+    body: formData,
   });
 }
 

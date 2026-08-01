@@ -333,7 +333,7 @@ drizzle.config.ts - Drizzle 迁移与 SQLite 连接配置
 ecosystem.config.cjs - PM2 直接执行 Bun ESM 入口的单实例运行参数，绕开 require wrapper
 nginx.conf - 反向代理样板
 .env / .env.example - 运行时配置与无密钥模板，包含数据库、缓存、上游与课表来源策略
-.gitignore - 排除依赖、构建缓存、数据库、日志、业务媒体与可变运行策略状态
+.gitignore - 排除依赖、构建缓存、数据库、日志、业务媒体、首页弹窗持久状态与可变运行策略状态
 </config>
 
 <architecture_decisions>
@@ -344,15 +344,19 @@ SQLite 是业务事实源；data 下 JSON、媒体与内存态只承载运行策
 课表由 Academic Facade 按持久化策略执行双源 current，再按 JW、Portal 固定顺序选择 stale；管理面只调用 Academic 暴露的策略用例。
 成绩强制刷新执行 JW fresh-first：45 秒总预算内有限恢复凭证并重试明确临时错误，只有新鲜路径穷尽后才允许 stale fallback。
 课表来源策略文件默认位于 dirname(DB_PATH)，生产蓝绿槽必须共享同一绝对持久路径，运行态 JSON、锁与临时文件不得纳入 Git。
+首页弹窗是 Operations 自有单配置展示能力；设置与有界保留的 WebP 版本跟随 dirname(DB_PATH) 共享，换图或修改 public_account/text/none 三态动作内容生成不可变版本，服务端只向匿名接口投影启用且命中时间窗的内容。
 community 独立拥有 community_profiles 昵称/头像与默认 displayName；只经 Identity 窄端口读取 className，社交消费者经批量 reader 投影统一公共作者。
-discover 与 treehole 是独立业务支线，媒体访问挂载于 /media/*，不经过学校上游；内容事实表不保存公开资料快照。
+discover 与 treehole 是独立业务支线，不经过学校上游；Discover 图片与 Community 头像保留公开 `/media/*`，Treehole 帖子图片只经 Bearer/Cookie 鉴权 API 读取，内容事实表不保存公开资料快照或媒体 URL。
 Discover/Treehole 的六类有效互动与 activity_outbox 在同一 SQLite 短事务提交；Notifications 按父评论/帖子作者差异投影、仅逐条已读且永久保留，新增使用 notification ID 高水位、撤销使用摘要 total 差异校准，取消点赞原子撤销通知。
-Discover 媒体目录与 Community 头像按数据库有效引用及一小时默认宽限期独立周期回收；只处理各模块严格白名单路径，单文件失败隔离并聚合上报。
+Discover 媒体、Community 头像、Treehole 帖子图片与 Messaging 私信图片按数据库有效引用及一小时默认宽限期注册四类独立周期回收；只处理各模块严格白名单路径，单文件失败隔离并聚合上报。
+Treehole 发帖仅接受 multipart，最多九张图片；服务端在读取正文前执行单图/总量/请求体门禁，以全局单槽串行解码、16MP 像素上限、静态 WebP 自适应压缩和 1MiB 成品硬限约束小内存峰值，入口另以 1 active + 2 queued 有界门禁拒绝过载。
 Messaging 只建一对一唯一会话，首条消息事务内延迟建会话并以 UUID 严格图文幂等；会话轮询使用 lastMessageId 高水位，消息统一最新/before/after 三态，multipart 在解析前执行请求上限；私信图片仅参与者或管理员鉴权读取，管理员三类读取写最小隐私审计。
 应用启动只有 schema metadata/fingerprint 校验权，结构变更仅由部署阶段显式 migration 执行；进程级清理由统一 PeriodicTaskRegistry 管理并在关闭时等待停止。
 所有 bun test 调用默认先 preload 临时 SQLite 环境，禁止测试清理逻辑接触 data/huas.db；真实 E2E 使用专用 CLI preload 覆盖默认 setup。
 Web 入口为 /m，普通用户默认进入 Treehole；管理端使用独立 HttpOnly Cookie 会话，普通用户 JWT 与后台权限不互通。
 普通用户 Social Web 固定使用 Treehole、Discover、Messages、Me 四 Tab；Community 统一作者资料与用户内容入口，私信与活动通知保持独立未读和高水位增量协议，后台提供 Cookie 鉴权的私信只读审计页。
+Social Web 的导航角标只轮询 `/api/social/unread-summary` 聚合读模型，Messaging 与 Notifications 事实仍独立；普通 Tab 60 秒、消息页 15 秒、聊天只以 5 秒消息高水位作为实时主循环。
+私有媒体保持服务端 `no-store`，客户端按认证会话使用 10 分钟/24MB 内存 LRU；Treehole 轮播只挂载当前与相邻图片，聊天媒体接近视口才请求，注销或 token 切换立即清空 Blob。
 Git push 始终把当前 HEAD 推到 baidu/main，由远端 hook 执行维护发布：先保护活动槽并淘汰超额非活动 release，候选构建后对 release/DB/snapshots 执行停流前磁盘门禁，再停流与停全部 writer、快照、显式 destructive migration、新 Server/Web 本机冒烟并重新开放流量；migration 后失败不得恢复旧 upstream，只能保持停流并 forward-fix。
 </architecture_decisions>
 
@@ -361,18 +365,23 @@ Git push 始终把当前 HEAD 推到 baidu/main，由远端 hook 执行维护发
 /auth/login - CAS 登录主流程并签发服务 JWT
 /health、/health/live、/health/ready - 兼容健康、存活与发布 readiness 检查
 /api/public/* - 免 Bearer 公共接口
+/api/public/index-popup - 免认证读取当前有效首页弹窗，未投放时返回 null
 /api/admin/session - 后台独立会话建立、探测与撤销
 /api/admin/* - HttpOnly Cookie 会话保护的管理接口
 /api/admin/academic/schedule-source-policy - 课表双源优先级读取与热切换
+/api/admin/index-popup - 后台 Cookie 会话保护的首页弹窗读取与 multipart 设置更新
 /api/schedule、/api/v1/schedule - 双源课表与兼容入口
 /api/grades、/api/ecard、/api/user - 校园业务接口
 /api/discover/*、/api/treehole/* - 绑定 users.id 并统一投影公共作者的独立 UGC 业务
+/api/treehole/media/:mediaKey/:fileName - Bearer JWT 保护的 Treehole 帖子私有图片
 /api/community/profile、/api/community/users/:id - Web 社区资料读写与公共用户详情
 /api/notifications/* - 六类活动通知列表、未读计数与逐条已读
 /api/messaging/* - 一对一会话、图文消息、阅读游标、未读计数与参与者私有媒体
+/api/social/unread-summary - 单请求并行聚合私信未读、互动未读与通知总量，不合并两类事实
 /api/admin/messaging/* - 后台 Cookie 会话保护的私信会话、历史与媒体只读入口
+/api/admin/treehole/media/:mediaKey/:fileName - 后台 Cookie 会话保护的 Treehole 帖子私有图片
 /api/classrooms/* - 管理员账号代查的空教室只读接口
-/media/discover/*、/media/treehole-avatar/* - Discover 图片与 Community 头像兼容静态媒体路径
+/media/discover/*、/media/treehole-avatar/*、/media/index-popup/* - Discover、Community 头像与当前首页弹窗公开媒体路径
 </routes>
 
 <development_rules>

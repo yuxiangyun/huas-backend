@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Messaging Hono 路由工厂、上传策略与无数据库服务桩
- * [OUTPUT]: 覆盖 Content-Length 与无长度流式 multipart 在 formData 前稳定返回 413，并锁定坏 multipart 的 400 契约
+ * [OUTPUT]: 覆盖 multipart 图片别名线序、解析前 413 与坏 multipart 的 400 契约
  * [POS]: tests 的 Messaging HTTP 上传边界回归；压缩前事实限流和媒体事务仍由 messaging.test.ts 验证
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -15,10 +15,9 @@ import {
   type MessagingPolicy,
 } from '../src/modules/messaging/domain/messaging';
 
-function createUploadApp(policy: MessagingPolicy) {
-  const service = {
+function createUploadApp(policy: MessagingPolicy, service: any = {
     send: async () => { throw new Error('upload gate must reject before send'); },
-  } as any;
+  }) {
   const app = new Hono();
   app.use('*', async (c, next) => {
     c.set('userId', 1);
@@ -82,4 +81,28 @@ test('returns PARAM_ERROR for malformed multipart fields', async () => {
   );
   expect(response.status).toBe(400);
   expect((await response.json() as any).error_code).toBe(4002);
+});
+
+test('preserves multipart wire order when images and images[] aliases are mixed', async () => {
+  let receivedNames: string[] = [];
+  const app = createUploadApp(DEFAULT_MESSAGING_POLICY, {
+    async send(input: any) {
+      receivedNames = input.images.map((image: File) => image.name);
+      return { id: 1, conversationId: 1, images: [] };
+    },
+  });
+  const form = new FormData();
+  form.set('text', '线序测试');
+  form.append('images', new File(['a'], 'a.png', { type: 'image/png' }));
+  form.append('images[]', new File(['b'], 'b.png', { type: 'image/png' }));
+  form.append('images', new File(['c'], 'c.png', { type: 'image/png' }));
+
+  const response = await app.request('http://localhost/api/messaging/users/2/messages', {
+    method: 'POST',
+    headers: { 'Idempotency-Key': randomUUID() },
+    body: form,
+  });
+
+  expect(response.status).toBe(200);
+  expect(receivedNames).toEqual(['a.png', 'b.png', 'c.png']);
 });

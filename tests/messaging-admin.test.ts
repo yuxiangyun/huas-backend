@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖真实根 composition、Messaging/Operations 公开入口、后台 Cookie 会话、Bearer JWT 与隔离 SQLite/媒体目录
- * [OUTPUT]: 验证管理员会话增量/三态消息/图片只读、三类读取隐私审计、参与者鉴权、禁止管理写命令与三类媒体清理装配
+ * [OUTPUT]: 验证管理员会话增量/三态消息/图片只读、三类读取隐私审计、参与者鉴权、禁止管理写命令与四类媒体清理装配
  * [POS]: tests 的 Messaging 跨模块装配回归，证明 Operations 复用领域游标且每次敏感读取都有最小审计事实
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -57,6 +57,7 @@ describe('Messaging Operations read-only boundary', () => {
     expect(await composition.periodicTasks.runNow('orphan-message-media-cleanup')).toBe(true);
     expect(await composition.periodicTasks.runNow('orphan-discover-media-cleanup')).toBe(true);
     expect(await composition.periodicTasks.runNow('orphan-community-avatar-cleanup')).toBe(true);
+    expect(await composition.periodicTasks.runNow('orphan-treehole-media-cleanup')).toBe(true);
     await expect(composition.periodicTasks.runNow('read-notification-cleanup'))
       .rejects.toThrow('not registered');
   });

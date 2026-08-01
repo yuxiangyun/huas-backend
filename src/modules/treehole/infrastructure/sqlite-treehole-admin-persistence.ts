@@ -1,13 +1,14 @@
 /**
- * [INPUT]: 依赖构造注入的 Drizzle db、CommunityProfileReader、Treehole schema 与模块内 SQL helpers
- * [OUTPUT]: 提供管理侧帖子/评论公共作者查询及软删除事务
- * [POS]: modules/treehole/infrastructure 的管理 adapter，只读内容事实并批量投影公共作者，不泄露校园身份
+ * [INPUT]: 依赖构造注入的 Drizzle db、CommunityProfileReader、TreeholeMediaReader、Treehole schema 与模块内 SQL helpers
+ * [OUTPUT]: 提供含管理图片 URL 的帖子/评论公共作者查询及返回媒体键的软删除事务
+ * [POS]: modules/treehole/infrastructure 的管理 adapter，只读内容事实并批量投影公共作者，图片文件副作用留给 application 补偿
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { schema } from '../../../db';
 import type { CommunityProfileReader } from '../../community/domain/ports';
+import type { TreeholeMediaReader } from '../domain/ports';
 import {
   formatLikeKeyword,
   toAdminCommentResponse,
@@ -32,6 +33,7 @@ export class SQLiteTreeholeAdminPersistence {
   constructor(
     private readonly db: TreeholeDatabase,
     private readonly profiles: CommunityProfileReader,
+    private readonly media: TreeholeMediaReader,
   ) {}
 
   async listPosts(
@@ -84,6 +86,7 @@ export class SQLiteTreeholeAdminPersistence {
       items: typedRows.map((row) => toAdminPostResponse(
         row,
         requireCommunityProfile(profileMap, row.userId),
+        (mediaKey, fileName) => this.media.adminUrlFor(mediaKey, fileName),
       )),
       page,
       pageSize,
@@ -145,8 +148,11 @@ export class SQLiteTreeholeAdminPersistence {
         eq(schema.treeholePosts.id, postId),
         isNull(schema.treeholePosts.deletedAt),
       ))
-      .returning({ id: schema.treeholePosts.id });
-    return updated[0] ? { id: updated[0].id } : null;
+      .returning({
+        id: schema.treeholePosts.id,
+        mediaKey: schema.treeholePosts.mediaKey,
+      });
+    return updated[0] ?? null;
   }
 
   async deleteComment(commentId: number) {

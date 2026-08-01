@@ -1,13 +1,15 @@
 /**
- * [INPUT]: 依赖 Bun Test hooks、注入式 Treehole/Notifications composition、Community reader、SQLite、Hono 认证与 JWT
- * [OUTPUT]: 提供含真实 Outbox 投影的 Treehole HTTP 测试应用、用户/资料/帖子/评论夹具及批量作者读取观测器
+ * [INPUT]: 依赖 Bun Test hooks、注入式 Treehole/Notifications composition、Community reader、SQLite、Hono 认证、JWT 与 multipart FormData
+ * [OUTPUT]: 提供含真实 Outbox 投影的 Treehole HTTP 测试应用、用户/资料/multipart 帖子/评论夹具及批量作者读取观测器
  * [POS]: tests/treehole 的共享支架，只装配 canonical 模块，不依赖根 routes 或 production singleton
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { beforeEach, expect } from 'bun:test';
+import { rmSync } from 'node:fs';
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
+import sharp from 'sharp';
 import { generateToken } from '../../src/auth/jwt';
 import { config } from '../../src/config';
 import { getDb, schema } from '../../src/db';
@@ -23,6 +25,7 @@ import { SQLiteCommunityProfileRepository } from '../../src/modules/community/in
 import { SQLiteCommunityIdentityReader } from '../../src/modules/identity/infrastructure/sqlite-community-identity-reader';
 import { createTreeholeComposition } from '../../src/modules/treehole/composition';
 import { createNotificationsModule } from '../../src/modules/notifications/composition';
+import { createAdminRoutes } from '../../src/modules/operations/http/admin.routes';
 import { clearSocialTestData } from '../social-database';
 
 const db = getDb();
@@ -59,6 +62,15 @@ export const treeholePolicy = {
   maxPageSize: config.treehole.maxPageSize,
   defaultCommentPageSize: config.treehole.defaultCommentPageSize,
   maxCommentPageSize: config.treehole.maxCommentPageSize,
+  maxImagesPerPost: config.treehole.maxImagesPerPost,
+  maxImageBytes: config.treehole.imageMaxBytes,
+  maxImageTotalBytes: config.treehole.imageTotalMaxBytes,
+  maxImagePixels: config.treehole.imageMaxPixels,
+  maxOutputImageBytes: config.treehole.imageMaxOutputBytes,
+  imageMaxDimension: config.treehole.imageMaxDimension,
+  imageQuality: config.treehole.imageQuality,
+  allowAnimatedImages: false,
+  orphanMediaGraceMs: config.treehole.orphanMediaGraceMs,
 };
 const notifications = createNotificationsModule({ db, profileReader });
 const treehole = createTreeholeComposition({
@@ -71,10 +83,16 @@ const treehole = createTreeholeComposition({
       await notifications.projector.runOnce();
     },
   },
+  media: {
+    storageRoot: config.treehole.storageRoot,
+    userMediaBasePath: config.treehole.userMediaBasePath,
+    adminMediaBasePath: config.treehole.adminMediaBasePath,
+  },
 });
 
 export const treeholeService = treehole.service;
 export const treeholeOperationsQuery = treehole.operationsQuery;
+export const treeholeMedia = treehole.media;
 export let authorId = 0;
 export let otherUserId = 0;
 export let thirdUserId = 0;
@@ -87,6 +105,38 @@ export function createApp() {
   api.route('/treehole', treehole.routes);
   app.route('/api', api);
   return app;
+}
+
+export function createAdminApp() {
+  const app = new Hono();
+  app.onError(onAppError);
+  app.route('/api/admin', createAdminRoutes({
+    dashboard: { async getDashboard() { throw new Error('Treehole 媒体测试不读取 Dashboard'); } },
+    communityAdmin: {
+      async deleteDiscoverPost() { return null; },
+      listTreeholePosts: (options) => treeholeOperationsQuery.listPosts(options),
+      listTreeholeComments: (postId, options) => treeholeOperationsQuery.listComments(postId, options),
+      getTreeholeMedia: (mediaKey, fileName) => treeholeMedia.getForAdmin(mediaKey, fileName),
+      deleteTreeholePost: (postId) => treeholeService.adminDeletePost(postId),
+      deleteTreeholeComment: (commentId) => treeholeService.adminDeleteComment(commentId),
+    },
+    messagingAdmin: new Proxy({}, {
+      get() {
+        return async () => { throw new Error('Treehole 媒体测试不读取 Messaging'); };
+      },
+    }) as any,
+  }));
+  return app;
+}
+
+export async function loginAdmin(app: Hono) {
+  const response = await app.request('http://localhost/api/admin/session', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'test-admin', password: 'test-admin-password' }),
+  });
+  expect(response.status).toBe(200);
+  return (response.headers.get('set-cookie') || '').split(';')[0]!;
 }
 
 export async function createUser(studentId: string, className: string | null) {
@@ -117,17 +167,17 @@ export async function authHeaderFor(userId: number, studentId: string) {
 
 export async function resetData() {
   await clearSocialTestData(db);
+  rmSync(config.treehole.storageRoot, { recursive: true, force: true });
   profileReader.reset();
 }
 
 export async function createTreeholePost(app: Hono, userId: number, studentId: string, content: string) {
+  const form = new FormData();
+  form.set('content', content);
   const response = await app.request('http://localhost/api/treehole/posts', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(await authHeaderFor(userId, studentId)),
-    },
-    body: JSON.stringify({ content }),
+    headers: await authHeaderFor(userId, studentId),
+    body: form,
   });
   expect(response.status).toBe(201);
   return (await response.json() as any).data.id as number;
@@ -162,4 +212,4 @@ beforeEach(async () => {
   thirdUserId = await createUser('2023002003', '计算机科学2401班');
 });
 
-export { Hono, eq, getDb, schema };
+export { Hono, config, eq, getDb, schema, sharp };

@@ -133,6 +133,7 @@ describe('HTTP polling quiet logs', () => {
     instance.get('/api/notifications/unread-count', (c) => c.json({ success: true }));
     instance.get('/api/notifications/changes', (c) => c.json({ success: true }));
     instance.get('/api/messaging/unread-count', (c) => c.json({ success: true }));
+    instance.get('/api/social/unread-summary', (c) => c.json({ success: true }));
     instance.get('/api/messaging/conversations', (c) => c.json({ success: true }));
     instance.get('/api/messaging/conversations/changes', (c) => c.json({ success: true }));
     instance.get('/api/messaging/conversations/:id/messages', (c) => {
@@ -150,6 +151,7 @@ describe('HTTP polling quiet logs', () => {
       expect((await app().request('http://localhost/api/notifications/unread-count')).status).toBe(200);
       expect((await app().request('http://localhost/api/notifications/changes')).status).toBe(200);
       expect((await app().request('http://localhost/api/messaging/unread-count')).status).toBe(200);
+      expect((await app().request('http://localhost/api/social/unread-summary')).status).toBe(200);
       expect((await app().request('http://localhost/api/messaging/conversations')).status).toBe(200);
       expect((await app().request('http://localhost/api/messaging/conversations/changes')).status).toBe(200);
       expect((await app().request('http://localhost/api/messaging/conversations/1/messages')).status).toBe(200);

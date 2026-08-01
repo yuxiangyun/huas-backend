@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖构造注入的 Drizzle db、Messaging 自有 schema 与领域事实/仓储契约
- * [OUTPUT]: 对外提供 SQLiteMessagingRepository 与 MessagingDatabase/MessagingTransaction 类型
+ * [OUTPUT]: 对外提供 SQLiteMessagingRepository 与 MessagingDatabase/MessagingTransaction 类型，并保证消息/会话时间不随提交倒退
  * [POS]: modules/messaging/infrastructure 的事实 adapter，以 lastMessageId 高水位补足 offset 会话翻页，并统一三态消息游标与事实限流
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -181,13 +181,16 @@ export class SQLiteMessagingRepository implements MessagingRepository {
         .all();
       const conversation = conversations[0];
       if (!conversation) throw new Error('Messaging conversation upsert failed.');
+      const committedAt = input.createdAt < conversation.updatedAt
+        ? conversation.updatedAt
+        : input.createdAt;
 
       const insertedMessages = transaction.insert(schema.messages).values({
         conversationId: conversation.id,
         senderUserId: input.senderUserId,
         clientMessageId: input.clientMessageId,
         text: input.text,
-        createdAt: input.createdAt,
+        createdAt: committedAt,
       }).returning(messageColumns).all();
       const insertedMessage = insertedMessages[0];
       if (!insertedMessage) throw new Error('Messaging message insert failed.');
@@ -201,13 +204,13 @@ export class SQLiteMessagingRepository implements MessagingRepository {
           height: image.height,
           sizeBytes: image.sizeBytes,
           mimeType: image.mimeType,
-          createdAt: input.createdAt,
+          createdAt: committedAt,
         }))).run();
       }
 
       transaction.update(schema.conversations).set({
         lastMessageId: insertedMessage.id,
-        updatedAt: input.createdAt,
+        updatedAt: committedAt,
       }).where(eq(schema.conversations.id, conversation.id)).run();
 
       return {
@@ -215,7 +218,7 @@ export class SQLiteMessagingRepository implements MessagingRepository {
         conversation: {
           ...conversation,
           lastMessageId: insertedMessage.id,
-          updatedAt: input.createdAt,
+          updatedAt: committedAt,
         },
         message: this.hydrateMessagesSync(transaction, [insertedMessage])[0]!,
       };

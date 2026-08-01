@@ -1,6 +1,6 @@
 # HUAS Server 社交后端 API 契约
 
-> 基线：2026-07-31 当前后端实现
+> 基线：2026-08-01 当前后端实现
 > Base URL：`http://localhost:3000`
 > 响应包、Bearer JWT、后台 Cookie、错误码与时间格式见 [API.md](./API.md)
 
@@ -12,9 +12,10 @@
 |---|---|---|
 | `/api/community/*` | Bearer JWT | 当前资料读写与公共用户资料 |
 | `/api/discover/*` | Bearer JWT | Discover 帖子、点赞、评论与用户帖子 |
-| `/api/treehole/*` | Bearer JWT | Treehole 帖子、点赞、评论与用户帖子 |
+| `/api/treehole/*` | Bearer JWT | Treehole 帖子、私有图片、点赞、评论与用户帖子 |
 | `/api/notifications/*` | Bearer JWT | 六类活动通知、未读数与逐条已读 |
 | `/api/messaging/*` | Bearer JWT | 一对一会话、消息、阅读游标与参与者媒体 |
+| `/api/social/unread-summary` | Bearer JWT | 单请求聚合私信未读、互动未读与通知总量 |
 | `/api/admin/discover/*` | 后台 HttpOnly Cookie | Discover 管理删除 |
 | `/api/admin/treehole/*` | 后台 HttpOnly Cookie | Treehole 管理查询与删除 |
 | `/api/admin/messaging/*` | 后台 HttpOnly Cookie | 私信会话、消息与媒体只读查询 |
@@ -275,12 +276,22 @@ Discover 与 Treehole 点赞协议完全一致：重复 `PUT` 保持 `liked=true
 interface TreeholePost {
   id: number;
   content: string;
+  images: TreeholeImage[];
+  imageCount: number;
   author: CommunityProfile;
   stats: { likeCount: number; commentCount: number };
   viewer: { liked: boolean; isMine: boolean };
   publishedAt: string;
   createdAt: string;
   updatedAt: string;
+}
+
+interface TreeholeImage {
+  url: string;
+  width: number;
+  height: number;
+  sizeBytes: number;
+  mimeType: 'image/webp';
 }
 
 interface TreeholeComment {
@@ -299,15 +310,66 @@ interface TreeholeComment {
 
 | 接口 | 语义 |
 |---|---|
-| `GET /api/treehole/meta` | 正文 500、评论 200；帖子分页默认 20/最大 50，评论默认 50/最大 100 |
+| `GET /api/treehole/meta` | 正文 500、评论 200；每帖图片 9；帖子分页默认 20/最大 50，评论默认 50/最大 100 |
 | `GET /api/treehole/posts` | 公共未删除帖子 |
 | `GET /api/treehole/posts/me` | 当前用户未删除帖子 |
 | `GET /api/treehole/users/:userId/posts` | 指定用户未删除帖子 |
-| `POST /api/treehole/posts` | JSON `{ content }`，成功返回 `201 + TreeholePost` |
+| `POST /api/treehole/posts` | `multipart/form-data`，成功返回 `201 + TreeholePost` |
 | `GET /api/treehole/posts/:id` | 帖子详情 |
 | `DELETE /api/treehole/posts/:id` | 仅作者删除，返回 `{ id }` |
 
 分页参数必须是正整数，否则返回 `400 + 4002`。正文 trim 后不能为空且最多 500 字。
+
+`GET /api/treehole/meta` 的 `data.limits` 会返回当前服务端真实限制，前端应使用它驱动选图和提示，不要在 UI 中另维护一份可能漂移的常量：
+
+```ts
+interface TreeholeLimits {
+  maxPostLength: number;
+  maxCommentLength: number;
+  maxImagesPerPost: number;
+  maxImageBytes: number;
+  maxImageTotalBytes: number;
+  maxImagePixels: number;
+  maxOutputImageBytes: number;
+  imageMaxDimension: number;
+  imageQuality: number;
+  allowAnimatedImages: boolean;
+}
+```
+
+发帖字段：
+
+| 字段 | 必填 | 规则 |
+|---|---|---|
+| `content` | 是 | trim 后非空，最多 500 字 |
+| `images` / `images[]` | 否 | 两种字段名可混用，合计 0–9 张，顺序即展示顺序 |
+
+该接口只接受 `multipart/form-data`，不兼容旧 JSON 发帖。不要手写 `Content-Type`，应让浏览器或客户端自动添加 multipart boundary。
+
+图片上传与规范化边界：
+
+- 默认单张原图最大 12 MiB，全部原图合计最大 32 MiB；multipart 整个请求最大 33 MiB（32 MiB 原图预算 + 1 MiB 协议及文本开销）。单图、图片合计、声明长度或无 `Content-Length` 流式请求任一超限都返回 `413 + 4002`；数量、字段、格式、动画或像素不合法返回 `400 + 4002`。
+- 服务端按真实文件内容识别格式，不信任文件名和客户端 MIME；支持的静态图片会自动应用 EXIF 方向、移除元数据、最长边缩至 1280 px 且不放大，并以质量 78 转成静态 WebP。
+- 解码像素上限为 16 MP，动画图片直接拒绝；单张 WebP 成品存在 1 MiB 硬上限，服务端会在范围内继续降低质量或尺寸，仍无法达标则整次发帖失败。
+- 图片按表单顺序逐张转换，任意一张无效或转换失败时不会创建帖子，也不会发布本次其他图片。
+- 小内存服务器上的 Treehole 压缩队列默认只允许 1 个发帖请求执行、最多 2 个请求等待；队列已满时立即返回 `429`。前端应保留用户输入并允许稍后重试，不要无界自动重试或并发提交同一帖子。
+- 前端仍应在上传前主动压缩，并限制选图数量；服务端限制是安全边界，不应作为日常上传目标。
+
+上述原图字节、总字节、像素、成品字节和最长边同时是代码级安全上限；生产环境变量只能继续下调，不能把小内存保护调高。前端以 `/meta` 的实际返回为准。
+
+文本帖也必须提交 multipart：
+
+```ts
+const form = new FormData();
+form.set('content', content);
+for (const file of files) form.append('images', file);
+
+await fetch('/api/treehole/posts', {
+  method: 'POST',
+  headers: { Authorization: `Bearer ${token}` },
+  body: form,
+});
+```
 
 ### 5.3 点赞与评论
 
@@ -321,7 +383,26 @@ interface TreeholeComment {
 
 两个点赞接口同样返回 `{ postId, liked, likeCount }`。有效互动分别产生 `treehole_like/treehole_comment/treehole_comment_reply` 事件；取消点赞撤销对应通知。
 
-### 5.4 Treehole 管理接口
+### 5.4 私有图片读取
+
+`TreeholeImage.url` 指向：
+
+```http
+GET /api/treehole/media/:mediaKey/:fileName
+Authorization: Bearer <token>
+```
+
+文件名固定为帖子图片序号对应的 `01.webp`–`09.webp`。服务端只有在路径严格合法、图片仍被未删除帖子引用时才返回文件；路径非法、引用不存在或帖子已软删除都返回 404。响应不是 JSON envelope，并使用：
+
+```http
+Content-Type: image/webp
+Cache-Control: private, no-store
+X-Content-Type-Options: nosniff
+```
+
+浏览器 `<img src>` 无法附带 Bearer header。前端必须使用当前 JWT `fetch(image.url)`，将成功响应转为 Blob/Object URL 后展示，并在图片替换、组件卸载或列表淘汰时调用 `URL.revokeObjectURL`；不要把私有 URL 拼到公开 `/media/*` 路径，也不要永久缓存 Blob URL。
+
+### 5.5 Treehole 管理接口
 
 Discover/Treehole 的后台查询与删除契约见 [OPERATIONS_API.md](./OPERATIONS_API.md#7-discovertreehole-管理)。管理作者仍是 `CommunityProfile`，不返回学号、真实姓名或完整班级。
 
@@ -579,7 +660,7 @@ X-Content-Type-Options: nosniff
 
 ### 7.6 独立未读入口与错误矩阵
 
-私信和活动通知是两套事实、两套入口：分别轮询 `/api/messaging/unread-count` 与 `/api/notifications/unread-count`，客户端可相加生成“消息”Tab 总红点并在超过 99 时显示 `99+`。读取一侧不会清除另一侧。
+私信和活动通知仍是两套事实与写入入口，但导航角标只轮询 `GET /api/social/unread-summary`。响应为 `{ messagingUnreadCount, notificationUnreadCount, notificationTotal }`：前两项相加生成“消息”Tab 总红点，`notificationTotal` 继续用于 unlike 撤销后的通知快照校准。聚合器并行调用两个领域的窄读端口；读取一侧不会清除另一侧。原 `/api/messaging/unread-count` 与 `/api/notifications/unread-count` 保留为领域兼容入口，不再由 Social Web 常规轮询。
 
 | HTTP | 社交接口真实语义 |
 |---:|---|
@@ -608,6 +689,7 @@ X-Content-Type-Options: nosniff
 - `/api/notifications/changes`
 - `/api/notifications/unread-count`
 - `/api/messaging/unread-count`
+- `/api/social/unread-summary`
 - `/api/messaging/conversations`
 - `/api/messaging/conversations/changes`
 - `/api/messaging/conversations/:id/messages`

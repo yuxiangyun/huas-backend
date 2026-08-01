@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Community 公共资料 DTO、共享 AppError/ErrorCode 与北京时间格式化能力
- * [OUTPUT]: 对外提供 Discover 帖子/评论/点赞稳定类型、校验规则、分页规则与响应映射纯函数
+ * [OUTPUT]: 对外提供 Discover 帖子/评论/点赞稳定类型、Unicode code point 校验、分页规则与响应映射纯函数
  * [POS]: modules/discover/domain 的领域内核，只描述 Discover 事实并通过 CommunityProfile 接收作者投影
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -167,9 +167,10 @@ export interface DiscoverCommentRow {
 
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 50;
-const RECOMMENDED_CANDIDATE_BASE_LIMIT = 120;
-const RECOMMENDED_CANDIDATE_MULTIPLIER = 8;
-const RECOMMENDED_CANDIDATE_MAX_LIMIT = 400;
+
+function codePointLength(value: string) {
+  return Array.from(value).length;
+}
 
 export function getDiscoverMeta(policy: DiscoverPolicy) {
   return {
@@ -208,11 +209,6 @@ export function clampCommentPageSize(pageSize: number | undefined, policy: Disco
   return Math.min(Math.floor(pageSize), policy.maxCommentPageSize);
 }
 
-export function clampRecommendedCandidateLimit(page: number, pageSize: number) {
-  const requested = page * pageSize * RECOMMENDED_CANDIDATE_MULTIPLIER;
-  return Math.min(RECOMMENDED_CANDIDATE_MAX_LIMIT, Math.max(RECOMMENDED_CANDIDATE_BASE_LIMIT, requested));
-}
-
 export function normalizePostInput(input: CreatePostInput, policy: DiscoverPolicy): Omit<PersistDiscoverPostInput, 'media'> {
   return {
     userId: input.userId,
@@ -228,7 +224,7 @@ export function normalizePostInput(input: CreatePostInput, policy: DiscoverPolic
 export function normalizeTitle(value: string | undefined, policy: DiscoverPolicy) {
   const title = value?.trim() || '';
   if (!title) throw new AppError(ErrorCode.PARAM_ERROR, '请写清楚这顿饭叫什么');
-  if (title.length > policy.maxTitleLength) {
+  if (codePointLength(title) > policy.maxTitleLength) {
     throw new AppError(ErrorCode.PARAM_ERROR, `标题不能超过 ${policy.maxTitleLength} 个字`);
   }
   return title;
@@ -237,7 +233,7 @@ export function normalizeTitle(value: string | undefined, policy: DiscoverPolicy
 export function normalizeStoreName(value: string | undefined, policy: DiscoverPolicy) {
   const storeName = value?.trim() || '';
   if (!storeName) return null;
-  if (storeName.length > policy.maxStoreNameLength) {
+  if (codePointLength(storeName) > policy.maxStoreNameLength) {
     throw new AppError(ErrorCode.PARAM_ERROR, `档口或店名不能超过 ${policy.maxStoreNameLength} 个字`);
   }
   return storeName;
@@ -246,7 +242,7 @@ export function normalizeStoreName(value: string | undefined, policy: DiscoverPo
 export function normalizePriceText(value: string | undefined, policy: DiscoverPolicy) {
   const priceText = value?.trim() || '';
   if (!priceText) return null;
-  if (priceText.length > policy.maxPriceTextLength) {
+  if (codePointLength(priceText) > policy.maxPriceTextLength) {
     throw new AppError(ErrorCode.PARAM_ERROR, `价格信息不能超过 ${policy.maxPriceTextLength} 个字`);
   }
   return priceText;
@@ -255,7 +251,7 @@ export function normalizePriceText(value: string | undefined, policy: DiscoverPo
 export function normalizeContent(value: string | undefined, policy: DiscoverPolicy) {
   const content = value?.trim() || '';
   if (!content) throw new AppError(ErrorCode.PARAM_ERROR, '请写几句口味、分量或排队情况');
-  if (content.length > policy.maxContentLength) {
+  if (codePointLength(content) > policy.maxContentLength) {
     throw new AppError(ErrorCode.PARAM_ERROR, `推荐说明不能超过 ${policy.maxContentLength} 个字`);
   }
   return content;
@@ -264,7 +260,7 @@ export function normalizeContent(value: string | undefined, policy: DiscoverPoli
 export function normalizeCommentContent(value: string, policy: DiscoverPolicy) {
   const content = value.trim();
   if (!content) throw new AppError(ErrorCode.PARAM_ERROR, '评论内容不能为空');
-  if (content.length > policy.maxCommentLength) {
+  if (codePointLength(content) > policy.maxCommentLength) {
     throw new AppError(ErrorCode.PARAM_ERROR, `评论内容不能超过 ${policy.maxCommentLength} 个字`);
   }
   return content;
@@ -276,7 +272,7 @@ export function normalizeTags(tags: string[], policy: DiscoverPolicy) {
   for (const raw of tags) {
     const tag = raw.trim().replace(/\s+/g, ' ');
     if (!tag) continue;
-    if (tag.length > policy.maxTagLength) {
+    if (codePointLength(tag) > policy.maxTagLength) {
       throw new AppError(ErrorCode.PARAM_ERROR, `标签不能超过 ${policy.maxTagLength} 个字`);
     }
     const dedupeKey = tag.toLowerCase();

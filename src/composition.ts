@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖各 canonical 模块公开构造器/ports、唯一数据库实例、运行配置、观测器、媒体端口与周期任务注册器
- * [OUTPUT]: 对外提供 createApplicationComposition，集中生成 HTTP/社交/Operations、Outbox 重试、三类孤儿媒体清理与关闭钩子
- * [POS]: src 的唯一跨模块组合根；通知只注册投影重试，Discover/Community/Messaging 媒体分别注册独立清理任务
+ * [OUTPUT]: 对外提供 createApplicationComposition，集中生成 HTTP/社交/Operations、聚合未读、首页弹窗公开媒体、Outbox 重试、四类孤儿媒体清理与关闭钩子
+ * [POS]: src 的唯一跨模块组合根；仅在此连接 Messaging/Notifications 摘要窄端口，通知投影与四类媒体清理仍独立
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -30,8 +30,14 @@ import type { ActivityProjectionTrigger } from './modules/notifications/domain/p
 import { createOperationsComposition } from './modules/operations/composition';
 import metricsRoutes from './modules/operations/http/metrics.routes';
 import { AnalyticsService } from './modules/operations/infrastructure/analytics-service';
+import {
+  INDEX_POPUP_MEDIA_BASE_PATH,
+  INDEX_POPUP_MEDIA_CACHE_CONTROL,
+  IndexPopupService,
+} from './modules/operations/infrastructure/index-popup-service';
 import { createTreeholeComposition } from './modules/treehole/composition';
 import { registerRoutes as registerApplicationRoutes } from './routes';
+import { createSocialSummaryRoutes } from './routes/social-summary.routes';
 import { PeriodicTaskRegistry } from './runtime/periodic-tasks';
 import { runtimeMetrics } from './runtime/runtime-metrics';
 import { registerShutdownFlushHook } from './runtime/shutdown-hooks';
@@ -89,9 +95,27 @@ export function createApplicationComposition(): ApplicationComposition {
       maxPageSize: config.treehole.maxPageSize,
       defaultCommentPageSize: config.treehole.defaultCommentPageSize,
       maxCommentPageSize: config.treehole.maxCommentPageSize,
+      maxImagesPerPost: config.treehole.maxImagesPerPost,
+      maxImageBytes: config.treehole.imageMaxBytes,
+      maxImageTotalBytes: config.treehole.imageTotalMaxBytes,
+      maxImagePixels: config.treehole.imageMaxPixels,
+      maxOutputImageBytes: config.treehole.imageMaxOutputBytes,
+      imageMaxDimension: config.treehole.imageMaxDimension,
+      imageQuality: config.treehole.imageQuality,
+      allowAnimatedImages: false,
+      orphanMediaGraceMs: config.treehole.orphanMediaGraceMs,
     },
     activityOutbox: notifications.outboxWriter,
     activityProjection,
+    media: {
+      storageRoot: config.treehole.storageRoot,
+      userMediaBasePath: config.treehole.userMediaBasePath,
+      adminMediaBasePath: config.treehole.adminMediaBasePath,
+    },
+    upload: {
+      maxActive: config.treehole.uploadMaxActive,
+      maxQueued: config.treehole.uploadMaxQueued,
+    },
   });
   const messaging = createMessagingModule({
     db,
@@ -106,6 +130,7 @@ export function createApplicationComposition(): ApplicationComposition {
     identityQuery: new SQLiteIdentityOperationsQuery(),
     discoverQuery: discover.operationsQuery,
     treeholeQuery: treehole.operationsQuery,
+    treeholeMedia: treehole.media,
     messagingQuery: messaging.operationsQuery,
     discoverCommands: {
       deletePost: (postId) => discover.service.deletePost(postId),
@@ -179,6 +204,14 @@ export function createApplicationComposition(): ApplicationComposition {
     },
   });
   periodicTasks.register({
+    name: 'orphan-treehole-media-cleanup',
+    intervalMs: config.cleanupInterval,
+    async run() {
+      const before = new Date(Date.now() - config.treehole.orphanMediaGraceMs);
+      await treehole.service.cleanupOrphanMedia(before);
+    },
+  });
+  periodicTasks.register({
     name: 'orphan-community-avatar-cleanup',
     intervalMs: config.cleanupInterval,
     async run() {
@@ -195,10 +228,19 @@ export function createApplicationComposition(): ApplicationComposition {
         discoverRoutes: discover.routes,
         messagingRoutes: messaging.routes,
         notificationRoutes: notifications.routes,
+        socialSummaryRoutes: createSocialSummaryRoutes({
+          countMessagingUnread: (userId) => messaging.service.countUnread(userId),
+          summarizeNotifications: (userId) => notifications.service.summarize(userId),
+        }),
         treeholeRoutes: treehole.routes,
       }),
       metricsRoutes,
       media: [
+        {
+          basePath: INDEX_POPUP_MEDIA_BASE_PATH,
+          cacheControl: INDEX_POPUP_MEDIA_CACHE_CONTROL,
+          getFile: (requestPath) => IndexPopupService.getPublicFile(requestPath),
+        },
         {
           basePath: config.discover.mediaBasePath,
           cacheControl: DISCOVER_MEDIA_CACHE_CONTROL,

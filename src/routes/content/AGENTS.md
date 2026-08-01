@@ -2,7 +2,7 @@
 > L2 | 父级: /Users/xiangyun/workspace/huas-wechat-app/huas-server/src/routes/AGENTS.md
 
 成员清单
-public.routes.ts: modules/operations/http/public.routes 的单向兼容 Facade，保持匿名公告挂载入口
+public.routes.ts: modules/operations/http/public.routes 的单向兼容 Facade，保持匿名公告与首页弹窗挂载入口
 
 架构决策
 公共内容路由只暴露可匿名读取的数据；管理写入必须走 /api/admin。

@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 Hono 请求上下文、HTTP 日志详情与统一 Logger，并识别 Notifications/Messaging 的高频只读轮询路径
+ * [INPUT]: 依赖 Hono 请求上下文、HTTP 日志详情与统一 Logger，并识别 Social 聚合及领域增量的高频只读轮询路径
  * [OUTPUT]: 对外提供 loggingMiddleware；静默成功轮询访问日志，同时保留失败响应、写操作与全部其他 HTTP 日志
  * [POS]: middleware 的 HTTP 可观测性边界；只决定访问日志采样，不参与 app.ts 中独立执行的 HTTP metrics 统计
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -15,6 +15,7 @@ const QUIET_POLL_PATHS = [
   /^\/api\/messaging\/unread-count$/,
   /^\/api\/messaging\/conversations(?:\/changes)?$/,
   /^\/api\/messaging\/conversations\/\d+\/messages$/,
+  /^\/api\/social\/unread-summary$/,
 ] as const;
 
 function shouldSkipHttpLog(path: string) {

@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Discover 媒体测试支架与图片编码能力
- * [OUTPUT]: 验证发帖媒体压缩、HEIF/HEIC、大图、动图处理与引用/宽限期孤儿目录回收契约
+ * [OUTPUT]: 验证 multipart 图片线序、媒体压缩、HEIF/HEIC、大图、动图处理与引用/宽限期回收契约
  * [POS]: tests/discover 的 Discover 媒体摄取与规范化细分用例，失败时直接定位该业务能力
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -109,6 +109,37 @@ describe('Discover 媒体摄取与规范化', () => {
     expect(myBody.data.items).toHaveLength(1);
     expect(myBody.data.items[0].id).toBe(body.data.id);
     expect(myBody.data.items[0].isMine).toBe(true);
+  });
+
+  it('混用 images 与 images[] 时仍按 multipart 线序保存图片', async () => {
+    const app = createApp();
+    const form = new FormData();
+    form.set('category', '其他');
+    form.set('title', '图片线序测试');
+    form.set('content', '字段别名可以混用，但图片顺序必须与客户端选择顺序一致。');
+    form.append('tags', '顺序');
+    const colors = ['#ff0000', '#00ff00', '#0000ff'];
+    form.append('images', new File([await createImageBuffer(colors[0]!)], 'red.jpg', { type: 'image/jpeg' }));
+    form.append('images[]', new File([await createImageBuffer(colors[1]!)], 'green.jpg', { type: 'image/jpeg' }));
+    form.append('images', new File([await createImageBuffer(colors[2]!)], 'blue.jpg', { type: 'image/jpeg' }));
+
+    const response = await app.request('http://localhost/api/discover/posts', {
+      method: 'POST',
+      headers: await authHeaderFor(authorId, '2023001001'),
+      body: form,
+    });
+    expect(response.status).toBe(201);
+    const post = (await response.json() as any).data;
+    expect(post.images).toHaveLength(3);
+    expect(post.coverUrl).toBe(post.images[0].url);
+
+    const stats = await Promise.all(post.images.map(async (image: any) => {
+      const relativePath = image.url.replace(`${config.discover.mediaBasePath}/`, '');
+      return sharp(Buffer.from(await Bun.file(join(config.discover.storageRoot, relativePath)).arrayBuffer())).stats();
+    }));
+    expect(stats[0].channels[0].mean).toBeGreaterThan(stats[0].channels[1].mean);
+    expect(stats[1].channels[1].mean).toBeGreaterThan(stats[1].channels[0].mean);
+    expect(stats[2].channels[2].mean).toBeGreaterThan(stats[2].channels[0].mean);
   });
 
   it('支持 HEIF 家族图片，即使移动端没有带标准 MIME 也能上传', async () => {

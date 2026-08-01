@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖注入的 Operations application 服务、会话边界、Academic 策略公开门面、自有 infrastructure 与统一响应/审计日志
- * [OUTPUT]: 对外提供 createAdminRoutes(dependencies)，生成会话、dashboard、内容、社区、增量/三态私信只读与课表策略路由
- * [POS]: operations/http 的注入式管理面协议适配器，三类私信读取均写入不含正文、文件名或用户隐私的审计日志
+ * [INPUT]: 依赖注入的 Operations application 服务、会话边界、Academic 策略公开门面、自有 infrastructure、共享上传门禁与统一响应/审计日志
+ * [OUTPUT]: 对外提供 createAdminRoutes(dependencies)，生成会话、dashboard、公告/三态底栏首页弹窗、Treehole 私有媒体、增量/三态私信只读与课表策略路由
+ * [POS]: operations/http 的注入式管理面协议适配器，媒体读取只记录稳定资源键与业务 ID，不记正文、文件名或用户隐私
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -9,12 +9,22 @@ import { Hono } from 'hono';
 import { isScheduleSourceMode, ScheduleSourcePolicy } from '../../academic/schedule';
 import { ErrorCode } from '../../../utils/errors';
 import { Logger } from '../../../utils/logger';
+import { privateMediaResponse } from '../../../utils/private-media-response';
+import {
+  isBodyLimitError,
+  multipartRequestMaxBytes,
+  requestBodyLimit,
+} from '../../../utils/request-body-limit';
 import { error, success } from '../../../utils/response';
 import type { AdminDashboardApplicationService } from '../application/admin-dashboard-service';
 import type { CommunityAdminApplicationService } from '../application/community-admin-service';
 import type { MessagingAdminApplicationService } from '../application/messaging-admin-service';
 import { AnalyticsService } from '../infrastructure/analytics-service';
 import { AnnouncementService } from '../infrastructure/announcement-service';
+import {
+  INDEX_POPUP_IMAGE_MAX_BYTES,
+  IndexPopupService,
+} from '../infrastructure/index-popup-service';
 import { TerminalLogService } from '../infrastructure/terminal-log-service';
 import {
   adminSessionMiddleware,
@@ -30,6 +40,7 @@ export interface AdminRouteDependencies {
     | 'deleteDiscoverPost'
     | 'listTreeholePosts'
     | 'listTreeholeComments'
+    | 'getTreeholeMedia'
     | 'deleteTreeholePost'
     | 'deleteTreeholeComment'
   >;
@@ -130,6 +141,47 @@ export function createAdminRoutes(dependencies: AdminRouteDependencies) {
     }
   });
 
+  admin.get('/index-popup', async (c) => success(c, await IndexPopupService.getAdmin()));
+
+  admin.put(
+    '/index-popup',
+    requestBodyLimit({
+      maxSize: multipartRequestMaxBytes(INDEX_POPUP_IMAGE_MAX_BYTES),
+      tooLargeMessage: '首页弹窗上传请求体过大',
+    }),
+    async (c) => {
+      let form: FormData;
+      try {
+        form = await c.req.formData();
+      } catch (cause) {
+        if (isBodyLimitError(cause)) throw cause;
+        return error(c, ErrorCode.PARAM_ERROR, '请求必须是 multipart/form-data', 400);
+      }
+
+      const imageEntry = form.get('image');
+      if (imageEntry !== null && (!(imageEntry instanceof File) || imageEntry.size <= 0)) {
+        return error(c, ErrorCode.PARAM_ERROR, '首页弹窗图片不合法', 400);
+      }
+      const settings = await IndexPopupService.update({
+        enabled: form.get('enabled'),
+        frequency: form.get('frequency'),
+        actionType: form.get('actionType'),
+        actionText: form.get('actionText'),
+        startsAt: form.get('startsAt'),
+        endsAt: form.get('endsAt'),
+        image: imageEntry instanceof File ? imageEntry : undefined,
+      });
+      Logger.operation(
+        'Admin',
+        '更新首页弹窗',
+        c.get('adminUser'),
+        '管理员',
+        `enabled=${settings.enabled}; frequency=${settings.frequency}; actionType=${settings.actionType}; version=${settings.version || 'none'}`,
+      );
+      return success(c, settings);
+    },
+  );
+
   admin.get('/logs', async (c) => {
     const limitParam = c.req.query('limit');
     const parsedLimit = limitParam ? Number(limitParam) : null;
@@ -222,13 +274,7 @@ export function createAdminRoutes(dependencies: AdminRouteDependencies) {
       '管理员',
       `conversationId=${media.conversationId}; storageKey=${storageKey}`,
     );
-    return new Response(media.data, {
-      headers: {
-        'Cache-Control': 'private, no-store',
-        'Content-Type': media.data.type || 'application/octet-stream',
-        'X-Content-Type-Options': 'nosniff',
-      },
-    });
+    return privateMediaResponse(media.data);
   });
 
   admin.post('/announcements', async (c) => {
@@ -323,6 +369,22 @@ export function createAdminRoutes(dependencies: AdminRouteDependencies) {
     } catch (cause: any) {
       return error(c, ErrorCode.INTERNAL_ERROR, cause?.message || '获取评论列表失败', 500);
     }
+  });
+
+  admin.get('/treehole/media/:mediaKey/:fileName', async (c) => {
+    const mediaKey = c.req.param('mediaKey').trim();
+    const fileName = c.req.param('fileName').trim();
+    if (!mediaKey || !fileName) return error(c, ErrorCode.PARAM_ERROR, '媒体标识不合法', 400);
+    const media = await dependencies.communityAdmin.getTreeholeMedia(mediaKey, fileName);
+    if (!media) return error(c, ErrorCode.PARAM_ERROR, '树洞图片不存在', 404);
+    Logger.operation(
+      'AdminTreeholeAudit',
+      'read_treehole_post_media',
+      c.get('adminUser'),
+      '管理员',
+      `postId=${media.postId}; mediaKey=${mediaKey}`,
+    );
+    return privateMediaResponse(media.data);
   });
 
   admin.delete('/treehole/posts/:id', async (c) => {

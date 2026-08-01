@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖调用方注入的 Identity/Discover/Treehole/Messaging 公开 ports 与 Operations 自有 application/infrastructure
+ * [INPUT]: 依赖调用方注入的 Identity/Discover/Treehole/Messaging 公开查询、命令与私有媒体 ports，以及 Operations 自有 application/infrastructure
  * [OUTPUT]: 对外提供 createOperationsComposition 与进程级 systemOperations
  * [POS]: modules/operations 的局部组合工厂，只聚合公开端口；跨模块 concrete 装配统一留在 src/composition.ts
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -10,6 +10,7 @@ import type { IdentityOperationsQueryPort } from '../identity/domain/operations-
 import { configureLoginAnalyticsRecorder } from '../identity/http/login-analytics';
 import type { MessagingOperationsQueryPort } from '../messaging/domain/ports';
 import type { TreeholeOperationsQueryPort } from '../treehole/domain/operations-query';
+import type { TreeholeMediaReader } from '../treehole/domain/ports';
 import { AdminDashboardApplicationService } from './application/admin-dashboard-service';
 import { CommunityAdminApplicationService } from './application/community-admin-service';
 import { MessagingAdminApplicationService } from './application/messaging-admin-service';
@@ -30,6 +31,7 @@ export interface OperationsCompositionDependencies {
   identityQuery: IdentityOperationsQueryPort;
   discoverQuery: DiscoverOperationsQueryPort;
   treeholeQuery: TreeholeOperationsQueryPort;
+  treeholeMedia: Pick<TreeholeMediaReader, 'getForAdmin'>;
   messagingQuery: MessagingOperationsQueryPort;
   discoverCommands: DiscoverAdminCommandPort;
   treeholeCommands: TreeholeAdminCommandPort;
@@ -45,6 +47,7 @@ export function createOperationsComposition(dependencies: OperationsCompositionD
   );
   const communityAdmin = new CommunityAdminApplicationService(
     dependencies.treeholeQuery,
+    dependencies.treeholeMedia,
     dependencies.discoverCommands,
     dependencies.treeholeCommands,
   );

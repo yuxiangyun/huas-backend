@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 Hono、注入的 TreeholeApplicationService 与统一错误/日志/响应工具
- * [OUTPUT]: 对外提供 createTreeholeRoutes(service)，映射帖子、评论及统一 `{postId, liked, likeCount}` 的 PUT/DELETE 点赞协议
- * [POS]: modules/treehole/http 的认证后 factory adapter，不读取配置、数据库或 composition singleton
+ * [INPUT]: 依赖 Hono、注入的 TreeholeApplicationService/图片策略/上传门禁与共享请求体限制/响应工具
+ * [OUTPUT]: 对外提供 createTreeholeRoutes(service, uploadPolicy, uploadGate)，映射受限 multipart 图文帖子、私有媒体、评论与幂等点赞
+ * [POS]: modules/treehole/http 的 Bearer 认证后 factory adapter，在 formData 前同时执行字节上限与有界并发门禁
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -9,8 +9,15 @@ import { Hono, type Context } from 'hono';
 import { ErrorCode } from '../../../utils/errors';
 import { appendHttpLogDetail, formatHttpLogDetail } from '../../../utils/http-log';
 import { Logger } from '../../../utils/logger';
+import { privateMediaResponse } from '../../../utils/private-media-response';
+import {
+  isBodyLimitError,
+  multipartRequestMaxBytes,
+  requestBodyLimit,
+} from '../../../utils/request-body-limit';
 import { error, success } from '../../../utils/response';
 import type { TreeholeApplicationService } from '../application/treehole-application-service';
+import type { TreeholeUploadGate } from './treehole-upload-gate';
 
 type TreeholeHttpService = Pick<
   TreeholeApplicationService,
@@ -26,7 +33,14 @@ type TreeholeHttpService = Pick<
   | 'createComment'
   | 'deletePost'
   | 'deleteComment'
+  | 'getMedia'
 >;
+
+export interface TreeholeHttpUploadPolicy {
+  maxImagesPerPost: number;
+  maxImageBytes: number;
+  maxImageTotalBytes: number;
+}
 
 function parseOptionalPositiveInt(value: string | undefined) {
   if (value === undefined) return undefined;
@@ -46,7 +60,11 @@ function parsePagination(c: Context) {
   };
 }
 
-export function createTreeholeRoutes(service: TreeholeHttpService) {
+export function createTreeholeRoutes(
+  service: TreeholeHttpService,
+  uploadPolicy: TreeholeHttpUploadPolicy,
+  uploadGate: Pick<TreeholeUploadGate, 'acquire'>,
+) {
   const routes = new Hono();
 
   routes.get('/meta', (c) => {
@@ -54,6 +72,7 @@ export function createTreeholeRoutes(service: TreeholeHttpService) {
     appendHttpLogDetail(c, formatHttpLogDetail({
       maxPostLength: data.limits.maxPostLength,
       maxCommentLength: data.limits.maxCommentLength,
+      maxImagesPerPost: data.limits.maxImagesPerPost,
     }));
     return success(c, data);
   });
@@ -101,22 +120,84 @@ export function createTreeholeRoutes(service: TreeholeHttpService) {
     return success(c, data);
   });
 
-  routes.post('/posts', async (c) => {
-    let body: any;
-    try {
-      body = await c.req.json();
-    } catch {
-      return error(c, ErrorCode.PARAM_ERROR, '请求体必须是有效的 JSON', 400);
-    }
-    appendHttpLogDetail(c, formatHttpLogDetail({
-      contentLength: typeof body?.content === 'string' ? body.content.trim().length : 0,
-    }));
-    const data = await service.createPost({
-      userId: c.get('userId'),
-      content: typeof body?.content === 'string' ? body.content : '',
-    });
-    Logger.operation('Treehole', `发布树洞 #${data?.id ?? '-'}`, c.get('studentId'), c.get('name'));
-    return success(c, data, undefined, 201);
+  routes.post(
+    '/posts',
+    requestBodyLimit({
+      maxSize: multipartRequestMaxBytes(uploadPolicy.maxImageTotalBytes),
+      tooLargeMessage: '帖子上传请求体过大',
+    }),
+    async (c) => {
+      const lease = await uploadGate.acquire(c.req.raw.signal);
+      if (!lease) return error(c, ErrorCode.PARAM_ERROR, '图片处理繁忙，请稍后重试', 429);
+
+      try {
+        const contentType = c.req.header('content-type') ?? '';
+        if (!/^multipart\/form-data(?:;|$)/iu.test(contentType)) {
+          return error(c, ErrorCode.PARAM_ERROR, '请求必须是 multipart/form-data', 400);
+        }
+
+        let form: FormData;
+        try {
+          form = await c.req.formData();
+        } catch (cause) {
+          if (isBodyLimitError(cause)) throw cause;
+          return error(c, ErrorCode.PARAM_ERROR, '请求必须是 multipart/form-data', 400);
+        }
+
+        const content = form.get('content');
+        if (typeof content !== 'string') {
+          return error(c, ErrorCode.PARAM_ERROR, '树洞内容不合法', 400);
+        }
+        const imageEntries: unknown[] = [];
+        form.forEach((value, field) => {
+          if (field === 'images' || field === 'images[]') imageEntries.push(value);
+        });
+        if (!imageEntries.every((entry): entry is File => entry instanceof File && entry.size > 0)) {
+          return error(c, ErrorCode.PARAM_ERROR, '图片文件不合法', 400);
+        }
+        const images = imageEntries;
+        if (images.length > uploadPolicy.maxImagesPerPost) {
+          return error(c, ErrorCode.PARAM_ERROR, `每篇帖子最多上传 ${uploadPolicy.maxImagesPerPost} 张图片`, 400);
+        }
+        if (images.some((image) => image.size > uploadPolicy.maxImageBytes)) {
+          return error(c, ErrorCode.PARAM_ERROR, '单张图片超过允许的大小限制', 413);
+        }
+        const originalBytes = images.reduce((total, image) => total + image.size, 0);
+        if (!Number.isSafeInteger(originalBytes) || originalBytes > uploadPolicy.maxImageTotalBytes) {
+          return error(c, ErrorCode.PARAM_ERROR, '帖子图片总大小超过允许的限制', 413);
+        }
+
+        appendHttpLogDetail(c, formatHttpLogDetail({
+          contentLength: Array.from(content.trim()).length,
+          images: images.length,
+          originalBytes,
+        }));
+        const data = await service.createPost({
+          userId: c.get('userId'),
+          content,
+          images,
+        });
+        Logger.operation(
+          'Treehole',
+          `发布树洞 #${data?.id ?? '-'}`,
+          c.get('studentId'),
+          c.get('name'),
+          `images=${data?.imageCount ?? 0}`,
+        );
+        return success(c, data, undefined, 201);
+      } finally {
+        lease();
+      }
+    },
+  );
+
+  routes.get('/media/:mediaKey/:fileName', async (c) => {
+    const mediaKey = c.req.param('mediaKey').trim();
+    const fileName = c.req.param('fileName').trim();
+    if (!mediaKey || !fileName) return error(c, ErrorCode.PARAM_ERROR, '媒体标识不合法', 400);
+    const file = await service.getMedia(mediaKey, fileName);
+    if (!file) return error(c, ErrorCode.PARAM_ERROR, '树洞图片不存在', 404);
+    return privateMediaResponse(file);
   });
 
   routes.get('/posts/:id', async (c) => {

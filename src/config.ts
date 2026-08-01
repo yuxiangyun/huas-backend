@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 process.env 与 node:path，读取端口、密钥、数据库、缓存、课表来源策略、媒体及孤儿宽限期、服务账号、限流、成绩回源总预算与上游超时
+ * [INPUT]: 依赖 process.env 与 node:path，读取端口、密钥、数据库、缓存、课表来源策略、四类社交媒体/孤儿宽限期、Treehole 低内存压缩门禁、服务账号、限流、成绩回源总预算与上游超时
  * [OUTPUT]: 对外提供 config、USER_AGENT 等运行时配置常量，并强制 TZ 为 Asia/Shanghai
  * [POS]: src 的配置源，所有模块通过它读取运行参数，避免散落读取环境变量
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -14,6 +14,11 @@ const CALENDAR_TOKEN_SECRET_FILE = process.env.CALENDAR_TOKEN_SECRET_FILE?.trim(
 const MIB = 1024 * 1024;
 const DEFAULT_DISCOVER_IMAGE_MAX_BYTES = 32 * MIB;
 const DEFAULT_COMMUNITY_AVATAR_MAX_BYTES = 2 * MIB;
+const DEFAULT_TREEHOLE_IMAGE_MAX_BYTES = 12 * MIB;
+const DEFAULT_TREEHOLE_IMAGE_TOTAL_MAX_BYTES = 32 * MIB;
+const DEFAULT_TREEHOLE_IMAGE_MAX_OUTPUT_BYTES = MIB;
+const DEFAULT_TREEHOLE_IMAGE_MAX_PIXELS = 16_000_000;
+const DEFAULT_TREEHOLE_IMAGE_MAX_DIMENSION = 1_280;
 
 // Force runtime timezone to Beijing to avoid host-level timezone drift.
 process.env.TZ = BEIJING_TIME_ZONE;
@@ -21,6 +26,12 @@ process.env.TZ = BEIJING_TIME_ZONE;
 function parsePositiveInt(value: string | undefined, fallback: number): number {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.floor(n);
+}
+
+function parseNonNegativeInt(value: string | undefined, fallback: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return fallback;
   return Math.floor(n);
 }
 
@@ -141,12 +152,53 @@ export const config = {
   },
 
   treehole: {
+    storageRoot: process.env.TREEHOLE_STORAGE_ROOT
+      || join(dirname(process.env.DB_PATH || DEFAULT_DB_PATH), 'treehole-post-media'),
+    userMediaBasePath: process.env.TREEHOLE_USER_MEDIA_BASE_PATH || '/api/treehole/media',
+    adminMediaBasePath: process.env.TREEHOLE_ADMIN_MEDIA_BASE_PATH || '/api/admin/treehole/media',
     maxPostLength: parsePositiveInt(process.env.TREEHOLE_MAX_POST_LENGTH, 500),
     maxCommentLength: parsePositiveInt(process.env.TREEHOLE_MAX_COMMENT_LENGTH, 200),
     defaultPageSize: parsePositiveInt(process.env.TREEHOLE_DEFAULT_PAGE_SIZE, 20),
     maxPageSize: parsePositiveInt(process.env.TREEHOLE_MAX_PAGE_SIZE, 50),
     defaultCommentPageSize: parsePositiveInt(process.env.TREEHOLE_DEFAULT_COMMENT_PAGE_SIZE, 50),
     maxCommentPageSize: parsePositiveInt(process.env.TREEHOLE_MAX_COMMENT_PAGE_SIZE, 100),
+    maxImagesPerPost: Math.min(9, parsePositiveInt(process.env.TREEHOLE_MAX_IMAGES, 9)),
+    imageMaxBytes: Math.min(
+      DEFAULT_TREEHOLE_IMAGE_MAX_BYTES,
+      parsePositiveInt(process.env.TREEHOLE_IMAGE_MAX_BYTES, DEFAULT_TREEHOLE_IMAGE_MAX_BYTES),
+    ),
+    imageTotalMaxBytes: Math.min(
+      DEFAULT_TREEHOLE_IMAGE_TOTAL_MAX_BYTES,
+      parsePositiveInt(
+        process.env.TREEHOLE_IMAGE_TOTAL_MAX_BYTES,
+        DEFAULT_TREEHOLE_IMAGE_TOTAL_MAX_BYTES,
+      ),
+    ),
+    imageMaxPixels: Math.min(
+      DEFAULT_TREEHOLE_IMAGE_MAX_PIXELS,
+      parsePositiveInt(process.env.TREEHOLE_IMAGE_MAX_PIXELS, DEFAULT_TREEHOLE_IMAGE_MAX_PIXELS),
+    ),
+    imageMaxOutputBytes: Math.min(
+      DEFAULT_TREEHOLE_IMAGE_MAX_OUTPUT_BYTES,
+      parsePositiveInt(
+        process.env.TREEHOLE_IMAGE_MAX_OUTPUT_BYTES,
+        DEFAULT_TREEHOLE_IMAGE_MAX_OUTPUT_BYTES,
+      ),
+    ),
+    imageMaxDimension: Math.min(
+      DEFAULT_TREEHOLE_IMAGE_MAX_DIMENSION,
+      parsePositiveInt(
+        process.env.TREEHOLE_IMAGE_MAX_DIMENSION,
+        DEFAULT_TREEHOLE_IMAGE_MAX_DIMENSION,
+      ),
+    ),
+    imageQuality: Math.min(90, Math.max(40, parsePositiveInt(process.env.TREEHOLE_IMAGE_QUALITY, 78))),
+    orphanMediaGraceMs: parsePositiveInt(
+      process.env.TREEHOLE_ORPHAN_MEDIA_GRACE_MS,
+      60 * 60 * 1000,
+    ),
+    uploadMaxActive: Math.min(2, parsePositiveInt(process.env.TREEHOLE_UPLOAD_MAX_ACTIVE, 1)),
+    uploadMaxQueued: Math.min(8, parseNonNegativeInt(process.env.TREEHOLE_UPLOAD_MAX_QUEUED, 2)),
   },
 };
 
