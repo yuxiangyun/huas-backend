@@ -19,7 +19,7 @@ segmented-control.tsx: 分段选择原语，支持等宽/内容宽排布与可�
 social-page-title.tsx: Social 主 Tab 的文字/品牌标题原语，统一中文楷体字标或品牌图片字标的显示尺寸、完整裁切与信息流左边界且不引入外部字体请求
 huas-community-logo.png: Social 主 Tab 共用的透明品牌字标源资产，仅由 social-page-title.tsx 消费并交给 Vite 生成内容哈希 URL。
 social-count-action.tsx: Social 互动计数按钮原语，统一图标触控尺寸、弱化数字格式与可选激活态，不持有业务 mutation
-task-dialog.tsx: 表单与裁切任务容器，基于 Radix Dialog 提供边界统一、轻量进退场的居中/移动全屏展示及业务可替换头尾布局协议
+task-dialog.tsx: 表单与裁切任务容器，基于 Radix Dialog 提供边界统一、轻量进退场的居中/移动全屏展示及业务可替换头尾布局协议，支持保留唯一返回动作的不可误关模式
 toast-viewport.tsx: 全局消息视口，消费 toast store 并用 CSS 生命周期动效在壳层安全区内呈现反馈，不把动画运行时带入首屏
 unread-badge.tsx: 导航、分段控件与会话列表共享的固定高度未读徽标，单数字保持正圆且多数字按内容扩展
 

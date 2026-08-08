@@ -8,7 +8,7 @@ community-profile-dialog/: Community 公共昵称与头像管理任务，统一�
 discover-compose-sheet/: 好饭发布弹窗，编排不随元数据刷新丢失的表单、1MB 目标图预处理、主图标识、预览与创建 mutation
 discover-detail-sheet/: Discover 移动优先全屏详情，以帖子身份隔离异步互动回写，编排幂等点赞、私信作者、首批 20 条评论、固定输入器、图片查看与删除语义
 discover-feed/: Discover 单列图片信息流，固定首图为主图、按媒体元数据预留真实比例且缺省稳定为 4:5、对失效媒体保持同尺寸占位，组合作者资料、同行计数互动、私信、精简摘要、筛选与分页
-message-center/: 私信会话与六类活动通知聚合读容器，只轮询当前分区并在聊天打开时暂停，通知用 ID 新增/total 撤销双信号校准
+message-center/: 私信会话与六类活动通知聚合读容器，按互动/私信顺序展示分区，只轮询当前分区并在聊天目标打开时暂停，通知用 ID 新增/total 撤销双信号校准
 mobile-tab-shell/: Social 四 Tab 白色应用壳，归一化 basename 路径、唯一轮询聚合未读，以有限内容就绪追踪保存/恢复各 Tab 滚动现场，重复点击回顶刷新并按用户意图预热目标页
 my-posts-panel/: 当前用户 Discover 发布列表，只消费调用方数据和动作
 my-treehole-posts-panel/: 当前用户 Treehole 图文发布列表，以 Bearer 首图缩略图组合调用方数据和打开动作

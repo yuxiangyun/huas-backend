@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖消息中心、按需聊天弹层、活动通知逐条已读与 React Router 查询参数
- * [OUTPUT]: 对外提供 MessagesPage，以 userId 唯一深链编排私信/互动分段、按需加载聊天及原内容导航
- * [POS]: pages/messages 的路由级组装器，只持有目标用户 URL 状态并把聊天代码推迟到真实会话意图后，会话 ID 由 Messaging 定位结果拥有
+ * [INPUT]: 依赖消息中心、合规阻断 TaskDialog、活动通知逐条已读与 React Router 查询参数
+ * [OUTPUT]: 对外提供 MessagesPage，保留私信列表/互动通知并在具体聊天加载前阻断 userId 目标
+ * [POS]: pages/messages 的路由级组装器，只持有目标用户 URL 状态，在聊天加载前终止进入行为并负责原内容导航
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -13,15 +13,10 @@ import type { Conversation } from '@/entities/messaging/model/messaging-types';
 import { useMarkNotificationReadMutation } from '@/entities/notifications/api/notification-queries';
 import type { ActivityNotification } from '@/entities/notifications/model/notification-types';
 import { selectMessageTarget } from '@/pages/social-route-state';
+import { LazyTaskFallback } from '@/shared/ui/lazy-task-fallback';
+import { TaskDialog } from '@/shared/ui/task-dialog';
 import { MessageCenter, type MessageSection } from '@/widgets/message-center/message-center';
 import { useSocialShellContext } from '@/widgets/mobile-tab-shell/mobile-tab-shell';
-import { LazyTaskFallback } from '@/shared/ui/lazy-task-fallback';
-
-const loadChatSheet = () => import('@/widgets/chat-sheet/chat-sheet');
-const LazyChatSheet = lazy(async () => {
-  const module = await loadChatSheet();
-  return { default: module.ChatSheet };
-});
 
 const loadPublicProfileDialog = () => import('@/widgets/public-profile-dialog/public-profile-dialog');
 const LazyPublicProfileDialog = lazy(async () => {
@@ -48,11 +43,6 @@ export function MessagesPage() {
   useEffect(() => setActiveTab('messages'), [setActiveTab]);
 
   useEffect(() => {
-    if (userId === null) return;
-    void loadChatSheet();
-  }, [userId]);
-
-  useEffect(() => {
     if (profileUserId === null) return;
     setProfileDialogRequested(true);
     void loadPublicProfileDialog();
@@ -67,12 +57,25 @@ export function MessagesPage() {
   }
 
   const openConversation = (conversation: Conversation) => {
-    void loadChatSheet();
     patchSearchParams((params) => {
       selectMessageTarget(params, conversation.otherUser.id);
       params.delete('tab');
     });
   };
+
+  function returnFromUnavailableChat() {
+    const historyIndex = window.history.state?.idx;
+
+    if (typeof historyIndex === 'number' && historyIndex > 0) {
+      navigate(-1);
+      return;
+    }
+
+    patchSearchParams((params) => {
+      params.delete('conversationId');
+      params.delete('userId');
+    });
+  }
 
   const openNotification = (notification: ActivityNotification) => {
     if (!notification.readAt) {
@@ -104,16 +107,18 @@ export function MessagesPage() {
         })}
       />
       {userId !== null ? (
-        <Suspense fallback={<LazyTaskFallback label="私信会话" />}>
-          <LazyChatSheet
-            userId={userId}
-            onClose={() => patchSearchParams((params) => {
-              params.delete('conversationId');
-              params.delete('userId');
-            })}
-            onOpenProfile={openProfile}
-          />
-        </Suspense>
+        <TaskDialog
+          closeLabel="返回上一界面"
+          dismissible={false}
+          open={userId !== null}
+          presentation="modal"
+          title="私信暂不开放"
+          onClose={returnFromUnavailableChat}
+        >
+          <p className="text-sm leading-6 text-muted">
+            由于合规要求，私信功能暂不开放。
+          </p>
+        </TaskDialog>
       ) : null}
       {profileDialogRequested ? (
         <Suspense fallback={profileUserId !== null ? <LazyTaskFallback label="用户资料" /> : null}>
@@ -121,7 +126,6 @@ export function MessagesPage() {
             userId={profileUserId}
             onClose={() => patchSearchParams((params) => params.delete('profileUserId'))}
             onMessage={(nextUserId) => patchSearchParams((params) => {
-              void loadChatSheet();
               selectMessageTarget(params, nextUserId);
               params.delete('profileUserId');
               params.delete('tab');

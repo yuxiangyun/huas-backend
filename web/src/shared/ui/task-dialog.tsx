@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Radix Dialog 的焦点与 Portal 能力、React 组合内容和 shared 轻量弹层样式规范
- * [OUTPUT]: 对外提供 TaskDialog，为编辑任务提供边界与进退场统一、可替换头部的居中弹窗或移动全屏容器
+ * [OUTPUT]: 对外提供 TaskDialog，为编辑任务提供边界与进退场统一、可替换头部的居中弹窗或移动全屏容器，并支持不可误关模式
  * [POS]: shared/ui 的表单与裁切任务原语，与只承载短操作的 BottomSheet 形成明确边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -22,6 +22,7 @@ interface TaskDialogProps extends PropsWithChildren {
   footerClassName?: string;
   headerClassName?: string;
   closeLabel?: string;
+  dismissible?: boolean;
   presentation?: 'fullscreen' | 'modal';
 }
 
@@ -37,6 +38,7 @@ export function TaskDialog({
   footerClassName,
   headerClassName,
   closeLabel = '取消',
+  dismissible = true,
   presentation = 'fullscreen',
   children,
 }: TaskDialogProps) {
@@ -55,6 +57,12 @@ export function TaskDialog({
         )}>
           <Dialog.Content
             aria-describedby={undefined}
+            onEscapeKeyDown={(event) => {
+              if (!dismissible) event.preventDefault();
+            }}
+            onPointerDownOutside={(event) => {
+              if (!dismissible) event.preventDefault();
+            }}
             className={cn(
               'dialog-surface pointer-events-auto flex min-h-0 w-full flex-col overflow-hidden bg-white outline-none',
               presentation === 'modal'
