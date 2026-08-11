@@ -62,7 +62,7 @@ export function PageHeader({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 sm:gap-4">
             {content}
-            {action ? <div className="ml-auto shrink-0">{action}</div> : null}
+            {action ? <div className="ml-auto flex shrink-0 items-center">{action}</div> : null}
           </div>
           <div className="w-full self-stretch sm:w-auto sm:self-auto">
             {visual}
@@ -71,7 +71,7 @@ export function PageHeader({
       ) : (
         <div className="flex flex-wrap items-center justify-between gap-3 sm:gap-4">
           {content}
-          {action ? <div className="ml-auto shrink-0">{action}</div> : null}
+          {action ? <div className="ml-auto flex shrink-0 items-center">{action}</div> : null}
         </div>
       )}
     </header>

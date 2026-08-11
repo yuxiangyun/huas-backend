@@ -1,0 +1,16 @@
+sequenceDiagram
+  participant Home as JW 首页
+  participant Parser as BFF 评教解析器
+  participant Entry as 评教入口
+  participant List as 评教列表
+
+  Home-->>Parser: href /xspj/xspj_find.do
+  Parser->>Parser: 归一化为 /jsxsd/xspj/xspj_find.do
+  Parser->>Entry: GET 评教入口
+  Entry-->>Parser: HTTP 200 HTML 批次表
+  alt 存在活动批次
+    Parser->>List: GET canonical xspj_list.do
+    List-->>Parser: HTTP 200 HTML 任务表
+  else 当前无活动批次
+    Parser-->>Parser: 返回 evaluationRequired=false
+  end

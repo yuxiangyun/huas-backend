@@ -19,12 +19,12 @@ export function SocialPageTitle({ children, variant = 'text' }: SocialPageTitleP
     return (
       <span
         aria-label={label}
-        className="relative inline-flex h-11 w-[10.5rem] items-center overflow-hidden sm:h-12 sm:w-[12rem]"
+        className="relative inline-flex h-10 w-[10.5rem] items-center overflow-hidden sm:h-10 sm:w-[12rem]"
         role="img"
       >
         <img
           alt={label}
-          className="absolute left-[40%] top-[64%] w-[145%] max-w-none -translate-x-1/2 -translate-y-1/2"
+          className="absolute left-[40%] top-[60%] w-[145%] max-w-none -translate-x-1/2 -translate-y-1/2"
           decoding="async"
           src={brandLogoUrl}
         />

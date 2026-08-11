@@ -146,7 +146,7 @@ export function TreeholePage() {
               onClick={handleOpenComposeSheet}
             />
           )}
-          className="px-4 pb-3 pt-0 sm:px-5 sm:pb-4 sm:pt-0"
+          className="px-4 pb-0 pt-0 sm:px-5 sm:pb-0 sm:pt-0"
           compact
           title={<SocialPageTitle variant="brand">树洞</SocialPageTitle>}
         />

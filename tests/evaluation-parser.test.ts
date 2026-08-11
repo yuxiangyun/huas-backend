@@ -106,6 +106,16 @@ describe('EvaluationParser', () => {
     ]);
   });
 
+  it('将首页短路径 /xspj 归一化为可访问的 /jsxsd/xspj 入口', () => {
+    const entryUrls = EvaluationParser.extractEvaluationEntryUrls(`
+      <a href="/xspj/xspj_find.do">学生评价</a>
+    `, 'https://xyjw.huas.edu.cn/jsxsd/framework/xsMain.jsp');
+
+    expect(entryUrls).toEqual([
+      'https://xyjw.huas.edu.cn/jsxsd/xspj/xspj_find.do',
+    ]);
+  });
+
   it('从教务首页 data-url 菜单中拼出真实点击使用的评教入口', () => {
     const entryUrls = EvaluationParser.extractEvaluationEntryUrls(`
       <li data-sjcode="MENU_DYNAMIC_XSPJ" data-url="/xspj/xspj_find.do">

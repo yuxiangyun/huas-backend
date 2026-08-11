@@ -40,7 +40,7 @@
   --layout-page-max: 760px;
   --layout-sheet-max: 680px;
   --space-shell-x: 1rem;
-  --space-shell-top: calc(1rem + env(safe-area-inset-top));
+  --space-shell-top: calc(0.5rem + env(safe-area-inset-top));
   --space-tab-height: 3.25rem;
   --space-shell-bottom: calc(var(--space-tab-height) + 0.25rem + 1px + env(safe-area-inset-bottom));
   --space-page-stack: 1.25rem;
@@ -59,7 +59,7 @@
 @media (max-width: 639px) {
   :root {
     --space-shell-x: 1rem;
-    --space-shell-top: calc(0.875rem + env(safe-area-inset-top));
+    --space-shell-top: calc(0.5rem + env(safe-area-inset-top));
     --space-page-stack: 1rem;
     --space-card-padding: 1rem;
     --space-sheet-y: 0.875rem;

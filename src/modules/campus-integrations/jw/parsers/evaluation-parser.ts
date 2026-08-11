@@ -96,7 +96,9 @@ function safeJwMenuUrl(rawUrl: string, baseUrl: string) {
 }
 
 function addListUrlCandidate(candidates: Set<string>, rawUrl: string, baseUrl: string) {
-  const url = safeJwUrl(rawUrl, baseUrl);
+  // 首页菜单在不同 JW 页面版本中同时出现 /xspj/... 与 /jsxsd/xspj/...；
+  // 后者才是实际可访问的评教路由，统一在边界层归一化。
+  const url = safeJwMenuUrl(rawUrl, baseUrl) || safeJwUrl(rawUrl, baseUrl);
   if (!url) return;
 
   try {
@@ -108,7 +110,7 @@ function addListUrlCandidate(candidates: Set<string>, rawUrl: string, baseUrl: s
 
 function appendListUrlsFromText(candidates: Set<string>, text: string, baseUrl: string) {
   const decoded = text.replace(/&amp;/g, '&');
-  const listUrlRe = /(?:(?:https?:)?\/\/xyjw\.huas\.edu\.cn)?\/?jsxsd\/xspj\/xspj_list\.do(?:\?[^'"<>\s)]+)?/gi;
+  const listUrlRe = /(?:(?:https?:)?\/\/xyjw\.huas\.edu\.cn)?\/?(?:jsxsd\/)?xspj\/xspj_list\.do(?:\?[^'"<>\s)]+)?/gi;
   for (const match of decoded.matchAll(listUrlRe)) {
     addListUrlCandidate(candidates, match[0], baseUrl);
   }
@@ -116,9 +118,9 @@ function appendListUrlsFromText(candidates: Set<string>, text: string, baseUrl: 
 
 function appendEntryUrlsFromText(candidates: Set<string>, text: string, baseUrl: string) {
   const decoded = text.replace(/&amp;/g, '&');
-  const entryUrlRe = /(?:(?:https?:)?\/\/xyjw\.huas\.edu\.cn)?\/?jsxsd\/xspj\/(?:xspj_find|xspj_list)\.do(?:\?[^'"<>\s)]+)?/gi;
+  const entryUrlRe = /(?:(?:https?:)?\/\/xyjw\.huas\.edu\.cn)?\/?(?:jsxsd\/)?xspj\/(?:xspj_find|xspj_list)\.do(?:\?[^'"<>\s)]+)?/gi;
   for (const match of decoded.matchAll(entryUrlRe)) {
-    const url = safeJwUrl(match[0], baseUrl);
+    const url = safeJwMenuUrl(match[0], baseUrl) || safeJwUrl(match[0], baseUrl);
     if (url) candidates.add(url);
   }
 }

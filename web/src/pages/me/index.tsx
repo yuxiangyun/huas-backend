@@ -83,7 +83,7 @@ export function MePage() {
 
   return (
     <div className="page-stack-mobile">
-      <PageHeader className="py-4" compact title={<SocialPageTitle>我的</SocialPageTitle>} />
+      <PageHeader className="py-2" compact title={<SocialPageTitle>我的</SocialPageTitle>} />
       <Card className="overflow-hidden p-0">
         {profileQuery.isLoading || communityProfileQuery.isLoading ? (
           <div className="space-y-2 px-4 py-4" aria-hidden="true">

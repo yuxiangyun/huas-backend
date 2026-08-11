@@ -174,7 +174,7 @@ export function MessageCenter({ section, onSectionChange, onOpenConversation, on
 
   return (
     <div className="page-stack-mobile">
-      <PageHeader className="py-4" compact title={<SocialPageTitle>消息</SocialPageTitle>} />
+      <PageHeader className="py-2" compact title={<SocialPageTitle>消息</SocialPageTitle>} />
       <SegmentedControl
         items={[
           { value: 'notifications', label: <span className="inline-flex items-center gap-2">互动<UnreadBadge count={notificationUnread} /></span> },
