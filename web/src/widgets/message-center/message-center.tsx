@@ -22,10 +22,8 @@ import { shouldReconcileNotificationSnapshot } from '@/entities/notifications/mo
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
 import { EmptyState } from '@/shared/ui/empty-state';
-import { PageHeader } from '@/shared/ui/page-header';
 import { SegmentedControl } from '@/shared/ui/segmented-control';
 import { CommunityAvatar } from '@/shared/ui/community-avatar';
-import { SocialPageTitle } from '@/shared/ui/social-page-title';
 import { UnreadBadge } from '@/shared/ui/unread-badge';
 
 export type MessageSection = 'conversations' | 'notifications';
@@ -174,7 +172,6 @@ export function MessageCenter({ section, onSectionChange, onOpenConversation, on
 
   return (
     <div className="page-stack-mobile">
-      <PageHeader className="py-2" compact title={<SocialPageTitle>消息</SocialPageTitle>} />
       <SegmentedControl
         items={[
           { value: 'notifications', label: <span className="inline-flex items-center gap-2">互动<UnreadBadge count={notificationUnread} /></span> },

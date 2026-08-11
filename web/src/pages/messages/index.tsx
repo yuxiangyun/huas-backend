@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖消息中心、合规阻断 TaskDialog、活动通知逐条已读与 React Router 查询参数
- * [OUTPUT]: 对外提供 MessagesPage，保留私信列表/互动通知并在具体聊天加载前阻断 userId 目标
+ * [OUTPUT]: 对外提供 MessagesPage，默认展示互动通知，以显式 tab=conversations 选择私信，并在具体聊天加载前阻断 userId 目标
  * [POS]: pages/messages 的路由级组装器，只持有目标用户 URL 状态，在聊天加载前终止进入行为并负责原内容导航
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -35,7 +35,7 @@ export function MessagesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const setActiveTab = useUiStore((state) => state.setActiveTab);
   const markReadMutation = useMarkNotificationReadMutation();
-  const section: MessageSection = searchParams.get('tab') === 'notifications' ? 'notifications' : 'conversations';
+  const section: MessageSection = searchParams.get('tab') === 'conversations' ? 'conversations' : 'notifications';
   const userId = positiveId(searchParams.get('userId'));
   const profileUserId = positiveId(searchParams.get('profileUserId'));
   const [profileDialogRequested, setProfileDialogRequested] = useState(false);
@@ -59,7 +59,7 @@ export function MessagesPage() {
   const openConversation = (conversation: Conversation) => {
     patchSearchParams((params) => {
       selectMessageTarget(params, conversation.otherUser.id);
-      params.delete('tab');
+      params.set('tab', 'conversations');
     });
   };
 
@@ -103,7 +103,7 @@ export function MessagesPage() {
         unreadSummaryReady={unreadSummaryReady}
         onSectionChange={(nextSection) => patchSearchParams((params) => {
           if (nextSection === 'notifications') params.set('tab', 'notifications');
-          else params.delete('tab');
+          else params.set('tab', 'conversations');
         })}
       />
       {userId !== null ? (
@@ -128,7 +128,7 @@ export function MessagesPage() {
             onMessage={(nextUserId) => patchSearchParams((params) => {
               selectMessageTarget(params, nextUserId);
               params.delete('profileUserId');
-              params.delete('tab');
+              params.set('tab', 'conversations');
             })}
             onOpenDiscoverPost={(postId) => navigate(`${appRoutes.discover}?postId=${postId}`)}
             onOpenTreeholePost={(postId) => navigate(`${appRoutes.treehole}?postId=${postId}`)}

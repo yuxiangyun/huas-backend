@@ -149,9 +149,9 @@ export function MobileTabShell() {
     } else if (path === appRoutes.discover) {
       void queryClient.refetchQueries({ queryKey: discoverQueryKeys.lists(), type: 'active' });
     } else if (path === appRoutes.messages) {
-      const queryKey = new URLSearchParams(location.search).get('tab') === 'notifications'
-        ? notificationQueryKeys.lists()
-        : messagingQueryKeys.conversations();
+      const queryKey = new URLSearchParams(location.search).get('tab') === 'conversations'
+        ? messagingQueryKeys.conversations()
+        : notificationQueryKeys.lists();
       void queryClient.refetchQueries({ queryKey, type: 'active' });
     } else if (path === appRoutes.me) {
       void Promise.all([
