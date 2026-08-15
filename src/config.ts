@@ -96,9 +96,9 @@ export const config = {
     jwActivationMax: 3,       // JW SSO activation max attempts
     jwActivationDelay: 150,   // ms between retries（激活失败多为会话态问题，快速再试比长等待划算）
     businessMaxAttempts: parsePositiveInt(process.env.BUSINESS_RETRY_MAX_ATTEMPTS, 2),
-    businessBaseDelayMs: parsePositiveInt(process.env.BUSINESS_RETRY_BASE_DELAY_MS, 100),
-    businessMaxDelayMs: parsePositiveInt(process.env.BUSINESS_RETRY_MAX_DELAY_MS, 300),
-    businessJitterMs: parsePositiveInt(process.env.BUSINESS_RETRY_JITTER_MS, 50),
+    businessBaseDelayMs: parsePositiveInt(process.env.BUSINESS_RETRY_BASE_DELAY_MS, 200),
+    businessMaxDelayMs: parsePositiveInt(process.env.BUSINESS_RETRY_MAX_DELAY_MS, 800),
+    businessJitterMs: parsePositiveInt(process.env.BUSINESS_RETRY_JITTER_MS, 100),
   },
 
   // Pre-login captcha session
