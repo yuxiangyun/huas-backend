@@ -40,6 +40,7 @@ export function createDiscoverModule(dependencies: DiscoverModuleDependencies) {
     maxCommentLength: config.discover.maxCommentLength,
     defaultCommentPageSize: config.discover.defaultCommentPageSize,
     maxCommentPageSize: config.discover.maxCommentPageSize,
+    recommendationCandidateLimit: config.discover.recommendationCandidateLimit,
   };
   const persistence = new SQLiteDiscoverPersistence(
     dependencies.db,

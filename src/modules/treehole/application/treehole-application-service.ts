@@ -75,8 +75,9 @@ export class TreeholeApplicationService {
     const content = normalizePostContent(input.content, this.policy);
     validateTreeholeImages(input.images, this.policy);
     const media = await this.media.prepare(input.images);
+    let postId: number;
     try {
-      return await this.persistence.createPost({ userId: input.userId, content, media });
+      postId = await this.persistence.createPost({ userId: input.userId, content, media });
     } catch (error) {
       try {
         await this.media.removeStorage(media?.mediaKey ?? null);
@@ -85,6 +86,8 @@ export class TreeholeApplicationService {
       }
       throw error;
     }
+    // 投影在补偿边界之外：写库成功后任何投影失败都不得回收已入库帖子的媒体。
+    return this.persistence.getPostDetail(input.userId, postId);
   }
 
   getPostDetail(userId: number, postId: number) {

@@ -68,11 +68,13 @@ export const config = {
   },
 
   // Cache TTLs (seconds)
+  // 语义约定：0 = 永久缓存（读路径直接命中，仅 refresh=true 回源；refresh 失败仍可经 allowExpired
+  // 提供 stale 兜底）。四项均为有意选择：客户端负责在需要新数据时显式带 refresh 参数。
   cacheTtl: {
-    schedule: 0,               // manual refresh only
-    grades: 0,                 // manual refresh only
-    ecard: 0,                  // manual refresh only
-    user: 0,                   // manual refresh only
+    schedule: 0,               // 周键分段，永久缓存 + 手动刷新
+    grades: 0,                 // 学期键分段，永久缓存 + 手动刷新
+    ecard: 0,                  // 永久缓存 + 手动刷新，客户端刷新页面时显式 refresh
+    user: 0,                   // 永久缓存 + 手动刷新，客户端刷新页面时显式 refresh
   },
 
   // Cache limits
@@ -84,19 +86,19 @@ export const config = {
 
   // Request timeouts (ms)
   timeout: {
-    cas: 3000,      // CAS auth requests
-    business: 5000, // Business data requests
+    cas: 2000,      // CAS auth requests（更快暴露失败，交给有界重试兜底）
+    business: 4000, // Business data requests（覆盖学校上游慢请求主区间，失败交重试兜底）
     gradeFreshBudget: 45_000, // Fresh grades include bounded credential recovery and upstream retries
   },
 
   // Retry settings
   retry: {
     jwActivationMax: 3,       // JW SSO activation max attempts
-    jwActivationDelay: 500,   // ms between retries
+    jwActivationDelay: 150,   // ms between retries（激活失败多为会话态问题，快速再试比长等待划算）
     businessMaxAttempts: parsePositiveInt(process.env.BUSINESS_RETRY_MAX_ATTEMPTS, 2),
-    businessBaseDelayMs: parsePositiveInt(process.env.BUSINESS_RETRY_BASE_DELAY_MS, 200),
-    businessMaxDelayMs: parsePositiveInt(process.env.BUSINESS_RETRY_MAX_DELAY_MS, 800),
-    businessJitterMs: parsePositiveInt(process.env.BUSINESS_RETRY_JITTER_MS, 100),
+    businessBaseDelayMs: parsePositiveInt(process.env.BUSINESS_RETRY_BASE_DELAY_MS, 100),
+    businessMaxDelayMs: parsePositiveInt(process.env.BUSINESS_RETRY_MAX_DELAY_MS, 300),
+    businessJitterMs: parsePositiveInt(process.env.BUSINESS_RETRY_JITTER_MS, 50),
   },
 
   // Pre-login captcha session
@@ -125,6 +127,10 @@ export const config = {
     maxCommentLength: parsePositiveInt(process.env.DISCOVER_MAX_COMMENT_LENGTH, 200),
     defaultCommentPageSize: parsePositiveInt(process.env.DISCOVER_DEFAULT_COMMENT_PAGE_SIZE, 50),
     maxCommentPageSize: parsePositiveInt(process.env.DISCOVER_MAX_COMMENT_PAGE_SIZE, 100),
+    recommendationCandidateLimit: parsePositiveInt(
+      process.env.DISCOVER_RECOMMENDATION_CANDIDATE_LIMIT,
+      1000,
+    ),
     imageMaxBytes: parsePositiveInt(process.env.DISCOVER_IMAGE_MAX_BYTES, DEFAULT_DISCOVER_IMAGE_MAX_BYTES),
     imageMaxDimension: parsePositiveInt(process.env.DISCOVER_IMAGE_MAX_DIMENSION, 1280),
     imageQuality: Math.min(95, Math.max(40, parsePositiveInt(process.env.DISCOVER_IMAGE_QUALITY, 78))),

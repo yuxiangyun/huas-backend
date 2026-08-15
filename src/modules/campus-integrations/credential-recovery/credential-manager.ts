@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 db/schema、HttpClient、AuthEngine、TicketExchanger、CryptoHelper、config、可选恢复截止时间与 Logger
- * [OUTPUT]: 对外提供 CredentialManager 类与 CredentialSystem 类型，管理受总预算约束的学校凭证生命周期和持久化交互登录恢复状态
+ * [INPUT]: 依赖 db/schema、HttpClient、AuthEngine、TicketExchanger、CryptoHelper、PerKeySingleflight、config、可选恢复截止时间与 Logger
+ * [OUTPUT]: 对外提供 CredentialManager 类与 CredentialSystem 类型，管理受总预算约束、同用户单飞的学校凭证生命周期和持久化交互登录恢复状态
  * [POS]: campus-integrations/credential-recovery 的学校子凭证唯一收敛层，管理三类凭证并守住验证码与瞬态故障边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -13,6 +13,7 @@ import { TicketExchanger } from '../cas/ticket-exchanger';
 import { CryptoHelper } from '../../../utils/crypto';
 import { config } from '../../../config';
 import { Logger } from '../../../utils/logger';
+import { PerKeySingleflight } from '../../cache/application/singleflight';
 
 export type CredentialSystem = 'cas_tgc' | 'portal_jwt' | 'jw_session';
 
@@ -22,6 +23,9 @@ const INTERACTIVE_LOGIN_REQUIRED_SYSTEM = 'interactive_login_required';
 const reAuthState = new Map<number, { failCount: number; lastAttempt: number }>();
 const REAUTH_MAX_ATTEMPTS = 3;
 const REAUTH_COOLDOWN_MS = 60 * 1000; // 1 minute cooldown after max failures
+
+// 同一用户并发触发静默重认证时共享在途 CAS 登录链，防止恢复风暴打爆上游并互相覆盖凭证。
+const reAuthFlights = new PerKeySingleflight();
 
 function isTransientRecoveryError(error: unknown): boolean {
   const message = String((error as any)?.message || '');
@@ -205,8 +209,21 @@ export class CredentialManager {
    * Silent re-authentication: re-run full CAS flow using stored password.
    * User is completely unaware this is happening.
    * Max 3 attempts with 1-minute cooldown after exhaustion.
+   * 同一用户并发调用共享在途恢复（首个调用方的 deadline 主导本次恢复）。
    */
   static async silentReAuth(
+    userId: number,
+    deadlineAt?: number,
+    requiredSystem?: CredentialSystem,
+  ): Promise<boolean> {
+    return reAuthFlights.run(
+      `silent-reauth:${userId}`,
+      'normal',
+      () => this.executeSilentReAuth(userId, deadlineAt, requiredSystem),
+    );
+  }
+
+  private static async executeSilentReAuth(
     userId: number,
     deadlineAt?: number,
     requiredSystem?: CredentialSystem,
@@ -343,27 +360,32 @@ export class CredentialManager {
   }
 
   /**
-   * Build an HttpClient from stored credential's cookie jar
+   * 单次恢复链解析凭证与客户端：一次 getOrRefreshCredential 同时返回 value 与可发请求的 client，
+   * 避免 portal 模式恢复链跑两遍、白白消耗请求级总预算。
    */
-  static async buildHttpClient(userId: number, system: CredentialSystem, deadlineAt?: number): Promise<HttpClient | null> {
+  static async resolveCredentialClient(
+    userId: number,
+    system: CredentialSystem,
+    deadlineAt?: number,
+  ): Promise<{ client: HttpClient; value: string | null } | null> {
     const cred = await this.getOrRefreshCredential(userId, system, deadlineAt);
     if (!cred) return null;
 
     if (cred.cookieJar) {
-      return HttpClient.fromSerializedJar(cred.cookieJar, deadlineAt);
+      return { client: HttpClient.fromSerializedJar(cred.cookieJar, deadlineAt), value: cred.value };
     }
 
     // For portal_jwt, we need the TGC's cookie jar
     if (system === 'portal_jwt') {
       const tgc = await this.getCredential(userId, 'cas_tgc');
       if (tgc?.cookieJar) {
-        return HttpClient.fromSerializedJar(tgc.cookieJar, deadlineAt);
+        return { client: HttpClient.fromSerializedJar(tgc.cookieJar, deadlineAt), value: cred.value };
       }
     }
 
     const client = new HttpClient();
     client.setDeadline(deadlineAt);
-    return client;
+    return { client, value: cred.value };
   }
 
   /**

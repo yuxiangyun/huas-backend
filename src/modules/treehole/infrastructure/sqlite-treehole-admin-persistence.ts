@@ -1,13 +1,14 @@
 /**
  * [INPUT]: 依赖构造注入的 Drizzle db、CommunityProfileReader、TreeholeMediaReader、Treehole schema 与模块内 SQL helpers
- * [OUTPUT]: 提供含管理图片 URL 的帖子/评论公共作者查询及返回媒体键的软删除事务
- * [POS]: modules/treehole/infrastructure 的管理 adapter，只读内容事实并批量投影公共作者，图片文件副作用留给 application 补偿
+ * [OUTPUT]: 提供含管理图片 URL 的帖子/评论公共作者查询及返回媒体键、同事务撤回互动通知的软删除事务
+ * [POS]: modules/treehole/infrastructure 的管理 adapter，只读内容事实并批量投影公共作者，删除与 Outbox 撤回同事务，图片文件副作用留给 application 补偿
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { schema } from '../../../db';
 import type { CommunityProfileReader } from '../../community/domain/ports';
+import type { ActivityOutboxWriter } from '../../notifications/domain/ports';
 import type { TreeholeMediaReader } from '../domain/ports';
 import {
   formatLikeKeyword,
@@ -26,6 +27,7 @@ import {
   refreshPostCommentCount,
   requireCommunityProfile,
   type TreeholeDatabase,
+  type TreeholeTransaction,
   uniqueUserIds,
 } from './sqlite-treehole-support';
 
@@ -34,6 +36,7 @@ export class SQLiteTreeholeAdminPersistence {
     private readonly db: TreeholeDatabase,
     private readonly profiles: CommunityProfileReader,
     private readonly media: TreeholeMediaReader,
+    private readonly outbox?: ActivityOutboxWriter<TreeholeTransaction>,
   ) {}
 
   async listPosts(
@@ -141,22 +144,30 @@ export class SQLiteTreeholeAdminPersistence {
   }
 
   async deletePost(postId: number) {
-    const now = new Date();
-    const updated = await this.db.update(schema.treeholePosts)
-      .set({ deletedAt: now, updatedAt: now })
-      .where(and(
-        eq(schema.treeholePosts.id, postId),
-        isNull(schema.treeholePosts.deletedAt),
-      ))
-      .returning({
-        id: schema.treeholePosts.id,
-        mediaKey: schema.treeholePosts.mediaKey,
-      });
-    return updated[0] ?? null;
+    return this.db.transaction((tx) => {
+      if (!this.outbox) throw new Error('Treehole admin deletion requires an activity outbox writer.');
+      const now = new Date();
+      const updated = tx.update(schema.treeholePosts)
+        .set({ deletedAt: now, updatedAt: now })
+        .where(and(
+          eq(schema.treeholePosts.id, postId),
+          isNull(schema.treeholePosts.deletedAt),
+        ))
+        .returning({
+          id: schema.treeholePosts.id,
+          mediaKey: schema.treeholePosts.mediaKey,
+        })
+        .all();
+      if (!updated[0]) return null;
+
+      this.outbox.removeResource(tx, 'treehole_post', postId);
+      return updated[0];
+    });
   }
 
   async deleteComment(commentId: number) {
     return this.db.transaction((tx) => {
+      if (!this.outbox) throw new Error('Treehole admin deletion requires an activity outbox writer.');
       const now = new Date();
       const updated = tx.update(schema.treeholeComments)
         .set({ deletedAt: now, updatedAt: now })
@@ -171,6 +182,7 @@ export class SQLiteTreeholeAdminPersistence {
         .all();
       if (!updated[0]) return null;
 
+      this.outbox.removeSubresource(tx, 'treehole_post', updated[0].postId, commentId);
       refreshPostCommentCount(tx, updated[0].postId, now);
       return updated[0];
     });

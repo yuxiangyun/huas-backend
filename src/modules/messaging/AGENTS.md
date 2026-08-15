@@ -10,7 +10,7 @@ composition.ts: Messaging 局部组合根，构造 service/routes/operationsQuer
 
 架构决策
 Messaging 只拥有 conversations/messages/message_images 与 message-media；不写入活动通知，不 JOIN users/community_profiles，查询自有事实后经 CommunityProfileReader 批量投影参与者。
-会话定位只返回目标 CommunityProfile 与已有 conversationId，不创建空会话；首条消息仍在同步 SQLite 短事务中按有序 user pair 幂等建会话。压缩前先按 messages 事实预检 30 条/分钟，媒体完成后确定消息时间且事务拒绝会话时间倒退；UUID 重试必须与原接收人、规范化文字和规范化图片内容完全一致。
+会话定位只返回目标 CommunityProfile 与已有 conversationId，不创建空会话；首条消息仍在同步 SQLite 短事务中按有序 user pair 幂等建会话。压缩前先按 messages 事实预检 30 条/分钟，媒体完成后确定消息时间且事务拒绝会话时间倒退；消息 INSERT 使用 onConflictDoNothing，并发同 UUID 在事务内复读既有事实并按幂等返回，绝不向客户端抛约束冲突；UUID 重试必须与原接收人、规范化文字和规范化图片内容完全一致。
 消息历史无游标读取最新页，before 向旧、after 向新增，三种场景最终都按消息 ID 升序返回；用户与 Operations 管理只读入口共享 hasMore 方向语义。
 会话 offset 只用于普通翻页；轮询统一使用 `/conversations/changes` 的全局 lastMessageId 高水位，返回会话 ID 供稳定覆盖去重，管理员入口复用同一语义。
 普通媒体只能由认证后的会话参与者读取；Operations 只能经 MessagingOperationsQueryPort 读取会话、消息和媒体，本模块不导出任何管理修改命令。

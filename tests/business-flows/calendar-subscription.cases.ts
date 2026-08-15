@@ -41,7 +41,7 @@ describe('日历订阅', () => {
             location: '教B201',
             day: 2,
             section: '1-2',
-            weekStr: tuesday,
+            weekStr: '',
           },
         ],
       };
@@ -188,7 +188,7 @@ describe('日历订阅', () => {
             location: '教A101',
             day: 1,
             section: '3-4',
-            weekStr: currentWeek.startDate,
+            weekStr: '',
           },
         ],
       };

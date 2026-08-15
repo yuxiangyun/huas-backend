@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖构造注入的 Drizzle db、Messaging 自有 schema 与领域事实/仓储契约
  * [OUTPUT]: 对外提供 SQLiteMessagingRepository 与 MessagingDatabase/MessagingTransaction 类型，并保证消息/会话时间不随提交倒退
- * [POS]: modules/messaging/infrastructure 的事实 adapter，以 lastMessageId 高水位补足 offset 会话翻页，并统一三态消息游标与事实限流
+ * [POS]: modules/messaging/infrastructure 的事实 adapter，以 lastMessageId 高水位补足 offset 会话翻页，统一三态消息游标与事实限流，并发同 UUID 冲突在事务内闭环为幂等返回
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -130,21 +130,7 @@ export class SQLiteMessagingRepository implements MessagingRepository {
 
   async commitMessage(input: CommitMessageInput): Promise<CommitMessageResult> {
     return this.db.transaction((transaction) => {
-      const existingRows = transaction.select({
-        ...messageColumns,
-        conversation: conversationColumns,
-      }).from(schema.messages)
-        .innerJoin(
-          schema.conversations,
-          eq(schema.messages.conversationId, schema.conversations.id),
-        )
-        .where(and(
-          eq(schema.messages.senderUserId, input.senderUserId),
-          eq(schema.messages.clientMessageId, input.clientMessageId),
-        ))
-        .limit(1)
-        .all();
-      const existing = existingRows[0];
+      const existing = this.lookupMessageSync(transaction, input.senderUserId, input.clientMessageId);
       if (existing) {
         return {
           created: false,
@@ -191,9 +177,25 @@ export class SQLiteMessagingRepository implements MessagingRepository {
         clientMessageId: input.clientMessageId,
         text: input.text,
         createdAt: committedAt,
-      }).returning(messageColumns).all();
+      }).onConflictDoNothing().returning(messageColumns).all();
       const insertedMessage = insertedMessages[0];
-      if (!insertedMessage) throw new Error('Messaging message insert failed.');
+      if (!insertedMessage) {
+        // 并发同 UUID 已在别处提交：复读既有消息并按幂等语义返回，绝不把约束冲突抛给客户端。
+        const concurrent = this.lookupMessageSync(transaction, input.senderUserId, input.clientMessageId);
+        if (!concurrent) throw new Error('Messaging message insert conflicted without existing row.');
+        return {
+          created: false,
+          conversation: toConversationFact(concurrent.conversation),
+          message: this.hydrateMessagesSync(transaction, [{
+            id: concurrent.id,
+            conversationId: concurrent.conversationId,
+            senderUserId: concurrent.senderUserId,
+            clientMessageId: concurrent.clientMessageId,
+            text: concurrent.text,
+            createdAt: concurrent.createdAt,
+          }])[0]!,
+        };
+      }
 
       if (input.media && input.media.images.length > 0) {
         transaction.insert(schema.messageImages).values(input.media.images.map((image) => ({
@@ -223,6 +225,28 @@ export class SQLiteMessagingRepository implements MessagingRepository {
         message: this.hydrateMessagesSync(transaction, [insertedMessage])[0]!,
       };
     });
+  }
+
+  private lookupMessageSync(
+    executor: MessagingTransaction,
+    senderUserId: number,
+    clientMessageId: string,
+  ) {
+    const rows = executor.select({
+      ...messageColumns,
+      conversation: conversationColumns,
+    }).from(schema.messages)
+      .innerJoin(
+        schema.conversations,
+        eq(schema.messages.conversationId, schema.conversations.id),
+      )
+      .where(and(
+        eq(schema.messages.senderUserId, senderUserId),
+        eq(schema.messages.clientMessageId, clientMessageId),
+      ))
+      .limit(1)
+      .all();
+    return rows[0] ?? null;
   }
 
   async findConversationBetween(firstUserId: number, secondUserId: number) {

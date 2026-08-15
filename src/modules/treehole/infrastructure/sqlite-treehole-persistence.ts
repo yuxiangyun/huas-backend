@@ -29,7 +29,7 @@ export class SQLiteTreeholePersistence implements TreeholePersistence {
     outbox: ActivityOutboxWriter<TreeholeTransaction>,
   ) {
     this.user = new SQLiteTreeholeUserPersistence(db, profiles, media, outbox);
-    this.admin = new SQLiteTreeholeAdminPersistence(db, profiles, media);
+    this.admin = new SQLiteTreeholeAdminPersistence(db, profiles, media, outbox);
   }
 
   listPosts(options: { userId: number; page: number; pageSize: number }) {
@@ -45,8 +45,7 @@ export class SQLiteTreeholePersistence implements TreeholePersistence {
   }
   createPost(input: { userId: number; content: string; media: StoredTreeholeMedia | null }) {
     return this.user.createPost(input);
-  }
-  getPostDetail(userId: number, postId: number) { return this.user.getPostDetail(userId, postId); }
+  }  getPostDetail(userId: number, postId: number) { return this.user.getPostDetail(userId, postId); }
   likePost(userId: number, postId: number) { return this.user.likePost(userId, postId); }
   unlikePost(userId: number, postId: number) { return this.user.unlikePost(userId, postId); }
   listComments(userId: number, postId: number, options: { page: number; pageSize: number }) {

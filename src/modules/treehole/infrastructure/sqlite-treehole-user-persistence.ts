@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖构造注入的 Drizzle db、CommunityProfileReader、TreeholeMediaReader、ActivityOutboxWriter、Treehole schema 与模块内 SQL helpers
- * [OUTPUT]: 对 SQLiteTreeholePersistence 提供含图片元数据的帖子、用户帖子、幂等点赞、差异回复通知与返回媒体键的作者删除事务
- * [POS]: modules/treehole/infrastructure 的用户侧事实 adapter，共享父作者 reply/帖子作者 comment 规则并原子写入 Outbox，图片文件副作用留给 application 补偿
+ * [OUTPUT]: 对 SQLiteTreeholePersistence 提供含图片元数据的帖子、用户帖子、幂等点赞、差异回复通知与删除时同事务撤回互动事件的事务
+ * [POS]: modules/treehole/infrastructure 的用户侧事实 adapter，共享父作者 reply/帖子作者 comment 规则，写互动与撤回均与 Outbox 同事务，图片文件副作用留给 application 补偿
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -111,7 +111,7 @@ export class SQLiteTreeholeUserPersistence {
     userId: number;
     content: string;
     media: StoredTreeholeMedia | null;
-  }): Promise<TreeholePostResponse | null> {
+  }): Promise<number> {
     const now = new Date();
     const inserted = await this.db.insert(schema.treeholePosts).values({
       userId: input.userId,
@@ -126,7 +126,7 @@ export class SQLiteTreeholeUserPersistence {
       deletedAt: null,
     }).returning({ id: schema.treeholePosts.id });
 
-    return this.getPostDetail(input.userId, inserted[0]!.id);
+    return inserted[0]!.id;
   }
 
   async getPostDetail(userId: number, postId: number): Promise<TreeholePostResponse | null> {
@@ -335,19 +335,25 @@ export class SQLiteTreeholeUserPersistence {
   }
 
   async deletePost(postId: number, userId: number) {
-    const now = new Date();
-    const updated = await this.db.update(schema.treeholePosts)
-      .set({ deletedAt: now, updatedAt: now })
-      .where(and(
-        eq(schema.treeholePosts.id, postId),
-        eq(schema.treeholePosts.userId, userId),
-        isNull(schema.treeholePosts.deletedAt),
-      ))
-      .returning({
-        id: schema.treeholePosts.id,
-        mediaKey: schema.treeholePosts.mediaKey,
-      });
-    return updated[0] ?? null;
+    return this.db.transaction((tx) => {
+      const now = new Date();
+      const updated = tx.update(schema.treeholePosts)
+        .set({ deletedAt: now, updatedAt: now })
+        .where(and(
+          eq(schema.treeholePosts.id, postId),
+          eq(schema.treeholePosts.userId, userId),
+          isNull(schema.treeholePosts.deletedAt),
+        ))
+        .returning({
+          id: schema.treeholePosts.id,
+          mediaKey: schema.treeholePosts.mediaKey,
+        })
+        .all();
+      if (!updated[0]) return null;
+
+      this.outbox.removeResource(tx, 'treehole_post', postId);
+      return updated[0];
+    });
   }
 
   async deleteComment(commentId: number, userId: number) {
@@ -367,6 +373,7 @@ export class SQLiteTreeholeUserPersistence {
         .all();
       if (!updated[0]) return null;
 
+      this.outbox.removeSubresource(tx, 'treehole_post', updated[0].postId, commentId);
       refreshPostCommentCount(tx, updated[0].postId, now);
       return updated[0];
     });

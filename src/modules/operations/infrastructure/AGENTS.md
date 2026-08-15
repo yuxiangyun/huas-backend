@@ -5,7 +5,7 @@
 analytics-batch.ts: 在进程内按 day/platform/metric 聚合计数并去重 active user，以快照交换保证 flush 期间继续采集、失败事实回并后重试
 analytics-service.ts: 每 5 秒用一个 SQLite 事务批量写入 analytics 事实，公开失败 observer 与 flush/shutdown，并在 overview 前冲刷以维持即时可读口径
 announcement-service.ts: 校验公告并以同目录临时文件 + 原子 rename 持久化 JSON
-index-popup-service.ts: 首页弹窗单配置与不可变 WebP adapter，按启停/时间窗投影 public_account/text/none 三态底栏，并以换图或动作内容变化的 UUID 版本连接本机频控和公开媒体缓存
+index-popup-service.ts: 首页弹窗单配置与不可变 WebP adapter，按启停/时间窗投影 public_account/text/none 三态底栏，以换图或动作内容变化的 UUID 版本连接本机频控和公开媒体缓存；写入经 fsync 原子替换，配置损坏时沿用最后有效快照降级
 system-operations.ts: 提供 SQLite SELECT 1、进程内存/uptime 与 serverState 读取
 terminal-log-service.ts: 有界反向扫描 pm2 日志，按关键词过滤、时间排序并限制返回条数
 

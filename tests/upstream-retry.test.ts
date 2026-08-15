@@ -105,13 +105,13 @@ describe('upstream retry', () => {
   });
 
   it('首次凭证恢复瞬态失败后，会在同一请求预算内重试并成功', async () => {
-    const originalBuildHttpClient = CredentialManager.buildHttpClient;
+    const originalResolveCredentialClient = CredentialManager.resolveCredentialClient;
     let recoveryCalls = 0;
 
-    CredentialManager.buildHttpClient = async (...args) => {
+    CredentialManager.resolveCredentialClient = async (...args) => {
       recoveryCalls += 1;
       if (recoveryCalls === 1) throw new Error('REQUEST_TIMEOUT');
-      return originalBuildHttpClient.call(CredentialManager, ...args);
+      return originalResolveCredentialClient.call(CredentialManager, ...args);
     };
 
     try {
@@ -123,15 +123,15 @@ describe('upstream retry', () => {
       expect(result).toBe('fresh');
       expect(recoveryCalls).toBe(2);
     } finally {
-      CredentialManager.buildHttpClient = originalBuildHttpClient;
+      CredentialManager.resolveCredentialClient = originalResolveCredentialClient;
     }
   });
 
   it('恢复 deadline 不足以容纳退避时，不会启动额外凭证尝试', async () => {
-    const originalBuildHttpClient = CredentialManager.buildHttpClient;
+    const originalResolveCredentialClient = CredentialManager.resolveCredentialClient;
     let recoveryCalls = 0;
 
-    CredentialManager.buildHttpClient = async () => {
+    CredentialManager.resolveCredentialClient = async () => {
       recoveryCalls += 1;
       throw new Error('REQUEST_TIMEOUT');
     };
@@ -143,7 +143,7 @@ describe('upstream retry', () => {
       })).rejects.toThrow('REQUEST_TIMEOUT');
       expect(recoveryCalls).toBe(1);
     } finally {
-      CredentialManager.buildHttpClient = originalBuildHttpClient;
+      CredentialManager.resolveCredentialClient = originalResolveCredentialClient;
     }
   });
 
@@ -178,9 +178,9 @@ describe('upstream retry', () => {
     })).rejects.toMatchObject({ code: ErrorCode.EVALUATION_REQUIRED });
     expect(calls).toBe(1);
 
-    const originalBuildHttpClient = CredentialManager.buildHttpClient;
+    const originalResolveCredentialClient = CredentialManager.resolveCredentialClient;
     let recoveryCalls = 0;
-    CredentialManager.buildHttpClient = async () => {
+    CredentialManager.resolveCredentialClient = async () => {
       recoveryCalls += 1;
       throw new AppError(ErrorCode.CREDENTIAL_EXPIRED, '凭证失效');
     };
@@ -192,7 +192,7 @@ describe('upstream retry', () => {
       })).rejects.toMatchObject({ code: ErrorCode.CREDENTIAL_EXPIRED });
       expect(recoveryCalls).toBe(1);
     } finally {
-      CredentialManager.buildHttpClient = originalBuildHttpClient;
+      CredentialManager.resolveCredentialClient = originalResolveCredentialClient;
     }
   });
 });

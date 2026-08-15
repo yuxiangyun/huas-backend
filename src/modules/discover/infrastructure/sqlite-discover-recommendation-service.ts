@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖构造注入的 Drizzle db、DiscoverPostQuery/PostService、点赞事实与帖子分类/标签
- * [OUTPUT]: 对外提供 SQLiteDiscoverRecommendationService，对完整匹配集建立稳定偏好顺序并在无偏好时退化 latest
- * [POS]: modules/discover/infrastructure 的推荐 adapter，只从 Discover 自有事实推断偏好，不读取用户资料表
+ * [OUTPUT]: 对外提供 SQLiteDiscoverRecommendationService，对有界候选集建立稳定偏好顺序并在无偏好时退化 latest
+ * [POS]: modules/discover/infrastructure 的推荐 adapter，只从 Discover 自有事实推断偏好，候选集按 publishedAt 有界防止全表加载
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -20,11 +20,14 @@ import {
   type ListOptions,
 } from './discover-mapping';
 
+const DEFAULT_CANDIDATE_LIMIT = 1_000;
+
 export class SQLiteDiscoverRecommendationService {
   constructor(
     private readonly db: DiscoverDatabase,
     private readonly postQuery: DiscoverPostQuery,
     private readonly posts: SQLiteDiscoverPostService,
+    private readonly candidateLimit: number = DEFAULT_CANDIDATE_LIMIT,
   ) {}
 
   async list(options: ListOptions): Promise<DiscoverListResponse> {
@@ -54,10 +57,12 @@ export class SQLiteDiscoverRecommendationService {
 
     const filters = [isNull(schema.discoverPosts.deletedAt)];
     if (options.category) filters.push(eq(schema.discoverPosts.category, normalizeCategory(options.category)));
+    // 候选集有界：偏好排序只在最近 candidateLimit 帖内进行，防止全表加载随帖子量线性膨胀。
     const candidates = await this.db.select(postSelect())
       .from(schema.discoverPosts)
       .where(and(...filters))
-      .orderBy(desc(schema.discoverPosts.publishedAt), desc(schema.discoverPosts.id)) as DiscoverRow[];
+      .orderBy(desc(schema.discoverPosts.publishedAt), desc(schema.discoverPosts.id))
+      .limit(this.candidateLimit) as DiscoverRow[];
     const ranked = candidates
       .map((row) => ({ row, matchScore: this.matchScore(row, tagWeights, categoryWeights) }))
       .filter((item) => item.matchScore > 0)

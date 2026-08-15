@@ -53,7 +53,7 @@ export interface TreeholePersistence {
     userId: number;
     content: string;
     media: StoredTreeholeMedia | null;
-  }): Promise<TreeholePostResponse | null>;
+  }): Promise<number>;
   getPostDetail(userId: number, postId: number): Promise<TreeholePostResponse | null>;
   likePost(userId: number, postId: number): Promise<TreeholePostResponse | null>;
   unlikePost(userId: number, postId: number): Promise<TreeholePostResponse | null>;

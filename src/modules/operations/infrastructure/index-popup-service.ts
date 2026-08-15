@@ -1,12 +1,12 @@
 /**
  * [INPUT]: 依赖运行配置、共享 WebP 转换器与 Node 原子文件操作
  * [OUTPUT]: 对外提供三态底栏首页弹窗 DTO、IndexPopupService 单配置读写/内容版本/投放过滤/公开媒体读取能力及媒体策略常量
- * [POS]: operations/infrastructure 的首页弹窗文件 adapter，以不可变内容版本图片配合原子配置替换，保持投放判断、底栏动作与媒体发布状态同源
+ * [POS]: operations/infrastructure 的首页弹窗文件 adapter，以不可变内容版本图片配合 fsync 原子配置替换，配置损坏时沿用最后有效快照降级，保持投放判断、底栏动作与媒体发布状态同源
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, readdir, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, readdir, rename, rm, stat, unlink } from 'node:fs/promises';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import { config } from '../../../config';
 import { AppError, ErrorCode } from '../../../utils/errors';
@@ -76,6 +76,8 @@ const DEFAULT_SETTINGS: AdminIndexPopupSettings = {
 };
 
 let writeQueue = Promise.resolve();
+let lastGoodSettings: AdminIndexPopupSettings | null = null;
+let settingsFailureLogged = false;
 
 function isFileNotFound(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT';
@@ -184,10 +186,22 @@ function parseSettings(content: string): AdminIndexPopupSettings {
 
 async function readSettings(): Promise<AdminIndexPopupSettings> {
   try {
-    return parseSettings(await readFile(SETTINGS_FILE, 'utf8'));
+    const parsed = parseSettings(await readFile(SETTINGS_FILE, 'utf8'));
+    lastGoodSettings = parsed;
+    settingsFailureLogged = false;
+    return parsed;
   } catch (error) {
     if (isFileNotFound(error)) return { ...DEFAULT_SETTINGS };
-    throw error;
+    // 配置损坏不得打挂匿名投影：沿用最后有效快照（无快照时按未投放降级），成功前只告警一次。
+    if (!settingsFailureLogged) {
+      Logger.warn(
+        'IndexPopup',
+        '首页弹窗配置读取失败，沿用最后有效快照',
+        error instanceof Error ? error.message : String(error),
+      );
+      settingsFailureLogged = true;
+    }
+    return lastGoodSettings ? { ...lastGoodSettings } : { ...DEFAULT_SETTINGS };
   }
 }
 
@@ -195,10 +209,17 @@ async function atomicWrite(target: string, content: string | Uint8Array): Promis
   const directory = dirname(target);
   const tempFile = join(directory, `.${basename(target)}.${process.pid}.${randomUUID()}.tmp`);
   await mkdir(directory, { recursive: true });
+  let handle: Awaited<ReturnType<typeof open>> | null = null;
   try {
-    await writeFile(tempFile, content, { flag: 'wx' });
+    handle = await open(tempFile, 'wx');
+    await handle.writeFile(content);
+    // fsync 防止崩溃后 rename 落盘成空文件，与课表来源策略存储的持久化纪律对齐。
+    await handle.sync();
+    await handle.close();
+    handle = null;
     await rename(tempFile, target);
   } catch (error) {
+    if (handle) await handle.close().catch(() => undefined);
     await unlink(tempFile).catch(() => undefined);
     throw error;
   }

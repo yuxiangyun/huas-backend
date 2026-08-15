@@ -70,7 +70,9 @@ export const PortalScheduleParser = {
               day: dayOfWeek,
               section,
               teacher,
-              weekStr: dateStr
+              // weekStr 契约是周次文本；Portal 源没有周次，置空串由前端隐藏该栏，
+              // 日期事实已由 day（请求日期推导）承载，不再用日期串冒充周次
+              weekStr: ''
             });
           }
         }

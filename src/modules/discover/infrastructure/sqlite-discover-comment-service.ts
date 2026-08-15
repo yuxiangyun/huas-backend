@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖构造注入的 Drizzle db、CommunityProfileReader、ActivityOutboxWriter、DiscoverPostQuery、领域策略与 schema
- * [OUTPUT]: 对外提供 SQLiteDiscoverCommentService，处理评论列表、父作者 reply/帖子作者 comment 原子创建、删除与计数
+ * [OUTPUT]: 对外提供 SQLiteDiscoverCommentService，处理评论列表、父作者 reply/帖子作者 comment 原子创建、删除与计数，删除时同事务撤回该评论事件
  * [POS]: modules/discover/infrastructure 的评论事实 adapter，复用 Notifications 共享接收规则防止两条 UGC 支线语义漂移
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -167,6 +167,7 @@ export class SQLiteDiscoverCommentService {
         .all();
       if (!updated[0]) return null;
 
+      this.outbox.removeSubresource(tx, 'discover_post', updated[0].postId, commentId);
       this.refreshPostCommentCount(tx, updated[0].postId, now);
       return updated[0];
     });

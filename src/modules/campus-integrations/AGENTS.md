@@ -13,5 +13,6 @@ endpoints.ts: CAS、Portal、JW 地址唯一事实源，旧 core/url-config 只�
 架构决策
 Campus Integrations 是学校上游协议的 canonical 防腐层；旧 auth/core/parsers/services 路径只能单向再导出本模块，禁止本模块反向依赖旧 Facade、routes 或 Identity。
 解析器保持无网络、无缓存、无持久化的纯转换边界；Portal 用户资料与一卡通适配器保留历史缓存、回写和 stale fallback 语义。
+静默重认证按用户共享在途恢复（PerKeySingleflight），同用户并发凭证缺口只跑一条 CAS 登录链；upstream 经 resolveCredentialClient 单次恢复链同时取得 token 与客户端，禁止恢复链跑两遍。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md

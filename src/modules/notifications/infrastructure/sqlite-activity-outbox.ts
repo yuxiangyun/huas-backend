@@ -1,13 +1,13 @@
 /**
  * [INPUT]: 依赖构造注入的 Drizzle db、Notifications schema 与 Activity Outbox 领域端口
- * [OUTPUT]: 对外提供 SQLiteActivityOutboxWriter、SQLiteActivityOutboxStore 及兼容现有 UGC 事务的类型
- * [POS]: modules/notifications/infrastructure 的事务 Outbox adapter，使互动事实与事件同提交并以短事务幂等投影
+ * [OUTPUT]: 对外提供 SQLiteActivityOutboxWriter（点赞/资源/子资源三级同事务撤回）、SQLiteActivityOutboxStore 及兼容现有 UGC 事务的类型
+ * [POS]: modules/notifications/infrastructure 的事务 Outbox adapter，使互动事实与事件同提交并以短事务幂等投影，删除内容时同事务撤回事件与通知
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { and, asc, eq, isNull, lte, or } from 'drizzle-orm';
 import { schema, type getDb } from '../../../db';
-import { buildActivityEventId, type ActivityEvent } from '../domain/activity';
+import { buildActivityEventId, type ActivityEvent, type ActivityResourceType } from '../domain/activity';
 import type {
   ActivityOutboxStore,
   ActivityOutboxWriter,
@@ -75,6 +75,41 @@ implements ActivityOutboxWriter<NotificationsTransaction> {
     transaction.delete(schema.notifications)
       .where(eq(schema.notifications.eventId, eventId))
       .run();
+  }
+
+  removeResource(
+    transaction: NotificationsTransaction,
+    resourceType: ActivityResourceType,
+    resourceId: number,
+  ): void {
+    const scope = and(
+      eq(schema.activityOutbox.resourceType, resourceType),
+      eq(schema.activityOutbox.resourceId, resourceId),
+    );
+    transaction.delete(schema.activityOutbox).where(scope).run();
+    transaction.delete(schema.notifications).where(and(
+      eq(schema.notifications.resourceType, resourceType),
+      eq(schema.notifications.resourceId, resourceId),
+    )).run();
+  }
+
+  removeSubresource(
+    transaction: NotificationsTransaction,
+    resourceType: ActivityResourceType,
+    resourceId: number,
+    subresourceId: number,
+  ): void {
+    const scope = and(
+      eq(schema.activityOutbox.resourceType, resourceType),
+      eq(schema.activityOutbox.resourceId, resourceId),
+      eq(schema.activityOutbox.subresourceId, subresourceId),
+    );
+    transaction.delete(schema.activityOutbox).where(scope).run();
+    transaction.delete(schema.notifications).where(and(
+      eq(schema.notifications.resourceType, resourceType),
+      eq(schema.notifications.resourceId, resourceId),
+      eq(schema.notifications.subresourceId, subresourceId),
+    )).run();
   }
 }
 

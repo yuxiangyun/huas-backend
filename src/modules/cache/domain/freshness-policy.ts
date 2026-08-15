@@ -19,7 +19,8 @@ export function freshnessPolicy(ttlMs: number): FreshnessPolicy {
 }
 
 export function fromLegacyTtlSeconds(ttlSeconds: number): FreshnessPolicy {
-  // 历史 CacheService 对所有非正数都采用“永久有效”，这里保持兼容。
+  // 语义约定：ttl=0 表示“永久缓存 + 仅显式 refresh 回源”，是业务层的有意选择而非缺省兜底；
+  // 需要自动过期的键必须显式传正数 TTL。
   return ttlSeconds > 0 ? freshnessPolicy(ttlSeconds * 1000) : NEVER_EXPIRES;
 }
 

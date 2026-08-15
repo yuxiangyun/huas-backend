@@ -58,6 +58,12 @@ function failingAfterRealEnqueue<TTransaction>(
     removeLike(transaction, eventId) {
       return real.removeLike(transaction, eventId);
     },
+    removeResource(transaction, resourceType, resourceId) {
+      return real.removeResource(transaction, resourceType, resourceId);
+    },
+    removeSubresource(transaction, resourceType, resourceId, subresourceId) {
+      return real.removeSubresource(transaction, resourceType, resourceId, subresourceId);
+    },
   };
 }
 

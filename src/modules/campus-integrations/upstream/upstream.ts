@@ -52,16 +52,13 @@ export async function upstream<T>(
   );
 
   const buildContext = async (): Promise<UpstreamContext | null> => {
-    if (mode === 'jw') {
-      const client = await CredentialManager.buildHttpClient(userId, 'jw_session', deadlineAt);
-      return client ? { client } : null;
-    } else {
-      const cred = await CredentialManager.getOrRefreshCredential(userId, 'portal_jwt', deadlineAt);
-      if (!cred?.value) return null;
-      const client = await CredentialManager.buildHttpClient(userId, 'portal_jwt', deadlineAt);
-      if (!client) return null;
-      return { client, portalToken: cred.value };
-    }
+    // 单次恢复链：resolveCredentialClient 已合并同用户并发恢复，portal 不再二次刷新。
+    const resolved = await CredentialManager.resolveCredentialClient(userId, system, deadlineAt);
+    if (!resolved) return null;
+    if (mode === 'portal' && !resolved.value) return null;
+    return resolved.value
+      ? { client: resolved.client, portalToken: resolved.value }
+      : { client: resolved.client };
   };
 
   const isTransientRetryableError = (error: unknown): boolean => {

@@ -340,17 +340,17 @@ nginx.conf - 反向代理样板
 AGENTS.md 是全局导航入口；各模块通过 L2 地图与业务文件 L3 契约维持代码、文档同构。
 业务能力按 domain、application、infrastructure 与 composition 分层，高层依赖端口而非具体存储或校园上游实现。
 SQLite 是业务事实源；data 下 JSON、媒体与内存态只承载运行策略、会话或资源，不代替业务表。
-学校上游凭证由 CredentialManager 收敛，客户端只持本服务 JWT；凭证恢复失败统一返回 3003。
+学校上游凭证由 CredentialManager 收敛，客户端只持本服务 JWT；凭证恢复失败统一返回 3003，同用户静默重认证共享在途恢复、upstream 单次恢复链同时取得 token 与客户端。
 课表由 Academic Facade 按持久化策略执行双源 current，再按 JW、Portal 固定顺序选择 stale；管理面只调用 Academic 暴露的策略用例。
 成绩强制刷新执行 JW fresh-first：45 秒总预算内有限恢复凭证并重试明确临时错误，只有新鲜路径穷尽后才允许 stale fallback。
 课表来源策略文件默认位于 dirname(DB_PATH)，生产蓝绿槽必须共享同一绝对持久路径，运行态 JSON、锁与临时文件不得纳入 Git。
 首页弹窗是 Operations 自有单配置展示能力；设置与有界保留的 WebP 版本跟随 dirname(DB_PATH) 共享，换图或修改 public_account/text/none 三态动作内容生成不可变版本，服务端只向匿名接口投影启用且命中时间窗的内容。
 community 独立拥有 community_profiles 昵称/头像与默认 displayName；只经 Identity 窄端口读取 className，社交消费者经批量 reader 投影统一公共作者。
 discover 与 treehole 是独立业务支线，不经过学校上游；Discover 图片与 Community 头像保留公开 `/media/*`，Treehole 帖子图片只经 Bearer/Cookie 鉴权 API 读取，内容事实表不保存公开资料快照或媒体 URL。
-Discover/Treehole 的六类有效互动与 activity_outbox 在同一 SQLite 短事务提交；Notifications 按父评论/帖子作者差异投影、仅逐条已读且永久保留，新增使用 notification ID 高水位、撤销使用摘要 total 差异校准，取消点赞原子撤销通知。
+Discover/Treehole 的六类有效互动与 activity_outbox 在同一 SQLite 短事务提交；Notifications 按父评论/帖子作者差异投影、仅逐条已读且永久保留，新增使用 notification ID 高水位、撤销使用摘要 total 差异校准，取消点赞按 eventId、删帖按 resource、删评论按 subresource 在同事务原子撤回通知。
 Discover 媒体、Community 头像、Treehole 帖子图片与 Messaging 私信图片按数据库有效引用及一小时默认宽限期注册四类独立周期回收；只处理各模块严格白名单路径，单文件失败隔离并聚合上报。
 Treehole 发帖仅接受 multipart，最多九张图片；服务端在读取正文前执行单图/总量/请求体门禁，以全局单槽串行解码、16MP 像素上限、静态 WebP 自适应压缩和 1MiB 成品硬限约束小内存峰值，入口另以 1 active + 2 queued 有界门禁拒绝过载。
-Messaging 只建一对一唯一会话，首条消息事务内延迟建会话并以 UUID 严格图文幂等；会话轮询使用 lastMessageId 高水位，消息统一最新/before/after 三态，multipart 在解析前执行请求上限；私信图片仅参与者或管理员鉴权读取，管理员三类读取写最小隐私审计。
+Messaging 只建一对一唯一会话，首条消息事务内延迟建会话并以 UUID 严格图文幂等（并发同 UUID 冲突在事务内闭环为幂等返回）；会话轮询使用 lastMessageId 高水位，消息统一最新/before/after 三态，multipart 在解析前执行请求上限；私信图片仅参与者或管理员鉴权读取，管理员三类读取写最小隐私审计。
 应用启动只有 schema metadata/fingerprint 校验权，结构变更仅由部署阶段显式 migration 执行；进程级清理由统一 PeriodicTaskRegistry 管理并在关闭时等待停止。
 所有 bun test 调用默认先 preload 临时 SQLite 环境，禁止测试清理逻辑接触 data/huas.db；真实 E2E 使用专用 CLI preload 覆盖默认 setup。
 Web 入口为 /m，普通用户默认进入 Treehole；管理端使用独立 HttpOnly Cookie 会话，普通用户 JWT 与后台权限不互通。

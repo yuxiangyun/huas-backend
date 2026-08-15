@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖构造注入的 Drizzle db、CommunityProfileReader、ActivityOutboxWriter、DiscoverPolicy 与同层帖子/评论/推荐实例
- * [OUTPUT]: 对外提供实现 DiscoverPersistence 的 SQLiteDiscoverPersistence 聚合 adapter
+ * [OUTPUT]: 对外提供实现 DiscoverPersistence 的 SQLiteDiscoverPersistence 聚合 adapter，删帖与互动事件撤回同事务
  * [POS]: modules/discover/infrastructure 的持久化总边界，统一持有本切片实例图且不读取全局 getDb
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -25,6 +25,7 @@ export class SQLiteDiscoverPersistence implements DiscoverPersistence {
   private readonly posts: SQLiteDiscoverPostService;
   private readonly comments: SQLiteDiscoverCommentService;
   private readonly recommendations: SQLiteDiscoverRecommendationService;
+  private readonly outbox: ActivityOutboxWriter<DiscoverTransaction>;
 
   constructor(
     private readonly db: DiscoverDatabase,
@@ -33,9 +34,15 @@ export class SQLiteDiscoverPersistence implements DiscoverPersistence {
     outbox: ActivityOutboxWriter<DiscoverTransaction>,
   ) {
     const postQuery = new DiscoverPostQuery(db, profileReader);
+    this.outbox = outbox;
     this.posts = new SQLiteDiscoverPostService(db, postQuery, outbox);
     this.comments = new SQLiteDiscoverCommentService(db, postQuery, profileReader, policy, outbox);
-    this.recommendations = new SQLiteDiscoverRecommendationService(db, postQuery, this.posts);
+    this.recommendations = new SQLiteDiscoverRecommendationService(
+      db,
+      postQuery,
+      this.posts,
+      policy.recommendationCandidateLimit,
+    );
   }
 
   async createPost(input: PersistDiscoverPostInput) {
@@ -99,16 +106,22 @@ export class SQLiteDiscoverPersistence implements DiscoverPersistence {
   }
 
   async deletePost(postId: number, userId?: number) {
-    const now = new Date();
-    const filters = [
-      eq(schema.discoverPosts.id, postId),
-      isNull(schema.discoverPosts.deletedAt),
-    ];
-    if (userId !== undefined) filters.push(eq(schema.discoverPosts.userId, userId));
-    const updated = await this.db.update(schema.discoverPosts)
-      .set({ deletedAt: now, updatedAt: now })
-      .where(and(...filters))
-      .returning({ id: schema.discoverPosts.id, storageKey: schema.discoverPosts.storageKey });
-    return updated[0] ?? null;
+    return this.db.transaction((tx) => {
+      const now = new Date();
+      const filters = [
+        eq(schema.discoverPosts.id, postId),
+        isNull(schema.discoverPosts.deletedAt),
+      ];
+      if (userId !== undefined) filters.push(eq(schema.discoverPosts.userId, userId));
+      const updated = tx.update(schema.discoverPosts)
+        .set({ deletedAt: now, updatedAt: now })
+        .where(and(...filters))
+        .returning({ id: schema.discoverPosts.id, storageKey: schema.discoverPosts.storageKey })
+        .all();
+      if (!updated[0]) return null;
+
+      this.outbox.removeResource(tx, 'discover_post', postId);
+      return updated[0];
+    });
   }
 }

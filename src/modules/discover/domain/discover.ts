@@ -26,6 +26,7 @@ export interface DiscoverPolicy {
   maxCommentLength: number;
   defaultCommentPageSize: number;
   maxCommentPageSize: number;
+  recommendationCandidateLimit: number;
 }
 
 export interface DiscoverStoredImage {

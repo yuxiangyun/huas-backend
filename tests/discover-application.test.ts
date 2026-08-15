@@ -21,6 +21,7 @@ const policy: DiscoverPolicy = {
   maxCommentLength: 200,
   defaultCommentPageSize: 50,
   maxCommentPageSize: 100,
+  recommendationCandidateLimit: 1000,
 };
 
 describe('DiscoverApplicationService media compensation', () => {
