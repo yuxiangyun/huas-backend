@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 SQLite schema、缓存服务、成绩服务与 Portal 一卡通解析器
- * [OUTPUT]: 验证唯一键/外键/upsert、成绩缓存限额与参数、Portal 解析失败边界
+ * [OUTPUT]: 验证唯一键/外键/upsert、成绩缓存限额与参数、Portal 解析失败及一卡通 stale fallback 边界
  * [POS]: tests/business-flows 的独立能力用例集，由聚合入口在进程级 mock 隔离内装配
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -148,5 +148,23 @@ describe('Portal 解析器边界', () => {
     await expect(ECardService.getECard(1, '2023001551', false)).rejects.toThrow('一卡通余额字段缺失');
     const rows = await getDb().select().from(schema.cache);
     expect(rows.some((row: any) => row.key === 'ecard:2023001551')).toBe(false);
+  });
+
+  it('ecard 强刷遇到 Portal 非会话错误时回退已有缓存', async () => {
+    const studentId = '2023001552';
+    await CacheService.set(`ecard:${studentId}`, {
+      balance: 88.5,
+      status: '正常',
+      lastTime: 'old',
+    }, 0, 'portal');
+    upstreamState.upstreamExecuteCallback = true;
+    upstreamState.upstreamRequestHandler = async () => new Response(JSON.stringify({
+      code: 500,
+      message: '系统维护',
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+
+    const result = await ECardService.getECard(1, studentId, true);
+    expect(result.data.balance).toBe(88.5);
+    expect(result._meta).toMatchObject({ stale: true, refresh_failed: true });
   });
 });

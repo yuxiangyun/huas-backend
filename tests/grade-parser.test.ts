@@ -77,4 +77,21 @@ describe('GradeParser', () => {
     expect(() => GradeParser.parse(`<html><body>${'服务异常'.repeat(80)}</body></html>`))
       .toThrow('GRADE_PAGE_INVALID');
   });
+
+  it('JW 登录表单位于页面后部时仍判定为会话失效', () => {
+    const loginPage = `
+      <html>
+        <head><title>登录</title></head>
+        <body>
+          ${'x'.repeat(800)}
+          <form id="Form1" action="/jsxsd/xk/LoginToXk" method="post">
+            <input name="userAccount">
+            <input name="RANDOMCODE">
+          </form>
+        </body>
+      </html>
+    `;
+
+    expect(() => GradeParser.parse(loginPage)).toThrow('SESSION_EXPIRED');
+  });
 });

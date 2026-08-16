@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 EvaluationService、AppError/ErrorCode、HTTP 日志与统一响应工具
+ * [INPUT]: 依赖 EvaluationService、校园实时限流、AppError/ErrorCode、HTTP 日志与统一响应工具
  * [OUTPUT]: 对外提供评教发现、blocked/actionable 状态读取与经批末回查确认的满分提交路由
  * [POS]: routes/academic 的评教 HTTP 适配器，只解析请求并记录最终业务事实
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -10,8 +10,11 @@ import { EvaluationService } from '../../services/academic/evaluation-service';
 import { AppError, ErrorCode } from '../../utils/errors';
 import { appendHttpLogDetail, formatHttpLogDetail } from '../../utils/http-log';
 import { success } from '../../utils/response';
+import { academicRealtimeRateLimitMiddleware } from '../../middleware/academic-refresh-rate-limit.middleware';
 
 const evaluations = new Hono();
+
+evaluations.use('*', academicRealtimeRateLimitMiddleware);
 
 async function readJsonBody(c: any) {
   try {

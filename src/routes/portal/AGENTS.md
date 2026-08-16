@@ -2,8 +2,8 @@
 > L2 | 父级: /Users/xiangyun/workspace/huas-wechat-app/huas-server/src/routes/AGENTS.md
 
 成员清单
-ecard.routes.ts: Portal 一卡通 HTTP 适配器，读取余额数据
-user.routes.ts: Portal 用户资料 HTTP 适配器，读取并回填姓名班级
+ecard.routes.ts: Portal 一卡通 HTTP 适配器，强制刷新时进入共享校园 refresh 限流桶并读取余额数据
+user.routes.ts: Portal 用户资料 HTTP 适配器，强制刷新时进入共享校园 refresh 限流桶并读取、回填姓名班级
 v1-schedule.routes.ts: Portal 优先课表 HTTP 适配器，读取 startDate/endDate/refresh 参数，委托 ScheduleFacade 处理缓存与 JW 兜底，并复用上层课表日志适配器
 
 架构决策

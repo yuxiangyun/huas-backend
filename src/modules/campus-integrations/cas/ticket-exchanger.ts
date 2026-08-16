@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖带剩余预算的 HttpClient、CryptoHelper、URLS、config 与 Logger 登录步骤记录
- * [OUTPUT]: 对外提供 TicketExchanger，在客户端 deadline 内执行 TGC 到 Portal JWT/JW Session 的交换并保留瞬态网络故障语义
+ * [INPUT]: 依赖带剩余预算的 HttpClient、CryptoHelper、URLS、config、JW 主框架判定与 LoginStep 类型
+ * [OUTPUT]: 对外提供 TicketExchanger，在客户端 deadline 内执行 TGC 到 Portal JWT/JW Session 的交换并验证 JW 已登录主框架
  * [POS]: campus-integrations/cas 的学校子凭证交换器，被登录流程和有界凭证恢复链消费
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -9,13 +9,60 @@ import { HttpClient } from '../http/http-client';
 import { CryptoHelper } from '../../../utils/crypto';
 import { URLS } from '../endpoints';
 import { config } from '../../../config';
-import { Logger, type LoginStep } from '../../../utils/logger';
+import type { LoginStep } from '../../../utils/logger';
+import { looksLikeAuthenticatedJwMainPage, looksLikeJwLoginPage } from '../jw/parsers/session-page';
 
 export class TicketExchanger {
   private static isTransientUpstreamError(message: string): boolean {
     if (!message) return false;
     if (message === 'REQUEST_TIMEOUT') return true;
     return /ECONNRESET|EAI_AGAIN|ETIMEDOUT|ENOTFOUND|fetch failed|network/i.test(message);
+  }
+
+  private static async verifyJwSession(client: HttpClient): Promise<{
+    active: boolean;
+    upstreamUnavailable: boolean;
+    detail: string;
+  }> {
+    let response = await client.request(URLS.jwMain, {
+      isAuthFlow: true,
+      timeout: config.timeout.cas,
+    });
+
+    const location = response.headers.get('location');
+    if (location) {
+      const followed = await client.followRedirects(new URL(location, URLS.jwMain).toString());
+      if (!followed.success) {
+        return {
+          active: false,
+          upstreamUnavailable: followed.finalStatus === 0 || followed.finalStatus >= 500,
+          detail: `JW首页重定向失败:${followed.finalStatus}`,
+        };
+      }
+      response = await client.request(URLS.jwMain, {
+        isAuthFlow: true,
+        timeout: config.timeout.cas,
+      });
+    }
+
+    if (response.status < 200 || response.status >= 300) {
+      return {
+        active: false,
+        upstreamUnavailable: response.status >= 500,
+        detail: `JW首页状态:${response.status}`,
+      };
+    }
+
+    const html = await response.text();
+    if (looksLikeAuthenticatedJwMainPage(html)) {
+      return { active: true, upstreamUnavailable: false, detail: '' };
+    }
+
+    return {
+      active: false,
+      upstreamUnavailable: false,
+      detail: looksLikeJwLoginPage(html) ? 'JW首页仍为登录页' : 'JW首页缺少已登录标记',
+    };
   }
 
   /**
@@ -86,17 +133,18 @@ export class TicketExchanger {
         if (jwLoc) {
           const result = await client.followRedirects(jwLoc);
           if (result.success) {
-            // Visit JW main page to complete session setup
-            const indexRes = await client.request('https://xyjw.huas.edu.cn/jsxsd/framework/xsMain.jsp', {
-              isAuthFlow: true,
-              timeout: config.timeout.cas,
-            });
-            const indexLoc = indexRes.headers.get('location');
-            if (indexLoc) {
-              await client.followRedirects(indexLoc);
+            const verification = await this.verifyJwSession(client);
+            if (verification.active) {
+              activated = true;
+              steps.push({ label: `jw${attempt > 0 ? '#' + (attempt + 1) : ''}`, ok: true });
+            } else {
+              upstreamUnavailable ||= verification.upstreamUnavailable;
+              steps.push({
+                label: `jw#${attempt + 1}`,
+                ok: false,
+                detail: verification.detail,
+              });
             }
-            activated = true;
-            steps.push({ label: `jw${attempt > 0 ? '#' + (attempt + 1) : ''}`, ok: true });
           } else {
             if (result.finalStatus === 0) {
               upstreamUnavailable = true;

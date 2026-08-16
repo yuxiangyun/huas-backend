@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 Drizzle/SQLite cache 表、FreshnessPolicy、cache envelope、CacheMeta、北京时间、统一 Logger 与可选访问观察器
- * [OUTPUT]: 对外提供 SqliteCacheStore，支持版本兼容 JSON 读写、TTL=0 永久值、过期清理与前缀 LRU
- * [POS]: cache/infrastructure 的本地持久化适配器，是 cache 表与领域契约的唯一翻译边界
+ * [OUTPUT]: 对外提供 SqliteCacheStore，以 created_at 表达当前数据写入时间、updated_at 维护 LRU 访问时间，并支持版本兼容、TTL 与清理
+ * [POS]: cache/infrastructure 的本地持久化适配器，是 cache 表时间语义、领域元数据与 LRU 的唯一翻译边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -82,7 +82,8 @@ export class SqliteCacheStore {
       meta: {
         cached: true,
         cache_time: beijingIsoString(entry.createdAt),
-        updated_at: beijingIsoString(options?.touch ? touchedAt : entry.updatedAt),
+        // updated_at 是客户端展示的数据新鲜度，不得被 LRU touch 伪造成重新回源。
+        updated_at: beijingIsoString(entry.createdAt),
         expires_at: entry.expiresAt ? beijingIsoString(entry.expiresAt) : undefined,
         source: entry.source || undefined,
         stale: expired || undefined,
@@ -105,7 +106,7 @@ export class SqliteCacheStore {
       expiresAt,
     }).onConflictDoUpdate({
       target: schema.cache.key,
-      set: { data: jsonData, source, updatedAt: now, expiresAt },
+      set: { data: jsonData, source, createdAt: now, updatedAt: now, expiresAt },
     });
   }
 

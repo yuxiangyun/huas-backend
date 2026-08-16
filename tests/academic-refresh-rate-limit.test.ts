@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Academic canonical composition mock、Hono 路由、JWT 与 SQLite 测试环境
- * [OUTPUT]: 验证课表/成绩共享 refresh 限流桶及普通请求不占用配额
+ * [OUTPUT]: 验证课表/成绩/Portal refresh 限流桶、固定实时回源桶及普通缓存读取不占用配额
  * [POS]: tests 的 Academic HTTP 限流回归，mock 边界对齐 modules/academic composition root
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -95,6 +95,7 @@ let schema: any;
 let registerRoutes: any;
 let generateToken: any;
 let resetAcademicRefreshRateLimitStateForTests: any;
+let academicRealtimeRateLimitMiddleware: any;
 
 function createApp() {
   const app = new Hono();
@@ -140,7 +141,10 @@ beforeAll(async () => {
   ({ getDb, schema } = await import('../src/db/index.ts'));
   ({ registerRoutes } = await import('../src/routes/index.ts'));
   ({ generateToken } = await import('../src/auth/jwt.ts'));
-  ({ resetAcademicRefreshRateLimitStateForTests } = await import('../src/middleware/academic-refresh-rate-limit.middleware.ts'));
+  ({
+    academicRealtimeRateLimitMiddleware,
+    resetAcademicRefreshRateLimitStateForTests,
+  } = await import('../src/middleware/academic-refresh-rate-limit.middleware.ts'));
 });
 
 beforeEach(async () => {
@@ -152,6 +156,23 @@ beforeEach(async () => {
 });
 
 describe('教务 refresh 限流', () => {
+  it('固定实时回源不依赖 refresh 参数并使用独立限流桶', async () => {
+    const app = new Hono();
+    app.use('*', async (c, next) => {
+      c.set('userId', 42);
+      await next();
+    });
+    app.use('*', academicRealtimeRateLimitMiddleware);
+    app.get('/probe', (c) => c.json({ success: true }));
+
+    for (let index = 0; index < 5; index += 1) {
+      expect((await app.request('http://localhost/probe')).status).toBe(200);
+    }
+    const blocked = await app.request('http://localhost/probe');
+    expect(blocked.status).toBe(429);
+    expect((await blocked.json() as any).error_message).toContain('校园实时请求过于频繁');
+  });
+
   it('3 个教务接口共用同一个 refresh 限流桶，第 6 次开始拒绝', async () => {
     const app = createApp();
     const studentId = '2023001001';

@@ -128,7 +128,7 @@ describe('日历订阅', () => {
 
     const cacheKey = `portal-schedule:2023001999:${currentWeek.startDate}:${currentWeek.endDate}`;
     await getDb().update(schema.cache)
-      .set({ updatedAt: new Date(Date.now() - 16 * 60 * 1000) })
+      .set({ createdAt: new Date(Date.now() - 16 * 60 * 1000) })
       .where(eq(schema.cache.key, cacheKey));
     const refreshed = await app.request(subscriptionUrl.toString());
     expect(refreshed.status).toBe(200);

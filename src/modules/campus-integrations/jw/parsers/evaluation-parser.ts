@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 cheerio、教务 URL 配置与统一 AppError/ErrorCode
+ * [INPUT]: 依赖 cheerio、教务 URL 配置、共享 JW 登录页判定与统一 AppError/ErrorCode
  * [OUTPUT]: 对外提供 EvaluationParser、评教列表/表单类型及 URL、会话、提交页解析规则
  * [POS]: campus-integrations/jw/parsers 的评教纯解析核心，把不稳定教务 HTML 转换为稳定任务与满分表单
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -8,6 +8,7 @@
 import * as cheerio from 'cheerio';
 import { URLS } from '../../endpoints';
 import { AppError, ErrorCode } from '../../../../utils/errors';
+import { looksLikeJwLoginPage } from './session-page';
 
 export interface EvaluationListItem {
   index: string;
@@ -181,7 +182,8 @@ function pickBestListUrl(candidates: Set<string>) {
 
 function ensureActiveSession(html: string) {
   const htmlStart = (html || '').slice(0, 800);
-  if (!html.trim() || /cas\/login/i.test(htmlStart) || /LoginToXk/i.test(htmlStart) || /用户登录/.test(htmlStart)) {
+  if (!html.trim() || /cas\/login/i.test(htmlStart) || /LoginToXk/i.test(htmlStart) ||
+    /用户登录/.test(htmlStart) || looksLikeJwLoginPage(html)) {
     throw new Error('SESSION_EXPIRED');
   }
 

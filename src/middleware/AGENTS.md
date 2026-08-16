@@ -2,7 +2,7 @@
 > L2 | 父级: /Users/xiangyun/workspace/huas-wechat-app/huas-server/src/AGENTS.md
 
 成员清单
-academic-refresh-rate-limit.middleware.ts: 教务 refresh 内存限流，保护学校上游免受强制刷新轰炸
+academic-refresh-rate-limit.middleware.ts: 校园上游内存限流，以独立用户桶约束显式 refresh 与 classrooms/evaluation 固定实时回源
 admin-session.middleware.ts: Operations canonical 后台 Cookie 会话边界的单向兼容 Facade
 auth-login-rate-limit.middleware.ts: 登录失败内存限流，按学号和客户端 IP 构造 key，降低暴力尝试风险
 auth.middleware.ts: Bearer JWT 认证边界，解析用户身份并刷新 lastActiveAt

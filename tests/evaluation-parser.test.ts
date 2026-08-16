@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖独立 EvaluationParser、EvaluationService、HttpClient 测试替身与教务评教 HTML 边界样本
- * [OUTPUT]: 验证入口发现、列表/表单解析、有界续批、重排安全回查与结果 DTO 口径
+ * [OUTPUT]: 验证延后登录页拒绝、入口发现、列表/表单解析、有界续批、重排安全回查与结果 DTO 口径
  * [POS]: tests 的评教业务回归套件，保护 HTML 适配与提交事实不可伪造
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -70,6 +70,18 @@ function batchEvaluationListHtml(submitted: Set<string>) {
 }
 
 describe('EvaluationParser', () => {
+  it('登录表单位于页面后部时列表与入口发现都触发会话恢复', () => {
+    const loginPage = `
+      <html><head><title>登录</title></head><body>
+        ${'x'.repeat(900)}
+        <form action="/jsxsd/xk/LoginToXk"><input name="RANDOMCODE" placeholder="验证码"></form>
+      </body></html>
+    `;
+
+    expect(() => EvaluationParser.extractListRows(loginPage)).toThrow('SESSION_EXPIRED');
+    expect(() => EvaluationParser.extractEvaluationListUrl(loginPage, LIST_URL)).toThrow('SESSION_EXPIRED');
+  });
+
   it('从评教入口页脚本中发现当前批次列表 URL', () => {
     const listUrl = EvaluationParser.extractEvaluationListUrl(`
       <script>
@@ -328,6 +340,36 @@ describe('EvaluationParser', () => {
 
     await expect(EvaluationService.submitFullScoreFromClient(client, LIST_URL)).rejects.toThrow('EVALUATION_LIST_HTTP_503');
     await expect(EvaluationService.discoverListUrlFromClient(client)).rejects.toThrow('EVALUATION_DISCOVERY_HTTP_503');
+  });
+
+  it('已确认主框架有效后忽略次级候选登录页，不把有效 JW 会话升级为 3003', async () => {
+    const authenticatedMain = `
+      <html><title>教学一体化服务平台</title>
+        <button id="btn_userLogout">退出系统</button>
+        <main id="mainContentPanle"><a href="/xspj/xspj_find.do">学生评价</a></main>
+      </html>
+    `;
+    const lateLoginPage = `<html><head><title>登录</title></head><body>${'x'.repeat(900)}<form action="/jsxsd/xk/LoginToXk"><input name="RANDOMCODE"></form></body></html>`;
+    const client = {
+      async request(url: string) {
+        if (url.endsWith('/jsxsd/framework/xsMain.jsp')) return new Response(authenticatedMain);
+        if (url.includes('/jsxsd/xspj/xspj_find.do')) return new Response('<html><body>当前没有评教任务</body></html>');
+        return new Response(lateLoginPage);
+      },
+    } as unknown as HttpClient;
+
+    await expect(EvaluationService.discoverListUrlFromClient(client)).resolves.toEqual({
+      evaluationRequired: false,
+      listUrl: null,
+    });
+  });
+
+  it('尚未确认主框架时遇到登录页仍抛 SESSION_EXPIRED', async () => {
+    const client = {
+      request: async () => new Response('<html><body>用户登录，验证码</body></html>'),
+    } as unknown as HttpClient;
+
+    await expect(EvaluationService.discoverListUrlFromClient(client)).rejects.toThrow('SESSION_EXPIRED');
   });
 
   it('表单读取 SESSION_EXPIRED 不会被逐项 failed 吞掉', async () => {

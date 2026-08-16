@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Portal 用户服务、Academic/Portal 缓存服务与可控上游响应
- * [OUTPUT]: 验证资料回填、刷新/旧值回退、凭证错误穿透与损坏缓存清理
+ * [OUTPUT]: 验证资料回填、Portal 非会话错误旧值回退、凭证错误穿透与损坏缓存清理
  * [POS]: tests/business-flows 的独立能力用例集，由聚合入口在进程级 mock 隔离内装配
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -59,6 +59,24 @@ describe('用户资料回填', () => {
     };
 
     await expect(UserService.getUserInfo(userId, '2023001776', true)).rejects.toThrow('SESSION_EXPIRED');
+  });
+
+  it('UserService 强刷遇到 Portal 非会话错误时回退已有缓存', async () => {
+    const studentId = '2023001778';
+    const userId = await createUser(studentId, 'pass-userinfo-stale');
+    await CacheService.set(`user:${studentId}`, {
+      name: '旧姓名',
+      studentId,
+      className: '旧班级',
+      identity: '学生',
+      organizationCode: 'old-org',
+    }, 0, 'portal');
+    upstreamState.upstreamExecuteCallback = true;
+    upstreamState.upstreamJsonPayload = { code: 500, message: '系统维护' };
+
+    const result = await UserService.getUserInfo(userId, studentId, true);
+    expect(result.data.name).toBe('旧姓名');
+    expect(result._meta).toMatchObject({ stale: true, refresh_failed: true });
   });
 });
 

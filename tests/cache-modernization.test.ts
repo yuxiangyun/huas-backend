@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Bun Test、隔离 SQLite、canonical CacheService、Academic 课表用例与 PerKeySingleflight
- * [OUTPUT]: 验证 FreshnessPolicy、v1 envelope/legacy 兼容、未知版本 miss 与同键同刷新意图回源合并
+ * [OUTPUT]: 验证 FreshnessPolicy、数据时间/LRU 访问时间分离、envelope 兼容与同键同刷新意图回源合并
  * [POS]: tests 的 Cache 专属定向套件，覆盖 Phase 4 缓存语义而不启动 HTTP 或真实校园网络
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -57,6 +57,28 @@ describe('FreshnessPolicy 与 cache envelope', () => {
     });
 
     expect((await CacheService.get<{ legacy: boolean }>('cache:legacy'))?.data).toEqual({ legacy: true });
+  });
+
+  it('touch 只推进 LRU 访问时间，不伪造响应中的数据更新时间', async () => {
+    const fetchedAt = new Date('2025-01-02T03:04:05.000Z');
+    const previousAccessAt = new Date('2025-01-03T03:04:05.000Z');
+    await getDb().insert(schema.cache).values({
+      key: 'cache:time-semantics',
+      data: JSON.stringify({ schemaVersion: 1, payload: { old: true } }),
+      createdAt: fetchedAt,
+      updatedAt: previousAccessAt,
+      expiresAt: null,
+    });
+
+    const result = await CacheService.get<{ old: boolean }>('cache:time-semantics', { touch: true });
+    const rows = await getDb().select().from(schema.cache).where(eq(schema.cache.key, 'cache:time-semantics'));
+
+    expect(Date.parse(result!.meta.updated_at!)).toBe(fetchedAt.getTime());
+    expect(rows[0].updatedAt.getTime()).toBeGreaterThan(previousAccessAt.getTime());
+
+    await CacheService.set('cache:time-semantics', { old: false }, 0, 'test');
+    const refreshed = await getDb().select().from(schema.cache).where(eq(schema.cache.key, 'cache:time-semantics'));
+    expect(refreshed[0].createdAt.getTime()).toBeGreaterThan(fetchedAt.getTime());
   });
 
   it('未知 schemaVersion 安全 miss 且不删除可能属于新版本的数据', async () => {

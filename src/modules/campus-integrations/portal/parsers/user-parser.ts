@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Portal 上游用户 JSON、IUserInfo 类型与 portal-code 的 code 语义判断
- * [OUTPUT]: 对外提供 UserParser，解析学号、姓名、班级、身份与组织编码
+ * [OUTPUT]: 对外提供 UserParser，解析学号、姓名、班级、身份与组织编码，并将非成功 code/缺失 data 归一为可降级错误
  * [POS]: campus-integrations/portal/parsers 的用户资料纯解析器，将过期 code 归一为 SESSION_EXPIRED
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -15,9 +15,9 @@ export const UserParser = {
       if (isPortalSessionExpiredCode(json.code)) {
         throw new Error('SESSION_EXPIRED');
       }
-      return null;
+      throw new Error('USER_UPSTREAM_ERROR');
     }
-    if (!json.data) return null;
+    if (!json.data || typeof json.data !== 'object') throw new Error('USER_DATA_INVALID');
     const attrs = json.data.attributes || {};
     return {
       name: attrs.userName || '未知姓名',

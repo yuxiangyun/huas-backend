@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 cheerio、成绩 DTO、SESSION_EXPIRED_INDICATORS、Logger 与 AppError/ErrorCode
+ * [INPUT]: 依赖 cheerio、成绩 DTO、SESSION_EXPIRED_INDICATORS、共享 JW 登录页判定、Logger 与 AppError/ErrorCode
  * [OUTPUT]: 对外提供 GradeParser，解析 JW 成绩 HTML 为 IGradeList
  * [POS]: campus-integrations/jw/parsers 的成绩纯解析器，识别 session 过期与评教未完成阻断
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -10,6 +10,7 @@ import type { IGradeItem, IGradeList } from '../../../../types';
 import { Logger } from '../../../../utils/logger';
 import { SESSION_EXPIRED_INDICATORS } from '../../../../config';
 import { AppError, ErrorCode } from '../../../../utils/errors';
+import { looksLikeJwLoginPage } from './session-page';
 
 const EVALUATION_REQUIRED_RE = /评教未完成，?不能查询成绩/;
 const FAILED_GRADE_WORDS = ['不及格', '不合格', '未通过', '不通过', '重修', '挂'];
@@ -20,7 +21,8 @@ export const GradeParser = {
     // Only check the beginning of HTML for expiry indicators (avoid false positives from nav links)
     const htmlStart = (html || '').substring(0, 500);
     const isExpired = !html || html.length < 200 ||
-      SESSION_EXPIRED_INDICATORS.some(i => htmlStart.includes(i));
+      SESSION_EXPIRED_INDICATORS.some(i => htmlStart.includes(i)) ||
+      looksLikeJwLoginPage(html);
 
     if (isExpired) {
       Logger.warn('GradeParser', 'Session 过期', `HTML长度: ${html?.length || 0}`);

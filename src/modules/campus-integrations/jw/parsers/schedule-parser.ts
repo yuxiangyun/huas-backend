@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 cheerio、ICourse 类型、Logger 与 SESSION_EXPIRED_INDICATORS
+ * [INPUT]: 依赖 cheerio、ICourse 类型、Logger、SESSION_EXPIRED_INDICATORS 与共享 JW 登录页判定
  * [OUTPUT]: 对外提供 ScheduleParser，解析 JW HTML 课表为统一课程模型
  * [POS]: campus-integrations/jw/parsers 的课表纯解析核心，识别非教学周、session 过期并去重
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -9,6 +9,7 @@ import * as cheerio from 'cheerio';
 import type { ICourse } from '../../../../types';
 import { Logger } from '../../../../utils/logger';
 import { SESSION_EXPIRED_INDICATORS } from '../../../../config';
+import { looksLikeJwLoginPage } from './session-page';
 
 const LI_SHOW_WEEK_CALL_RE = /\$\(\s*(["'])#li_showWeek\1\s*\)\.html\(\s*(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)')\s*\);?/g;
 const FIELD_MAP: Record<string, keyof Pick<ICourse, 'name' | 'teacher' | 'location' | 'weekStr'>> = {
@@ -48,16 +49,6 @@ function extractLiShowWeekMessages(html: string): string[] {
   }
 
   return messages;
-}
-
-function looksLikeJwLoginPage(html: string): boolean {
-  const text = stripTags(html);
-  const hasLoginForm = /<form[^>]+action=["']\/?jsxsd\/xk\/LoginToXk["']/i.test(html);
-  const loginTitle = /<title[^>]*>\s*登录\s*<\/title>/i.test(html);
-  const kickedByOtherLogin = text.includes('您的账号在其它地方登录');
-  const loginFormText = text.includes('用户登录') && text.includes('验证码');
-
-  return kickedByOtherLogin || hasLoginForm || (loginTitle && loginFormText);
 }
 
 function extractWeek(html: string, $: cheerio.CheerioAPI): string {

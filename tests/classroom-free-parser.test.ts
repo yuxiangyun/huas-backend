@@ -1,9 +1,51 @@
+/**
+ * [INPUT]: 依赖空教室 canonical 解析器/服务、统一 AppError/ErrorCode 与可控 JW 页面样本
+ * [OUTPUT]: 验证会话失效、上游错误页、目标结构空态、楼栋/教室过滤与服务错误映射
+ * [POS]: tests 的空教室协议回归，保护不稳定 JW HTML/JSON 到稳定业务结果的解析边界
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { describe, expect, it } from 'bun:test';
 import { ClassroomFreeParser } from '../src/parsers/academic/classroom-free-parser';
 import { ClassroomFreeService } from '../src/services/academic/classroom-free-service';
 import { AppError, ErrorCode } from '../src/utils/errors';
 
 describe('ClassroomFreeParser', () => {
+  it('登录表单位于页面后部时所有解析入口都触发会话恢复', () => {
+    const loginPage = `
+      <html><head><title>登录</title></head><body>
+        ${'x'.repeat(900)}
+        <form action="/jsxsd/xk/LoginToXk"><input name="RANDOMCODE" placeholder="验证码"></form>
+      </body></html>
+    `;
+
+    expect(() => ClassroomFreeParser.parseCurrentTerm(loginPage)).toThrow('SESSION_EXPIRED');
+    expect(() => ClassroomFreeParser.parseCurrentWeek(loginPage)).toThrow('SESSION_EXPIRED');
+    expect(() => ClassroomFreeParser.parseBuildings(loginPage, 'A')).toThrow('SESSION_EXPIRED');
+    expect(() => ClassroomFreeParser.parseFreeRooms(loginPage)).toThrow('SESSION_EXPIRED');
+  });
+
+  it('HTTP 200 通用错误页和未知结构不能伪装成空楼栋或空教室', () => {
+    for (const errorPage of [
+      '<html><body>Whitelabel Error Page</body></html>',
+      '<html><body>系统异常，服务暂不可用</body></html>',
+    ]) {
+      expect(() => ClassroomFreeParser.parseBuildings(errorPage, 'A')).toThrow('CLASSROOM_UPSTREAM_ERROR_PAGE');
+      expect(() => ClassroomFreeParser.parseFreeRooms(errorPage)).toThrow('CLASSROOM_UPSTREAM_ERROR_PAGE');
+    }
+
+    expect(() => ClassroomFreeParser.parseBuildings('<html><body>未知页面</body></html>', 'A'))
+      .toThrow('CLASSROOM_BUILDINGS_PAGE_INVALID');
+    expect(() => ClassroomFreeParser.parseFreeRooms('<html><body>未知页面</body></html>'))
+      .toThrow('CLASSROOM_FREE_PAGE_INVALID');
+  });
+
+  it('只有可识别目标结构才能表达合法空数据', () => {
+    expect(ClassroomFreeParser.parseBuildings('[]', 'A')).toEqual([]);
+    expect(ClassroomFreeParser.parseBuildings('<select><option value="-1">请选择</option></select>', 'A')).toEqual([]);
+    expect(ClassroomFreeParser.parseFreeRooms('<table id="dataList"><tr><th>教室</th></tr></table>')).toEqual([]);
+  });
+
   it('解析空教室并只匹配末尾容量括号', () => {
     const rooms = ClassroomFreeParser.parseFreeRooms(`
       <table id="dataList">

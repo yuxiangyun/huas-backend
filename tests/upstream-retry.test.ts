@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 upstream、CredentialManager、TicketExchanger、AuthEngine、HttpClient 测试替身与隔离数据库
- * [OUTPUT]: 验证凭证恢复/成绩临时错误的次数与 deadline 边界、非重试错误、Portal 换票及 CAS 401 拒绝/服务故障语义
+ * [OUTPUT]: 验证凭证恢复/成绩临时错误的次数与 deadline 边界、JW 主框架激活、Portal 换票及 CAS 拒绝/服务故障语义
  * [POS]: tests 的学校上游有界恢复回归套件，防止瞬态故障过早降级或无限等待并避免故障退化为凭证/密码错误
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -198,6 +198,46 @@ describe('upstream retry', () => {
 });
 
 describe('auth upstream failure semantics', () => {
+  it('JW 换票最终落到 HTTP 200 登录页时不得报告激活成功', async () => {
+    const loginPage = `<html><head><title>登录</title></head><body>${'x'.repeat(900)}<form action="/jsxsd/xk/LoginToXk"><input name="RANDOMCODE"></form></body></html>`;
+    let requestCount = 0;
+    const client = {
+      getRemainingTimeMs: () => 10_000,
+      request: async () => {
+        requestCount += 1;
+        return requestCount % 2 === 1
+          ? new Response(null, { status: 302, headers: { location: 'https://xyjw.huas.edu.cn/sso-step' } })
+          : new Response(loginPage, { status: 200 });
+      },
+      followRedirects: async () => ({ success: true, finalStatus: 200 }),
+    } as unknown as HttpClient;
+
+    const result = await TicketExchanger.exchangeJwSession(client);
+
+    expect(result.success).toBe(false);
+    expect(result.steps).toHaveLength(3);
+    expect(result.steps.every((step) => !step.ok && step.detail === 'JW首页仍为登录页')).toBe(true);
+  });
+
+  it('JW 换票只有读到已登录主框架后才报告激活成功', async () => {
+    let requestCount = 0;
+    const client = {
+      getRemainingTimeMs: () => 10_000,
+      request: async () => {
+        requestCount += 1;
+        return requestCount === 1
+          ? new Response(null, { status: 302, headers: { location: 'https://xyjw.huas.edu.cn/sso-step' } })
+          : new Response('<html><title>教学一体化服务平台</title><button id="btn_userLogout">退出系统</button><main id="mainContentPanle"></main></html>');
+      },
+      followRedirects: async () => ({ success: true, finalStatus: 200 }),
+    } as unknown as HttpClient;
+
+    await expect(TicketExchanger.exchangeJwSession(client)).resolves.toMatchObject({
+      success: true,
+      steps: [{ ok: true }],
+    });
+  });
+
   it('Portal 换票 REQUEST_TIMEOUT 原样透传', async () => {
     const client = {
       request: async () => { throw new Error('REQUEST_TIMEOUT'); },

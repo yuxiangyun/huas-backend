@@ -2,7 +2,7 @@
 > L2 | 父级: /AGENTS.md
 
 成员清单
-academic-refresh-rate-limit.test.ts: 学业接口强制刷新频率限制回归测试
+academic-refresh-rate-limit.test.ts: 学业/Portal 强制刷新共享桶与 classrooms/evaluation 固定实时回源独立桶回归测试
 academic-compat.test.ts: Academic canonical composition 与旧 services Facade 的运行时引用一致性测试
 admin-dashboard-activity.test.ts: 管理后台活跃度、显式渠道优先级与历史 unknown 隔离口径回归测试
 admin-session.test.ts: 后台 HttpOnly Cookie 会话建立、保护与撤销回归测试
@@ -12,21 +12,21 @@ app-factory.test.ts: 注入式 Hono 应用工厂、Web 分层缓存、私有 API
 activity-outbox-integration.test.ts: Discover 点赞与 Treehole 评论的事实/计数/Outbox 同事务失败回滚，以及提交后投影失败重试门禁
 business-flows.test.ts: 核心业务流薄聚合入口，在独立 Bun 进程内装配 business-flows/ 能力用例并维持模块 mock 隔离
 business-flows/: 登录、凭证、课表/日历、缓存与持久化边界的共享支架和细分能力用例
-cache-modernization.test.ts: Cache 永久/限时新鲜度、版本 envelope、旧 payload、同意图 singleflight 与 observer 隔离回归测试
+cache-modernization.test.ts: Cache 永久/限时新鲜度、数据时间/LRU 访问时间分离、版本 envelope、singleflight 与 observer 隔离回归测试
 calendar-compat.test.ts: Calendar canonical 实现与 routes/services/auth 旧 Facade 的引用、token 别名与 HMAC 语义兼容测试
 campus-integrations-compat.test.ts: Campus Integrations canonical 实现与 auth/core/parsers/services 旧 Facade 的引用一致性测试
 database-migrations.test.ts: SQLite destructive 授权、0003 核心守恒/旧事实丢弃、0004 Treehole 媒体列与唯一索引、schema fail-ready、repair 与快照测试
 deployment-scripts.test.ts: 维护发布脚本的 Bash 语法、首页弹窗成组备份白名单、release 保留、停流前磁盘门禁、PM2 直接 Bun 启动、destructive migration、本机冒烟与 forward-fix 回归测试
-classroom-free-parser.test.ts: 空教室解析器回归测试
+classroom-free-parser.test.ts: 空教室目标结构、合法空态、通用错误页拒绝、过滤规则与延后 JW 登录表单会话恢复回归测试
 community.test.ts: Community 缺省名称、昵称校验、DTO 隔离、并发字段 patch、头像引用保护、宽限期孤儿回收与媒体生命周期回归测试
 discover.test.ts: Discover 薄聚合入口，在单进程内装配 discover/ 媒体、推荐、评论与管理用例
 discover/: Discover HTTP/媒体共享支架及按业务能力细分的回归用例
 discover-application.test.ts: Discover application 媒体补偿、删除清理失败语义与孤儿清理委托回归测试
 e2e.live.test.ts: 真实上游端到端验证入口
 e2e.setup.ts: 真实上游测试隔离环境与临时 SQLite 显式迁移入口
-evaluation-parser.test.ts: 教评解析、actionable/blocked 状态、有界续批、提交响应与抗重排批末回查测试
+evaluation-parser.test.ts: 教评解析、延后 JW 登录表单、actionable/blocked 状态、有界续批、提交响应与抗重排批末回查测试
 fixtures/: 测试二进制样本目录，包含 HEIC 图片
-grade-parser.test.ts: 成绩表结构、合法空表、错误页拒绝与评教门禁回归测试
+grade-parser.test.ts: 成绩表结构、HTTP 200 登录页会话失效、合法空表、错误页拒绝与评教门禁回归测试
 identity-login-application.test.ts: Identity/Login 应用编排、验证码固定周期清理、CAS 提交耗时、Portal/JW 分支与 SQLite 用户凭证原子回滚测试
 image.test.ts: 共享图片 sharp 无缓存单线程资源策略、真实格式识别、输入/像素/页数边界、EXIF 清理、动画策略、安全 HEIC fallback 与严格输出上限回归测试
 index-popup.test.ts: 首页弹窗启停/时间窗、三态底栏/旧配置兼容、动作内容版本、multipart 校验、公开 null、原子设置与最近三版不可变媒体回归测试
@@ -40,7 +40,7 @@ messaging-admin.test.ts: 管理员 Cookie 会话增量/三态消息/图片只读
 operations-application.test.ts: Operations Dashboard 构造注入与纯端口聚合隔离测试
 operations-compat.test.ts: Operations canonical 与旧 routes/services/runtime/middleware Facade 引用及依赖方向测试
 periodic-tasks.test.ts: Runtime 轻量周期任务注册、幂等启停、失败隔离与同任务防重叠回归测试
-portal-schedule-parser.test.ts: Portal 日期范围、课表解析及数字/字符串 code、一卡通余额边界回归测试
+portal-schedule-parser.test.ts: Portal 日期范围、课表解析、数字/字符串 code、非成功错误与一卡通余额边界回归测试
 public-announcements.test.ts: 公告公共接口回归测试
 runtime-check-ci.test.ts: Bun 测试临时库默认 preload、本地 check 脚本、单 job CI、触发器、并发取消与 observer 装配静态回归测试
 runtime-health-metrics.test.ts: live/ready 状态矩阵、普通/增量轮询 quiet 日志、轻量指标、校园 HTTP 结果观察与有界 shutdown hooks 回归测试
@@ -52,7 +52,7 @@ treehole.test.ts: Treehole 薄聚合入口，在单进程内装配 treehole/ 公
 treehole/: Treehole HTTP/事务/Community 作者投影与私有图片共享支架，按帖子、媒体、交互和管理能力细分回归用例
 web-social-state.test.ts: 无 DOM 验证私信单一目标/历史合并、资料/详情 URL 互斥、basename 归一化、上传格式、Discover 排序/分页失效与通知 total 校准规则
 web-cache-policy.test.ts: Web 标准/引用/后台/强刷 Query 时间层级及高水位键有界回收策略测试
-upstream-retry.test.ts: 上游请求/凭证恢复的次数与 deadline、成绩临时错误分类、非重试错误、CAS 结构化验证码/凭证拒绝、HTTP 维护页及 Portal 换票瞬态网络语义回归测试
+upstream-retry.test.ts: 上游请求/凭证恢复次数与 deadline、成绩临时错误、JW 主框架激活验证、CAS 结构化拒绝、HTTP 维护页及 Portal 换票瞬态网络语义回归测试
 
 架构决策
 测试默认隔离学校真实网络，以 mock 边界验证业务编排；e2e.live.test.ts 是唯一真实上游入口。

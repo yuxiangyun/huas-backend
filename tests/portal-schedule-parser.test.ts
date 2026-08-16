@@ -92,4 +92,10 @@ describe('Portal code 语义', () => {
     expect(ECardParser.parse({ code: '0', data: { balance: '0' } })?.balance).toBe(0);
     expect(() => ECardParser.parse({ code: 0, data: {} })).toThrow('一卡通余额字段缺失');
   });
+
+  it('非会话型 Portal 错误必须抛出，不能以 null 绕过 stale fallback', () => {
+    expect(() => ECardParser.parse({ code: 500, message: '系统维护' })).toThrow('ECARD_UPSTREAM_ERROR');
+    expect(() => UserParser.parse({ code: 500, message: '系统维护' })).toThrow('USER_UPSTREAM_ERROR');
+    expect(() => UserParser.parse({ code: 0 })).toThrow('USER_DATA_INVALID');
+  });
 });
