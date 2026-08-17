@@ -23,7 +23,7 @@
 ```json
 {
   "success": true,
-  "data": { "username": "admin", "expiresInSeconds": 1800 }
+  "data": { "username": "admin", "expiresInSeconds": null }
 }
 ```
 
@@ -33,13 +33,13 @@
 - `SameSite=Strict`
 - `Path=/api/admin`
 - HTTPS 或 `X-Forwarded-Proto: https` 时设置 `Secure`
-- Cookie 最大时长 8 小时
+- 不设置 `Max-Age` / `Expires`，服务端不会因时间自动使会话失效
 
 凭据错误返回 `401 + 4001`，不会设置 Cookie。
 
 ### 1.2 `GET /api/admin/session`
 
-探测并续期当前会话的空闲时间，返回 `{ username, expiresInSeconds: 1800 }`。会话失效返回 HTTP 401。
+探测当前会话，返回 `{ username, expiresInSeconds: null }`。会话失效返回 HTTP 401。
 
 ### 1.3 `DELETE /api/admin/session`
 
@@ -48,7 +48,7 @@
 ### 1.4 生命周期
 
 - 服务端只在进程内保存随机 token 与会话元数据，不在 Cookie 中保存账号密码。
-- 空闲 TTL 30 分钟，绝对 TTL 8 小时，进程内最多 128 条会话。
+- 无空闲或绝对 TTL；会话只有主动退出、进程重启/切槽，或新登录触发 128 条容量淘汰时失效。请求会更新最后访问时间，仅用于容量淘汰。
 - 会话是进程内状态；重启或切槽后浏览器 Cookie 仍可能存在，但服务端会要求重新登录。
 - 除 `POST /session` 外，全部 `/api/admin/*` 先经过同一会话中间件。
 

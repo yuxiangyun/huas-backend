@@ -61,7 +61,7 @@ GET /calendar/schedule.ics?studentId=2023001001&sig=<hmac_sha256(studentId, CALE
 
 补充说明：
 
-- `/api/admin/session` 建立短期 HttpOnly Cookie；其余 `/api/admin/*` 统一由 `adminSessionMiddleware` 保护，普通用户 Bearer JWT 不具备后台权限
+- `/api/admin/session` 建立无时间自动失效的 HttpOnly Cookie；其余 `/api/admin/*` 统一由 `adminSessionMiddleware` 保护，普通用户 Bearer JWT 不具备后台权限
 - 日历订阅不是 JWT，也不落库；它是固定链接，签名规则是 `HMAC_SHA256(studentId, CALENDAR_SECRET)`
 
 ## 2. 响应包结构

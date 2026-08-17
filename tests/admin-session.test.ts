@@ -5,7 +5,7 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { afterAll, describe, expect, it } from 'bun:test';
+import { afterAll, describe, expect, it, spyOn } from 'bun:test';
 import { Hono } from 'hono';
 import { createApplicationComposition } from '../src/composition';
 
@@ -45,6 +45,33 @@ describe('admin session', () => {
 
     const afterLogout = await app.request('http://localhost/api/admin/dashboard', { headers: { Cookie: cookie } });
     expect(afterLogout.status).toBe(401);
+  });
+
+  it('does not expire automatically after login', async () => {
+    const app = createApp();
+    const startedAt = Date.now();
+    const dateNow = spyOn(Date, 'now').mockReturnValue(startedAt);
+
+    try {
+      const login = await app.request('http://localhost/api/admin/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'test-admin', password: 'test-admin-password' }),
+      });
+      expect(login.status).toBe(200);
+      expect((await login.json()).data.expiresInSeconds).toBeNull();
+      expect(login.headers.get('set-cookie')).not.toContain('Max-Age=');
+
+      const cookie = (login.headers.get('set-cookie') || '').split(';')[0];
+      dateNow.mockReturnValue(startedAt + 365 * 24 * 60 * 60 * 1000);
+      const afterLongPeriod = await app.request('http://localhost/api/admin/session', {
+        headers: { Cookie: cookie },
+      });
+      expect(afterLongPeriod.status).toBe(200);
+      expect((await afterLongPeriod.json()).data.expiresInSeconds).toBeNull();
+    } finally {
+      dateNow.mockRestore();
+    }
   });
 
   it('rejects invalid credentials without issuing a cookie', async () => {

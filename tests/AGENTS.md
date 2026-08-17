@@ -5,7 +5,7 @@
 academic-refresh-rate-limit.test.ts: 学业/Portal 强制刷新共享桶与 classrooms/evaluation 固定实时回源独立桶回归测试
 academic-compat.test.ts: Academic canonical composition 与旧 services Facade 的运行时引用一致性测试
 admin-dashboard-activity.test.ts: 管理后台活跃度、显式渠道优先级与历史 unknown 隔离口径回归测试
-admin-session.test.ts: 后台 HttpOnly Cookie 会话建立、保护与撤销回归测试
+admin-session.test.ts: 后台 HttpOnly Cookie 会话建立、无自动过期、保护与撤销回归测试
 analytics-batch.test.ts: Analytics 内存聚合、active user 去重、单事务 flush、失败回并重试与 shutdown 回归测试
 auth-login-rate-limit.test.ts: 登录失败限流策略回归测试
 app-factory.test.ts: 注入式 Hono 应用工厂、Web 分层缓存、私有 API no-store、媒体端口与启动入口无隐式 migration 回归测试

@@ -138,9 +138,9 @@
   <rect x="823.6850833333332" y="849.9289999999999" width="124.20099999999998" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
   <text x="885.7855833333332" y="868.3789999999999" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">请求管理 API</text>
 </g>
-<g class="node" data-id="Lifetime" data-label="未超 30 分钟空闲和 8 小时绝对期限" data-shape="diamond">
+<g class="node" data-id="Lifetime" data-label="会话仍在进程 Map 中" data-shape="diamond">
   <polygon points="545.1824166666665,122.5985 690.0484166666665,267.4645 545.1824166666665,412.3305 400.31641666666656,267.4645" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
-  <text x="545.1824166666665" y="267.4645" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">未超 30 分钟空闲和 8 小时绝对期限</text>
+  <text x="545.1824166666665" y="267.4645" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">会话仍在进程 Map 中</text>
 </g>
 <g class="node" data-id="Expire" data-label="删除 Map 记录与 Cookie" data-shape="rectangle">
   <rect x="294.1624166666667" y="779.0289999999999" width="190.14999999999998" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
