@@ -244,7 +244,7 @@ Discover 的非法 `page/pageSize` 会回落到默认值；非法分类或排序
 | `PUT /api/discover/posts/:id/like` | 幂等点赞，返回 `{ postId, liked, likeCount }` |
 | `DELETE /api/discover/posts/:id/like` | 幂等取消点赞，返回 `{ postId, liked, likeCount }` |
 
-Discover 与 Treehole 点赞协议完全一致：重复 `PUT` 保持 `liked=true`，重复 `DELETE` 保持 `liked=false`，不会重复事实或通知。禁止点赞自己的帖子，违反时返回 `400 + 4002`。目标不存在返回 `404 + 4002`。有效点赞会创建 `discover_like` 活动事件；有效取消点赞会在同一事务撤销对应通知。
+Discover 与 Treehole 点赞协议完全一致：重复 `PUT` 保持 `liked=true`，重复 `DELETE` 保持 `liked=false`，不会重复事实或通知；作者也可以点赞自己的帖子，但自我互动不生成通知。目标不存在返回 `404 + 4002`。有效点赞会按接收者生成活动事件；有效取消点赞会在同一事务撤销对应通知。
 
 ```json
 { "success": true, "data": { "postId": 42, "liked": true, "likeCount": 8 } }
@@ -375,7 +375,7 @@ await fetch('/api/treehole/posts', {
 
 | 接口 | 语义 |
 |---|---|
-| `PUT /api/treehole/posts/:id/like` | 幂等点赞，禁止自赞 |
+| `PUT /api/treehole/posts/:id/like` | 幂等点赞，允许自赞 |
 | `DELETE /api/treehole/posts/:id/like` | 幂等取消点赞 |
 | `GET /api/treehole/posts/:id/comments` | 评论列表 |
 | `POST /api/treehole/posts/:id/comments` | JSON `{ content, parentCommentId? }`，返回 `201` |
@@ -664,7 +664,7 @@ X-Content-Type-Options: nosniff
 
 | HTTP | 社交接口真实语义 |
 |---:|---|
-| 400 + `4002` | ID/分页/游标/昵称/图文/UUID 不合法、before/after 同传、自赞或给自己私信 |
+| 400 + `4002` | ID/分页/游标/昵称/图文/UUID 不合法、before/after 同传或给自己私信 |
 | 401 + `4001` | Bearer JWT 缺失、无效或过期；包括私信图片 fetch |
 | 404 + `4002` | 用户/帖子/评论/通知/会话/媒体不存在，或无权读取会话/媒体 |
 | 413 + `4002` | Community、Discover 或 Messaging multipart 请求体在解析前超过各自应用上限 |

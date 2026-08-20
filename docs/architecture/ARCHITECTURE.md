@@ -101,7 +101,7 @@ type CommunityProfile = {
 
 Discover 只拥有帖子、图片元数据、点赞和评论事实。所有帖子与评论响应统一携带 Community `author`。
 
-- 点赞/取消点赞幂等，作者不能点赞自己的帖子；
+- 点赞/取消点赞幂等，作者也可以点赞自己的帖子，但自我互动不生成通知；
 - `latest` 按发布时间倒序；
 - `popular` 先按 `likeCount`，再按发布时间和 ID；
 - `recommended` 从当前用户点赞过的分类和标签推断偏好，无有效数据时回退 `latest`；

@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Discover 无限列表/点赞 hooks、共享计数互动原语、筛选控件、媒体 URL 与社区资料投影
- * [OUTPUT]: 对外提供 DiscoverFeed，以预留稳定比例的首张主图、失效媒体兜底、作者栏、同行计数互动栏和精简摘要呈现好饭信息流
+ * [OUTPUT]: 对外提供 DiscoverFeed，以预留稳定比例的首张主图、失效媒体兜底、作者栏、支持作者自赞的同行计数互动栏和精简摘要呈现好饭信息流
  * [POS]: widgets/discover-feed 的单列沉浸式信息流容器，约束媒体加载前后尺寸稳定并拥有列表内互动，不持有发布和路由状态
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -142,7 +142,7 @@ export function DiscoverFeed({
   const pendingLikePostId = likeMutation.variables?.postId ?? unlikeMutation.variables?.postId ?? null;
 
   const toggleLike = async (post: DiscoverPost) => {
-    if (post.isMine || pendingLikePostId === post.id) return;
+    if (pendingLikePostId === post.id) return;
     try {
       if (post.likedByMe) await unlikeMutation.mutateAsync({ postId: post.id });
       else await likeMutation.mutateAsync({ postId: post.id });
@@ -234,7 +234,7 @@ export function DiscoverFeed({
                 aria-pressed={post.likedByMe}
                 className="-ml-2"
                 count={post.likeCount}
-                disabled={post.isMine || pendingLikePostId === post.id}
+                disabled={pendingLikePostId === post.id}
                 icon={<Heart aria-hidden="true" className="size-6" fill={post.likedByMe ? 'currentColor' : 'none'} strokeWidth={1.9} />}
                 onClick={() => void toggleLike(post)}
               />

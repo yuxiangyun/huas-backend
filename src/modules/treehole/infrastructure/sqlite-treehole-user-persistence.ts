@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖构造注入的 Drizzle db、CommunityProfileReader、TreeholeMediaReader、ActivityOutboxWriter、Treehole schema 与模块内 SQL helpers
- * [OUTPUT]: 对 SQLiteTreeholePersistence 提供含图片元数据的帖子、用户帖子、幂等点赞、差异回复通知与删除时同事务撤回互动事件的事务
+ * [OUTPUT]: 对 SQLiteTreeholePersistence 提供含图片元数据的帖子、用户帖子、允许自赞的幂等点赞、差异回复通知与删除时同事务撤回互动事件的事务
  * [POS]: modules/treehole/infrastructure 的用户侧事实 adapter，共享父作者 reply/帖子作者 comment 规则，写互动与撤回均与 Outbox 同事务，图片文件副作用留给 application 补偿
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -161,10 +161,6 @@ export class SQLiteTreeholeUserPersistence {
         .all();
 
       if (!rows[0]) return false;
-      if (rows[0].authorUserId === userId) {
-        throw new AppError(ErrorCode.PARAM_ERROR, '不能点赞自己的帖子');
-      }
-
       const now = new Date();
       const events = createActivityEvents({
         actorUserId: userId,

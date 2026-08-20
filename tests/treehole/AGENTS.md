@@ -6,7 +6,7 @@ Treehole HTTP、事务、公共作者与私有媒体回归按帖子、低内存�
 ## 成员清单
 
 harness.ts: Treehole 共享支架，构造注入 canonical Treehole/Notifications、Community reader、SQLite、Bearer/Cookie 认证与 multipart 用户/内容夹具
-interactions.cases.ts: 社交交互用例，覆盖 PUT/DELETE 幂等点赞、自赞拒绝、父作者 reply/帖子作者 comment、计数与批量投影
+interactions.cases.ts: 社交交互用例，覆盖 PUT/DELETE 幂等点赞、作者自赞、父作者 reply/帖子作者 comment、计数与批量投影
 management.cases.ts: 生命周期管理用例，覆盖作者软删除、公共作者后台视图、LIKE 元字符搜索、管理删除与参数边界
 media.cases.ts: 私有帖子图片用例，覆盖 multipart-only、多字段顺序、压缩硬边界、有界并发、失败补偿、双认证读取、软删失效与孤儿回收
 posts.cases.ts: 帖子用例，覆盖 Unicode 内容边界、统一作者、Community 实时资料、公共用户帖子接口与列表无 N+1

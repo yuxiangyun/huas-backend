@@ -10,7 +10,7 @@ composition.ts: 局部模块组合根，接收 db/CommunityProfileReader/Notific
 
 架构决策
 依赖方向固定为 http → application → domain ports；composition 只组装本模块实例，application 不感知 Drizzle、Bun、Community 具体实现或文件系统。
-点赞事实与 likeCount/Outbox、评论事实与 commentCount/Outbox 的一致性由 SQLite 短事务维护；发帖失败媒体补偿、提交后即时投影与软删除后媒体清理由 application 编排；删帖/删评论在同事务经 Outbox 撤回对应活动事件与已投影通知。
+点赞事实与 likeCount/Outbox、评论事实与 commentCount/Outbox 的一致性由 SQLite 短事务维护，作者可给自己的帖子点赞且自我活动不生成通知；发帖失败媒体补偿、提交后即时投影与软删除后媒体清理由 application 编排；删帖/删评论在同事务经 Outbox 撤回对应活动事件与已投影通知。
 Discover 媒体周期回收只删除未被有效帖子引用、严格 UUID 命名且早于宽限截止时间的目录，覆盖软删除即时清理失败与写库补偿失败，不触碰未知目录。
 帖子、评论与 Operations 查询只读取 Discover 自有事实，再经 CommunityProfileReader.getMany 批量投影作者，禁止 JOIN users/community_profiles。
 推荐偏好仅来源于当前用户点赞过帖子的分类与标签；候选集按 publishedAt 取最近 recommendationCandidateLimit 帖（默认 1000，可经 DISCOVER_RECOMMENDATION_CANDIDATE_LIMIT 调整）后按分数、点赞、发布时间、ID 建立唯一顺序分页，无偏好或无匹配候选时退化 latest，popular 固定按 likeCount、publishedAt、id 排序。

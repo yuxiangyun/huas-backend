@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Treehole 测试支架、点赞、评论回复、删除、Notifications 投影与 Community 批量 reader 观测
- * [OUTPUT]: 验证幂等点赞/通知撤销、自赞门禁、评论 recipient 规则、公共作者、分页计数、回复约束与无 N+1
+ * [OUTPUT]: 验证幂等点赞/作者自赞/通知撤销、评论 recipient 规则、公共作者、分页计数、回复约束与无 N+1
  * [POS]: tests/treehole 的社交交互细分用例，锁定事实/Outbox/通知一致性与 Community 作者边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -22,7 +22,7 @@ import {
 } from './harness';
 
 describe('Treehole 社交交互', () => {
-  it('点赞与取消点赞幂等，且明确拒绝作者点赞自己的帖子', async () => {
+  it('点赞与取消点赞幂等，且允许作者点赞自己的帖子', async () => {
     const app = createApp();
     const postId = await createTreeholePost(app, authorId, '2023002001', '希望这周不要再下雨。');
 
@@ -30,7 +30,25 @@ describe('Treehole 社交交互', () => {
       method: 'PUT',
       headers: await authHeaderFor(authorId, '2023002001'),
     });
-    expect(selfLike.status).toBe(400);
+    expect(selfLike.status).toBe(200);
+    expect((await selfLike.json() as any).data).toEqual({
+      postId,
+      liked: true,
+      likeCount: 1,
+    });
+
+    const selfRelike = await app.request(`http://localhost/api/treehole/posts/${postId}/like`, {
+      method: 'PUT',
+      headers: await authHeaderFor(authorId, '2023002001'),
+    });
+    expect(selfRelike.status).toBe(200);
+    expect((await selfRelike.json() as any).data).toEqual({
+      postId,
+      liked: true,
+      likeCount: 1,
+    });
+    expect(await getDb().select().from(schema.notifications)
+      .where(eq(schema.notifications.resourceId, postId))).toHaveLength(0);
 
     const headers = await authHeaderFor(otherUserId, '2023002002');
     for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -42,12 +60,12 @@ describe('Treehole 社交交互', () => {
       expect((await response.json() as any).data).toEqual({
         postId,
         liked: true,
-        likeCount: 1,
+        likeCount: 2,
       });
     }
     const likeRows = await getDb().select().from(schema.treeholePostLikes)
       .where(eq(schema.treeholePostLikes.postId, postId));
-    expect(likeRows).toHaveLength(1);
+    expect(likeRows).toHaveLength(2);
     const projectedLikes = await getDb().select().from(schema.notifications)
       .where(eq(schema.notifications.resourceId, postId));
     expect(projectedLikes).toHaveLength(1);
@@ -68,9 +86,33 @@ describe('Treehole 社交交互', () => {
       expect((await response.json() as any).data).toEqual({
         postId,
         liked: false,
-        likeCount: 0,
+        likeCount: 1,
       });
     }
+    expect(await getDb().select().from(schema.treeholePostLikes)
+      .where(eq(schema.treeholePostLikes.postId, postId))).toHaveLength(1);
+    const selfUnlike = await app.request(`http://localhost/api/treehole/posts/${postId}/like`, {
+      method: 'DELETE',
+      headers: await authHeaderFor(authorId, '2023002001'),
+    });
+    expect(selfUnlike.status).toBe(200);
+    expect((await selfUnlike.json() as any).data).toEqual({
+      postId,
+      liked: false,
+      likeCount: 0,
+    });
+    const selfUnlikeAgain = await app.request(`http://localhost/api/treehole/posts/${postId}/like`, {
+      method: 'DELETE',
+      headers: await authHeaderFor(authorId, '2023002001'),
+    });
+    expect(selfUnlikeAgain.status).toBe(200);
+    expect((await selfUnlikeAgain.json() as any).data).toEqual({
+      postId,
+      liked: false,
+      likeCount: 0,
+    });
+    expect(await getDb().select().from(schema.treeholePostLikes)
+      .where(eq(schema.treeholePostLikes.postId, postId))).toHaveLength(0);
     expect(await getDb().select().from(schema.notifications)
       .where(eq(schema.notifications.resourceId, postId))).toHaveLength(0);
 

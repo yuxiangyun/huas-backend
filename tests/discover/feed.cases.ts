@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Discover 测试支架、帖子/点赞/列表/用户帖子 API、SQLite 事实与 Notifications 投影表
- * [OUTPUT]: 验证幂等点赞/通知撤销、popular、完整候选集稳定推荐、Unicode 校验及统一作者 DTO
+ * [OUTPUT]: 验证幂等点赞/作者自赞/通知撤销、popular、完整候选集稳定推荐、Unicode 校验及统一作者 DTO
  * [POS]: tests/discover 的 Discover 点赞与推荐细分用例，锁定事实/Outbox/通知一致性与点赞推荐契约
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -22,7 +22,7 @@ import {
 } from './harness';
 
 describe('Discover 点赞与推荐', () => {
-  it('点赞/取消点赞幂等、计数一致，并拒绝点赞自己的帖子', async () => {
+  it('点赞/取消点赞幂等、计数一致，并允许作者点赞自己的帖子', async () => {
     const app = createApp();
     const post = await createDiscoverPost(app, {
       userId: authorId,
@@ -34,7 +34,25 @@ describe('Discover 点赞与推荐', () => {
       method: 'PUT',
       headers: await authHeaderFor(authorId, '2023001001'),
     });
-    expect(selfLike.status).toBe(400);
+    expect(selfLike.status).toBe(200);
+    expect((await selfLike.json() as any).data).toEqual({
+      postId: post.id,
+      liked: true,
+      likeCount: 1,
+    });
+
+    const selfRelike = await app.request(`http://localhost/api/discover/posts/${post.id}/like`, {
+      method: 'PUT',
+      headers: await authHeaderFor(authorId, '2023001001'),
+    });
+    expect(selfRelike.status).toBe(200);
+    expect((await selfRelike.json() as any).data).toEqual({
+      postId: post.id,
+      liked: true,
+      likeCount: 1,
+    });
+    expect(await getDb().select().from(schema.notifications)
+      .where(eq(schema.notifications.resourceId, post.id))).toHaveLength(0);
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const response = await app.request(`http://localhost/api/discover/posts/${post.id}/like`, {
@@ -43,7 +61,7 @@ describe('Discover 点赞与推荐', () => {
       });
       expect(response.status).toBe(200);
       const body = await response.json() as any;
-      expect(body.data).toEqual({ postId: post.id, liked: true, likeCount: 1 });
+      expect(body.data).toEqual({ postId: post.id, liked: true, likeCount: 2 });
     }
 
     const likes = await getDb().select().from(schema.discoverPostLikes)
@@ -51,8 +69,8 @@ describe('Discover 点赞与推荐', () => {
     const posts = await getDb().select({ likeCount: schema.discoverPosts.likeCount })
       .from(schema.discoverPosts)
       .where(eq(schema.discoverPosts.id, post.id));
-    expect(likes).toHaveLength(1);
-    expect(posts[0].likeCount).toBe(1);
+    expect(likes).toHaveLength(2);
+    expect(posts[0].likeCount).toBe(2);
     const projectedLikes = await getDb().select().from(schema.notifications)
       .where(eq(schema.notifications.resourceId, post.id));
     expect(projectedLikes).toHaveLength(1);
@@ -71,9 +89,31 @@ describe('Discover 点赞与推荐', () => {
       });
       expect(response.status).toBe(200);
       const body = await response.json() as any;
-      expect(body.data).toEqual({ postId: post.id, liked: false, likeCount: 0 });
+      expect(body.data).toEqual({ postId: post.id, liked: false, likeCount: 1 });
     }
 
+    expect(await getDb().select().from(schema.discoverPostLikes)
+      .where(eq(schema.discoverPostLikes.postId, post.id))).toHaveLength(1);
+    const selfUnlike = await app.request(`http://localhost/api/discover/posts/${post.id}/like`, {
+      method: 'DELETE',
+      headers: await authHeaderFor(authorId, '2023001001'),
+    });
+    expect(selfUnlike.status).toBe(200);
+    expect((await selfUnlike.json() as any).data).toEqual({
+      postId: post.id,
+      liked: false,
+      likeCount: 0,
+    });
+    const selfUnlikeAgain = await app.request(`http://localhost/api/discover/posts/${post.id}/like`, {
+      method: 'DELETE',
+      headers: await authHeaderFor(authorId, '2023001001'),
+    });
+    expect(selfUnlikeAgain.status).toBe(200);
+    expect((await selfUnlikeAgain.json() as any).data).toEqual({
+      postId: post.id,
+      liked: false,
+      likeCount: 0,
+    });
     expect(await getDb().select().from(schema.discoverPostLikes)
       .where(eq(schema.discoverPostLikes.postId, post.id))).toHaveLength(0);
     expect(await getDb().select().from(schema.notifications)

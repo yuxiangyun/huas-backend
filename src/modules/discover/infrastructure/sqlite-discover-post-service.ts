@@ -1,13 +1,12 @@
 /**
  * [INPUT]: 依赖构造注入的 Drizzle db、CommunityProfileReader、ActivityOutboxWriter、Discover schema 与领域映射
- * [OUTPUT]: 对外提供 DiscoverPostQuery 与 SQLiteDiscoverPostService 实例，处理帖子查询、分页、用户帖子和事实/Outbox 原子点赞
+ * [OUTPUT]: 对外提供 DiscoverPostQuery 与 SQLiteDiscoverPostService 实例，处理帖子查询、分页、用户帖子和含自赞语义的事实/Outbox 原子点赞
  * [POS]: modules/discover/infrastructure 的帖子事实 adapter，批量资料投影经 Community，互动通知经 Notifications 窄端口完成
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { schema } from '../../../db';
-import { AppError, ErrorCode } from '../../../utils/errors';
 import type { CommunityProfile } from '../../community/domain/community';
 import type { CommunityProfileReader } from '../../community/domain/ports';
 import { createActivityEvents } from '../../notifications/domain/activity';
@@ -183,10 +182,6 @@ export class SQLiteDiscoverPostService {
         .all();
       const post = posts[0];
       if (!post) return false;
-      if (liked && post.userId === userId) {
-        throw new AppError(ErrorCode.PARAM_ERROR, '不能点赞自己的帖子');
-      }
-
       const events = createActivityEvents({
         actorUserId: userId,
         recipientUserIds: [post.userId],

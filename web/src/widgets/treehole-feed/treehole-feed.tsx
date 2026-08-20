@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Treehole 无限列表/幂等点赞、首图私有媒体、共享计数互动原语、全局反馈及发布/详情/作者/分享动作
- * [OUTPUT]: 对外提供 TreeholeFeed，以 Instagram 图文帖与 X 文字帖双布局呈现同一时间线
+ * [OUTPUT]: 对外提供 TreeholeFeed，以 Instagram 图文帖与 X 文字帖双布局呈现支持作者自赞的同一时间线
  * [POS]: widgets/treehole-feed 的首页信息流容器，只挂载每篇图文帖首图并保留服务端互动事实
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -20,7 +20,7 @@ import { Card } from '@/shared/ui/card';
 import { CommunityAvatar } from '@/shared/ui/community-avatar';
 import { SocialCountAction } from '@/shared/ui/social-count-action';
 
-const FEED_SURFACE_CLASS = 'rounded-none border-x-0 border-b-0 border-[#dbdbdb] shadow-none';
+const FEED_SURFACE_CLASS = 'rounded-none border-x-0 border-y-0 border-[#dbdbdb] shadow-none';
 
 interface TreeholeFeedProps {
   onComposeClick: () => void;
@@ -74,11 +74,11 @@ function InstagramActionRow({
     <div className="flex items-center gap-4 px-4 pt-3.5 sm:px-5">
       <SocialCountAction
         active={post.viewer.liked}
-        aria-label={post.viewer.isMine ? '不能点赞自己的帖子' : post.viewer.liked ? '取消点赞' : '点赞'}
+        aria-label={post.viewer.liked ? '取消点赞' : '点赞'}
         aria-pressed={post.viewer.liked}
         className="-ml-2"
         count={post.stats.likeCount}
-        disabled={post.viewer.isMine || likePending}
+        disabled={likePending}
         icon={<Heart aria-hidden="true" className="size-6" fill={post.viewer.liked ? 'currentColor' : 'none'} strokeWidth={1.9} />}
         onClick={() => onToggleLike(post)}
       />
@@ -242,7 +242,7 @@ export function TreeholeFeed({ onComposeClick, onOpenPost, onOpenProfile, onShar
       : null;
 
   const handleToggleLike = async (post: TreeholePost) => {
-    if (likeBusy || post.viewer.isMine) return;
+    if (likeBusy) return;
     try {
       if (post.viewer.liked) await unlikeMutation.mutateAsync({ postId: post.id });
       else await likeMutation.mutateAsync({ postId: post.id });

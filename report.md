@@ -48,7 +48,7 @@ Identity/Discover/Treehole/Messaging ──query ports──> Operations
 
 ## 2. Discover 与 Treehole
 
-Discover 当前事实为帖子、图片元数据、点赞和评论。点赞/取消点赞幂等，作者自赞被拒绝；`popular` 以点赞数和时间排序，`recommended` 从用户点赞过的分类/标签推断，无数据回退 `latest`。评分表、评分字段、评分接口和兼容 Facade 均已删除。
+Discover 当前事实为帖子、图片元数据、点赞和评论。点赞/取消点赞幂等，作者也可自赞且自赞不生成通知；`popular` 以点赞数和时间排序，`recommended` 从用户点赞过的分类/标签推断，无数据回退 `latest`。评分表、评分字段、评分接口和兼容 Facade 均已删除。
 
 Treehole 只保留产品名称，不再提供匿名语义。帖子和评论显式绑定 `users.id`，作者资料由 Community 批量投影；旧头像/profile/通知职责不再属于 Treehole。公共用户内容由 Discover 与 Treehole 各自的 `/users/:userId/posts` 接口提供。
 
