@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 identity/domain 的用户、凭证与步骤值对象
- * [OUTPUT]: 对外提供 LoginApplicationService 所需的全部外部能力端口
+ * [OUTPUT]: 对外提供 LoginApplicationService 所需的全部外部能力端口，包括与 JWT 签发解耦的真实学校登录上下文提交
  * [POS]: identity/application 的依赖倒置边界，使登录编排与 Hono、Drizzle、Bun/Node 实现解耦
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -41,7 +41,7 @@ export interface LoginRecoveryPort {
 export interface IdentityStorePort {
   findByStudentId(studentId: string): Promise<LoginUser | null>;
   touchLocalLogin(userId: number, at: Date): Promise<void>;
-  persistSchoolLogin(input: {
+  commitRealSchoolLogin(input: {
     studentId: string;
     encryptedPassword: string;
     credentials: LoginCredentialSet;

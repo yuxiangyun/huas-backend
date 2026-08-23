@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖模块自有 SessionRepository、可条件拒绝当前 JWT 的窄 PortalCredentialReader、AuthExchanger、HttpClient、PerKeySingleflight 与有界 retry
+ * [INPUT]: 依赖模块自有 SessionRepository、共享 CookieJar codec、可条件拒绝当前 JWT 的窄 PortalCredentialReader、AuthExchanger、HttpClient、PerKeySingleflight 与有界 retry
  * [OUTPUT]: 对外提供 MobileYxtSessionExecutor、mobileYxtSessionExecutor 与纯函数 isMobileYxtSessionExpired
- * [POS]: mobile-yxt 会话执行边界，集中落实无 TTL 读取、明确 401、Portal-only 单次恢复、generation 条件失效、同用户单飞重建及原请求最多一次重试
+ * [POS]: mobile-yxt 会话执行边界，消费 repository 已验证的最小 CookieJar，并集中落实明确 401、Portal-only 恢复、generation 条件失效与一次重建重试
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -26,6 +26,7 @@ import {
   portalCredentialReader,
   type PortalCredentialReader,
 } from './portal-credential-reader';
+import { requireMobileYxtCookieJar } from './session-cookie-codec';
 
 export interface MobileYxtResult {
   response: Response;
@@ -124,7 +125,7 @@ export class MobileYxtSessionExecutor {
           cookieJar: exchanged.cookieJar,
         });
         if (created) return {
-          client: HttpClient.fromSerializedJar(created.cookieJar, deadlineAt),
+          client: this.createClient(created.cookieJar, deadlineAt),
           accessToken: created.accessToken,
           generation: created.generation,
         };
@@ -141,10 +142,16 @@ export class MobileYxtSessionExecutor {
     const resolved = await this.sessions.read(userId);
     if (!resolved) return null;
     return {
-      client: HttpClient.fromSerializedJar(resolved.cookieJar, deadlineAt),
+      client: this.createClient(resolved.cookieJar, deadlineAt),
       accessToken: resolved.accessToken,
       generation: resolved.generation,
     };
+  }
+
+  private createClient(cookieJar: string, deadlineAt: number): HttpClient {
+    const client = new HttpClient(requireMobileYxtCookieJar(cookieJar).jar);
+    client.setDeadline(deadlineAt);
+    return client;
   }
 
   private async request(

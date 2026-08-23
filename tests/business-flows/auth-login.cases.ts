@@ -23,6 +23,17 @@ import {
   createUser,
 } from './harness';
 import { SqliteMobileYxtSessionRepository } from '../../src/modules/campus-integrations/mobile-yxt/session-repository';
+import { readSchoolLoginEpoch } from '../../src/modules/campus-integrations/credential-recovery/school-login-context';
+
+const validMobileCookieJar = JSON.stringify({
+  cookies: [{
+    key: 'JSESSIONID',
+    value: 'test-mobile-session',
+    domain: 'mobile-yxt.huas.edu.cn',
+    path: '/server',
+    hostOnly: true,
+  }],
+});
 
 describe('登录流程', () => {
   it('成功登录并写入用户、凭证、返回 token', async () => {
@@ -99,6 +110,7 @@ describe('登录流程', () => {
       .from(schema.credentials)
       .where(eq(schema.credentials.userId, userId));
     expect(creds).toHaveLength(0);
+    expect(readSchoolLoginEpoch(db, userId)).toBe(0);
     expect(executionCallCount).toBe(0);
     expect(loginCallCount).toBe(0);
   });
@@ -185,7 +197,7 @@ describe('登录流程', () => {
       userId,
       expectedLoginEpoch: 0,
       accessToken: 'test-stale-mobile-session',
-      cookieJar: '{"cookies":[]}',
+      cookieJar: validMobileCookieJar,
     });
 
     let loginCallCount = 0;
@@ -204,6 +216,68 @@ describe('登录流程', () => {
     expect(loginCallCount).toBe(1);
     expect(await CredentialManager.requiresInteractiveLogin(userId)).toBe(false);
     expect(await mobileSessions.read(userId)).toBeNull();
+  });
+
+  it('显式 CAS 成功但 Portal/JW 都失败时提交新 epoch、清理派生会话且不签发服务 JWT', async () => {
+    const app = new Hono();
+    app.route('/auth', authRoutes);
+    const userId = await createUser('2023001448', 'old-password');
+    const mobileSessions = new SqliteMobileYxtSessionRepository();
+    await mobileSessions.createIfLoginEpochMatches({
+      userId,
+      expectedLoginEpoch: 0,
+      accessToken: 'stale-mobile-access',
+      cookieJar: validMobileCookieJar,
+    });
+    await CredentialManager.storeCredential(userId, 'portal_jwt', 'stale-portal', null, 60_000);
+
+    authBehavior.login = async () => ({ success: true, portalToken: null, steps: [] });
+    ticketBehavior.exchangePortalToken = async () => ({ token: null, steps: [] });
+    ticketBehavior.exchangeJwSession = async () => ({ success: false, steps: [] });
+
+    const response = await app.request('http://localhost/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: '2023001448', password: 'new-password' }),
+    });
+    const body = await response.json() as any;
+
+    expect(response.status).toBe(400);
+    expect(body.success).toBe(false);
+    expect(body.data?.token).toBeUndefined();
+    expect(readSchoolLoginEpoch(getDb(), userId)).toBe(1);
+    expect(await mobileSessions.read(userId)).toBeNull();
+    expect(await CredentialManager.getCredential(userId, 'cas_tgc')).not.toBeNull();
+    expect(await CredentialManager.getCredential(userId, 'portal_jwt')).toBeNull();
+  });
+
+  it('显式 CAS 要求验证码时不推进 epoch，也不清理旧派生会话', async () => {
+    const app = new Hono();
+    app.route('/auth', authRoutes);
+    const userId = await createUser('2023001449', 'old-password');
+    const mobileSessions = new SqliteMobileYxtSessionRepository();
+    const existing = await mobileSessions.createIfLoginEpochMatches({
+      userId,
+      expectedLoginEpoch: 0,
+      accessToken: 'stable-mobile-access',
+      cookieJar: validMobileCookieJar,
+    });
+    authBehavior.login = async () => ({
+      success: false,
+      needCaptcha: true,
+      message: '需要验证码',
+      steps: [],
+    });
+
+    const response = await app.request('http://localhost/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: '2023001449', password: 'new-password' }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(readSchoolLoginEpoch(getDb(), userId)).toBe(0);
+    expect(await mobileSessions.read(userId)).toEqual(existing);
   });
 
   it('本地密码不匹配时回退 CAS 并刷新已存密码', async () => {

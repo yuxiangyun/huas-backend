@@ -1,11 +1,10 @@
 /**
- * [INPUT]: 依赖 Portal JWT、隔离 HttpClient/CookieJar、mobile-yxt 认证端点与类型化错误语义
- * [OUTPUT]: 对外提供 MobileYxtAuthExchanger，把 Portal JWT 交换为 accessToken 与仅含目标域 `/server` JSESSIONID 的 CookieJar
- * [POS]: mobile-yxt 的最小权限认证交换边界；输入 Portal/CAS CookieJar 永不复制，tid/refreshToken 只存在于单次调用内
+ * [INPUT]: 依赖 Portal JWT、隔离 HttpClient、共享最小 CookieJar codec、mobile-yxt 认证端点与类型化错误语义
+ * [OUTPUT]: 对外提供 MobileYxtAuthExchanger，把 Portal JWT 交换为 accessToken 与经统一合同编码的单 JSESSIONID CookieJar
+ * [POS]: mobile-yxt 的认证交换边界；输入 Portal/CAS CookieJar 永不复制，tid/refreshToken 只存在于单次调用内，Cookie 白名单不在此重复
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { CookieJar } from 'tough-cookie';
 import { HttpClient } from '../http/http-client';
 import { URLS } from '../endpoints';
 import {
@@ -14,6 +13,7 @@ import {
   mobileYxtProtocolFailure,
   normalizeMobileYxtTransportError,
 } from './mobile-yxt-errors';
+import { encodeMobileYxtCookieJar } from './session-cookie-codec';
 
 export interface MobileYxtSessionExchange {
   accessToken: string;
@@ -29,21 +29,6 @@ function requireObject(value: unknown): Record<string, unknown> {
     throw mobileYxtProtocolFailure();
   }
   return value as Record<string, unknown>;
-}
-
-async function serializeMobileOnlyCookies(source: CookieJar): Promise<string> {
-  const target = new URL(URLS.mobileYxtTradeList);
-  const output = new CookieJar();
-  const cookies = await source.getCookies(target.toString());
-  const allowed = cookies.filter((cookie) => (
-    cookie.key === 'JSESSIONID'
-    && cookie.value.length > 0
-    && cookie.domain?.replace(/^\./, '') === target.hostname
-    && cookie.path === '/server'
-  ));
-  if (allowed.length !== 1) throw mobileYxtProtocolFailure();
-  await output.setCookie(allowed[0].toString(), target.toString());
-  return JSON.stringify(output.toJSON());
 }
 
 export class MobileYxtAuthExchanger implements MobileYxtSessionExchangePort {
@@ -98,7 +83,7 @@ export class MobileYxtAuthExchanger implements MobileYxtSessionExchangePort {
 
       return {
         accessToken,
-        cookieJar: await serializeMobileOnlyCookies(mobileClient.jar),
+        cookieJar: await encodeMobileYxtCookieJar(mobileClient.jar),
       };
     } catch (error) {
       throw normalizeMobileYxtTransportError(error);

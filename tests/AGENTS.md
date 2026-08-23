@@ -35,6 +35,7 @@ messaging.test.ts: Messaging 延迟会话/目标定位、会话高水位、严�
 messaging-timestamps.test.ts: Messaging 慢图片/快文本并发提交时间与 repository 会话时间单调回归测试
 messaging-upload.test.ts: Messaging HTTP 上传边界，锁定混合字段图片线序、解析前 413 与坏 multipart 的稳定 400
 mobile-yxt.test.ts: 登录 epoch/Portal 401 恢复、generation 条件失效、Cookie 白名单、账单 freshness/有符号 totals、真实电费合同、同键回源合流、Portal/JW/限流隔离、24 月/6 键 LRU 与旧 `/api/ecard` 合同专项回归
+mobile-yxt-auth-state.test.ts: 严格派生命名空间、损坏/越权 CookieJar 事务淘汰、自动重建、合法会话读取及 Cookie/accessToken 低敏感错误日志专项反例
 social-upload-limits.test.ts: Discover/Community HTTP 上传边界，锁定声明长度、流式及无关字段请求在 formData 前统一返回 413
 social-summary-routes.test.ts: Social 私信/互动未读单请求并行聚合与稳定响应字段回归测试
 messaging-admin.test.ts: 管理员 Cookie 会话增量/三态消息/图片只读、三类隐私安全审计、禁止写命令、参与者媒体权限与四类清理任务装配测试

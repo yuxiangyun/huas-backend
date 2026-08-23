@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Bun Test、LoginApplicationService ports、SqliteIdentityStore、测试数据库与 Bun SQLite 故障触发器
- * [OUTPUT]: 提供本地/验证码/Portal-JW 分支编排及用户凭证事务回滚的 Identity/Login 回归测试
+ * [OUTPUT]: 提供本地/验证码/Portal-JW 分支、激活全失败仍提交 CAS 但不签 JWT，及用户凭证事务回滚的 Identity/Login 回归测试
  * [POS]: tests 的登录应用边界套件，既验证纯用例决策，也证明 SQLite 失败不会暴露半写入身份事实
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -49,7 +49,7 @@ class MemoryIdentityStore implements IdentityStorePort {
 
   async findByStudentId() { return this.user; }
   async touchLocalLogin() { this.touchCount += 1; }
-  async persistSchoolLogin(input: Parameters<IdentityStorePort['persistSchoolLogin']>[0]) {
+  async commitRealSchoolLogin(input: Parameters<IdentityStorePort['commitRealSchoolLogin']>[0]) {
     this.persisted = input.credentials;
     return this.user || {
       id: 7,
@@ -70,6 +70,7 @@ function createService(options: {
   const campus = options.campus || new FakeCampus();
   const store = options.store || new MemoryIdentityStore();
   let now = 1_000;
+  let issuedTokenCount = 0;
   const appConfig: LoginApplicationConfig = { captchaSessionTtlMs: 60_000, maxCaptchaSessions: 10 };
   const service = new LoginApplicationService({
     campus,
@@ -79,7 +80,10 @@ function createService(options: {
       encrypt: (password) => `encrypted:${password}`,
       matches: (encrypted, candidate) => encrypted === `encrypted:${candidate}`,
     },
-    token: { issue: async ({ userId }) => `token:${userId}` },
+    token: { issue: async ({ userId }) => {
+      issuedTokenCount += 1;
+      return `token:${userId}`;
+    } },
     profile: {
       backfill: async () => {
         if (options.profileError) throw new Error('portal profile failed');
@@ -97,6 +101,7 @@ function createService(options: {
     service,
     campus,
     store,
+    issuedTokenCount: () => issuedTokenCount,
     advanceTime: (milliseconds: number) => { now += milliseconds; },
   };
 }
@@ -185,7 +190,7 @@ describe('LoginApplicationService', () => {
     expect(outcome.durationMs).toBe(25);
   });
 
-  it('Portal-only 与 JW-only 均可提交，二者同时失败则拒绝写入', async () => {
+  it('Portal-only 与 JW-only 均可登录，二者同时失败仍提交 CAS 事实但不签发 JWT', async () => {
     const portalCampus = new FakeCampus();
     portalCampus.jwResult = { success: false, steps: [] };
     const portalCase = createService({ campus: portalCampus, profileError: true });
@@ -212,7 +217,12 @@ describe('LoginApplicationService', () => {
     const rejected = await rejectedCase.service.execute({ username: '20260005', password: 'pass' });
     expect(rejected.kind).toBe('failure');
     if (rejected.kind === 'failure') expect(rejected.reason).toBe('school-activation-failed');
-    expect(rejectedCase.store.persisted).toBeNull();
+    expect(rejectedCase.store.persisted).toEqual({
+      casCookieJar: '{"cookies":[]}',
+      portalToken: null,
+      jwCookieJar: null,
+    });
+    expect(rejectedCase.issuedTokenCount()).toBe(0);
   });
 });
 
@@ -236,7 +246,7 @@ describe('SqliteIdentityStore 事务', () => {
     `);
 
     const store = new SqliteIdentityStore();
-    await expect(store.persistSchoolLogin({
+    await expect(store.commitRealSchoolLogin({
       studentId: '20269999',
       encryptedPassword: 'encrypted',
       credentials: {
@@ -247,7 +257,7 @@ describe('SqliteIdentityStore 事务', () => {
       at: new Date(),
     })).rejects.toThrow('forced credential failure');
 
-    await expect(store.persistSchoolLogin({
+    await expect(store.commitRealSchoolLogin({
       studentId: '20268888',
       encryptedPassword: 'new-encrypted',
       credentials: {

@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 credentials 表、SchoolLoginEpoch 上下文与 Drizzle 条件写入，持久化最小 mobile accessToken/CookieJar
- * [OUTPUT]: 对外提供 MobileYxtSessionRepository/Store、SqliteMobileYxtSessionRepository，支持 read、epoch 条件创建与 generation 条件失效
- * [POS]: mobile-yxt 自有会话存储边界；无 TTL、登录 epoch 和并发 generation 语义不进入通用 CredentialManager
+ * [INPUT]: 依赖 credentials 表、SchoolLoginEpoch、共享 CookieJar codec 与 Drizzle 条件写入，持久化最小 mobile accessToken/CookieJar
+ * [OUTPUT]: 对外提供 MobileYxtSessionRepository/Store、SqliteMobileYxtSessionRepository，支持安全 read、epoch 条件创建与 generation 条件失效
+ * [POS]: mobile-yxt 自有会话存储边界；损坏或越权 CookieJar 在读取事务内淘汰为 miss，无 TTL、epoch 和 generation 语义不进入通用 CredentialManager
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -9,6 +9,10 @@ import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { getDb, schema } from '../../../db';
 import { readSchoolLoginEpoch } from '../credential-recovery/school-login-context';
+import {
+  decodeMobileYxtCookieJar,
+  requireMobileYxtCookieJar,
+} from './session-cookie-codec';
 
 const MOBILE_YXT_SESSION_SYSTEM = 'derived_session:mobile_yxt';
 const SESSION_VALUE_VERSION = 1;
@@ -70,13 +74,14 @@ export class SqliteMobileYxtSessionRepository implements MobileYxtSessionReposit
       if (!row) return null;
 
       const stored = decodeStoredValue(row.value);
-      if (!stored || !row.cookieJar || stored.loginEpoch !== epoch || row.expiresAt !== null) {
+      const decodedCookieJar = row.cookieJar ? decodeMobileYxtCookieJar(row.cookieJar) : null;
+      if (!stored || !decodedCookieJar || stored.loginEpoch !== epoch || row.expiresAt !== null) {
         tx.delete(schema.credentials).where(eq(schema.credentials.id, row.id)).run();
         return null;
       }
       return {
         accessToken: stored.accessToken,
-        cookieJar: row.cookieJar,
+        cookieJar: decodedCookieJar.serialized,
         loginEpoch: stored.loginEpoch,
         generation: stored.generation,
       };
@@ -89,6 +94,7 @@ export class SqliteMobileYxtSessionRepository implements MobileYxtSessionReposit
     accessToken: string;
     cookieJar: string;
   }): Promise<MobileYxtStoredSession | null> {
+    const cookieJar = requireMobileYxtCookieJar(input.cookieJar).serialized;
     return getDb().transaction((tx) => {
       if (readSchoolLoginEpoch(tx, input.userId) !== input.expectedLoginEpoch) return null;
 
@@ -105,18 +111,18 @@ export class SqliteMobileYxtSessionRepository implements MobileYxtSessionReposit
         userId: input.userId,
         system: MOBILE_YXT_SESSION_SYSTEM,
         value,
-        cookieJar: input.cookieJar,
+        cookieJar,
         expiresAt: null,
         createdAt: now,
         updatedAt: now,
       }).onConflictDoUpdate({
         target: [schema.credentials.userId, schema.credentials.system],
-        set: { value, cookieJar: input.cookieJar, expiresAt: null, updatedAt: now },
+        set: { value, cookieJar, expiresAt: null, updatedAt: now },
       }).run();
 
       return {
         accessToken: input.accessToken,
-        cookieJar: input.cookieJar,
+        cookieJar,
         loginEpoch: input.expectedLoginEpoch,
         generation,
       };

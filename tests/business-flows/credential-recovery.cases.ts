@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖凭证管理器正 TTL 写入、测试库过期时间推进、CAS/TGC 交换 mock 与持久化凭证状态
- * [OUTPUT]: 验证 JW/Portal 静默恢复、验证码阻断、超时穿透与重认证补齐
+ * [INPUT]: 依赖凭证管理器能力感知 singleflight、正 TTL 写入、学校登录 epoch、CAS/TGC 交换 mock 与持久化凭证状态
+ * [OUTPUT]: 验证 Portal-only/JW 并发串行补足与隔离、失败释放、真实 CAS epoch 边界、验证码阻断和超时穿透
  * [POS]: tests/business-flows 的独立能力用例集，由聚合入口在进程级 mock 隔离内装配
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -16,6 +16,20 @@ import {
   CredentialManager,
   createUser,
 } from './harness';
+import { readSchoolLoginEpoch } from '../../src/modules/campus-integrations/credential-recovery/school-login-context';
+
+async function insertDerivedSession(userId: number, system = 'derived_session:mobile_yxt') {
+  const now = new Date();
+  await getDb().insert(schema.credentials).values({
+    userId,
+    system,
+    value: 'opaque-derived-state',
+    cookieJar: null,
+    expiresAt: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+}
 
 async function storeExpiredCredential(
   userId: number,
@@ -33,6 +47,133 @@ async function storeExpiredCredential(
 }
 
 describe('静默凭证链路', () => {
+  it('portal_only 航班先启动且 JW 后加入时，joiner 复用新 TGC 串行补足 JW 且只登录一次 CAS', async () => {
+    const userId = await createUser('2023001010', 'pass-capability-join');
+    let casLoginCount = 0;
+    let releaseCas!: () => void;
+    let casStarted!: () => void;
+    const casStartedPromise = new Promise<void>((resolve) => { casStarted = resolve; });
+    const releaseCasPromise = new Promise<void>((resolve) => { releaseCas = resolve; });
+    authBehavior.login = async () => {
+      casLoginCount += 1;
+      casStarted();
+      await releaseCasPromise;
+      return { success: true, portalToken: 'portal-from-cas', steps: [] };
+    };
+    let jwExchangeCount = 0;
+    ticketBehavior.exchangeJwSession = async () => {
+      jwExchangeCount += 1;
+      return { success: true, steps: [] };
+    };
+
+    const portalPromise = CredentialManager.getOrRefreshPortalCredentialWithoutJw(userId);
+    await casStartedPromise;
+    const jwPromise = CredentialManager.getOrRefreshCredential(userId, 'jw_session');
+    releaseCas();
+
+    expect((await portalPromise)?.value).toBe('portal-from-cas');
+    expect((await jwPromise)?.cookieJar).toBeTruthy();
+    expect(await CredentialManager.getCredential(userId, 'jw_session')).not.toBeNull();
+    expect(casLoginCount).toBe(1);
+    expect(jwExchangeCount).toBe(1);
+  });
+
+  it('单独 portal_only 恢复不读取激活或改写已有 JW 行', async () => {
+    const userId = await createUser('2023001011', 'pass-portal-only-isolation');
+    await CredentialManager.storeCredential(userId, 'jw_session', null, '{"cookies":[{"key":"JW","value":"stable"}]}', 60_000);
+    const before = await getDb().select().from(schema.credentials).where(and(
+      eq(schema.credentials.userId, userId),
+      eq(schema.credentials.system, 'jw_session'),
+    )).limit(1);
+    authBehavior.login = async () => ({ success: true, portalToken: 'portal-only-token', steps: [] });
+    ticketBehavior.exchangeJwSession = async () => { throw new Error('JW_MUST_NOT_RUN'); };
+
+    expect((await CredentialManager.getOrRefreshPortalCredentialWithoutJw(userId))?.value)
+      .toBe('portal-only-token');
+    const after = await getDb().select().from(schema.credentials).where(and(
+      eq(schema.credentials.userId, userId),
+      eq(schema.credentials.system, 'jw_session'),
+    )).limit(1);
+    expect(after).toEqual(before);
+  });
+
+  it('共享航班失败后释放状态，后续请求仍可重新恢复', async () => {
+    const userId = await createUser('2023001012', 'pass-flight-release');
+    let loginCount = 0;
+    let releaseFirst!: () => void;
+    let firstStarted!: () => void;
+    const firstStartedPromise = new Promise<void>((resolve) => { firstStarted = resolve; });
+    const releaseFirstPromise = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    authBehavior.login = async () => {
+      loginCount += 1;
+      if (loginCount === 1) {
+        firstStarted();
+        await releaseFirstPromise;
+        return { success: false, steps: [] };
+      }
+      return { success: true, portalToken: 'portal-after-failure', steps: [] };
+    };
+
+    const first = CredentialManager.getOrRefreshPortalCredentialWithoutJw(userId);
+    const joined = CredentialManager.getOrRefreshPortalCredentialWithoutJw(userId);
+    await firstStartedPromise;
+    await Promise.resolve();
+    await Promise.resolve();
+    releaseFirst();
+    expect(await first).toBeNull();
+    expect(await joined).toBeNull();
+    expect(loginCount).toBe(1);
+
+    expect((await CredentialManager.getOrRefreshPortalCredentialWithoutJw(userId))?.value)
+      .toBe('portal-after-failure');
+    expect(loginCount).toBe(2);
+  });
+
+  it('portal_only 中 CAS 成功但 Portal 失败仍推进 epoch 并清理旧派生会话', async () => {
+    const userId = await createUser('2023001013', 'pass-portal-failed');
+    await insertDerivedSession(userId);
+    authBehavior.login = async () => ({ success: true, portalToken: null, steps: [] });
+    ticketBehavior.exchangePortalToken = async () => ({ token: null, steps: [] });
+
+    expect(await CredentialManager.getOrRefreshPortalCredentialWithoutJw(userId)).toBeNull();
+    expect(readSchoolLoginEpoch(getDb(), userId)).toBe(1);
+    expect(await getDb().select().from(schema.credentials).where(and(
+      eq(schema.credentials.userId, userId),
+      eq(schema.credentials.system, 'derived_session:mobile_yxt'),
+    ))).toHaveLength(0);
+  });
+
+  it('完整静默恢复中 CAS 成功但 Portal/JW 都失败仍提交新登录上下文', async () => {
+    const userId = await createUser('2023001014', 'pass-full-failed');
+    await insertDerivedSession(userId);
+    authBehavior.login = async () => ({ success: true, portalToken: null, steps: [] });
+    ticketBehavior.exchangePortalToken = async () => ({ token: null, steps: [] });
+    ticketBehavior.exchangeJwSession = async () => ({ success: false, steps: [], upstreamUnavailable: false });
+
+    expect(await CredentialManager.getOrRefreshCredential(userId, 'jw_session')).toBeNull();
+    expect(readSchoolLoginEpoch(getDb(), userId)).toBe(1);
+    expect(await CredentialManager.getCredential(userId, 'cas_tgc')).not.toBeNull();
+    expect(await getDb().select().from(schema.credentials).where(and(
+      eq(schema.credentials.userId, userId),
+      eq(schema.credentials.system, 'derived_session:mobile_yxt'),
+    ))).toHaveLength(0);
+  });
+
+  it('CAS 失败或要求验证码时不推进 epoch，也不清理派生会话', async () => {
+    for (const [suffix, needCaptcha] of [['failed', false], ['captcha', true]] as const) {
+      const userId = await createUser(`2023001015-${suffix}`, 'pass-cas-rejected');
+      await insertDerivedSession(userId);
+      authBehavior.login = async () => ({ success: false, needCaptcha, steps: [] });
+
+      expect(await CredentialManager.silentReAuth(userId, undefined, 'jw_session')).toBe(false);
+      expect(readSchoolLoginEpoch(getDb(), userId)).toBe(0);
+      expect(await getDb().select().from(schema.credentials).where(and(
+        eq(schema.credentials.userId, userId),
+        eq(schema.credentials.system, 'derived_session:mobile_yxt'),
+      ))).toHaveLength(1);
+    }
+  });
+
   it('jw_session 过期后在 TGC 有效时可刷新，不触发静默重认证', async () => {
     const userId = await createUser('2023001009', 'pass-jw-refresh');
     await CredentialManager.storeCredential(userId, 'cas_tgc', null, '{"cookies":[]}', 60_000);

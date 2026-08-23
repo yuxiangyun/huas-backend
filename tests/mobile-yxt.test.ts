@@ -100,7 +100,7 @@ async function persistSchoolLogin(
   portalToken: string,
   jwCookieJar = '{"cookies":[{"key":"JSESSIONID","value":"jw-stable"}]}',
 ) {
-  return new SqliteIdentityStore().persistSchoolLogin({
+  return new SqliteIdentityStore().commitRealSchoolLogin({
     studentId,
     encryptedPassword: 'test-encrypted-password',
     credentials: {
@@ -208,7 +208,7 @@ describe('学校登录 epoch 与模块会话仓储', () => {
     const first = await persistSchoolLogin(studentId, 'portal-old');
     const firstEpoch = readSchoolLoginEpoch(getDb(), first.id);
 
-    await new SqliteIdentityStore().persistSchoolLogin({
+    await new SqliteIdentityStore().commitRealSchoolLogin({
       studentId,
       encryptedPassword: 'new-encrypted-password',
       credentials: {
