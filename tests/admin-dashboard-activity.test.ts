@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖后台 dashboard/analytics 服务、认证中间件与 SQLite 测试库
- * [OUTPUT]: 验证用户活跃快照、渠道 DAU、显式渠道优先级与历史 unknown 保留口径
- * [POS]: tests 的后台洞察事实回归套件，保护时间、渠道与功能统计边界
+ * [OUTPUT]: 验证用户活跃快照、基础凭证计数、渠道 DAU、显式渠道优先级与历史 unknown 保留口径
+ * [POS]: tests 的后台洞察事实回归套件，保护时间、凭证类型、渠道与功能统计边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -71,6 +71,38 @@ describe('admin dashboard activity metrics', () => {
     expect(dashboard.metrics.todayActiveUsers).toBe(1);
     expect(dashboard.metrics.activeUsers7d).toBe(2);
     expect(dashboard.metrics.newUsers7d).toBe(2);
+  });
+
+  it('counts only CAS, Portal and JW credentials in the identity metric', async () => {
+    const db = getDb();
+    const users = await db.insert(schema.users).values({
+      studentId: '2023999010',
+      name: 'credential-metric-user',
+      className: 'test',
+    }).returning({ id: schema.users.id });
+    const now = new Date();
+
+    await db.insert(schema.credentials).values([
+      { userId: users[0].id, system: 'cas_tgc', cookieJar: '{}', expiresAt: new Date(now.getTime() + 60_000) },
+      { userId: users[0].id, system: 'portal_jwt', value: 'portal-value', expiresAt: new Date(now.getTime() + 60_000) },
+      { userId: users[0].id, system: 'jw_session', cookieJar: '{}', expiresAt: new Date(now.getTime() + 60_000) },
+      { userId: users[0].id, system: 'interactive_login_required', value: 'captcha_required', expiresAt: null },
+      { userId: users[0].id, system: 'school_login_epoch', value: '7', expiresAt: null },
+      { userId: users[0].id, system: 'derived_session:mobile_yxt', value: '{"v":1}', cookieJar: '{}', expiresAt: null },
+    ]);
+
+    const dashboard = await AdminDashboardService.getDashboard({ page: '1' });
+
+    const persisted = await db.select({ system: schema.credentials.system }).from(schema.credentials);
+    expect(persisted.map((row) => row.system).sort()).toEqual([
+      'cas_tgc',
+      'derived_session:mobile_yxt',
+      'interactive_login_required',
+      'jw_session',
+      'portal_jwt',
+      'school_login_epoch',
+    ]);
+    expect(dashboard.metrics.credentialEntries).toBe(3);
   });
 
   it('touches lastActiveAt on authenticated requests', async () => {

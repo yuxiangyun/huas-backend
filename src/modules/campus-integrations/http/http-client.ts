@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 tough-cookie CookieJar、config.timeout、USER_AGENT、可选绝对截止时间与外层注入的低基数请求结果 observer
- * [OUTPUT]: 对外提供 HttpClient 与 configureHttpClientObservers，封装受单次超时和总预算共同约束的会话 HTTP 及结果观测
- * [POS]: campus-integrations/http 的学校上游 HTTP 客户端，是 CAS、Portal、JW 会话通信与截止时间落实的唯一实现
+ * [OUTPUT]: 对外提供 HttpClient 与 configureHttpClientObservers，封装受单次超时和总预算共同约束的 Cookie 会话 HTTP 及结果观测
+ * [POS]: campus-integrations/http 的共享传输实现；CAS/Portal/JW 可持完整各自会话，mobile-yxt 由认证适配器提供仅含目标域 `/server` Cookie 的独立实例
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 

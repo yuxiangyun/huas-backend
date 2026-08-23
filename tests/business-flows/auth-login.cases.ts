@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 认证 mock、测试数据库、登录路由与凭证/用户工厂
- * [OUTPUT]: 验证本地/CAS/验证码/Portal-only 登录、并发 upsert、限流与错误映射
+ * [INPUT]: 依赖认证 mock、测试数据库、登录路由、学校登录 epoch、mobile 派生会话仓储与凭证/用户工厂
+ * [OUTPUT]: 验证本地/CAS/验证码/Portal-only 登录、真实登录 epoch/派生会话清理、并发 upsert、限流与错误映射
  * [POS]: tests/business-flows 的独立能力用例集，由聚合入口在进程级 mock 隔离内装配
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -22,6 +22,7 @@ import {
   makeUserPayload,
   createUser,
 } from './harness';
+import { SqliteMobileYxtSessionRepository } from '../../src/modules/campus-integrations/mobile-yxt/session-repository';
 
 describe('登录流程', () => {
   it('成功登录并写入用户、凭证、返回 token', async () => {
@@ -51,7 +52,7 @@ describe('登录流程', () => {
       .from(schema.credentials)
       .where(eq(schema.credentials.userId, users[0].id));
     const systems = creds.map((c: any) => c.system).sort();
-    expect(systems).toEqual(['cas_tgc', 'jw_session', 'portal_jwt']);
+    expect(systems).toEqual(['cas_tgc', 'jw_session', 'portal_jwt', 'school_login_epoch']);
   });
 
   it('数据库已有用户且无任何学校凭证时仍可本地登录，不访问 CAS', async () => {
@@ -179,6 +180,13 @@ describe('登录流程', () => {
 
     const userId = await createUser('2023001447', 'pass-force-cas');
     await CredentialManager.markInteractiveLoginRequired(userId);
+    const mobileSessions = new SqliteMobileYxtSessionRepository();
+    await mobileSessions.createIfLoginEpochMatches({
+      userId,
+      expectedLoginEpoch: 0,
+      accessToken: 'test-stale-mobile-session',
+      cookieJar: '{"cookies":[]}',
+    });
 
     let loginCallCount = 0;
     authBehavior.login = async () => {
@@ -195,6 +203,7 @@ describe('登录流程', () => {
     expect(res.status).toBe(200);
     expect(loginCallCount).toBe(1);
     expect(await CredentialManager.requiresInteractiveLogin(userId)).toBe(false);
+    expect(await mobileSessions.read(userId)).toBeNull();
   });
 
   it('本地密码不匹配时回退 CAS 并刷新已存密码', async () => {
@@ -450,7 +459,7 @@ describe('登录流程', () => {
       .from(schema.credentials)
       .where(eq(schema.credentials.userId, users[0].id));
     const systems = creds.map((c: any) => c.system).sort();
-    expect(systems).toEqual(['cas_tgc', 'portal_jwt']);
+    expect(systems).toEqual(['cas_tgc', 'portal_jwt', 'school_login_epoch']);
   });
 
   it('登录阶段未直接拿到 portal token 时，会再走 TGC 换取门户凭证后放行 portal-only 登录', async () => {

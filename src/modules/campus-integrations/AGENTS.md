@@ -3,16 +3,20 @@
 
 成员清单
 cas/: CAS 登录与 TGC 换票防腐层，隔离学校认证协议和故障语义
-credential-recovery/: 三类学校凭证的持久化生命周期与静默恢复
+credential-recovery/: CAS/Portal/JW 显式数值 TTL 凭证恢复与真实学校登录 epoch 上下文；不解释具体派生会话数据
 http/: 校园上游 Cookie HTTP 客户端与有界重试原语
 jw/: JW 上游适配边界，当前收敛全部纯解析器
+mobile-yxt/: Portal 派生无 TTL 会话、校园卡单月交易与 electric config/account 的只读防腐层
 portal/: Portal 资料、一卡通服务与纯 JSON 解析器
 upstream/: Portal/JW 请求的凭证恢复、会话重建与瞬态重试编排
-endpoints.ts: CAS、Portal、JW 地址唯一事实源，旧 core/url-config 只做再导出
+endpoints.ts: CAS、Portal、JW、mobile-yxt 地址唯一事实源，旧 core/url-config 只做再导出
 
 架构决策
 Campus Integrations 是学校上游协议的 canonical 防腐层；旧 auth/core/parsers/services 路径只能单向再导出本模块，禁止本模块反向依赖旧 Facade、routes 或 Identity。
 解析器保持无网络、无缓存、无持久化的纯转换边界；Portal 用户资料与一卡通适配器保留历史缓存、回写和 stale fallback 语义。
 静默重认证按用户共享在途恢复（PerKeySingleflight），同用户并发凭证缺口只跑一条 CAS 登录链；upstream 经 resolveCredentialClient 单次恢复链同时取得 token 与客户端，禁止恢复链跑两遍。
+mobile-yxt 自有 repository 保存登录 epoch 与无 TTL 派生会话；exchange 只能在 epoch 未变化时条件写入，host/open 401 按值条件失效 Portal JWT 并窄恢复一次，业务 401 按 generation compare-and-delete，并在同用户 singleflight 内最多重建、重试一次。真实 CAS 登录推进 epoch、删除本次缺失的旧 Portal JWT 并原子清理旧派生会话，普通 Portal JWT 轮换不推进 epoch。
+mobile 查询只经 PortalCredentialReader 恢复 Portal，禁止激活、覆盖或失效 JW；同键缓存 miss/显式 refresh 共享在途回源并使用独立内存配额，不消费 Academic refresh 桶；overview 分别投影余额/交易 availability 与 freshness。
+账单与电费只读边界禁止调用 usageDetails、pay、水费及任何上游写能力，未验证官方入口前缴费 capability 固定为 false。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md

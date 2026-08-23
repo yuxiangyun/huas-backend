@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 无运行时依赖，集中记录学校 CAS、Portal 与 JW 上游 URL
+ * [INPUT]: 无运行时依赖，集中记录学校 CAS、Portal、JW 与 mobile-yxt 只读上游 URL
  * [OUTPUT]: 对外提供 URLS 常量
- * [POS]: campus-integrations 的学校端点唯一地址表，被 CAS、Portal、JW 适配器共同消费
+ * [POS]: campus-integrations 的学校端点唯一地址表，被 CAS、Portal、JW 与 mobile-yxt 适配器共同消费
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -24,4 +24,9 @@ export const URLS = {
   ecardApi: "https://portal.huas.edu.cn/portalApi/v2/personalData/getMyECard",
   userInfo: "https://authx-service.huas.edu.cn/personal/api/v1/personal/me/user",
   portalScheduleEvents: "https://portal.huas.edu.cn/portal-api/v1/calendar/share/schedule/getEvents",
+  mobileYxtHostOpen: "https://mobile-yxt.huas.edu.cn/server/auth/host/open",
+  mobileYxtGetToken: "https://mobile-yxt.huas.edu.cn/server/auth/getToken",
+  mobileYxtTradeList: "https://mobile-yxt.huas.edu.cn/server/user/tradeList",
+  mobileYxtElectricityConfig: "https://mobile-yxt.huas.edu.cn/server/utilities/config",
+  mobileYxtElectricityAccount: "https://mobile-yxt.huas.edu.cn/server/utilities/account",
 };

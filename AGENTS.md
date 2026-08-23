@@ -340,7 +340,11 @@ nginx.conf - 反向代理样板
 AGENTS.md 是全局导航入口；各模块通过 L2 地图与业务文件 L3 契约维持代码、文档同构。
 业务能力按 domain、application、infrastructure 与 composition 分层，高层依赖端口而非具体存储或校园上游实现。
 SQLite 是业务事实源；data 下 JSON、媒体与内存态只承载运行策略、会话或资源，不代替业务表。
-学校上游凭证由 CredentialManager 收敛，客户端只持本服务 JWT；凭证恢复失败统一返回 3003，同用户静默重认证共享在途恢复、upstream 单次恢复链同时取得 token 与客户端。
+CAS/Portal/JW 基础凭证由 CredentialManager 收敛且必须使用非 null 数值 TTL，客户端只持本服务 JWT；凭证恢复失败统一返回 3003，同用户静默重认证共享在途恢复、upstream 单次恢复链同时取得 token 与客户端。
+mobile-yxt 只经窄 PortalCredentialReader 派生无 TTL 会话，不读取或激活 JW；真实 CAS 登录在基础凭证事务推进 school login epoch、删除本次缺失的旧 Portal JWT 并清理旧派生会话，exchange 仅在 epoch 未变时条件写，普通 Portal/JW 轮换和本地快捷登录不推进 epoch。
+mobile-yxt 业务会话只在固定 HTTP 401 证据后失效：host/open 拒绝本地未过期 Portal JWT 时按值条件删除并窄恢复一次，业务 401 按 generation 条件失效并同用户单飞重建一次，第二次 401 先条件删除再返回 3003；持久化 Cookie 仅含目标域 `/server` JSESSIONID，CAS TGC、Portal Cookie、accessToken、tid、refreshToken 与 authorization 永不进入 DTO、缓存键、错误或日志。
+校园卡 overview 把既有 Portal 余额与 mobile-yxt 当前月/此前 23 个自然月的三类交易作为独立子源聚合并分别投影 availability/freshness，交易缓存使用固定长度用户月键并每用户保留 6 个 LRU；账单/电费同键 cache miss 与强刷共享在途回源并使用独立配额，不消耗成绩、课表、Portal/JW 的 Academic refresh 桶。
+电费只读取 electric config/account：先从 config.location 取得房间展示与七个官方位置 code，再带 code 查询 account，电价/电量按 account.templateList code 映射；真正未提供的 price/quantity 诚实投影 null，负电量与账户状态原样保留。明细、水费、上游支付和未验证官方 handoff 均保持关闭。refundFlag 原样投影，totals 仅为有符号金额机械求和，不宣称退款会计语义已由 fixture 证明。
 课表由 Academic Facade 按持久化策略执行双源 current，再按 JW、Portal 固定顺序选择 stale；管理面只调用 Academic 暴露的策略用例。
 成绩强制刷新执行 JW fresh-first：45 秒总预算内有限恢复凭证并重试明确临时错误，只有新鲜路径穷尽后才允许 stale fallback。
 课表来源策略文件默认位于 dirname(DB_PATH)，生产蓝绿槽必须共享同一绝对持久路径，运行态 JSON、锁与临时文件不得纳入 Git。
@@ -372,7 +376,9 @@ Git push 始终把当前 HEAD 推到 baidu/main，由远端 hook 执行维护发
 /api/admin/academic/schedule-source-policy - 课表双源优先级读取与热切换
 /api/admin/index-popup - 后台 Cookie 会话保护的首页弹窗读取与 multipart 设置更新
 /api/schedule、/api/v1/schedule - 双源课表与兼容入口
-/api/grades、/api/ecard、/api/user - 校园业务接口
+/api/grades、/api/ecard、/api/user - 既有校园业务接口，其中 `/api/ecard` 余额合同保持兼容
+/api/ecard/overview - Portal 余额与 mobile-yxt 指定北京时间月份交易的聚合，分别投影 unavailable/stale/freshness
+/api/utilities/electricity - 当前绑定房间的电价、剩余电量与账户状态只读投影
 /api/discover/*、/api/treehole/* - 绑定 users.id 并统一投影公共作者的独立 UGC 业务
 /api/treehole/media/:mediaKey/:fileName - Bearer JWT 保护的 Treehole 帖子私有图片
 /api/community/profile、/api/community/users/:id - Web 社区资料读写与公共用户详情

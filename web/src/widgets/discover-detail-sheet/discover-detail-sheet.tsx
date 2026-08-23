@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 Discover 查询/写入 hooks、全屏详情容器、媒体轮播、社区资料与评论树
- * [OUTPUT]: 对外提供 DiscoverDetailSheet，以全屏双栏/单栏阅读、支持作者自赞的互动栏、固定评论输入器和独立图片查看器展示好饭详情
- * [POS]: widgets/discover-detail-sheet 的详情业务容器，保留 URL 深链与 mutation 语义，将详情阅读和图片预览明确分层
+ * [OUTPUT]: 对外提供 DiscoverDetailSheet，以全屏双栏/单栏阅读、仅横向切图的媒体轮播、单顶分隔线互动栏、固定评论输入器和独立图片查看器展示好饭详情
+ * [POS]: widgets/discover-detail-sheet 的详情业务容器，保留 URL 深链与 mutation 语义，将纵向阅读、横向切图和图片预览明确分层
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -95,7 +95,7 @@ function DiscoverGallery({ post, activeIndex, onIndexChange, onOpenImage }: Disc
         <div
           ref={viewportRef}
           aria-label={`好饭图片，共 ${post.images.length} 张`}
-          className="flex size-full snap-x snap-mandatory overflow-x-auto overscroll-x-contain scrollbar-hidden"
+          className="flex size-full snap-x snap-mandatory overflow-x-auto overflow-y-hidden overscroll-x-contain scrollbar-hidden"
           onScroll={handleScroll}
         >
           {post.images.map((image, imageIndex) => (
@@ -110,6 +110,7 @@ function DiscoverGallery({ post, activeIndex, onIndexChange, onOpenImage }: Disc
                 alt={`${post.title || post.category} · 第 ${imageIndex + 1} 张`}
                 className="size-full object-contain"
                 decoding="async"
+                draggable={false}
                 height={image.height}
                 loading={Math.abs(imageIndex - activeIndex) <= 1 ? 'eager' : 'lazy'}
                 src={buildMediaUrl(image.url)}
@@ -200,7 +201,7 @@ function DiscoverActionBar({
   onMessageAuthor: () => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-1 border-y border-line py-2">
+    <div className="flex flex-wrap items-center gap-1 border-t border-line py-2">
       <SocialCountAction
         active={post.likedByMe}
         aria-label={post.likedByMe ? '取消点赞' : '点赞'}

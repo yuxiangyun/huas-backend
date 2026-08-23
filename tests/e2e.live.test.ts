@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖真实学校账号、隔离 E2E SQLite、应用路由、JWT/凭证表与只读校园上游
+ * [OUTPUT]: 验证登录、旧 JW 恢复、mobile-yxt 单月账单/真实可空电费 DTO 与 epoch 绑定的无 TTL 派生会话持久化
+ * [POS]: tests 的唯一真实学校网络入口，所有写操作仅落隔离本服务数据库，不调用学校上游写接口
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { afterAll, beforeAll, describe, expect, it, setDefaultTimeout } from 'bun:test';
 import { Hono } from 'hono';
 import { and, eq } from 'drizzle-orm';
@@ -93,6 +100,39 @@ if (!username || !password) {
       expect(body.success).toBe(false);
       expect(body.error_code).toBe(ErrorCode.JWT_INVALID);
     });
+
+    it('mobile-yxt 当前月校园卡账单只读返回稳定 DTO，派生会话无本地 TTL', async () => {
+      const res = await authorizedRequest('/api/ecard/overview?refresh=true');
+      const body = await res.json() as any;
+      expect(res.status).toBe(200);
+      expect(body.success).toBe(true);
+      expect(typeof body.data?.month).toBe('string');
+      expect(Array.isArray(body.data?.transactions)).toBe(true);
+      expect(typeof body.data?.totals?.consumptionCents).toBe('number');
+      expect(typeof body.data?.partial).toBe('boolean');
+      expect(JSON.stringify(body.data)).not.toMatch(/accessToken|refreshToken|JSESSIONID|authorization|\btid\b/i);
+
+      const rows = await getDb().select().from(schema.credentials).where(and(
+        eq(schema.credentials.userId, userId),
+        eq(schema.credentials.system, 'derived_session:mobile_yxt'),
+      )).limit(1);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].expiresAt).toBeNull();
+    }, { timeout: 30_000 });
+
+    it('mobile-yxt 电费只读保留十进制电量和上游账户状态，关闭明细与未验证缴费', async () => {
+      const res = await authorizedRequest('/api/utilities/electricity?refresh=true');
+      const body = await res.json() as any;
+      expect(res.status).toBe(200);
+      expect(body.success).toBe(true);
+      expect(typeof body.data?.roomDisplayName).toBe('string');
+      expect(body.data?.priceCentsPerKwh === null || typeof body.data?.priceCentsPerKwh === 'number').toBe(true);
+      expect(body.data?.remainingKwh === null || typeof body.data?.remainingKwh === 'string').toBe(true);
+      expect(typeof body.data?.accountStatus).toBe('string');
+      expect(body.data?.detailsAvailable).toBe(false);
+      expect(body.data?.officialPaymentAvailable).toBe(false);
+      expect(JSON.stringify(body.data)).not.toMatch(/accessToken|refreshToken|JSESSIONID|authorization|\btid\b/i);
+    }, { timeout: 30_000 });
 
     it('JW 凭证过期后自动刷新并继续成功返回（场景 3）', async () => {
       const db = getDb();

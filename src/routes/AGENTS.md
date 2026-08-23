@@ -7,7 +7,7 @@ admin/: Operations 管理 HTTP factory 的兼容再导出路径，真实路由�
 auth/: 登录路由，承接 CAS/验证码登录流程并签发本服务 JWT
 calendar/: Calendar HTTP 兼容 Facade，保持认证 API 与公开 ICS 订阅原挂载路径
 content/: Operations 公共公告/首页弹窗 HTTP 兼容 Facade，保持免 Bearer 挂载路径
-portal/: Portal 路由，暴露一卡通、用户资料与 Portal 课表接口
+portal/: Portal/校园生活路由，保留一卡通余额/用户资料/课表，并挂载使用独立限流的 mobile-yxt 有界月份账单和电费只读接口
 system/: Operations 健康 HTTP 兼容 Facade，保持 `/health` 挂载路径
 index.ts: 路由协议总装配器，定义 public/auth/calendar 与 /api 认证边界，并挂载根组合注入的 Community/Discover/Treehole/Notifications/Messaging/Operations routes
 schedule-route-log.ts: 双源课表共享日志适配器，记录 policy/primary/source/fallback 低基数摘要但不参与来源决策
@@ -33,5 +33,6 @@ social-summary.routes.ts: `/api/social/unread-summary` 跨域只读聚合器，�
 2026-07-18: 抽取 JW/Portal 双源课表的同构日志映射，业务入口与 fallback 语义继续独立。
 2026-07-12: 管理接口升级为 HttpOnly Cookie 会话，并新增渠道分析总览接口。
 2026-06-30: 播种 routes L2 地图，明确 HTTP 边界与 /api 认证分界。
+2026-08-23: 新增受 Bearer 保护的 `/api/ecard/overview` 与 `/api/utilities/electricity`，旧 `/api/ecard` 路由合同保持不变。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md

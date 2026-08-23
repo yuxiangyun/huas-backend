@@ -4,7 +4,7 @@
 成员清单
 academic-refresh-rate-limit.test.ts: 学业/Portal 强制刷新共享桶与 classrooms/evaluation 固定实时回源独立桶回归测试
 academic-compat.test.ts: Academic canonical composition 与旧 services Facade 的运行时引用一致性测试
-admin-dashboard-activity.test.ts: 管理后台活跃度、显式渠道优先级与历史 unknown 隔离口径回归测试
+admin-dashboard-activity.test.ts: 管理后台活跃度、仅 CAS/Portal/JW 基础凭证计数、显式渠道优先级与历史 unknown 隔离口径回归测试
 admin-session.test.ts: 后台 HttpOnly Cookie 会话建立、无自动过期、保护与撤销回归测试
 analytics-batch.test.ts: Analytics 内存聚合、active user 去重、单事务 flush、失败回并重试与 shutdown 回归测试
 auth-login-rate-limit.test.ts: 登录失败限流策略回归测试
@@ -22,7 +22,7 @@ community.test.ts: Community 缺省名称、昵称校验、DTO 隔离、并发�
 discover.test.ts: Discover 薄聚合入口，在单进程内装配 discover/ 媒体、推荐、评论与管理用例
 discover/: Discover HTTP/媒体共享支架及按业务能力细分的回归用例
 discover-application.test.ts: Discover application 媒体补偿、删除清理失败语义与孤儿清理委托回归测试
-e2e.live.test.ts: 真实上游端到端验证入口
+e2e.live.test.ts: 真实上游端到端验证入口，覆盖登录/JW 恢复与 mobile-yxt 账单、电费只读 DTO 及 epoch 绑定无 TTL 派生会话
 e2e.setup.ts: 真实上游测试隔离环境与临时 SQLite 显式迁移入口
 evaluation-parser.test.ts: 教评解析、延后 JW 登录表单、actionable/blocked 状态、有界续批、提交响应与抗重排批末回查测试
 fixtures/: 测试二进制样本目录，包含 HEIC 图片
@@ -34,6 +34,7 @@ notifications.test.ts: Notifications 差异回复事件、Outbox 幂等/撤销/�
 messaging.test.ts: Messaging 延迟会话/目标定位、会话高水位、严格 UUID 图文幂等、三态消息、未读与私有媒体测试
 messaging-timestamps.test.ts: Messaging 慢图片/快文本并发提交时间与 repository 会话时间单调回归测试
 messaging-upload.test.ts: Messaging HTTP 上传边界，锁定混合字段图片线序、解析前 413 与坏 multipart 的稳定 400
+mobile-yxt.test.ts: 登录 epoch/Portal 401 恢复、generation 条件失效、Cookie 白名单、账单 freshness/有符号 totals、真实电费合同、同键回源合流、Portal/JW/限流隔离、24 月/6 键 LRU 与旧 `/api/ecard` 合同专项回归
 social-upload-limits.test.ts: Discover/Community HTTP 上传边界，锁定声明长度、流式及无关字段请求在 formData 前统一返回 413
 social-summary-routes.test.ts: Social 私信/互动未读单请求并行聚合与稳定响应字段回归测试
 messaging-admin.test.ts: 管理员 Cookie 会话增量/三态消息/图片只读、三类隐私安全审计、禁止写命令、参与者媒体权限与四类清理任务装配测试
@@ -90,6 +91,8 @@ upstream-retry.test.ts: 上游请求/凭证恢复次数与 deadline、成绩临�
 2026-07-27: 新增 Academic Facade 引用一致性测试，并将 refresh 限流 mock 边界切换到 canonical composition。
 2026-07-27: 新增 Identity/Login 应用服务与 SQLite 事务失败回滚定向测试。
 2026-07-16: 成绩/一卡通拒绝错误页和缺失余额，课表限定日期并去重嵌套节点，CAS/Portal 超时与维护页保持真实故障语义。
+2026-08-23: mobile-yxt 专项以最终数据库/Cookie/缓存/限流状态锁定真实登录竞态、Portal/JW 隔离、第二次 401、严格空态、缓存放大与旧余额 HTTP 合同。
+2026-08-23: 电费 fixture 对齐官方 config.location code→account.templateList 调用合同，补齐 nullable、模板重排/扩展、低敏感诊断及 HTTP 200 协议失败不清会话/不 stale 回退。
 2026-07-16: 评教测试覆盖 HTTP 200 错误页拒绝、提交后列表确认与本次/累计计数分离。
 2026-07-16: 日历订阅补齐中文长文本 UTF-8 75-octet 折行与无损展开回归。
 2026-07-16: 后台洞察测试补齐显式渠道优先、旧小程序无头兼容与历史 unknown 不回填边界。

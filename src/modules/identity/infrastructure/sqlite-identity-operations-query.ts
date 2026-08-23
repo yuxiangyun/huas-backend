@@ -1,11 +1,11 @@
 /**
  * [INPUT]: 依赖 Identity operations query 契约、Drizzle db/schema 与北京时间格式化工具
- * [OUTPUT]: 对外提供 SQLiteIdentityOperationsQuery，只读聚合用户、凭证与兼容缓存计数
- * [POS]: identity/infrastructure 的管理查询 adapter，独占身份表筛选、年级解析与分页 SQL
+ * [OUTPUT]: 对外提供 SQLiteIdentityOperationsQuery，只读聚合用户、三类基础学校凭证与兼容缓存计数
+ * [POS]: identity/infrastructure 的管理查询 adapter，隔离身份表筛选、年级解析、基础凭证口径与分页 SQL
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { and, desc, eq, like, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, like, or, sql } from 'drizzle-orm';
 import { getDb, schema } from '../../../db';
 import { beijingIsoString } from '../../../utils/time';
 import type {
@@ -13,6 +13,8 @@ import type {
   IdentityOperationsQueryPort,
   IdentityOperationsSnapshot,
 } from '../domain/operations-query';
+
+const BASE_SCHOOL_CREDENTIAL_SYSTEMS = ['cas_tgc', 'portal_jwt', 'jw_session'] as const;
 
 function buildStudentGradeSql() {
   return sql<string>`(
@@ -64,7 +66,8 @@ export class SQLiteIdentityOperationsQuery implements IdentityOperationsQueryPor
       db.select({ count: sql<number>`count(*)` }).from(schema.users)
         .where(sql`${schema.users.createdAt} >= ${query.sevenDaysAgoMs}`),
       db.select({ count: sql<number>`count(*)` }).from(schema.cache),
-      db.select({ count: sql<number>`count(*)` }).from(schema.credentials),
+      db.select({ count: sql<number>`count(*)` }).from(schema.credentials)
+        .where(inArray(schema.credentials.system, [...BASE_SCHOOL_CREDENTIAL_SYSTEMS])),
       db.select({ className: schema.users.className, count: sql<number>`count(*)` })
         .from(schema.users)
         .groupBy(schema.users.className)

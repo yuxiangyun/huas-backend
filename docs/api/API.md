@@ -1,6 +1,6 @@
 # HUAS Server API 文档
 
-> 基线日期：2026-07-31
+> 基线日期：2026-08-23
 > Base URL：`http://localhost:3000`
 > 时区约定：服务端固定使用 `Asia/Shanghai`，文档中的时间示例均为 `+08:00`
 
@@ -27,6 +27,8 @@
 | `GET/POST /api/evaluations/*` | Bearer JWT | 评教发现、状态、预检与提交 |
 | `GET /api/classrooms/*` | Bearer JWT | 空教室只读查询 |
 | `GET /api/ecard` | Bearer JWT | 一卡通余额 |
+| `GET /api/ecard/overview` | Bearer JWT | Portal 余额与 mobile-yxt 单月三类账单聚合，分别投影子源新鲜度 |
+| `GET /api/utilities/electricity` | Bearer JWT | 当前绑定房间电费只读信息；电价/电量允许为 `null` |
 | `GET /api/user` | Bearer JWT | 用户资料 |
 | `GET/PUT/DELETE /api/community/*` | Bearer JWT | Community 公共资料、昵称与头像接口 |
 | `GET/POST/PUT/DELETE /api/discover/*` | Bearer JWT | Discover 帖子、幂等点赞、评论与用户帖子接口 |
@@ -85,7 +87,7 @@ GET /calendar/schedule.ics?studentId=2023001001&sig=<hmac_sha256(studentId, CALE
 
 说明：
 
-- `_meta` 只出现在带缓存语义的业务接口上：`/api/schedule`、`/api/v1/schedule`、`/api/grades`、`/api/ecard`、`/api/user`
+- `_meta` 只出现在带缓存语义的业务接口上：`/api/schedule`、`/api/v1/schedule`、`/api/grades`、`/api/ecard`、`/api/utilities/electricity`、`/api/user`
 - 这些接口在回源成功时也会返回 `_meta`，此时通常为 `{ cached: false, source: ... }`
 - 时间字段格式为北京时间 ISO 字符串，后缀是 `+08:00`，不是 UTC `Z`
 
@@ -143,7 +145,7 @@ GET /calendar/schedule.ics?studentId=2023001001&sig=<hmac_sha256(studentId, CALE
 
 ### 3.1 统一规则
 
-- 所有 5 个业务接口都会把成功回源结果写入 `cache` 表
+- 所有 7 个带缓存语义的校园业务接口都会把成功回源结果写入 `cache` 表
 - `refresh=false`：先查缓存，命中直接返回
 - `refresh=true`：跳过读缓存，强制回源，并覆盖写回缓存
 - `/api/schedule` 的首选来源 current 失败后，必须先尝试第二来源 current；两边都失败才固定按 JW、Portal 顺序查旧缓存
@@ -157,6 +159,8 @@ GET /calendar/schedule.ics?studentId=2023001001&sig=<hmac_sha256(studentId, CALE
 | `GET /api/v1/schedule` | `0` | 写入缓存，但不过期，仅 `refresh=true` 会覆盖 |
 | `GET /api/grades` | `0` | 写入缓存，但不过期，仅 `refresh=true` 会覆盖 |
 | `GET /api/ecard` | `0` | 写入缓存，但不过期，仅 `refresh=true` 会覆盖 |
+| `GET /api/ecard/overview` | `0` | 余额与用户月份交易分别缓存；返回子源级 freshness，降级缓存不会冒充新鲜回源 |
+| `GET /api/utilities/electricity` | `0` | 成功 DTO 写入缓存；协议错误不写入、不回退旧缓存 |
 | `GET /api/user` | `0` | 写入缓存，但不过期，仅 `refresh=true` 会覆盖 |
 
 这意味着文档里如果看到“默认不缓存”或“课表 24 小时 TTL”的说法，都不是当前实现。
@@ -747,7 +751,95 @@ END:VCALENDAR
 - 若上游鉴权失效并恢复失败，返回 `3003`
 - 若上游返回非鉴权类错误且没有可用数据，返回 `502 + error_code=5000`
 
-### 6.8 `GET /api/user`
+### 6.8 `GET /api/ecard/overview`
+
+聚合既有 Portal 一卡通余额与 mobile-yxt 指定自然月的消费、充值、补助交易。只接受当前月及此前 23 个北京时间自然月。
+
+查询参数：
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `month` | string | 否 | 严格 `YYYY-MM`；默认当前北京时间月份 |
+| `refresh` | string | 否 | `true` 表示余额与交易都跳过读缓存并强制回源 |
+
+成功响应：
+
+```json
+{
+  "success": true,
+  "data": {
+    "balance": { "amountCents": 12850, "status": "正常" },
+    "month": "2026-08",
+    "totals": {
+      "consumptionCents": -3560,
+      "rechargeCents": 10000,
+      "subsidyCents": 2000,
+      "electricityCents": -1200
+    },
+    "transactions": [],
+    "partial": false,
+    "unavailableParts": [],
+    "staleParts": [],
+    "degraded": false,
+    "freshness": {
+      "balance": { "cached": false, "source": "portal" },
+      "transactions": { "cached": false, "source": "mobile-yxt" }
+    },
+    "truncated": false
+  }
+}
+```
+
+字段语义：
+
+- `amountCents`、交易 `amountCents` 与四类 totals 都使用整数分
+- totals 按交易分类机械汇总上游有符号金额；当前不根据 `refundFlag` 推断退款会计规则
+- `partial/unavailableParts` 只表达子源不可用；`staleParts` 表达实际使用了旧缓存
+- `degraded` 在任一子源不可用或 stale 时为 `true`
+- `freshness.balance` 与 `freshness.transactions` 独立保留 `cached/stale/refresh_failed/last_error` 等缓存事实
+- `truncated=true` 表示至少一个交易分类达到服务端分页硬上限，不能把 totals 当作完整月度总额
+
+### 6.9 `GET /api/utilities/electricity`
+
+读取当前绑定房间的电费账户。服务端先从 mobile-yxt electric config 获取绑定位置，再携带位置 code 读取 account；不调用 bind、用电明细、水费或缴费能力。
+
+查询参数：
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `refresh` | string | 否 | `true` 表示跳过读缓存并强制回源 |
+
+成功响应：
+
+```json
+{
+  "success": true,
+  "data": {
+    "roomDisplayName": "西校区 九舍 418",
+    "cardBalanceCents": 1234,
+    "priceCentsPerKwh": 62,
+    "remainingKwh": "-11.10",
+    "accountStatus": "正常",
+    "detailsAvailable": false,
+    "officialPaymentAvailable": false
+  },
+  "_meta": {
+    "cached": false,
+    "source": "mobile-yxt"
+  }
+}
+```
+
+字段语义：
+
+- `roomDisplayName` 按 config.location 的校区、楼栋、楼层、房间有效字段顺序组合
+- `cardBalanceCents` 和 `priceCentsPerKwh` 使用整数分，避免浮点金额
+- `priceCentsPerKwh` 类型为 `number | null`；`remainingKwh` 类型为 `string | null`
+- `null` 只表示上游当前未提供对应值，不表示 0、欠费或凭证失效
+- `remainingKwh` 保留上游十进制字符串与负号
+- 只有明确 HTTP 401 才会失效并重建 mobile-yxt 派生会话；HTTP 200 的业务/协议失败不会清理会话
+
+### 6.10 `GET /api/user`
 
 用户资料。
 
@@ -781,10 +873,10 @@ END:VCALENDAR
 - `/auth/login` 成功后，如果已拿到 `portalToken` 且本地用户资料缺失，会尝试主动调用一次 `/api/user` 的同源逻辑回填姓名和班级
 - `/api/user` 成功时也会把 `name/className` 回写到 `users` 表
 
-### 6.9 Operations 管理 API
+### 6.11 Operations 管理 API
 
 后台 session、Dashboard、analytics、logs、announcements、课表来源策略与社交管理入口见 [OPERATIONS_API.md](./OPERATIONS_API.md)。
 
-### 6.10 社交 API
+### 6.12 社交 API
 
 Community、Discover、Treehole、Notifications 与 Messaging 的用户契约见 [SOCIAL_API.md](./SOCIAL_API.md)。

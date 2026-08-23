@@ -1,11 +1,12 @@
 /**
- * [INPUT]: 依赖 凭证管理器、CAS/TGC 交换 mock 与持久化凭证状态
+ * [INPUT]: 依赖凭证管理器正 TTL 写入、测试库过期时间推进、CAS/TGC 交换 mock 与持久化凭证状态
  * [OUTPUT]: 验证 JW/Portal 静默恢复、验证码阻断、超时穿透与重认证补齐
  * [POS]: tests/business-flows 的独立能力用例集，由聚合入口在进程级 mock 隔离内装配
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { describe, expect, it } from 'bun:test';
+import { and } from 'drizzle-orm';
 import {
   eq,
   authBehavior,
@@ -16,11 +17,26 @@ import {
   createUser,
 } from './harness';
 
+async function storeExpiredCredential(
+  userId: number,
+  system: 'portal_jwt' | 'jw_session',
+  value: string | null,
+  cookieJar: string | null,
+) {
+  await CredentialManager.storeCredential(userId, system, value, cookieJar, 60_000);
+  await getDb().update(schema.credentials)
+    .set({ expiresAt: new Date(Date.now() - 1_000) })
+    .where(and(
+      eq(schema.credentials.userId, userId),
+      eq(schema.credentials.system, system),
+    ));
+}
+
 describe('静默凭证链路', () => {
   it('jw_session 过期后在 TGC 有效时可刷新，不触发静默重认证', async () => {
     const userId = await createUser('2023001009', 'pass-jw-refresh');
     await CredentialManager.storeCredential(userId, 'cas_tgc', null, '{"cookies":[]}', 60_000);
-    await CredentialManager.storeCredential(userId, 'jw_session', null, '{"cookies":[]}', -1_000);
+    await storeExpiredCredential(userId, 'jw_session', null, '{"cookies":[]}');
 
     let silentLoginCalled = false;
     authBehavior.login = async () => {
@@ -41,7 +57,7 @@ describe('静默凭证链路', () => {
   it('JW 上游不可达时应透传超时，不触发静默重认证', async () => {
     const userId = await createUser('2023001999', 'pass-jw-timeout');
     await CredentialManager.storeCredential(userId, 'cas_tgc', null, '{"cookies":[]}', 60_000);
-    await CredentialManager.storeCredential(userId, 'jw_session', null, '{"cookies":[]}', -1_000);
+    await storeExpiredCredential(userId, 'jw_session', null, '{"cookies":[]}');
 
     let silentLoginCalled = false;
     authBehavior.login = async () => {
@@ -62,7 +78,7 @@ describe('静默凭证链路', () => {
   it('portal_jwt 过期后优先走 TGC 刷新', async () => {
     const userId = await createUser('2023001002', 'pass-refresh');
     await CredentialManager.storeCredential(userId, 'cas_tgc', null, '{"cookies":[]}', 60_000);
-    await CredentialManager.storeCredential(userId, 'portal_jwt', 'stale-token', null, -1_000);
+    await storeExpiredCredential(userId, 'portal_jwt', 'stale-token', null);
 
     ticketBehavior.exchangePortalToken = async () => ({
       token: 'portal-token-new',
@@ -76,7 +92,7 @@ describe('静默凭证链路', () => {
   it('Portal TGC 刷新超时保持 REQUEST_TIMEOUT，不进入静默重登并退化为 3003', async () => {
     const userId = await createUser('2023001008', 'pass-portal-timeout');
     await CredentialManager.storeCredential(userId, 'cas_tgc', null, '{"cookies":[]}', 60_000);
-    await CredentialManager.storeCredential(userId, 'portal_jwt', 'stale', null, -1_000);
+    await storeExpiredCredential(userId, 'portal_jwt', 'stale', null);
     ticketBehavior.exchangePortalToken = async () => { throw new Error('REQUEST_TIMEOUT'); };
 
     await expect(CredentialManager.getOrRefreshCredential(userId, 'portal_jwt'))
@@ -115,7 +131,7 @@ describe('静默凭证链路', () => {
 
   it('TGC 不可用时触发静默重认证并补齐凭证', async () => {
     const userId = await createUser('2023001003', 'pass-silent');
-    await CredentialManager.storeCredential(userId, 'portal_jwt', 'expired-token', null, -1_000);
+    await storeExpiredCredential(userId, 'portal_jwt', 'expired-token', null);
 
     authBehavior.login = async (_username, password) => ({
       success: true,
@@ -139,7 +155,7 @@ describe('静默凭证链路', () => {
 
   it('静默重认证拿到 portal token 时不受 JW 激活失败影响', async () => {
     const userId = await createUser('2023001004', 'pass-partial');
-    await CredentialManager.storeCredential(userId, 'portal_jwt', 'expired-token', null, -1_000);
+    await storeExpiredCredential(userId, 'portal_jwt', 'expired-token', null);
 
     authBehavior.login = async (_username, password) => ({
       success: true,
@@ -167,7 +183,7 @@ describe('静默凭证链路', () => {
 
   it('静默重认证未直接拿到 portal token 时，会再走 TGC 换取门户凭证', async () => {
     const userId = await createUser('2023001005', 'pass-portal-recover');
-    await CredentialManager.storeCredential(userId, 'portal_jwt', 'expired-token', null, -1_000);
+    await storeExpiredCredential(userId, 'portal_jwt', 'expired-token', null);
 
     authBehavior.login = async () => ({
       success: true,

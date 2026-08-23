@@ -5,7 +5,7 @@
 auth-engine.ts: AuthEngine 兼容再导出，canonical CAS 登录执行器位于 campus-integrations/cas
 calendar-signature.ts: Calendar canonical HMAC 签名的兼容再导出，保留旧 signature API
 calendar-token.ts: Calendar canonical HMAC 的 token 命名兼容层，保留旧 token/signature 导出
-credential-manager.ts: CredentialManager/CredentialSystem 兼容再导出，canonical 生命周期实现位于 campus-integrations/credential-recovery
+credential-manager.ts: CredentialManager/CredentialSystem 兼容再导出，canonical CAS/Portal/JW 显式数值 TTL 生命周期实现位于 campus-integrations/credential-recovery
 jwt.ts: 本服务 JWT 签发与验证工具，隔离客户端身份令牌
 ticket-exchanger.ts: TicketExchanger 兼容再导出，canonical TGC 换票实现位于 campus-integrations/cas
 

@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 URL 查询参数、Social 路径、分享反馈与发布/详情/公共作者资料弹层加载器
- * [OUTPUT]: 对外提供 TreeholePage，以统一顶栏编排双形态信息流、图文发布、详情、作者资料、私信与分享
+ * [OUTPUT]: 对外提供 TreeholePage，以统一顶栏和黑色正圆白色加号发布入口编排双形态信息流、图文发布、详情、作者资料、私信与分享
  * [POS]: pages/treehole 的路由级组装器，原子维护帖子详情/公共资料互斥、canonical 分享与弹层预加载
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -138,11 +138,11 @@ export function TreeholePage() {
         <PageHeader
           action={(
             <IconButton
-              className="-mr-1 text-ink hover:bg-[#f2f2f2]"
+              className="-mr-1 rounded-full"
               icon={<Plus aria-hidden="true" className="size-7" strokeWidth={2.2} />}
               label="发布树洞"
               size="md"
-              variant="ghost"
+              variant="primary"
               onClick={handleOpenComposeSheet}
             />
           )}

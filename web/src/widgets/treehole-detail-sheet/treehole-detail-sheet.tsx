@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Treehole 查询/写入、私有多图轮播、全屏详情容器、评论树与图片查看器
- * [OUTPUT]: 对外提供 TreeholeDetailSheet，以移动优先的全屏单列阅读、支持作者自赞的互动栏、固定评论输入器和独立图片查看器展示树洞详情
+ * [OUTPUT]: 对外提供 TreeholeDetailSheet，以移动优先的全屏单列阅读、单顶分隔线互动栏、固定评论输入器和独立图片查看器展示树洞详情
  * [POS]: widgets/treehole-detail-sheet 的详情业务容器，以帖子身份隔离异步反馈，把详情阅读和媒体预览明确分层
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -94,7 +94,7 @@ function TreeholeActionBar({
   onSharePost: () => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-1 border-y border-line py-2">
+    <div className="flex flex-wrap items-center gap-1 border-t border-line py-2">
       <SocialCountAction
         active={post.viewer.liked}
         aria-label={post.viewer.liked ? '取消点赞' : '点赞'}

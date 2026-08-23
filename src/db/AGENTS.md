@@ -6,7 +6,7 @@ index.ts: SQLite 运行期连接入口，只打开已存在数据库、执行当
 migrator.ts: migration 事务执行与版本记录内核，以结构化 fingerprint、元数据校验和 destructive 预检控制发布
 migrations/: 不可变编号 migration 目录，保存 0001/0002 历史结构、0003 社交 contract 与 0004 Treehole 图片 expand-only migration
 repair.ts: Discover/Treehole 派生计数显式修复内核，支持无写入 dry-run 与幂等事务更新
-schema.ts: 全局 Drizzle 类型相，声明含唯一媒体批次键/图片元数据的 Treehole 事实、通知直接列表索引与 Messaging 会话高水位索引
+schema.ts: 全局 Drizzle 类型相，声明身份凭证/学校登录上下文、Treehole 私有图片、通知与 Messaging 等全部 SQLite 结构映射
 snapshot.ts: 部署前 SQLite VACUUM INTO 快照内核，输出带时间、schema version 与 release 的一致性副本
 
 架构决策
@@ -15,7 +15,7 @@ schema.ts 是类型相和查询相；migrations/ 是结构演进事实源；inde
 昂贵派生计数校准属于显式 repair，数据库一致性副本属于部署前 snapshot，两者均不得隐藏在普通应用启动。
 SQLite 业务表是用户、Community、两条 UGC、通知与私信的唯一事实源；通知用 recipient/created_at/id 直接索引服务列表，Messaging 用 last_message_id 高水位索引服务会话增量并以 sender/created_at 支持限流复验。
 analytics_daily_metrics 与 analytics_daily_users 只保存渠道化聚合事实，不复制用户或内容业务实体。
-credentials 除三个学校凭证外，还承载无敏感值、无 TTL 的 `interactive_login_required` 内部交互登录恢复标记。
+credentials 除三个正 TTL 学校凭证外，还承载无敏感值的 `interactive_login_required`、`school_login_epoch` 及模块自有 `derived_session:*`；mobile-yxt 派生值只由其 repository 解码，CookieJar 仅允许目标域 `/server` JSESSIONID。
 
 开发规范
 新增业务表必须同时更新 schema.ts、编号 migration 和相关测试。

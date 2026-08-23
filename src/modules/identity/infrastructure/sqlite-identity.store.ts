@@ -1,13 +1,14 @@
 /**
- * [INPUT]: 依赖 db/getDb/schema、Drizzle 条件构造器、config 凭证 TTL 与 IdentityStorePort
- * [OUTPUT]: 对外提供 SqliteIdentityStore，查询/触碰登录用户并原子提交用户与学校凭证
- * [POS]: identity/infrastructure 的持久化边界，是登录用户与 CAS/Portal/JW 凭证一致性的唯一事务所有者
+ * [INPUT]: 依赖 db/getDb/schema、SchoolLoginContext、config 凭证 TTL 与 IdentityStorePort
+ * [OUTPUT]: 对外提供 SqliteIdentityStore，查询/触碰登录用户并原子提交用户、CAS/Portal/JW 凭证与真实学校登录 epoch，缺失的新 Portal 凭证会删除旧值
+ * [POS]: identity/infrastructure 的持久化边界，确保新 epoch 不继承旧 Portal JWT；派生会话清理由学校登录上下文抽象闭环
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { and, eq } from 'drizzle-orm';
 import { config } from '../../../config';
 import { getDb, schema } from '../../../db';
+import { advanceSchoolLoginEpoch } from '../../campus-integrations/credential-recovery/school-login-context';
 import type { IdentityStorePort } from '../application/login.ports';
 import type { LoginUser } from '../domain/login';
 
@@ -96,10 +97,18 @@ export class SqliteIdentityStore implements IdentityStorePort {
         }).run();
       }
 
+      if (!input.credentials.portalToken) {
+        tx.delete(schema.credentials).where(and(
+          eq(schema.credentials.userId, user.id),
+          eq(schema.credentials.system, 'portal_jwt'),
+        )).run();
+      }
+
       tx.delete(schema.credentials).where(and(
         eq(schema.credentials.userId, user.id),
         eq(schema.credentials.system, 'interactive_login_required'),
       )).run();
+      advanceSchoolLoginEpoch(tx, user.id, input.at);
 
       return user;
     });

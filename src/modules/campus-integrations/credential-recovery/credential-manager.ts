@@ -1,11 +1,11 @@
 /**
  * [INPUT]: 依赖 db/schema、HttpClient、AuthEngine、TicketExchanger、CryptoHelper、PerKeySingleflight、config、可选恢复截止时间与 Logger
- * [OUTPUT]: 对外提供 CredentialManager 类与 CredentialSystem 类型，管理受总预算约束、同用户单飞的学校凭证生命周期和持久化交互登录恢复状态
- * [POS]: campus-integrations/credential-recovery 的学校子凭证唯一收敛层，管理三类凭证并守住验证码与瞬态故障边界
+ * [OUTPUT]: 对外提供 CredentialManager 与 CredentialSystem，管理三类强制正 TTL 学校凭证、受总预算约束的同用户单飞恢复、真实登录 Portal 替换语义与持久化交互登录状态
+ * [POS]: campus-integrations/credential-recovery 的基础学校凭证收敛层；新 epoch 不继承缺失的旧 Portal JWT，派生业务会话由各模块自有仓储管理
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, inArray, sql } from 'drizzle-orm';
 import { getDb, schema } from '../../../db';
 import { HttpClient } from '../http/http-client';
 import { AuthEngine } from '../cas/auth-engine';
@@ -14,10 +14,26 @@ import { CryptoHelper } from '../../../utils/crypto';
 import { config } from '../../../config';
 import { Logger } from '../../../utils/logger';
 import { PerKeySingleflight } from '../../cache/application/singleflight';
+import {
+  advanceSchoolLoginEpoch,
+  type SchoolLoginTransaction,
+} from './school-login-context';
 
 export type CredentialSystem = 'cas_tgc' | 'portal_jwt' | 'jw_session';
+type RecoveryRequirement = CredentialSystem | 'portal_only';
+
+interface ResolvedCredential {
+  value: string | null;
+  cookieJar: string | null;
+}
 
 const INTERACTIVE_LOGIN_REQUIRED_SYSTEM = 'interactive_login_required';
+const MANAGED_CREDENTIAL_SYSTEMS = [
+  'cas_tgc',
+  'portal_jwt',
+  'jw_session',
+  INTERACTIVE_LOGIN_REQUIRED_SYSTEM,
+] as const;
 
 // Silent re-auth cooldown tracking
 const reAuthState = new Map<number, { failCount: number; lastAttempt: number }>();
@@ -31,6 +47,37 @@ function isTransientRecoveryError(error: unknown): boolean {
   const message = String((error as any)?.message || '');
   if (message === 'REQUEST_TIMEOUT') return true;
   return /ECONNRESET|EAI_AGAIN|ETIMEDOUT|ENOTFOUND|fetch failed|network|_HTTP_(?:502|503|504)$/i.test(message);
+}
+
+function upsertCredentialInTransaction(
+  tx: SchoolLoginTransaction,
+  input: {
+    userId: number;
+    system: CredentialSystem;
+    value: string | null;
+    cookieJar: string | null;
+    ttlMs: number;
+    at: Date;
+  },
+): void {
+  const expiresAt = new Date(input.at.getTime() + input.ttlMs);
+  tx.insert(schema.credentials).values({
+    userId: input.userId,
+    system: input.system,
+    value: input.value,
+    cookieJar: input.cookieJar,
+    expiresAt,
+    createdAt: input.at,
+    updatedAt: input.at,
+  }).onConflictDoUpdate({
+    target: [schema.credentials.userId, schema.credentials.system],
+    set: {
+      value: input.value,
+      cookieJar: input.cookieJar,
+      expiresAt,
+      updatedAt: input.at,
+    },
+  }).run();
 }
 
 export class CredentialManager {
@@ -83,9 +130,12 @@ export class CredentialManager {
     cookieJar: string | null,
     ttlMs: number
   ): Promise<void> {
+    if (!Number.isSafeInteger(ttlMs) || ttlMs <= 0) {
+      throw new Error('CREDENTIAL_TTL_MUST_BE_POSITIVE_INTEGER');
+    }
     const db = getDb();
-    const expiresAt = new Date(Date.now() + ttlMs);
     const now = new Date();
+    const expiresAt = new Date(now.getTime() + ttlMs);
 
     await db.insert(schema.credentials).values({
       userId, system, value, cookieJar, expiresAt,
@@ -99,10 +149,7 @@ export class CredentialManager {
   /**
    * Get a valid (non-expired) credential
    */
-  static async getCredential(userId: number, system: CredentialSystem): Promise<{
-    value: string | null;
-    cookieJar: string | null;
-  } | null> {
+  static async getCredential(userId: number, system: CredentialSystem): Promise<ResolvedCredential | null> {
     const db = getDb();
     const rows = await db.select()
       .from(schema.credentials)
@@ -114,7 +161,7 @@ export class CredentialManager {
 
     if (rows.length === 0) return null;
     const cred = rows[0];
-    if (cred.expiresAt && cred.expiresAt.getTime() < Date.now()) return null;
+    if (!cred.expiresAt || cred.expiresAt.getTime() <= Date.now()) return null;
     return { value: cred.value, cookieJar: cred.cookieJar };
   }
 
@@ -124,10 +171,11 @@ export class CredentialManager {
    *   2. Expired → try refresh via TGC
    *   3. TGC also expired → silent re-auth with stored password
    */
-  static async getOrRefreshCredential(userId: number, system: CredentialSystem, deadlineAt?: number): Promise<{
-    value: string | null;
-    cookieJar: string | null;
-  } | null> {
+  static async getOrRefreshCredential(
+    userId: number,
+    system: CredentialSystem,
+    deadlineAt?: number,
+  ): Promise<ResolvedCredential | null> {
     const existing = await this.getCredential(userId, system);
     if (existing) return existing;
 
@@ -155,6 +203,28 @@ export class CredentialManager {
     return this.getCredential(userId, system);
   }
 
+  /** mobile-yxt 窄端口专用：恢复 Portal 只触碰 CAS/Portal，绝不激活 JW。 */
+  static async getOrRefreshPortalCredentialWithoutJw(
+    userId: number,
+    deadlineAt?: number,
+  ): Promise<ResolvedCredential | null> {
+    const existing = await this.getCredential(userId, 'portal_jwt');
+    if (existing) return existing;
+    if (await this.requiresInteractiveLogin(userId)) return null;
+
+    const tgc = await this.getCredential(userId, 'cas_tgc');
+    if (tgc?.cookieJar) {
+      const refreshed = await this.refreshFromTGC(userId, 'portal_jwt', tgc.cookieJar, deadlineAt);
+      if (refreshed) return refreshed;
+    }
+    await reAuthFlights.run(
+      `silent-reauth:${userId}`,
+      'normal',
+      () => this.executeSilentReAuth(userId, deadlineAt, 'portal_only'),
+    );
+    return this.getCredential(userId, 'portal_jwt');
+  }
+
   /**
    * Refresh a sub-credential using a valid TGC
    */
@@ -163,7 +233,7 @@ export class CredentialManager {
     system: CredentialSystem,
     tgcJar: string,
     deadlineAt?: number
-  ): Promise<{ value: string | null; cookieJar: string | null } | null> {
+  ): Promise<ResolvedCredential | null> {
     const client = HttpClient.fromSerializedJar(tgcJar, deadlineAt);
     const start = Date.now();
 
@@ -226,7 +296,7 @@ export class CredentialManager {
   private static async executeSilentReAuth(
     userId: number,
     deadlineAt?: number,
-    requiredSystem?: CredentialSystem,
+    requiredSystem?: RecoveryRequirement,
   ): Promise<boolean> {
     if (await this.requiresInteractiveLogin(userId)) {
       Logger.warn('SilentReAuth', '等待验证码登录，跳过静默重认证', undefined, String(userId));
@@ -316,17 +386,25 @@ export class CredentialManager {
         steps.push({ label: 'Portal', ok: true });
       }
 
-      // 5. Persist credentials that are already valid after CAS login.
+      // 5. Portal-only recovery stops here: Portal/mobile reads must never activate or replace JW.
       const portalJarJson = client.serializeJar();
-      await this.storeCredential(userId, 'cas_tgc', null, portalJarJson, config.ttl.tgc);
-      if (portalToken) {
-        await this.storeCredential(userId, 'portal_jwt', portalToken, null, config.ttl.portalJwt);
+      if (requiredSystem === 'portal_only') {
+        if (!portalToken) {
+          this.recordReAuthFailure(userId);
+          return false;
+        }
+        await this.persistRealSchoolLogin(userId, portalJarJson, portalToken, null);
+        Logger.auth(user.studentId, '静默重认证成功', 200, Date.now() - start, user.name || undefined, steps);
+        return true;
       }
 
       // 6. Activate JW session
       const jwResult = await TicketExchanger.exchangeJwSession(client);
       if (!jwResult.success) {
         steps.push({ label: 'JW 激活', ok: false });
+        if (portalToken) {
+          await this.persistRealSchoolLogin(userId, portalJarJson, portalToken, null);
+        }
         if (jwResult.upstreamUnavailable && requiredSystem === 'jw_session') {
           throw new Error('REQUEST_TIMEOUT');
         }
@@ -336,11 +414,9 @@ export class CredentialManager {
       }
       steps.push({ label: 'JW 激活', ok: true });
 
-      // 7. Persist JW session after activation mutates the cookie jar.
+      // 7. 一次事务提交真实 CAS 登录的新上下文与本次可用基础凭证。
       const jwJarJson = client.serializeJar();
-      await this.storeCredential(userId, 'jw_session', null, jwJarJson, config.ttl.jwSession);
-
-      await this.clearLoginRecoveryState(userId);
+      await this.persistRealSchoolLogin(userId, portalJarJson, portalToken, jwJarJson);
       Logger.auth(user.studentId, '静默重认证成功', 200, Date.now() - start, user.name || undefined, steps);
       return true;
     } catch (e: any) {
@@ -357,6 +433,56 @@ export class CredentialManager {
     state.failCount++;
     state.lastAttempt = Date.now();
     reAuthState.set(userId, state);
+  }
+
+  private static async persistRealSchoolLogin(
+    userId: number,
+    casCookieJar: string,
+    portalToken: string | null,
+    jwCookieJar: string | null,
+  ): Promise<void> {
+    const at = new Date();
+    getDb().transaction((tx) => {
+      advanceSchoolLoginEpoch(tx, userId, at);
+      upsertCredentialInTransaction(tx, {
+        userId,
+        system: 'cas_tgc',
+        value: null,
+        cookieJar: casCookieJar,
+        ttlMs: config.ttl.tgc,
+        at,
+      });
+      if (portalToken) {
+        upsertCredentialInTransaction(tx, {
+          userId,
+          system: 'portal_jwt',
+          value: portalToken,
+          cookieJar: null,
+          ttlMs: config.ttl.portalJwt,
+          at,
+        });
+      } else {
+        tx.delete(schema.credentials).where(and(
+          eq(schema.credentials.userId, userId),
+          eq(schema.credentials.system, 'portal_jwt'),
+        )).run();
+      }
+      if (jwCookieJar) {
+        upsertCredentialInTransaction(tx, {
+          userId,
+          system: 'jw_session',
+          value: null,
+          cookieJar: jwCookieJar,
+          ttlMs: config.ttl.jwSession,
+          at,
+        });
+      }
+      tx.delete(schema.credentials).where(and(
+        eq(schema.credentials.userId, userId),
+        eq(schema.credentials.system, INTERACTIVE_LOGIN_REQUIRED_SYSTEM),
+      )).run();
+    });
+    reAuthState.delete(userId);
   }
 
   /**
@@ -403,7 +529,10 @@ export class CredentialManager {
   static async invalidateAll(userId: number): Promise<void> {
     const db = getDb();
     await db.delete(schema.credentials)
-      .where(eq(schema.credentials.userId, userId));
+      .where(and(
+        eq(schema.credentials.userId, userId),
+        inArray(schema.credentials.system, [...MANAGED_CREDENTIAL_SYSTEMS]),
+      ));
   }
 
   private static async invalidateSchoolCredentials(userId: number): Promise<void> {

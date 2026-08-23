@@ -20,6 +20,7 @@ import healthRoutes from './system/health.routes';
 import publicRoutes from './content/public.routes';
 import calendarApiRoutes from './calendar/calendar-api.routes';
 import calendarPublicRoutes from './calendar/calendar-public.routes';
+import utilitiesRoutes from './portal/utilities.routes';
 
 export interface RouteDependencies {
   adminRoutes: Hono;
@@ -65,6 +66,7 @@ export function registerRoutes(app: Hono, dependencies?: RouteDependencies) {
   api.route('/evaluations', evaluationRoutes);
   api.route('/classrooms', classroomRoutes);
   api.route('/ecard', ecardRoutes);
+  api.route('/utilities', utilitiesRoutes);
   api.route('/user', userRoutes);
 
   if (dependencies) {

@@ -5,7 +5,7 @@
 academic/: 学业领域纵向切片，承载课表、成绩、评教与空教室 application/domain/infrastructure
 cache/: 本地缓存纵向切片，显式建模永久/限时新鲜度、版本 envelope、SQLite 持久化与进程内 singleflight
 calendar/: 日历订阅纵向切片，承载签名、用户查询、Academic 课表编排与 RFC 5545 ICS
-campus-integrations/: 学校 CAS、Portal、JW 防腐层，收敛 HTTP、凭证恢复、上游编排、资料服务与纯解析器唯一实现
+campus-integrations/: 学校 CAS、Portal、JW、mobile-yxt 防腐层，收敛 HTTP、凭证恢复、上游编排、只读账单/电费、资料服务与纯解析器唯一实现
 community/: 公共社区资料纵向切片，统一默认 displayName、昵称校验、公共/本人 DTO、资料读写与头像媒体
 discover/: 好饭内容纵向切片，承载点赞/评论/推荐、Community 作者投影、SQLite 事务与本地媒体
 identity/: 身份领域纵向切片，隔离登录应用编排、领域契约、基础设施适配与 HTTP 映射
@@ -32,5 +32,6 @@ Messaging 与 Notifications 保持事实隔离：私信未读直接按消息和�
 2026-07-27: 新增 Calendar 纵向切片，旧 routes/services/auth 日历实现退化为单向兼容 Facade。
 2026-07-27: 新增 academic 纵向切片，旧 Academic/Portal 课表服务退化为兼容 Facade。
 2026-07-27: 新增 campus-integrations，建立学校上游协议与凭证恢复的 canonical 防腐层。
+2026-08-23: campus-integrations 增加 mobile-yxt 只读切片，以登录 epoch、模块自有会话仓储、Portal 窄 reader、独立限流和有界缓存隔离账单/电费协议。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
