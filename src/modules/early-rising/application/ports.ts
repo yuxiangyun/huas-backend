@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 Early Rising 事实、周期范围与排行榜候选领域类型
- * [OUTPUT]: 对外提供打卡事实仓储与可注入 Clock 的 application 依赖倒置端口
- * [POS]: modules/early-rising/application 的外部能力边界，使时间测试与 SQLite 实现均可替换
+ * [INPUT]: 依赖 Early Rising 事实、周期范围、排行榜候选与展示设置快照领域类型
+ * [OUTPUT]: 对外提供打卡事实仓储、单行展示设置仓储与可注入 Clock 的 application 依赖倒置端口
+ * [POS]: modules/early-rising/application 的外部能力边界，使时间测试、SQLite 事实与设置实现均可替换
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -11,6 +11,7 @@ import type {
   EarlyRisingPeriod,
   EarlyRisingPeriodRange,
   EarlyRisingRankFact,
+  EarlyRisingSettingsSnapshot,
 } from '../domain/early-rising';
 
 export interface EarlyRisingPersonalStatistics {
@@ -42,6 +43,15 @@ export interface EarlyRisingRepository {
     currentUserId: number,
     limit: number,
   ): Promise<EarlyRisingLeaderboardFacts>;
+}
+
+export interface EarlyRisingSettingsRepository {
+  get(): Promise<EarlyRisingSettingsSnapshot>;
+  update(
+    profileEntryVisible: boolean,
+    updatedAt: Date,
+    updatedBy: string,
+  ): Promise<EarlyRisingSettingsSnapshot>;
 }
 
 export type { EarlyRisingClock };

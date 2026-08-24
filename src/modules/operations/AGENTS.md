@@ -4,7 +4,7 @@
 成员清单
 application/: 管理仪表盘、社区管理与 Messaging 管理只读用例编排，仅消费公开 query/command ports 与 Operations 自有能力端口
 domain/: Operations 稳定 DTO 与端口，不承载 analytics 持久化规则
-http/: 后台会话、管理面、公共公告/首页弹窗、live/ready 与 Prometheus 指标 Hono 协议适配器
+http/: 后台会话、管理面、Early Rising 展示设置、公共公告/首页弹窗、live/ready 与 Prometheus 指标 Hono 协议适配器
 infrastructure/: analytics SQLite 事实、公告/首页弹窗/日志文件、公开弹窗媒体与健康探针 adapters
 composition.ts: Operations 局部组合工厂，接收 Identity/Discover/Treehole/Messaging 公开查询与命令 ports，并构造管理 application/HTTP
 

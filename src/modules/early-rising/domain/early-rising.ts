@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 JavaScript Date/Intl 的 Asia/Shanghai 时区能力与 Community 详细公共资料 DTO
- * [OUTPUT]: 对外提供 Early Rising 时间窗、周期/趋势范围、打卡事实及统计/排行榜 HTTP DTO 的纯领域模型
+ * [OUTPUT]: 对外提供 Early Rising 时间窗、周期/趋势范围、打卡事实、展示设置快照及统计/排行榜 HTTP DTO 的纯领域模型
  * [POS]: modules/early-rising/domain 的规则内核，统一所有北京时间裁决且不感知 Hono、SQLite 或客户端时钟
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -68,6 +68,12 @@ export interface EarlyRisingLeaderboardRow {
   checkedAt?: string;
   continuityScore?: number;
   validDays?: number;
+}
+
+export interface EarlyRisingSettingsSnapshot {
+  profileEntryVisible: boolean;
+  updatedAt: Date | null;
+  updatedBy: string | null;
 }
 
 function dateParts(value: string) {

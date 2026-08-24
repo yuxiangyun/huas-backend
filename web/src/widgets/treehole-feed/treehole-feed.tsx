@@ -20,7 +20,7 @@ import { Card } from '@/shared/ui/card';
 import { CommunityAvatar } from '@/shared/ui/community-avatar';
 import { SocialCountAction } from '@/shared/ui/social-count-action';
 
-const FEED_SURFACE_CLASS = 'rounded-none border-x-0 border-y-0 border-[#dbdbdb] shadow-none';
+const FEED_SURFACE_CLASS = 'rounded-none border-x-0 border-y-0 border-line shadow-none';
 
 interface TreeholeFeedProps {
   onComposeClick: () => void;
@@ -114,7 +114,7 @@ function ImagePostCard({
 
   return (
     <article
-      className="border-b border-[#dbdbdb] bg-white pb-1 last:border-b-0"
+      className="border-b border-line bg-white pb-1 last:border-b-0"
       style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 680px' }}
     >
       <header className="flex items-center gap-3 px-4 py-3 sm:px-5">
@@ -177,7 +177,7 @@ function TextPostCard({
 }: PostCardProps) {
   return (
     <article
-      className="border-b border-[#dbdbdb] bg-white pb-1 last:border-b-0"
+      className="border-b border-line bg-white pb-1 last:border-b-0"
       style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 220px' }}
     >
       <header className="flex items-center gap-3 px-4 pt-4 sm:px-5">
@@ -214,12 +214,12 @@ function TextPostCard({
 function TreeholeSkeleton() {
   return (
     <div aria-hidden="true">
-      <div className="border-b border-[#dbdbdb] bg-white">
+      <div className="border-b border-line bg-white">
         <div className="flex items-center gap-3 px-4 py-3"><div className="size-[42px] animate-pulse rounded-full bg-shell-strong" /><div className="space-y-2"><div className="h-4 w-24 animate-pulse rounded bg-shell-strong" /><div className="h-3 w-16 animate-pulse rounded bg-shell-strong" /></div></div>
         <div className="aspect-[4/5] animate-pulse bg-shell-strong" />
         <div className="space-y-3 px-4 py-4"><div className="h-6 w-32 animate-pulse rounded bg-shell-strong" /><div className="h-10 animate-pulse rounded bg-shell-strong" /></div>
       </div>
-      <div className="border-b border-[#dbdbdb] px-4 py-4">
+      <div className="border-b border-line px-4 py-4">
         <div className="flex items-center gap-3"><div className="size-11 animate-pulse rounded-full bg-shell-strong" /><div className="h-4 w-32 animate-pulse rounded bg-shell-strong" /></div>
         <div className="mt-3 h-20 animate-pulse rounded bg-shell-strong" />
         <div className="mt-3 h-5 w-48 animate-pulse rounded bg-shell-strong" />
@@ -293,7 +293,7 @@ export function TreeholeFeed({ onComposeClick, onOpenPost, onOpenProfile, onShar
       ) : null}
 
       {postsQuery.hasNextPage ? (
-        <div className="flex justify-center border-t border-[#dbdbdb] px-4 py-4">
+        <div className="flex justify-center border-t border-line px-4 py-4">
           <Button disabled={postsQuery.isFetchingNextPage} size="sm" type="button" variant="secondary" onClick={() => void postsQuery.fetchNextPage()}>
             {postsQuery.isFetchingNextPage ? '加载中…' : '加载更多'}
           </Button>

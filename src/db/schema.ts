@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 drizzle-orm/sqlite-core 的表、列、索引、检查与唯一键构造器
- * [OUTPUT]: 对外提供 Identity、含 Bio 的 Community、Early Rising 打卡事实、社交内容、通知、私信与 analytics 全部 SQLite 表定义
+ * [OUTPUT]: 对外提供 Identity、含 Bio 的 Community、Early Rising 打卡/展示设置、社交内容、通知、私信与 analytics 全部 SQLite 表定义
  * [POS]: db 的全局 Drizzle 类型相；migration 是结构事实源，各纵向模块只消费自己拥有的表
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -40,6 +40,19 @@ export const earlyRisingCheckins = sqliteTable('early_rising_checkins', {
     .on(table.checkinDate, table.checkedAt, table.id),
   userTrendIndex: index('idx_early_rising_checkins_user_trend')
     .on(table.userId, table.checkinDate),
+}));
+
+export const earlyRisingSettings = sqliteTable('early_rising_settings', {
+  id: integer('id').primaryKey(),
+  profileEntryVisible: integer('profile_entry_visible', { mode: 'boolean' }).notNull().default(true),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }),
+  updatedBy: text('updated_by'),
+}, (table) => ({
+  singletonCheck: check('ck_early_rising_settings_singleton', sql`${table.id} = 1`),
+  profileEntryVisibleCheck: check(
+    'ck_early_rising_settings_profile_entry_visible',
+    sql`${table.profileEntryVisible} IN (0, 1)`,
+  ),
 }));
 
 export const credentials = sqliteTable('credentials', {

@@ -1,22 +1,31 @@
 /**
- * [INPUT]: 依赖隔离 SQLite、Early Rising 可注入 Clock/真实仓储与 Hono 路由、Community 详细资料测试端口
- * [OUTPUT]: 覆盖北京时间窗边界、并发幂等语义、连续统计/缺口趋势、连续积分排序、前 100 与独立 me
+ * [INPUT]: 依赖隔离 SQLite、Early Rising 可注入 Clock/真实事实与设置仓储及 Hono 路由、Community 详细资料测试端口
+ * [OUTPUT]: 覆盖北京时间窗边界、并发幂等语义、连续统计/缺口趋势、连续积分排序、前 100、独立 me 与个人资料入口设置
  * [POS]: tests 的 Early Rising MVP 专项回归，以少量高价值用例锁定事实派生和跨模块批量投影边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { beforeEach, describe, expect, test } from 'bun:test';
+import { afterAll, beforeEach, describe, expect, test } from 'bun:test';
+import { Database } from 'bun:sqlite';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { Hono } from 'hono';
 import { getDb, schema } from '../src/db';
+import { migrateDatabase } from '../src/db/migrator';
 import { onAppError } from '../src/middleware/error.middleware';
 import { EarlyRisingApplicationService } from '../src/modules/early-rising/application/early-rising-application-service';
 import type { EarlyRisingClock } from '../src/modules/early-rising/application/ports';
 import { createEarlyRisingRoutes } from '../src/modules/early-rising/http/early-rising.routes';
 import { SQLiteEarlyRisingRepository } from '../src/modules/early-rising/infrastructure/sqlite-early-rising-repository';
+import { SQLiteEarlyRisingSettingsRepository } from '../src/modules/early-rising/infrastructure/sqlite-early-rising-settings-repository';
+import { createAdminRoutes } from '../src/modules/operations/http/admin.routes';
 import { clearSocialTestData } from './social-database';
 
 const db = getDb();
 const repository = new SQLiteEarlyRisingRepository(db);
+const settingsRepository = new SQLiteEarlyRisingSettingsRepository(db);
+const scriptTestRoots: string[] = [];
 
 async function createUser(studentId: string) {
   const now = new Date();
@@ -45,7 +54,7 @@ function createHarness(initialNow: string) {
     },
   };
   return {
-    service: new EarlyRisingApplicationService(repository, profiles, clock),
+    service: new EarlyRisingApplicationService(repository, settingsRepository, profiles, clock),
     profileBatches,
     setNow(value: string) { now = new Date(value); },
   };
@@ -53,6 +62,11 @@ function createHarness(initialNow: string) {
 
 beforeEach(async () => {
   await clearSocialTestData(db);
+  await settingsRepository.update(true, new Date(0), 'test-reset');
+});
+
+afterAll(() => {
+  for (const root of scriptTestRoots) rmSync(root, { recursive: true, force: true });
 });
 
 describe('Early Rising check-in and personal facts', () => {
@@ -185,5 +199,155 @@ describe('Early Rising leaderboards', () => {
     expect(result.me).toMatchObject({ rank: 101, profile: { id: currentUserId } });
     expect(harness.profileBatches).toHaveLength(1);
     expect(harness.profileBatches[0]).toHaveLength(101);
+  });
+});
+
+describe('Early Rising display settings', () => {
+  test('defaults to visible, persists an audited admin update, and exposes only the client flag', async () => {
+    const harness = createHarness('2026-08-24T08:00:00+08:00');
+    expect(await harness.service.getClientSettings()).toEqual({ profileEntryVisible: true });
+
+    expect(await harness.service.updateSettings(false, 'linus')).toEqual({
+      profileEntryVisible: false,
+      updatedAt: '2026-08-24T00:00:00.000Z',
+      updatedBy: 'linus',
+    });
+    expect(await harness.service.getAdminSettings()).toEqual({
+      profileEntryVisible: false,
+      updatedAt: '2026-08-24T00:00:00.000Z',
+      updatedBy: 'linus',
+    });
+
+    const app = new Hono();
+    app.route('/early-rising', createEarlyRisingRoutes(harness.service));
+    const response = await app.request('http://localhost/early-rising/settings');
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      success: true,
+      data: { profileEntryVisible: false },
+    });
+  });
+
+  test('protects the admin setting and rejects non-boolean updates', async () => {
+    const previousUsername = process.env.ADMIN_USERNAME;
+    const previousPassword = process.env.ADMIN_PASSWORD;
+    process.env.ADMIN_USERNAME = 'early-admin';
+    process.env.ADMIN_PASSWORD = 'early-password';
+    try {
+      const harness = createHarness('2026-08-24T08:00:00+08:00');
+      const app = new Hono();
+      app.onError(onAppError);
+      app.route('/api/admin', createAdminRoutes({
+        dashboard: new Proxy({}, { get: () => async () => ({}) }) as any,
+        communityAdmin: new Proxy({}, { get: () => async () => ({}) }) as any,
+        messagingAdmin: new Proxy({}, { get: () => async () => ({}) }) as any,
+        earlyRisingSettings: harness.service,
+      }));
+
+      expect((await app.request('http://localhost/api/admin/early-rising/settings')).status).toBe(401);
+      const login = await app.request('http://localhost/api/admin/session', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ username: 'early-admin', password: 'early-password' }),
+      });
+      const cookie = (login.headers.get('set-cookie') || '').split(';')[0]!;
+
+      const invalid = await app.request('http://localhost/api/admin/early-rising/settings', {
+        method: 'PUT',
+        headers: { cookie, 'content-type': 'application/json' },
+        body: JSON.stringify({ profileEntryVisible: 'false' }),
+      });
+      expect(invalid.status).toBe(400);
+
+      const updated = await app.request('http://localhost/api/admin/early-rising/settings', {
+        method: 'PUT',
+        headers: { cookie, 'content-type': 'application/json' },
+        body: JSON.stringify({ profileEntryVisible: false }),
+      });
+      expect(updated.status).toBe(200);
+      expect(await updated.json()).toMatchObject({
+        data: { profileEntryVisible: false, updatedBy: 'early-admin' },
+      });
+    } finally {
+      if (previousUsername === undefined) delete process.env.ADMIN_USERNAME;
+      else process.env.ADMIN_USERNAME = previousUsername;
+      if (previousPassword === undefined) delete process.env.ADMIN_PASSWORD;
+      else process.env.ADMIN_PASSWORD = previousPassword;
+    }
+  });
+});
+
+describe('Early Rising mock seed script', () => {
+  test('uses existing public profiles and undoes only rows recorded by its manifest', () => {
+    const root = mkdtempSync(join(tmpdir(), 'huas-early-rising-seed-'));
+    scriptTestRoots.push(root);
+    const dbPath = join(root, 'mock.db');
+    const firstManifest = join(root, 'first.json');
+    const secondManifest = join(root, 'second.json');
+    const database = new Database(dbPath);
+    migrateDatabase(database, { allowDestructive: true });
+    database.exec(`
+      INSERT INTO users (student_id, class_name) VALUES
+        ('real-profile-a', '软工24101班'),
+        ('real-profile-b', '计科24201班'),
+        ('real-profile-c', NULL);
+      INSERT INTO community_profiles (user_id, nickname, avatar_url, bio) VALUES
+        (1, '晨光甲', '/media/treehole-avatar/a.webp', '真实 Bio'),
+        (2, NULL, NULL, NULL);
+      INSERT INTO early_rising_checkins (user_id, checkin_date, checked_at)
+      VALUES (1, '2020-01-01', 1577800800000);
+    `);
+    database.close();
+
+    const run = (...args: string[]) => Bun.spawnSync([
+      process.execPath,
+      'scripts/seed-early-rising-mock.ts',
+      '--db',
+      dbPath,
+      ...args,
+    ], {
+      cwd: process.cwd(),
+      env: { ...process.env, NODE_ENV: 'test' },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+
+    const applied = run('--apply', '--limit', '3', '--days', '5', '--seed', '42', '--manifest', firstManifest);
+    expect(applied.exitCode, applied.stderr.toString()).toBe(0);
+    const appliedResult = JSON.parse(applied.stdout.toString());
+    expect(appliedResult.inserted).toBeGreaterThan(0);
+    expect(appliedResult.profiles[0]).toEqual({
+      id: 1,
+      displayName: '晨光甲',
+      avatarUrl: '/media/treehole-avatar/a.webp',
+      bio: '真实 Bio',
+    });
+
+    const repeated = run('--apply', '--limit', '3', '--days', '5', '--seed', '42', '--manifest', secondManifest);
+    expect(repeated.exitCode, repeated.stderr.toString()).toBe(0);
+    expect(JSON.parse(repeated.stdout.toString()).inserted).toBe(0);
+
+    const beforeUndo = new Database(dbPath);
+    const countBefore = (beforeUndo.query('SELECT count(*) AS count FROM early_rising_checkins').get() as { count: number }).count;
+    expect(countBefore).toBe(appliedResult.inserted + 1);
+    expect(beforeUndo.query('SELECT nickname, avatar_url, bio FROM community_profiles WHERE user_id = 1').get())
+      .toEqual({ nickname: '晨光甲', avatar_url: '/media/treehole-avatar/a.webp', bio: '真实 Bio' });
+    beforeUndo.close();
+
+    const undone = run('--undo', firstManifest);
+    expect(undone.exitCode, undone.stderr.toString()).toBe(0);
+    expect(JSON.parse(undone.stdout.toString())).toMatchObject({
+      mode: 'undo',
+      removed: appliedResult.inserted,
+      alreadyUndone: false,
+    });
+    const repeatedUndo = run('--undo', firstManifest);
+    expect(repeatedUndo.exitCode, repeatedUndo.stderr.toString()).toBe(0);
+    expect(JSON.parse(repeatedUndo.stdout.toString()).alreadyUndone).toBe(true);
+
+    const afterUndo = new Database(dbPath);
+    expect(afterUndo.query('SELECT id, user_id, checkin_date, checked_at FROM early_rising_checkins').all())
+      .toEqual([{ id: 1, user_id: 1, checkin_date: '2020-01-01', checked_at: 1577800800000 }]);
+    afterUndo.close();
   });
 });

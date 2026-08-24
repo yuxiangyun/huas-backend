@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 admin API、稳定 query keys、后台会话、共享后台/轮询时间策略与 TanStack Query 缓存原语
- * [OUTPUT]: 提供 15 秒后台快照查询/变更 hooks，包含短命私信游标、课表策略与首页弹窗三态设置写回
+ * [OUTPUT]: 提供 15 秒后台快照查询/变更 hooks，包含短命私信游标、课表策略、首页弹窗与 Early Rising 展示设置写回
  * [POS]: entities/admin 的服务器状态编排层，页面只组合查询结果和用户动作，高水位键不继承普通后台保留期
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -16,6 +16,7 @@ import {
   getAdminAnnouncements,
   getAdminAnalyticsOverview,
   getAdminDashboard,
+  getAdminEarlyRisingSettings,
   getAdminIndexPopupSettings,
   getAdminMessagingConversationChanges,
   getAdminMessagingConversations,
@@ -25,6 +26,7 @@ import {
   getAdminTreeholeComments,
   getAdminTreeholePosts,
   updateAdminAnnouncement,
+  updateAdminEarlyRisingSettings,
   updateAdminIndexPopupSettings,
   updateAdminScheduleSourcePolicy,
 } from '@/entities/admin/api/admin-api';
@@ -80,6 +82,26 @@ export function useUpdateAdminIndexPopupSettingsMutation(_session: AdminSession 
     mutationFn: updateAdminIndexPopupSettings,
     onSuccess: (settings) => {
       queryClient.setQueryData(adminQueryKeys.indexPopupSettings(), settings);
+    },
+  });
+}
+
+export function useAdminEarlyRisingSettingsQuery(session: AdminSession | null) {
+  return useQuery({
+    queryKey: adminQueryKeys.earlyRisingSettings(),
+    queryFn: ({ signal }) => getAdminEarlyRisingSettings({ signal }),
+    ...QUERY_CACHE_POLICY.admin,
+    enabled: session !== null,
+  });
+}
+
+export function useUpdateAdminEarlyRisingSettingsMutation(_session: AdminSession | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: updateAdminEarlyRisingSettings,
+    onSuccess: (settings) => {
+      queryClient.setQueryData(adminQueryKeys.earlyRisingSettings(), settings);
     },
   });
 }

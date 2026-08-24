@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖注入的 Operations application 服务、会话边界、Academic 策略公开门面、自有 infrastructure、共享上传门禁与统一响应/审计日志
- * [OUTPUT]: 对外提供 createAdminRoutes(dependencies)，生成会话、dashboard、公告/三态底栏首页弹窗、Treehole 私有媒体、增量/三态私信只读与课表策略路由
+ * [INPUT]: 依赖注入的 Operations application 服务、Early Rising 设置端口、会话边界、Academic 策略公开门面、自有 infrastructure、共享上传门禁与统一响应/审计日志
+ * [OUTPUT]: 对外提供 createAdminRoutes(dependencies)，生成会话、dashboard、公告/三态底栏首页弹窗、Early Rising 展示设置、Treehole 私有媒体、增量/三态私信只读与课表策略路由
  * [POS]: operations/http 的注入式管理面协议适配器，媒体读取只记录稳定资源键与业务 ID，不记正文、文件名或用户隐私
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -19,6 +19,7 @@ import { error, success } from '../../../utils/response';
 import type { AdminDashboardApplicationService } from '../application/admin-dashboard-service';
 import type { CommunityAdminApplicationService } from '../application/community-admin-service';
 import type { MessagingAdminApplicationService } from '../application/messaging-admin-service';
+import type { EarlyRisingAdminSettingsPort } from '../domain/ports';
 import { AnalyticsService } from '../infrastructure/analytics-service';
 import { AnnouncementService } from '../infrastructure/announcement-service';
 import {
@@ -48,6 +49,7 @@ export interface AdminRouteDependencies {
     MessagingAdminApplicationService,
     'listConversations' | 'listConversationChanges' | 'listMessages' | 'getMedia'
   >;
+  earlyRisingSettings: EarlyRisingAdminSettingsPort;
 }
 
 export function createAdminRoutes(dependencies: AdminRouteDependencies) {
@@ -142,6 +144,35 @@ export function createAdminRoutes(dependencies: AdminRouteDependencies) {
   });
 
   admin.get('/index-popup', async (c) => success(c, await IndexPopupService.getAdmin()));
+
+  admin.get('/early-rising/settings', async (c) => {
+    return success(c, await dependencies.earlyRisingSettings.getAdminSettings());
+  });
+
+  admin.put('/early-rising/settings', async (c) => {
+    let body: { profileEntryVisible?: unknown };
+    try {
+      body = await c.req.json();
+    } catch {
+      return error(c, ErrorCode.PARAM_ERROR, '请求体必须是有效的 JSON', 400);
+    }
+    if (typeof body.profileEntryVisible !== 'boolean') {
+      return error(c, ErrorCode.PARAM_ERROR, 'profileEntryVisible 必须是布尔值', 400);
+    }
+    const actor = c.get('adminUser') || 'admin';
+    const settings = await dependencies.earlyRisingSettings.updateSettings(
+      body.profileEntryVisible,
+      actor,
+    );
+    Logger.operation(
+      'Admin',
+      '更新早起打卡展示设置',
+      actor,
+      '管理员',
+      `profileEntryVisible=${settings.profileEntryVisible}`,
+    );
+    return success(c, settings);
+  });
 
   admin.put(
     '/index-popup',

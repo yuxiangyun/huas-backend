@@ -134,7 +134,7 @@ export function TreeholePage() {
 
   return (
     <div className="page-stack-mobile -mx-4 bg-white sm:mx-0">
-      <section className="overflow-hidden border-b border-[#dbdbdb] bg-white sm:rounded-[0.5rem] sm:border-x">
+      <section className="overflow-hidden border-b border-line bg-white sm:rounded-[0.5rem] sm:border-x">
         <PageHeader
           action={(
             <IconButton

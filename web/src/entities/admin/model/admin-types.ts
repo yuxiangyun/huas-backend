@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖后端管理接口与 Community/Messaging 公共 DTO
- * [OUTPUT]: 提供 dashboard、图文内容、日志、课表策略、含底部三态动作的首页弹窗设置与私信只读强类型契约
+ * [OUTPUT]: 提供 dashboard、图文内容、日志、课表策略、首页弹窗、Early Rising 展示设置与私信只读强类型契约
  * [POS]: entities/admin 的协议模型边界，保证 Treehole 管理图片与其他后台 UI 不重新解释后端字段
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -165,6 +165,16 @@ export interface AdminIndexPopupSettingsPayload {
   startsAt: string | null;
   endsAt: string | null;
   image?: File;
+}
+
+export interface AdminEarlyRisingSettings {
+  profileEntryVisible: boolean;
+  updatedAt: string | null;
+  updatedBy: string | null;
+}
+
+export interface AdminEarlyRisingSettingsPayload {
+  profileEntryVisible: boolean;
 }
 
 export interface AdminTreeholeAuthor {

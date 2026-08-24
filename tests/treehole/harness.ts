@@ -125,6 +125,14 @@ export function createAdminApp() {
         return async () => { throw new Error('Treehole 媒体测试不读取 Messaging'); };
       },
     }) as any,
+    earlyRisingSettings: {
+      async getAdminSettings() {
+        return { profileEntryVisible: true, updatedAt: null, updatedBy: null };
+      },
+      async updateSettings(profileEntryVisible, updatedBy) {
+        return { profileEntryVisible, updatedAt: new Date().toISOString(), updatedBy };
+      },
+    },
   }));
   return app;
 }

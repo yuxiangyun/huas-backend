@@ -16,6 +16,7 @@ cache-modernization.test.ts: Cache 永久/限时新鲜度、数据时间/LRU 访
 calendar-compat.test.ts: Calendar canonical 实现与 routes/services/auth 旧 Facade 的引用、token 别名与 HMAC 语义兼容测试
 campus-integrations-compat.test.ts: Campus Integrations canonical 实现与 auth/core/parsers/services 旧 Facade 的引用一致性测试
 database-migrations.test.ts: SQLite destructive 授权、0003 核心守恒/旧事实丢弃、0004 Treehole 媒体列与唯一索引、schema fail-ready、repair 与快照测试
+early-rising.test.ts: Early Rising 时间窗、幂等打卡、统计/趋势/排行榜、单行展示设置与 mock seed 回归测试
 deployment-scripts.test.ts: 维护发布脚本的 Bash 语法、首页弹窗成组备份白名单、release 保留、停流前磁盘门禁、PM2 直接 Bun 启动、destructive migration、本机冒烟与 forward-fix 回归测试
 classroom-free-parser.test.ts: 空教室目标结构、合法空态、通用错误页拒绝、过滤规则与延后 JW 登录表单会话恢复回归测试
 community.test.ts: Community 缺省名称、昵称校验、DTO 隔离、并发字段 patch、头像引用保护、宽限期孤儿回收与媒体生命周期回归测试

@@ -19,6 +19,8 @@
     "db:repair": "bun scripts/db-repair.ts",
     "db:snapshot": "bun scripts/db-snapshot.ts",
     "seed:social-test": "bun scripts/seed-social-test-data.ts",
+    "seed:early-rising": "bun scripts/seed-early-rising-mock.ts",
+    "seed:early-rising:remote": "bun scripts/seed-early-rising-remote.ts",
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {

@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Tailwind CSS 主题层与浏览器视口、安全区、焦点、滚动条及动效偏好
- * [OUTPUT]: 提供白色应用基底的 shadcn neutral 设计令牌、稳定滚动与轻量动效、与底部 Tab 精确对齐的响应式应用壳、表单与可访问交互基线
+ * [OUTPUT]: 提供白色应用基底的 shadcn neutral 设计令牌、浅色分割线、带底部分割线的 64px 页头基线、稳定滚动与轻量动效、与底部 Tab 精确对齐的响应式应用壳、表单与可访问交互基线
  * [POS]: app/styles 的全局规范入口，只定义跨页面视觉规则，不承载业务装饰
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -13,7 +13,7 @@
   --color-shell-strong: #ededee;
   --color-ink: #171717;
   --color-muted: #737373;
-  --color-line: #e5e5e5;
+  --color-line: #eeeeee;
   --color-card: #ffffff;
   --color-card-strong: #ffffff;
   --color-tint: #171717;
@@ -24,7 +24,7 @@
   --color-success-soft: #f0fdf4;
   --color-foreground: #171717;
   --color-muted-foreground: #737373;
-  --color-border: #e5e5e5;
+  --color-border: #eeeeee;
   --color-popover: #ffffff;
   --color-popover-foreground: #171717;
   --radius-card: 0.75rem;
@@ -44,6 +44,7 @@
   --space-tab-height: 3.25rem;
   --space-shell-bottom: calc(var(--space-tab-height) + 0.25rem + 1px + env(safe-area-inset-bottom));
   --space-page-stack: 1.25rem;
+  --space-page-header-min-height: 4rem;
   --space-page-header-top: 0;
   --space-card-padding: 1rem;
   --space-sheet-y: 1rem;
@@ -143,6 +144,11 @@ select {
 }
 
 .page-header-mobile {
+  display: flex;
+  min-height: var(--space-page-header-min-height);
+  flex-direction: column;
+  justify-content: center;
+  border-bottom: 1px solid var(--color-line);
   padding-top: var(--space-page-header-top);
 }
 

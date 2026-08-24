@@ -8,6 +8,7 @@ calendar/: 日历订阅纵向切片，承载签名、用户查询、Academic 课
 campus-integrations/: 学校 CAS、Portal、JW、mobile-yxt 防腐层，收敛 HTTP、凭证恢复、上游编排、只读账单/电费、资料服务与纯解析器唯一实现
 community/: 公共社区资料纵向切片，统一默认 displayName、昵称校验、公共/本人 DTO、资料读写与头像媒体
 discover/: 好饭内容纵向切片，承载点赞/评论/推荐、Community 作者投影、SQLite 事务与本地媒体
+early-rising/: 早起打卡纵向切片，承载北京时间打卡、统计/趋势/排行榜与后台可控的个人资料入口设置
 identity/: 身份领域纵向切片，隔离登录应用编排、领域契约、基础设施适配与 HTTP 映射
 messaging/: 一对一私信纵向切片，承载会话 lastMessageId 增量、严格 UUID 图文幂等、三态消息/未读、私有媒体与管理只读 port
 notifications/: 活动通知纵向切片，承载差异回复事件、事务 Outbox、ID 增量、逐条已读、永久保留与周期投影重试
@@ -33,5 +34,6 @@ Messaging 与 Notifications 保持事实隔离：私信未读直接按消息和�
 2026-07-27: 新增 academic 纵向切片，旧 Academic/Portal 课表服务退化为兼容 Facade。
 2026-07-27: 新增 campus-integrations，建立学校上游协议与凭证恢复的 canonical 防腐层。
 2026-08-23: campus-integrations 增加 mobile-yxt 只读切片，以登录 epoch、模块自有会话仓储、Portal 窄 reader、独立限流和有界缓存隔离账单/电费协议。
+2026-08-24: 补齐 Early Rising 纵向切片地图，并将排行榜个人资料入口开关建模为模块自有 SQLite 设置事实。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md

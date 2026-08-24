@@ -3,7 +3,7 @@
 
 成员清单
 admin-session.middleware.ts: 后台 HttpOnly Cookie 会话建立、主动撤销、容量淘汰与认证边界
-admin.routes.ts: createAdminRoutes 注入式后台路由工厂，承载 dashboard、公告、受限 multipart 三态底栏首页弹窗、社区/Treehole 帖子媒体、Messaging 会话增量/三态只读历史审计与 Academic 策略协议
+admin.routes.ts: createAdminRoutes 注入式后台路由工厂，承载 dashboard、公告、受限 multipart 三态底栏首页弹窗、Early Rising 展示设置、社区/Treehole 帖子媒体、Messaging 会话增量/三态只读历史审计与 Academic 策略协议
 health.routes.ts: 保持 `/health` 兼容响应，并提供 `/health/live` 与本地依赖 `/health/ready`
 metrics.routes.ts: `/metrics` Prometheus 文本适配器，只序列化进程内低基数运行指标
 public.routes.ts: `/api/public/announcements` 与 `/api/public/index-popup` 匿名内容读取 HTTP 适配器

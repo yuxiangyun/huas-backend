@@ -349,6 +349,7 @@ mobile-yxt 业务会话只在固定 HTTP 401 证据后失效；基础 Portal JWT
 成绩强制刷新执行 JW fresh-first：45 秒总预算内有限恢复凭证并重试明确临时错误，只有新鲜路径穷尽后才允许 stale fallback。
 课表来源策略文件默认位于 dirname(DB_PATH)，生产蓝绿槽必须共享同一绝对持久路径，运行态 JSON、锁与临时文件不得纳入 Git。
 首页弹窗是 Operations 自有单配置展示能力；设置与有界保留的 WebP 版本跟随 dirname(DB_PATH) 共享，换图或修改 public_account/text/none 三态动作内容生成不可变版本，服务端只向匿名接口投影启用且命中时间窗的内容。
+Early Rising 自有 id=1 的 SQLite 展示设置快照，默认显示排行榜个人资料入口；Bearer 客户端只读布尔投影，Operations 后台经注入端口写入开关、更新时间与操作人，配置随数据库一致性快照备份。
 community 独立拥有 community_profiles 昵称/头像与默认 displayName；只经 Identity 窄端口读取 className，社交消费者经批量 reader 投影统一公共作者。
 discover 与 treehole 是独立业务支线，不经过学校上游；Discover 图片与 Community 头像保留公开 `/media/*`，Treehole 帖子图片只经 Bearer/Cookie 鉴权 API 读取，内容事实表不保存公开资料快照或媒体 URL。
 Discover/Treehole 的六类有效互动与 activity_outbox 在同一 SQLite 短事务提交；作者也可给自己的帖子点赞，但自我互动不投影通知；Notifications 按父评论/帖子作者差异投影、仅逐条已读且永久保留，新增使用 notification ID 高水位、撤销使用摘要 total 差异校准，取消点赞按 eventId、删帖按 resource、删评论按 subresource 在同事务原子撤回通知。
@@ -375,6 +376,8 @@ Git push 始终把当前 HEAD 推到 baidu/main，由远端 hook 执行维护发
 /api/admin/* - HttpOnly Cookie 会话保护的管理接口
 /api/admin/academic/schedule-source-policy - 课表双源优先级读取与热切换
 /api/admin/index-popup - 后台 Cookie 会话保护的首页弹窗读取与 multipart 设置更新
+/api/admin/early-rising/settings - 后台 Cookie 会话保护的 Early Rising 个人资料入口开关读写
+/api/early-rising/settings - Bearer JWT 保护的 Early Rising 客户端展示设置
 /api/schedule、/api/v1/schedule - 双源课表与兼容入口
 /api/grades、/api/ecard、/api/user - 既有校园业务接口，其中 `/api/ecard` 余额合同保持兼容
 /api/ecard/overview - Portal 余额与 mobile-yxt 指定北京时间月份交易的聚合，分别投影 unavailable/stale/freshness

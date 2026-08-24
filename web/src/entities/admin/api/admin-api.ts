@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖共享 apiRequest、后台 Cookie 会话与 entities/admin 的强类型协议
- * [OUTPUT]: 提供 dashboard、内容、日志、课表策略、含底部三态动作的首页弹窗 multipart 设置与私信只读管理边界
+ * [OUTPUT]: 提供 dashboard、内容、日志、课表策略、首页弹窗 multipart、Early Rising 展示设置与私信只读管理边界
  * [POS]: entities/admin 的唯一 HTTP 适配边界，向查询层屏蔽路径、方法与 AbortSignal 细节
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -12,6 +12,8 @@ import type {
   AdminAnnouncementUpdatePayload,
   AdminAnalyticsOverview,
   AdminDashboardResponse,
+  AdminEarlyRisingSettings,
+  AdminEarlyRisingSettingsPayload,
   AdminIndexPopupSettings,
   AdminIndexPopupSettingsPayload,
   AdminScheduleSourceMode,
@@ -104,6 +106,22 @@ export async function updateAdminIndexPopupSettings(payload: AdminIndexPopupSett
   return apiRequest<AdminIndexPopupSettings>(
     '/api/admin/index-popup',
     { method: 'PUT', body: form },
+    { auth: false }
+  );
+}
+
+export async function getAdminEarlyRisingSettings(options?: RequestOptions) {
+  return apiRequest<AdminEarlyRisingSettings>(
+    '/api/admin/early-rising/settings',
+    {},
+    { auth: false, signal: options?.signal }
+  );
+}
+
+export async function updateAdminEarlyRisingSettings(payload: AdminEarlyRisingSettingsPayload) {
+  return apiRequest<AdminEarlyRisingSettings>(
+    '/api/admin/early-rising/settings',
+    { method: 'PUT', body: JSON.stringify(payload) },
     { auth: false }
   );
 }

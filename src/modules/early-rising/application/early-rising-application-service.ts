@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖可注入 Clock、Early Rising 事实仓储、CommunityDetailedProfileReader 与领域时间/DTO 规则
- * [OUTPUT]: 对外提供打卡、我的统计、有界趋势和全校日/周/月排行榜应用用例
- * [POS]: modules/early-rising/application 的编排核心，只从打卡事实派生统计并一次批量投影榜单公共资料
+ * [INPUT]: 依赖可注入 Clock、Early Rising 事实/设置仓储、CommunityDetailedProfileReader 与领域时间/DTO 规则
+ * [OUTPUT]: 对外提供打卡、我的统计、有界趋势、全校日/周/月排行榜及客户端/后台展示设置用例
+ * [POS]: modules/early-rising/application 的编排核心，从服务端事实派生统计、批量投影榜单资料并隔离设置读写视图
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -21,7 +21,11 @@ import {
   type EarlyRisingLeaderboardRow,
   type EarlyRisingPeriod,
 } from '../domain/early-rising';
-import type { EarlyRisingClock, EarlyRisingRepository } from './ports';
+import type {
+  EarlyRisingClock,
+  EarlyRisingRepository,
+  EarlyRisingSettingsRepository,
+} from './ports';
 
 function mapCheckin(fact: { id: number; checkinDate: string; checkedAt: Date }) {
   return {
@@ -34,9 +38,37 @@ function mapCheckin(fact: { id: number; checkinDate: string; checkedAt: Date }) 
 export class EarlyRisingApplicationService {
   constructor(
     private readonly repository: EarlyRisingRepository,
+    private readonly settings: EarlyRisingSettingsRepository,
     private readonly profiles: CommunityDetailedProfileReader,
     private readonly clock: EarlyRisingClock,
   ) {}
+
+  async getClientSettings() {
+    const settings = await this.settings.get();
+    return { profileEntryVisible: settings.profileEntryVisible };
+  }
+
+  async getAdminSettings() {
+    const settings = await this.settings.get();
+    return {
+      profileEntryVisible: settings.profileEntryVisible,
+      updatedAt: settings.updatedAt?.toISOString() ?? null,
+      updatedBy: settings.updatedBy,
+    };
+  }
+
+  async updateSettings(profileEntryVisible: boolean, updatedBy: string) {
+    const settings = await this.settings.update(
+      profileEntryVisible,
+      this.clock.now(),
+      updatedBy,
+    );
+    return {
+      profileEntryVisible: settings.profileEntryVisible,
+      updatedAt: settings.updatedAt?.toISOString() ?? null,
+      updatedBy: settings.updatedBy,
+    };
+  }
 
   async checkIn(userId: number) {
     const now = this.clock.now();

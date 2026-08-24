@@ -123,8 +123,8 @@ describe('database migrations', () => {
     expect(objectExists(database, 'users')).toBe(false);
 
     const result = migrateDatabase(database, { allowDestructive: true });
-    expect(result).toEqual({ version: 6, applied: [1, 2, 3, 4, 5, 6], adopted: false });
-    expect(assertDatabaseSchemaCurrent(database)).toEqual({ version: 6 });
+    expect(result).toEqual({ version: 7, applied: [1, 2, 3, 4, 5, 6, 7], adopted: false });
+    expect(assertDatabaseSchemaCurrent(database)).toEqual({ version: 7 });
     database.close();
   });
 
@@ -135,16 +135,16 @@ describe('database migrations', () => {
     expect(getCurrentSchemaVersion(database)).toBe(0);
 
     const result = migrateDatabase(database, { allowDestructive: true });
-    expect(result).toEqual({ version: 6, applied: [2, 3, 4, 5, 6], adopted: true });
-    expect(getCurrentSchemaVersion(database)).toBe(6);
+    expect(result).toEqual({ version: 7, applied: [2, 3, 4, 5, 6, 7], adopted: true });
+    expect(getCurrentSchemaVersion(database)).toBe(7);
     database.close();
   });
 
   test('is repeatable without requiring the flag after the destructive version is applied', () => {
     const database = openMemory();
     migrateDatabase(database, { allowDestructive: true });
-    expect(migrateDatabase(database)).toEqual({ version: 6, applied: [], adopted: false });
-    expect(count(database, 'huas_schema_migrations')).toBe(6);
+    expect(migrateDatabase(database)).toEqual({ version: 7, applied: [], adopted: false });
+    expect(count(database, 'huas_schema_migrations')).toBe(7);
     database.close();
   });
 
@@ -185,7 +185,9 @@ describe('database migrations', () => {
     ).get() as { count: number }).count).toBe(0);
     expect(database.query('SELECT bio FROM community_profiles LIMIT 1').get()).toEqual({ bio: null });
     expect(objectExists(database, 'early_rising_checkins')).toBe(true);
-    expect(assertDatabaseSchemaCurrent(database)).toEqual({ version: 6 });
+    expect(database.query('SELECT profile_entry_visible, updated_at, updated_by FROM early_rising_settings').get())
+      .toEqual({ profile_entry_visible: 1, updated_at: null, updated_by: null });
+    expect(assertDatabaseSchemaCurrent(database)).toEqual({ version: 7 });
     expectSqliteIntegrity(database);
     database.close();
   });
@@ -225,11 +227,11 @@ describe('database migrations', () => {
       '--allow-destructive',
     ], { cwd: process.cwd(), stdout: 'pipe', stderr: 'pipe' });
     expect(allowed.exitCode, allowed.stderr.toString()).toBe(0);
-    expect(allowed.stdout.toString()).toMatch(/version=6 applied=3,4,5,6 adopted=false/);
+    expect(allowed.stdout.toString()).toMatch(/version=7 applied=3,4,5,6,7 adopted=false/);
 
     const migrated = new Database(dbPath, { create: false, readwrite: true });
     migrated.exec('PRAGMA foreign_keys = ON');
-    expect(getCurrentSchemaVersion(migrated)).toBe(6);
+    expect(getCurrentSchemaVersion(migrated)).toBe(7);
     expect(coreCounts(migrated)).toEqual(beforeCounts);
     expect(preservedBusinessFacts(migrated)).toEqual(beforeFacts);
     expect(count(migrated, 'community_profiles')).toBe(count(migrated, 'users'));
@@ -243,7 +245,7 @@ describe('database migrations', () => {
       dbPath,
     ], { cwd: process.cwd(), stdout: 'pipe', stderr: 'pipe' });
     expect(repeated.exitCode, repeated.stderr.toString()).toBe(0);
-    expect(repeated.stdout.toString()).toMatch(/version=6 applied=none adopted=false/);
+    expect(repeated.stdout.toString()).toMatch(/version=7 applied=none adopted=false/);
   });
 
   test('drops populated legacy ratings and treehole notifications without converting them', () => {
@@ -264,8 +266,8 @@ describe('database migrations', () => {
     const beforeFacts = preservedBusinessFacts(database);
 
     expect(migrateDatabase(database, { allowDestructive: true })).toEqual({
-      version: 6,
-      applied: [3, 4, 5, 6],
+      version: 7,
+      applied: [3, 4, 5, 6, 7],
       adopted: false,
     });
     expect(coreCounts(database)).toEqual(beforeCounts);
@@ -349,7 +351,7 @@ describe('database migrations', () => {
     database.query('UPDATE huas_schema_migrations SET checksum = ? WHERE version = 2').run(originalChecksum);
     database.exec('ALTER TABLE users ADD COLUMN drifted TEXT');
     expect(() => assertDatabaseSchemaCurrent(database)).toThrow(/schema fingerprint mismatch/);
-    expect(getCurrentSchemaVersion(database)).toBe(6);
+    expect(getCurrentSchemaVersion(database)).toBe(7);
     database.close();
   });
 
@@ -477,7 +479,7 @@ describe('database snapshots', () => {
       release: 'release/phase-1',
       now: new Date('2026-07-27T01:02:03.000Z'),
     });
-    expect(snapshot).toEndWith('source-20260727T010203Z-schema-v6-release-release-phase-1.db');
+    expect(snapshot).toEndWith('source-20260727T010203Z-schema-v7-release-release-phase-1.db');
     const copy = new Database(snapshot, { readonly: true });
     expect(count(copy, 'users')).toBe(1);
     copy.close();
