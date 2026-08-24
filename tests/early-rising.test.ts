@@ -1,13 +1,13 @@
 /**
  * [INPUT]: 依赖隔离 SQLite、Early Rising 可注入 Clock/真实事实与设置仓储及 Hono 路由、Community 详细资料测试端口
- * [OUTPUT]: 覆盖北京时间窗边界、并发幂等语义、连续统计/缺口趋势、连续积分排序、前 100、独立 me 与个人资料入口设置
+ * [OUTPUT]: 覆盖北京时间窗边界、并发幂等语义、未来趋势拒绝、有界连续积分、前 100、展示设置与远程播种清理
  * [POS]: tests 的 Early Rising MVP 专项回归，以少量高价值用例锁定事实派生和跨模块批量投影边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { afterAll, beforeEach, describe, expect, test } from 'bun:test';
 import { Database } from 'bun:sqlite';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Hono } from 'hono';
@@ -16,6 +16,7 @@ import { migrateDatabase } from '../src/db/migrator';
 import { onAppError } from '../src/middleware/error.middleware';
 import { EarlyRisingApplicationService } from '../src/modules/early-rising/application/early-rising-application-service';
 import type { EarlyRisingClock } from '../src/modules/early-rising/application/ports';
+import { addEarlyRisingDays } from '../src/modules/early-rising/domain/early-rising';
 import { createEarlyRisingRoutes } from '../src/modules/early-rising/http/early-rising.routes';
 import { SQLiteEarlyRisingRepository } from '../src/modules/early-rising/infrastructure/sqlite-early-rising-repository';
 import { SQLiteEarlyRisingSettingsRepository } from '../src/modules/early-rising/infrastructure/sqlite-early-rising-settings-repository';
@@ -147,13 +148,22 @@ describe('Early Rising check-in and personal facts', () => {
       items: [],
     });
   });
+
+  test('rejects a trend range that starts after the server Beijing date', async () => {
+    const userId = await createUser('early-future-trend');
+    const harness = createHarness('2026-08-25T08:00:00+08:00');
+
+    await expect(harness.service.getTrend(userId, { month: '2026-09' }))
+      .rejects.toMatchObject({ code: 4002, message: 'from 不能晚于今天' });
+  });
 });
 
 describe('Early Rising leaderboards', () => {
-  test('inherits streak across Monday and applies continuity score tie-breaks', async () => {
+  test('caps a long inherited streak with only the required six-day lookback', async () => {
     const firstUserId = await createUser('early-score-a');
     const secondUserId = await createUser('early-score-b');
-    for (const date of ['2026-08-23', '2026-08-24', '2026-08-25', '2026-08-26', '2026-08-27']) {
+    for (let offset = 0; offset < 14; offset += 1) {
+      const date = addEarlyRisingDays('2026-08-14', offset);
       await repository.createOrGet(firstUserId, date, new Date(`${date}T06:20:00+08:00`));
     }
     for (const date of ['2026-08-24', '2026-08-25', '2026-08-26', '2026-08-27']) {
@@ -169,7 +179,7 @@ describe('Early Rising leaderboards', () => {
       days: item.validDays,
       streak: item.currentStreak,
     }))).toEqual([
-      { id: firstUserId, score: 14, days: 4, streak: 5 },
+      { id: firstUserId, score: 28, days: 4, streak: 14 },
       { id: secondUserId, score: 10, days: 4, streak: 4 },
     ]);
     expect(result.me?.rank).toBe(2);
@@ -349,5 +359,49 @@ describe('Early Rising mock seed script', () => {
     expect(afterUndo.query('SELECT id, user_id, checkin_date, checked_at FROM early_rising_checkins').all())
       .toEqual([{ id: 1, user_id: 1, checkin_date: '2020-01-01', checked_at: 1577800800000 }]);
     afterUndo.close();
+  });
+
+  test('cleans the remote workspace when script upload fails', () => {
+    const root = mkdtempSync(join(tmpdir(), 'huas-early-rising-remote-test-'));
+    scriptTestRoots.push(root);
+    const binDir = join(root, 'bin');
+    const marker = join(root, 'cleanup.marker');
+    const fakeSsh = join(binDir, 'ssh');
+    const fakeScp = join(binDir, 'scp');
+    mkdirSync(binDir);
+    writeFileSync(fakeSsh, [
+      '#!/bin/sh',
+      'case "$2" in',
+      '  *"mktemp -d"*) printf "/tmp/huas-early-rising-remote.ABC123" ;;',
+      '  *) printf "cleaned" > "$REMOTE_CLEANUP_MARKER" ;;',
+      'esac',
+    ].join('\n'));
+    writeFileSync(fakeScp, '#!/bin/sh\necho "simulated scp failure" >&2\nexit 7\n');
+    chmodSync(fakeSsh, 0o755);
+    chmodSync(fakeScp, 0o755);
+
+    const result = Bun.spawnSync([
+      process.execPath,
+      'scripts/seed-early-rising-remote.ts',
+      '--host',
+      'fake-host',
+      '--db',
+      '/tmp/fake-early-rising.db',
+      '--apply',
+      '--allow-real-db',
+    ], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        PATH: `${binDir}:${process.env.PATH ?? ''}`,
+        REMOTE_CLEANUP_MARKER: marker,
+      },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr.toString()).toContain('上传 Early Rising 播种脚本失败');
+    expect(existsSync(marker)).toBe(true);
   });
 });

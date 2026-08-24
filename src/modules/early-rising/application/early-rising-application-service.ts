@@ -103,9 +103,6 @@ export class EarlyRisingApplicationService {
   async getTrend(userId: number, query: { month?: string; from?: string; to?: string }) {
     const now = this.clock.now();
     const range = resolveEarlyRisingTrendRange(query, now);
-    if (range.from > range.to) {
-      return { firstCheckinDate: null, range: { from: range.from, to: range.to }, items: [] };
-    }
     const trend = await this.repository.getTrend(userId, range.from, range.to);
     if (!trend.firstCheckinDate || trend.firstCheckinDate > range.to) {
       return {

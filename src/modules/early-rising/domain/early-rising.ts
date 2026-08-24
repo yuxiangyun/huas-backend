@@ -13,6 +13,7 @@ export const EARLY_RISING_CHECKIN_START = '05:30';
 export const EARLY_RISING_CHECKIN_END = '09:30';
 export const EARLY_RISING_LEADERBOARD_LIMIT = 100;
 export const EARLY_RISING_TREND_MAX_DAYS = 366;
+export const EARLY_RISING_CONTINUITY_SCORE_CAP = 7;
 
 const CHECKIN_START_MS = (5 * 60 + 30) * 60_000;
 const CHECKIN_END_MS = (9 * 60 + 30) * 60_000;
@@ -203,6 +204,9 @@ export function resolveEarlyRisingTrendRange(
 
   if (requestedFrom > requestedTo) {
     throw new AppError(ErrorCode.PARAM_ERROR, 'from 不能晚于 to');
+  }
+  if (requestedFrom > today) {
+    throw new AppError(ErrorCode.PARAM_ERROR, 'from 不能晚于今天');
   }
   if (countEarlyRisingDays(requestedFrom, requestedTo) > EARLY_RISING_TREND_MAX_DAYS) {
     throw new AppError(

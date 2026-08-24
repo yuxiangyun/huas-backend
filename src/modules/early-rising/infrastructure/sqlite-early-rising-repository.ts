@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖构造注入的 Drizzle db、early_rising_checkins schema 与 EarlyRisingRepository 端口
- * [OUTPUT]: 对外提供 SQLiteEarlyRisingRepository，以唯一约束幂等写入并在 SQL 内派生连续值、统计、趋势和日/周/月排名
+ * [OUTPUT]: 对外提供 SQLiteEarlyRisingRepository，以唯一约束幂等写入并以有界回看派生连续值、统计、趋势和日/周/月排名
  * [POS]: modules/early-rising/infrastructure 的唯一事实 adapter，不 JOIN users/community_profiles 且不返回无界历史行集
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -8,11 +8,13 @@
 import { and, asc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 import { schema } from '../../../db';
 import type { getDb } from '../../../db';
-import type {
-  EarlyRisingCheckinFact,
-  EarlyRisingPeriod,
-  EarlyRisingPeriodRange,
-  EarlyRisingRankFact,
+import {
+  EARLY_RISING_CONTINUITY_SCORE_CAP,
+  addEarlyRisingDays,
+  type EarlyRisingCheckinFact,
+  type EarlyRisingPeriod,
+  type EarlyRisingPeriodRange,
+  type EarlyRisingRankFact,
 } from '../domain/early-rising';
 import type {
   EarlyRisingLeaderboardFacts,
@@ -224,6 +226,10 @@ export class SQLiteEarlyRisingRepository implements EarlyRisingRepository {
     currentUserId: number,
     limit: number,
   ) {
+    const historyFrom = addEarlyRisingDays(
+      range.from,
+      1 - EARLY_RISING_CONTINUITY_SCORE_CAP,
+    );
     return this.db.all<RawRankRow>(sql`
       WITH ordered AS (
         SELECT user_id, checkin_date, checked_at,
@@ -232,7 +238,7 @@ export class SQLiteEarlyRisingRepository implements EarlyRisingRepository {
                      PARTITION BY user_id ORDER BY checkin_date
                    ) AS island_key
         FROM early_rising_checkins
-        WHERE checkin_date <= ${range.to}
+        WHERE checkin_date BETWEEN ${historyFrom} AND ${range.to}
       ), scored AS (
         SELECT user_id, checkin_date, checked_at,
                ROW_NUMBER() OVER (
@@ -241,7 +247,7 @@ export class SQLiteEarlyRisingRepository implements EarlyRisingRepository {
         FROM ordered
       ), aggregated AS (
         SELECT user_id,
-               SUM(MIN(streak_on_day, 7)) AS continuity_score,
+               SUM(MIN(streak_on_day, ${EARLY_RISING_CONTINUITY_SCORE_CAP})) AS continuity_score,
                COUNT(*) AS valid_days,
                AVG((checked_at + 28800000) % 86400000) AS average_checkin_time
         FROM scored

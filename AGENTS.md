@@ -377,6 +377,8 @@ Git push 始终把当前 HEAD 推到 baidu/main，由远端 hook 执行维护发
 /api/admin/academic/schedule-source-policy - 课表双源优先级读取与热切换
 /api/admin/index-popup - 后台 Cookie 会话保护的首页弹窗读取与 multipart 设置更新
 /api/admin/early-rising/settings - 后台 Cookie 会话保护的 Early Rising 个人资料入口开关读写
+/api/early-rising/check-ins、/api/early-rising/me - Bearer JWT 保护的服务端时间打卡与个人当日/连续统计
+/api/early-rising/trend、/api/early-rising/leaderboard - Bearer JWT 保护的有界趋势与日/周/月排行榜
 /api/early-rising/settings - Bearer JWT 保护的 Early Rising 客户端展示设置
 /api/schedule、/api/v1/schedule - 双源课表与兼容入口
 /api/grades、/api/ecard、/api/user - 既有校园业务接口，其中 `/api/ecard` 余额合同保持兼容

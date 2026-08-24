@@ -9,6 +9,8 @@ db-snapshot.ts: SQLite VACUUM INTO 快照命令，要求显式数据库路径与
 deploy-huas.sh: 历史快速入口的维护发布别名，统一委托受 destructive migration 门禁保护的远端流程。
 deploy-huas-zero-downtime.sh: 保留历史文件名的本地维护发布编排器，上传工作区 release，透传 release 保留/磁盘余量策略并明确触发远端停流窗口。
 remote-blue-green-deploy.sh: 远端 contract release 核心，先安全淘汰非活动 release 并按解析后的数据库与四媒体根执行存量感知磁盘门禁，再严格执行停流、停 writer、快照、migration 与冒烟开放流量。
+seed-early-rising-mock.ts: Early Rising 真实用户打卡的可审计 mock 播种与 manifest 精确撤销入口
+seed-early-rising-remote.ts: 百度活动 release 的 Early Rising 远程播种编排器，失败路径也统一清理临时工作区
 seed-social-test-data.ts: 非生产 Social 测试数据幂等播种器，复用唯一组合根创建本地账户、Community 头像、Treehole 文本帖与 Discover 单图/多图帖。
 setup-huas-git-deploy.sh: Git push 维护发布初始化器，维护唯一 baidu deploy remote、远端裸仓库与固化 release 保留/磁盘门禁配置的 maintenance post-receive hook。
 test.ts: 全量测试编排器，自动发现套件并以独立 Bun 进程隔离全局模块 mock。
