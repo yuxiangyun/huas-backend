@@ -342,7 +342,7 @@ AGENTS.md 是全局导航入口；各模块通过 L2 地图与业务文件 L3 �
 SQLite 是业务事实源；data 下 JSON、媒体与内存态只承载运行策略、会话或资源，不代替业务表。
 CAS/Portal/JW 基础凭证由 CredentialManager 收敛且必须使用非 null 数值 TTL，客户端只持本服务 JWT；凭证恢复失败统一返回 3003，同用户静默重认证共享 user 级在途恢复并返回实际能力，能力不足的 joiner 等待航班结束后优先复用新 TGC 串行补足，upstream 单次恢复链同时取得 token 与客户端。
 mobile-yxt 只经窄 PortalCredentialReader 派生无 TTL 会话，不读取或激活 JW；真实 CAS 成功与学校系统激活/JWT 签发解耦，统一事务推进 school login epoch、写入实际基础凭证、删除本次缺失的旧 Portal JWT 并以字面前缀清理旧派生会话。exchange 仅在 epoch 未变时条件写，普通 Portal/JW 轮换和本地快捷登录不推进 epoch；派生 CookieJar 读写共享严格单 JSESSIONID codec，坏行事务淘汰为 miss。
-mobile-yxt 业务会话只在固定 HTTP 401 证据后失效：host/open 拒绝本地未过期 Portal JWT 时按值条件删除并窄恢复一次，业务 401 按 generation 条件失效并同用户单飞重建一次，第二次 401 先条件删除再返回 3003；持久化 Cookie 仅含目标域 `/server` JSESSIONID，CAS TGC、Portal Cookie、accessToken、tid、refreshToken 与 authorization 永不进入 DTO、缓存键、错误或日志。
+mobile-yxt 业务会话只在固定 HTTP 401 证据后失效；基础 Portal JWT 在 host/open 返回 HTTP 401 或真实过期凭证的 200 HTML 无 tid 时按值条件删除并窄恢复一次。业务 401 按 generation 条件失效并同用户单飞重建一次，第二次 401 先条件删除再返回 3003；持久化 Cookie 仅含目标域 `/server` JSESSIONID，CAS TGC、Portal Cookie、accessToken、tid、refreshToken 与 authorization 永不进入 DTO、缓存键、错误或日志。
 校园卡 overview 把既有 Portal 余额与 mobile-yxt 当前月/此前 23 个自然月的三类交易作为独立子源聚合并分别投影 availability/freshness，交易缓存使用固定长度用户月键并每用户保留 6 个 LRU；账单/电费同键 cache miss 与强刷共享在途回源并使用独立配额，不消耗成绩、课表、Portal/JW 的 Academic refresh 桶。
 电费只读取 electric config/account：先从 config.location 取得房间展示与七个官方位置 code，再带 code 查询 account，电价/电量按 account.templateList code 映射；真正未提供的 price/quantity 诚实投影 null，负电量与账户状态原样保留。明细、水费、上游支付和未验证官方 handoff 均保持关闭。refundFlag 原样投影，totals 仅为有符号金额机械求和，不宣称退款会计语义已由 fixture 证明。
 课表由 Academic Facade 按持久化策略执行双源 current，再按 JW、Portal 固定顺序选择 stale；管理面只调用 Academic 暴露的策略用例。

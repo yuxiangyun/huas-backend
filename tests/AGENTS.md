@@ -34,7 +34,7 @@ notifications.test.ts: Notifications 差异回复事件、Outbox 幂等/撤销/�
 messaging.test.ts: Messaging 延迟会话/目标定位、会话高水位、严格 UUID 图文幂等、三态消息、未读与私有媒体测试
 messaging-timestamps.test.ts: Messaging 慢图片/快文本并发提交时间与 repository 会话时间单调回归测试
 messaging-upload.test.ts: Messaging HTTP 上传边界，锁定混合字段图片线序、解析前 413 与坏 multipart 的稳定 400
-mobile-yxt.test.ts: 登录 epoch/Portal 401 恢复、generation 条件失效、Cookie 白名单、账单 freshness/有符号 totals、真实电费合同、同键回源合流、Portal/JW/限流隔离、24 月/6 键 LRU 与旧 `/api/ecard` 合同专项回归
+mobile-yxt.test.ts: 登录 epoch/Portal 401/200 HTML 恢复、generation 条件失效、Cookie 白名单、Bun/Node 传输错误归一化、账单 freshness/有符号 totals、真实电费合同、同键回源合流、Portal/JW/限流隔离、24 月/6 键 LRU 与旧 `/api/ecard` 合同专项回归
 mobile-yxt-auth-state.test.ts: 严格派生命名空间、损坏/越权 CookieJar 事务淘汰、自动重建、合法会话读取及 Cookie/accessToken 低敏感错误日志专项反例
 social-upload-limits.test.ts: Discover/Community HTTP 上传边界，锁定声明长度、流式及无关字段请求在 formData 前统一返回 413
 social-summary-routes.test.ts: Social 私信/互动未读单请求并行聚合与稳定响应字段回归测试
@@ -94,6 +94,8 @@ upstream-retry.test.ts: 上游请求/凭证恢复次数与 deadline、成绩临�
 2026-07-16: 成绩/一卡通拒绝错误页和缺失余额，课表限定日期并去重嵌套节点，CAS/Portal 超时与维护页保持真实故障语义。
 2026-08-23: mobile-yxt 专项以最终数据库/Cookie/缓存/限流状态锁定真实登录竞态、Portal/JW 隔离、第二次 401、严格空态、缓存放大与旧余额 HTTP 合同。
 2026-08-23: 电费 fixture 对齐官方 config.location code→account.templateList 调用合同，补齐 nullable、模板重排/扩展、低敏感诊断及 HTTP 200 协议失败不清会话/不 stale 回退。
+2026-08-24: mobile-yxt 传输错误归一化读取 Bun/Node cause 链与运行时错误码，瞬时连接失败允许既有账单/电费缓存 stale 降级，未知解析异常仍失败关闭。
+2026-08-24: 以真实旧 Portal JWT fixture 锁定 host/open 的 HTTP 200 HTML 无 tid 凭证拒绝，触发按值条件失效与一次 Portal-only 恢复；JSON 200 未知合同仍失败关闭。
 2026-07-16: 评教测试覆盖 HTTP 200 错误页拒绝、提交后列表确认与本次/累计计数分离。
 2026-07-16: 日历订阅补齐中文长文本 UTF-8 75-octet 折行与无损展开回归。
 2026-07-16: 后台洞察测试补齐显式渠道优先、旧小程序无头兼容与历史 unknown 不回填边界。

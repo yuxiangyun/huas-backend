@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖隔离 SQLite、学校登录上下文、mobile-yxt 会话/认证/账单/电费边界、两类限流状态与可控 fetch
- * [OUTPUT]: 锁定登录 epoch/Portal 恢复竞态、最小 Cookie、条件 401、账单 freshness/有符号 totals、真实电费合同、同键回源合流与旧 HTTP 合同
+ * [OUTPUT]: 锁定登录 epoch/Portal 恢复竞态、host/open 真实过期凭证 HTML、最小 Cookie、Bun 传输错误归一化、条件 401、账单 freshness/有符号 totals、真实电费合同、同键回源合流与旧 HTTP 合同
  * [POS]: tests 的 mobile-yxt 只读专项反例套件，以最终数据库、Cookie、缓存、新鲜度和限流状态验证生产逻辑不变量
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -44,6 +44,7 @@ import {
 } from '../src/modules/campus-integrations/mobile-yxt/electricity-parser';
 import {
   mobileYxtCredentialRejected,
+  normalizeMobileYxtTransportError,
   mobileYxtProtocolFailure,
   mobileYxtTimeout,
   mobileYxtUnavailable,
@@ -349,6 +350,71 @@ describe('Cookie 最小权限与认证错误', () => {
     expect(isMobileYxtSessionExpired({ status: 401 }, null)).toBe(true);
     expect(isMobileYxtSessionExpired({ status: 403 }, { success: false })).toBe(false);
     expect(isMobileYxtSessionExpired({ status: 200 }, { success: false })).toBe(false);
+  });
+
+  it('host/open 对过期 Portal JWT 返回 200 HTML 时按凭证拒绝恢复，JSON 200 仍失败关闭', async () => {
+    fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(
+      '<!doctype html><html><body>mobile entry</body></html>',
+      { status: 200, headers: { 'Content-Type': 'text/html;charset=UTF-8' } },
+    )) as any;
+    await expect(new MobileYxtAuthExchanger().exchange(new HttpClient(), 'expired-portal-jwt'))
+      .rejects.toMatchObject({ code: ErrorCode.CREDENTIAL_EXPIRED, kind: 'credential' });
+
+    fetchSpy.mockRestore();
+    fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(
+      JSON.stringify({ success: true, resultData: null }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    )) as any;
+    await expect(new MobileYxtAuthExchanger().exchange(new HttpClient(), 'unknown-contract'))
+      .rejects.toMatchObject({ code: ErrorCode.INTERNAL_ERROR, kind: 'protocol' });
+  });
+
+  it('Bun fetch 错误及嵌套 cause 归为可 stale 的上游不可用，不冒充协议漂移', () => {
+    const bunConnectionError = Object.assign(
+      new Error('Unable to connect. Is the computer able to access the url?'),
+      { code: 'ConnectionRefused', errno: 0 },
+    );
+    const wrappedFetchError = Object.assign(new TypeError('fetch() failed'), {
+      cause: Object.assign(new Error('socket closed'), { code: 'ECONNRESET' }),
+    });
+
+    expect(normalizeMobileYxtTransportError(bunConnectionError)).toMatchObject({
+      kind: 'unavailable',
+      code: ErrorCode.SERVICE_ACCOUNT_UNAVAILABLE,
+      staleAllowed: true,
+    });
+    expect(normalizeMobileYxtTransportError(wrappedFetchError)).toMatchObject({
+      kind: 'unavailable',
+      staleAllowed: true,
+    });
+    expect(normalizeMobileYxtTransportError(new Error('decoder invariant broken')))
+      .toMatchObject({ kind: 'protocol', staleAllowed: false });
+  });
+
+  it('业务请求遇到 Bun 连接错误时执行有界重试，而不是立即包装成协议错误', async () => {
+    const user = await persistSchoolLogin('mobile-bun-network-retry', 'portal');
+    const epoch = readSchoolLoginEpoch(getDb(), user.id);
+    await sessions.createIfLoginEpochMatches({
+      userId: user.id,
+      expectedLoginEpoch: epoch,
+      accessToken: 'mobile-network-retry',
+      cookieJar: await sessionJar('network-retry'),
+    });
+    let requestCount = 0;
+    fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      requestCount += 1;
+      if (requestCount === 1) {
+        throw Object.assign(
+          new Error('Unable to connect. Is the computer able to access the url?'),
+          { code: 'ConnectionRefused' },
+        );
+      }
+      return new Response(JSON.stringify({ success: true, resultData: [] }), { status: 200 });
+    }) as any;
+
+    const result = await new MobileYxtSessionExecutor().post(user.id, mobileUrl, {});
+    expect(result.response.status).toBe(200);
+    expect(requestCount).toBe(2);
   });
 
   it('host/open 明确拒绝本地 Portal JWT 后条件失效，并只恢复重试一次', async () => {

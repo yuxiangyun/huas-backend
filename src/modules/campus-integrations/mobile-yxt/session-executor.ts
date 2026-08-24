@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖模块自有 SessionRepository、共享 CookieJar codec、可条件拒绝当前 JWT 的窄 PortalCredentialReader、AuthExchanger、HttpClient、PerKeySingleflight 与有界 retry
+ * [INPUT]: 依赖模块自有 SessionRepository、共享 CookieJar codec、可条件拒绝当前 JWT 的窄 PortalCredentialReader、AuthExchanger、HttpClient、共享跨运行时传输判定、PerKeySingleflight 与有界 retry
  * [OUTPUT]: 对外提供 MobileYxtSessionExecutor、mobileYxtSessionExecutor 与纯函数 isMobileYxtSessionExpired
  * [POS]: mobile-yxt 会话执行边界，消费 repository 已验证的最小 CookieJar，并集中落实明确 401、Portal-only 恢复、generation 条件失效与一次重建重试
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -14,6 +14,7 @@ import {
   type MobileYxtSessionExchangePort,
 } from './auth-exchanger';
 import {
+  isMobileYxtTransientTransportError,
   isMobileYxtCredentialRejected,
   mobileYxtCredentialRejected,
   normalizeMobileYxtTransportError,
@@ -44,12 +45,6 @@ const sessionFlights = new PerKeySingleflight();
 export function isMobileYxtSessionExpired(response: Pick<Response, 'status'>, _body: unknown): boolean {
   // 当前证据只固定 HTTP 401。403/code/message 在真实 fixture 出现前不得扩张。
   return response.status === 401;
-}
-
-function isTransientRequestError(error: unknown): boolean {
-  const message = String((error as any)?.message || '');
-  return message === 'REQUEST_TIMEOUT'
-    || /ECONNRESET|EAI_AGAIN|ETIMEDOUT|ENOTFOUND|fetch failed|network/i.test(message);
 }
 
 async function readResponseBody(response: Response): Promise<unknown> {
@@ -179,7 +174,7 @@ export class MobileYxtSessionExecutor {
         jitterMs: config.retry.businessJitterMs,
         deadlineAt,
         createDeadlineError: () => new Error('REQUEST_TIMEOUT'),
-        shouldRetry: isTransientRequestError,
+        shouldRetry: isMobileYxtTransientTransportError,
       });
     } catch (error) {
       throw normalizeMobileYxtTransportError(error);
