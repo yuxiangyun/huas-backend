@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Hono、注入的 CommunityApplicationService/头像策略、共享请求体上限与统一响应工具
- * [OUTPUT]: 对外提供 createCommunityRoutes(service, uploadPolicy)，映射受限 multipart 当前资料与公共用户详情
+ * [OUTPUT]: 对外提供 createCommunityRoutes(service, uploadPolicy)，沿用受限 multipart 更新 nickname/Bio/avatar 并读取详细公共资料
  * [POS]: modules/community/http 的认证后协议 adapter，在 formData 前限制声明长度与流式请求体并维持字段披露边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -65,21 +65,28 @@ export function createCommunityRoutes(
       if (hasNickname && typeof nickname !== 'string') {
         return error(c, ErrorCode.PARAM_ERROR, '昵称必须是字符串', 400);
       }
+      const hasBio = form.has('bio');
+      const bio = form.get('bio');
+      if (hasBio && typeof bio !== 'string') {
+        return error(c, ErrorCode.PARAM_ERROR, 'Bio 必须是字符串', 400);
+      }
       const avatarEntry = form.get('avatar');
       if (avatarEntry !== null && (!(avatarEntry instanceof File) || avatarEntry.size <= 0)) {
         return error(c, ErrorCode.PARAM_ERROR, '头像文件不合法', 400);
       }
       const avatar = avatarEntry instanceof File ? avatarEntry : undefined;
-      if (!hasNickname && !avatar) {
-        return error(c, ErrorCode.PARAM_ERROR, '至少提交昵称或头像', 400);
+      if (!hasNickname && !hasBio && !avatar) {
+        return error(c, ErrorCode.PARAM_ERROR, '至少提交昵称、Bio 或头像', 400);
       }
 
       appendHttpLogDetail(c, formatHttpLogDetail({
         nicknameLength: typeof nickname === 'string' ? Array.from(nickname.trim()).length : undefined,
+        bioLength: typeof bio === 'string' ? Array.from(bio.trim()).length : undefined,
         avatarBytes: avatar?.size ?? 0,
       }));
       const profile = await service.updateProfile(c.get('userId'), {
         nickname: hasNickname ? nickname : undefined,
+        bio: hasBio ? bio : undefined,
         avatar,
       });
       return success(c, profile);

@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 drizzle-orm/sqlite-core 的表、列、索引、检查与唯一键构造器
- * [OUTPUT]: 对外提供 Identity、Community、Discover、含私有图片元数据的 Treehole、Notifications、Messaging 与 analytics 全部 SQLite 表定义
+ * [OUTPUT]: 对外提供 Identity、含 Bio 的 Community、Early Rising 打卡事实、社交内容、通知、私信与 analytics 全部 SQLite 表定义
  * [POS]: db 的全局 Drizzle 类型相；migration 是结构事实源，各纵向模块只消费自己拥有的表
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -24,8 +24,23 @@ export const communityProfiles = sqliteTable('community_profiles', {
   userId: integer('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
   nickname: text('nickname'),
   avatarUrl: text('avatar_url'),
+  bio: text('bio'),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
 });
+
+export const earlyRisingCheckins = sqliteTable('early_rising_checkins', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  checkinDate: text('checkin_date').notNull(),
+  checkedAt: integer('checked_at', { mode: 'timestamp_ms' }).notNull(),
+}, (table) => ({
+  userDateUnique: unique('uq_early_rising_checkins_user_date')
+    .on(table.userId, table.checkinDate),
+  dailyRankingIndex: index('idx_early_rising_checkins_daily_ranking')
+    .on(table.checkinDate, table.checkedAt, table.id),
+  userTrendIndex: index('idx_early_rising_checkins_user_trend')
+    .on(table.userId, table.checkinDate),
+}));
 
 export const credentials = sqliteTable('credentials', {
   id: integer('id').primaryKey({ autoIncrement: true }),

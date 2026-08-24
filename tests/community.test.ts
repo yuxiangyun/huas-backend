@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 Community/Identity 构造注入 adapters、Hono 路由 factory、隔离 SQLite、sharp 与临时头像目录
- * [OUTPUT]: 覆盖默认 displayName、昵称校验、公共 DTO、并发字段 patch、头像引用保护、宽限期孤儿回收与媒体生命周期
- * [POS]: tests 的 Community 纵向切片专项回归，锁定本人编辑并发安全与公共身份最小披露边界
+ * [OUTPUT]: 覆盖默认 displayName、昵称/Bio 校验、作者/详细 DTO 隔离、并发字段 patch 与头像媒体生命周期
+ * [POS]: tests 的 Community 纵向切片专项回归，锁定本人编辑安全、详细资料能力与既有作者最小披露边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -95,12 +95,14 @@ describe('Community public profile', () => {
       id: currentUserId,
       displayName: '同名同学',
       avatarUrl: null,
+      bio: null,
       nickname: '同名同学',
     });
     expect(second).toEqual({
       id: otherUserId,
       displayName: '同名同学',
       avatarUrl: null,
+      bio: null,
       nickname: '同名同学',
     });
 
@@ -129,15 +131,26 @@ describe('Community public profile', () => {
       id: currentUserId,
       displayName: `软工同学${currentUserId}`,
       avatarUrl: null,
+      bio: null,
       nickname: null,
     });
     expect((await db.select().from(schema.communityProfiles))[0]!.nickname).toBeNull();
   });
 
-  test('HTTP current profile adds nickname while public detail remains exactly three fields', async () => {
+  test('validates Bio and exposes it only through current/detail contracts', async () => {
+    await expect(service.updateProfile(currentUserId, { bio: '第一行\n第二行' }))
+      .rejects.toMatchObject({ code: 4002 });
+    await expect(service.updateProfile(currentUserId, { bio: '尾部换行\n' }))
+      .rejects.toMatchObject({ code: 4002 });
+    await expect(service.updateProfile(currentUserId, { bio: `控制\u0000符` }))
+      .rejects.toMatchObject({ code: 4002 });
+    await expect(service.updateProfile(currentUserId, { bio: '字'.repeat(81) }))
+      .rejects.toMatchObject({ code: 4002 });
+
     const app = createHttpApp();
     const form = new FormData();
     form.set('nickname', '公开昵称');
+    form.set('bio', '  今天也要认真生活  ');
     const updatedResponse = await app.request('http://localhost/community/profile', {
       method: 'PUT',
       headers: { 'x-test-user-id': String(currentUserId) },
@@ -152,14 +165,20 @@ describe('Community public profile', () => {
           id: otherUserId,
           displayName: `文理er ${otherUserId}`,
           avatarUrl: null,
+          bio: null,
           nickname: null,
         },
-        keys: ['avatarUrl', 'displayName', 'id', 'nickname'],
+        keys: ['avatarUrl', 'bio', 'displayName', 'id', 'nickname'],
       },
       {
         path: `/community/users/${currentUserId}`,
-        expected: { id: currentUserId, displayName: '公开昵称', avatarUrl: null },
-        keys: ['avatarUrl', 'displayName', 'id'],
+        expected: {
+          id: currentUserId,
+          displayName: '公开昵称',
+          avatarUrl: null,
+          bio: '今天也要认真生活',
+        },
+        keys: ['avatarUrl', 'bio', 'displayName', 'id'],
       },
     ];
     for (const { path, expected, keys } of cases) {
@@ -175,6 +194,20 @@ describe('Community public profile', () => {
       expect(JSON.stringify(body.data)).not.toContain('软工24101班');
       if (path.includes('/users/')) expect('nickname' in body.data).toBe(false);
     }
+
+    expect((await service.getMany([currentUserId])).get(currentUserId)).toEqual({
+      id: currentUserId,
+      displayName: '公开昵称',
+      avatarUrl: null,
+    });
+    const clearForm = new FormData();
+    clearForm.set('bio', '   ');
+    const cleared = await app.request('http://localhost/community/profile', {
+      method: 'PUT',
+      headers: { 'x-test-user-id': String(currentUserId) },
+      body: clearForm,
+    });
+    expect((await cleared.json() as any).data.bio).toBeNull();
   });
 });
 
@@ -218,6 +251,7 @@ describe('Community avatar media', () => {
       userId: currentUserId,
       nickname: '并发新昵称',
       avatarUrl: candidateAvatarUrl,
+      bio: null,
     });
     expect(removed).toEqual([oldAvatarUrl]);
   });

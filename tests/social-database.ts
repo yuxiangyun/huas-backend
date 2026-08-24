@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖注入的 Drizzle 测试数据库与全局 schema 表定义
- * [OUTPUT]: 对外提供 clearSocialTestData，以同步 SQLite transaction 按外键方向清空社交、资料、身份与关联测试事实
- * [POS]: tests 的跨纵向切片数据库隔离 helper，统一处理 Messaging 游标循环引用、Bun SQLite 同步事务约束和 users 依赖顺序
+ * [OUTPUT]: 对外提供 clearSocialTestData，以同步 SQLite transaction 按外键方向清空社交、Early Rising、资料与身份测试事实
+ * [POS]: tests 的跨纵向切片数据库隔离 helper，统一处理 Messaging 游标循环引用、Early Rising 外键与 users 依赖顺序
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -28,6 +28,7 @@ export async function clearSocialTestData(db: TestDatabase) {
     tx.delete(schema.discoverComments).run();
     tx.delete(schema.discoverPostLikes).run();
     tx.delete(schema.discoverPosts).run();
+    tx.delete(schema.earlyRisingCheckins).run();
     tx.delete(schema.communityProfiles).run();
     tx.delete(schema.analyticsDailyUsers).run();
     tx.delete(schema.credentials).run();

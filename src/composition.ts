@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖各 canonical 模块公开构造器/ports、唯一数据库实例、运行配置、观测器、媒体端口与周期任务注册器
- * [OUTPUT]: 对外提供 createApplicationComposition，集中生成 HTTP/社交/Operations、聚合未读、首页弹窗公开媒体、Outbox 重试、四类孤儿媒体清理与关闭钩子
- * [POS]: src 的唯一跨模块组合根；仅在此连接 Messaging/Notifications 摘要窄端口，通知投影与四类媒体清理仍独立
+ * [OUTPUT]: 对外提供 createApplicationComposition，集中生成 Early Rising、HTTP/社交/Operations、聚合未读、媒体周期任务与关闭钩子
+ * [POS]: src 的唯一跨模块组合根；仅在此把 Community 详细资料 reader 注入 Early Rising，其他社交消费者仍使用三字段 reader
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -20,6 +20,7 @@ import {
 } from './modules/community/infrastructure/community-avatar-media-storage';
 import { SQLiteCommunityProfileRepository } from './modules/community/infrastructure/sqlite-community-profile-repository';
 import { createDiscoverModule } from './modules/discover/composition';
+import { createEarlyRisingModule } from './modules/early-rising/composition';
 import { DISCOVER_MEDIA_CACHE_CONTROL } from './modules/discover/infrastructure/discover-media-service';
 import { loginApplicationService } from './modules/identity/http/auth.routes';
 import { SQLiteCommunityIdentityReader } from './modules/identity/infrastructure/sqlite-community-identity-reader';
@@ -54,6 +55,7 @@ export interface ApplicationComposition {
     treehole: ReturnType<typeof createTreeholeComposition>;
   };
   operations: ReturnType<typeof createOperationsComposition>;
+  earlyRising: ReturnType<typeof createEarlyRisingModule>;
   periodicTasks: PeriodicTaskRegistry;
   dispose(): void;
 }
@@ -74,6 +76,7 @@ export function createApplicationComposition(): ApplicationComposition {
     communityAvatarMedia,
   );
   const notifications = createNotificationsModule({ db, profileReader: community });
+  const earlyRising = createEarlyRisingModule({ db, profiles: community });
   const activityProjection: ActivityProjectionTrigger = {
     async attempt() {
       await notifications.projector.runOnce();
@@ -226,6 +229,7 @@ export function createApplicationComposition(): ApplicationComposition {
         adminRoutes: operations.adminRoutes,
         communityRoutes,
         discoverRoutes: discover.routes,
+        earlyRisingRoutes: earlyRising.routes,
         messagingRoutes: messaging.routes,
         notificationRoutes: notifications.routes,
         socialSummaryRoutes: createSocialSummaryRoutes({
@@ -255,6 +259,7 @@ export function createApplicationComposition(): ApplicationComposition {
     },
     social: { community, discover, messaging, notifications, treehole },
     operations,
+    earlyRising,
     periodicTasks,
     dispose() {
       unregisterAnalyticsShutdown();

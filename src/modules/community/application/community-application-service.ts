@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 Identity 只读端口、Community 资料仓储/头像端口与纯领域规则
- * [OUTPUT]: 对外提供 CommunityApplicationService，完成公共/当前资料投影、字段级资料更新、头像补偿与孤儿头像回收
- * [POS]: modules/community/application 的唯一用例服务，以资料 patch 隔离并发字段并在引用确认后清理旧头像
+ * [OUTPUT]: 对外提供 CommunityApplicationService，分别完成三字段作者/含 Bio 详细资料投影、字段级资料更新与头像生命周期
+ * [POS]: modules/community/application 的唯一用例服务，以窄 reader 隔离消费者并用资料 patch 保持并发字段安全
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -9,13 +9,17 @@ import { AppError, ErrorCode } from '../../../utils/errors';
 import { Logger } from '../../../utils/logger';
 import type { CommunityIdentityReader } from '../../identity/domain/community-identity-reader';
 import {
+  normalizeCommunityBio,
   normalizeCommunityNickname,
   toCommunityProfile,
   toCurrentCommunityProfile,
+  toDetailedCommunityProfile,
   type CommunityProfile,
+  type DetailedCommunityProfile,
 } from '../domain/community';
 import type {
   CommunityAvatarStorage,
+  CommunityDetailedProfileReader,
   CommunityProfilePatch,
   CommunityProfilePatchResult,
   CommunityProfileReader,
@@ -28,11 +32,12 @@ function normalizeUserIds(userIds: readonly number[]) {
 
 export interface UpdateCommunityProfileInput {
   nickname?: unknown;
+  bio?: unknown;
   avatar?: File;
   clearAvatar?: boolean;
 }
 
-export class CommunityApplicationService implements CommunityProfileReader {
+export class CommunityApplicationService implements CommunityProfileReader, CommunityDetailedProfileReader {
   constructor(
     private readonly identities: CommunityIdentityReader,
     private readonly profiles: CommunityProfileRepository,
@@ -56,7 +61,23 @@ export class CommunityApplicationService implements CommunityProfileReader {
   }
 
   async getProfile(userId: number) {
-    return (await this.getMany([userId])).get(userId) ?? null;
+    return (await this.getManyDetailed([userId])).get(userId) ?? null;
+  }
+
+  async getManyDetailed(userIds: readonly number[]): Promise<Map<number, DetailedCommunityProfile>> {
+    const normalized = normalizeUserIds(userIds);
+    if (normalized.length === 0) return new Map();
+
+    const [identities, profiles] = await Promise.all([
+      this.identities.getMany(normalized),
+      this.profiles.getMany(normalized),
+    ]);
+    const result = new Map<number, DetailedCommunityProfile>();
+    for (const userId of normalized) {
+      const identity = identities.get(userId);
+      if (identity) result.set(userId, toDetailedCommunityProfile(identity, profiles.get(userId)));
+    }
+    return result;
   }
 
   async getCurrentProfile(userId: number) {
@@ -79,6 +100,9 @@ export class CommunityApplicationService implements CommunityProfileReader {
     if (input.nickname !== undefined) {
       patch.nickname = normalizeCommunityNickname(input.nickname);
     }
+    if (input.bio !== undefined) {
+      patch.bio = normalizeCommunityBio(input.bio);
+    }
     let candidateAvatarUrl: string | null = null;
 
     if (input.avatar) {
@@ -88,8 +112,9 @@ export class CommunityApplicationService implements CommunityProfileReader {
       patch.avatarUrl = null;
     }
     if (!Object.prototype.hasOwnProperty.call(patch, 'nickname')
+      && !Object.prototype.hasOwnProperty.call(patch, 'bio')
       && !Object.prototype.hasOwnProperty.call(patch, 'avatarUrl')) {
-      throw new AppError(ErrorCode.PARAM_ERROR, '至少提交昵称或头像');
+      throw new AppError(ErrorCode.PARAM_ERROR, '至少提交昵称、Bio 或头像');
     }
 
     let result: CommunityProfilePatchResult;

@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖构造注入的 Drizzle db、community_profiles schema 与 Community 仓储端口
- * [OUTPUT]: 对外提供 SQLiteCommunityProfileRepository，批量读取、字段级原子 patch、单条校验与批量列出头像引用
+ * [OUTPUT]: 对外提供 SQLiteCommunityProfileRepository，批量读取 nickname/avatar/Bio、字段级原子 patch 与头像引用查询
  * [POS]: modules/community/infrastructure 的资料事实 adapter，以 SQLite 短事务返回被替换头像且不覆盖并发字段
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -25,6 +25,7 @@ function toStoredProfile(row: StoredCommunityProfile): StoredCommunityProfile {
     userId: row.userId,
     nickname: row.nickname?.trim() || null,
     avatarUrl: row.avatarUrl || null,
+    bio: row.bio?.trim() || null,
   };
 }
 
@@ -39,6 +40,7 @@ export class SQLiteCommunityProfileRepository implements CommunityProfileReposit
       userId: schema.communityProfiles.userId,
       nickname: schema.communityProfiles.nickname,
       avatarUrl: schema.communityProfiles.avatarUrl,
+      bio: schema.communityProfiles.bio,
     })
       .from(schema.communityProfiles)
       .where(inArray(schema.communityProfiles.userId, normalized));
@@ -49,7 +51,8 @@ export class SQLiteCommunityProfileRepository implements CommunityProfileReposit
   async patch(userId: number, patch: CommunityProfilePatch) {
     const hasNickname = Object.prototype.hasOwnProperty.call(patch, 'nickname');
     const hasAvatar = Object.prototype.hasOwnProperty.call(patch, 'avatarUrl');
-    if (!hasNickname && !hasAvatar) throw new Error('Community profile patch must not be empty.');
+    const hasBio = Object.prototype.hasOwnProperty.call(patch, 'bio');
+    if (!hasNickname && !hasAvatar && !hasBio) throw new Error('Community profile patch must not be empty.');
 
     const now = new Date();
     return this.db.transaction((transaction) => {
@@ -65,6 +68,7 @@ export class SQLiteCommunityProfileRepository implements CommunityProfileReposit
         userId,
         nickname: hasNickname ? patch.nickname ?? null : null,
         avatarUrl: hasAvatar ? patch.avatarUrl ?? null : null,
+        bio: hasBio ? patch.bio ?? null : null,
         updatedAt: now,
       }).onConflictDoUpdate({
         target: schema.communityProfiles.userId,
@@ -72,6 +76,7 @@ export class SQLiteCommunityProfileRepository implements CommunityProfileReposit
           updatedAt: now,
           ...(hasNickname ? { nickname: patch.nickname ?? null } : {}),
           ...(hasAvatar ? { avatarUrl: patch.avatarUrl ?? null } : {}),
+          ...(hasBio ? { bio: patch.bio ?? null } : {}),
         },
       }).run();
 
@@ -79,6 +84,7 @@ export class SQLiteCommunityProfileRepository implements CommunityProfileReposit
         userId: schema.communityProfiles.userId,
         nickname: schema.communityProfiles.nickname,
         avatarUrl: schema.communityProfiles.avatarUrl,
+        bio: schema.communityProfiles.bio,
       }).from(schema.communityProfiles)
         .where(eq(schema.communityProfiles.userId, userId))
         .limit(1)

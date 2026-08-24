@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 baseline、社区昵称、社交 contract 与 Treehole 图片等各编号 migration 的不可变 SQL
+ * [INPUT]: 依赖 baseline、Community 资料、社交 contract、Treehole 图片与 Early Rising 等编号 migration 的不可变 SQL
  * [OUTPUT]: 对外提供按版本严格排序的 MIGRATIONS 清单与 Migration 类型
  * [POS]: migrations 的唯一注册表，隔离迁移发现顺序与执行引擎
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -12,6 +12,8 @@ import {
   socialRearchitectureStatements,
 } from './0003_social_rearchitecture';
 import { treeholePostMediaSql } from './0004_treehole_post_media';
+import { communityBioSql } from './0005_community_bio';
+import { earlyRisingSql } from './0006_early_rising';
 
 export interface Migration {
   version: number;
@@ -32,4 +34,6 @@ export const MIGRATIONS: readonly Migration[] = [
     destructive: true,
   },
   { version: 4, name: 'treehole_post_media', sql: treeholePostMediaSql },
+  { version: 5, name: 'community_bio', sql: communityBioSql },
+  { version: 6, name: 'early_rising', sql: earlyRisingSql },
 ];

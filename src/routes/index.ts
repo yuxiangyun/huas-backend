@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 Hono、authMiddleware、onAppError、稳定校园子路由与注入的 Community/Discover/Treehole/Notifications/Messaging/Social 摘要/后台 routes
- * [OUTPUT]: 对外提供 registerRoutes(app, dependencies)，统一挂载 public/auth/calendar 与受保护 /api 路由
- * [POS]: routes 的协议总装配器，只定义 URL/认证边界并挂载跨 Social 只读聚合，不创建业务 concrete singleton
+ * [INPUT]: 依赖 Hono、authMiddleware、onAppError、稳定校园子路由与注入的 Early Rising/Community/社交/后台 routes
+ * [OUTPUT]: 对外提供 registerRoutes(app, dependencies)，统一挂载 public/auth/calendar 与受 Bearer 保护的业务 /api 路由
+ * [POS]: routes 的协议总装配器，只定义 URL/认证边界并挂载模块实例，不创建业务 concrete singleton
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -26,6 +26,7 @@ export interface RouteDependencies {
   adminRoutes: Hono;
   communityRoutes: Hono;
   discoverRoutes: Hono;
+  earlyRisingRoutes: Hono;
   messagingRoutes: Hono;
   notificationRoutes: Hono;
   socialSummaryRoutes: Hono;
@@ -72,6 +73,7 @@ export function registerRoutes(app: Hono, dependencies?: RouteDependencies) {
   if (dependencies) {
     api.route('/community', dependencies.communityRoutes);
     api.route('/discover', dependencies.discoverRoutes);
+    api.route('/early-rising', dependencies.earlyRisingRoutes);
     api.route('/messaging', dependencies.messagingRoutes);
     api.route('/notifications', dependencies.notificationRoutes);
     api.route('/social', dependencies.socialSummaryRoutes);
