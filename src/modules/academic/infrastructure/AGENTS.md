@@ -2,7 +2,7 @@
 > L2 | 父级: /Users/xiangyun/workspace/huas-wechat-app/huas-server/src/modules/academic/AGENTS.md
 
 成员清单
-cache-store.ts: Academic 缓存、singleflight 与 refresh stale fallback 适配入口，复用 canonical Cache 语义
+cache-store.ts: Academic 缓存读写/快照条件失效、singleflight 与 refresh stale fallback 适配入口，复用 canonical Cache 语义
 campus-system.ts: Campus Integrations canonical upstream 的 AcademicUpstream 端口实现
 runtime.ts: 默认 upstream/cache/fallback 端口实现集合，仅供 composition root 装配
 file-schedule-source-policy-store.ts: 原子 JSON、存活 owner 隔离锁目录与文件指纹热加载的课表来源策略 store，新式锁仅在超时且 owner 进程已退出时接管，同时兼容遗留无 PID 锁并在损坏时保留最后快照

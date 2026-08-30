@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 Portal 上游 JSON、ICourse 类型、Logger 与 portal-code 的 code 语义判断
- * [OUTPUT]: 对外提供 PortalScheduleParser，按请求日期范围解析 Portal 课表为统一课程模型
- * [POS]: campus-integrations/portal/parsers 的课表纯适配器，识别过期、空数据并过滤日期范围
+ * [OUTPUT]: 对外提供 PortalScheduleParser，按请求日期范围解析 Portal 课表，并区分合法空表与缺失载荷
+ * [POS]: campus-integrations/portal/parsers 的课表纯适配器，识别过期、协议缺字段、真实空表并过滤日期范围
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -19,9 +19,8 @@ export const PortalScheduleParser = {
     }
 
     if (isPortalSuccessCode(json?.code) && !json?.data?.schedule) {
-      const message = String(json?.message || '').trim() || '没有相关数据';
-      Logger.parser('PortalScheduleParser', '解析完成 共 0 个日程', user?.studentId, user?.name);
-      return { week, courses: [], message };
+      Logger.warn('PortalScheduleParser', '课表载荷缺失', json?.message || 'data.schedule 缺失', user?.studentId);
+      throw new Error('PORTAL_SCHEDULE_PAYLOAD_MISSING');
     }
 
     if (!isPortalSuccessCode(json?.code) || !json?.data?.schedule) {

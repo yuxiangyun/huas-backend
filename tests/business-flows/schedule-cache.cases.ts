@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 JW/Portal 课表服务、缓存存储、日期工具与可控上游状态
- * [OUTPUT]: 验证日期校验、周粒度缓存、强刷绕过、旧键提升与用户缓存限额
+ * [OUTPUT]: 验证日期校验、周粒度缓存、强刷绕过、旧键提升、Portal 缺载荷缓存淘汰与用户缓存限额
  * [POS]: tests/business-flows 的独立能力用例集，由聚合入口在进程级 mock 隔离内装配
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -164,6 +164,44 @@ describe('课表缓存与强制刷新防护', () => {
       .from(schema.cache)
       .where(eq(schema.cache.key, weeklyCacheKey));
     expect(rows.length).toBe(1);
+  });
+
+  it('旧 Portal 缺载荷空缓存会被淘汰并重新读取上游', async () => {
+    const studentId = '2023010009';
+    const startDate = '2025-03-03';
+    const endDate = '2025-03-09';
+    const cacheKey = `portal-schedule:${studentId}:${startDate}:${endDate}`;
+    await CacheService.set(cacheKey, {
+      week: startDate,
+      courses: [],
+      message: '没有相关数据',
+    }, 0, 'portal');
+    upstreamState.upstreamResolver = async () => makeSchedulePayload('portal-refetched');
+
+    const result = await PortalScheduleService.getSchedule(1, studentId, startDate, endDate, false);
+
+    expect(result._meta.cached).toBe(false);
+    expect(result.data.courses[0].name).toBe('course-portal-refetched');
+    expect(upstreamState.upstreamCallCount).toBe(1);
+  });
+
+  it('Portal 强刷缺载荷时不会用旧空缓存伪造 stale 成功', async () => {
+    const studentId = '2023010010';
+    const startDate = '2025-03-03';
+    const endDate = '2025-03-09';
+    const cacheKey = `portal-schedule:${studentId}:${startDate}:${endDate}`;
+    await CacheService.set(cacheKey, {
+      week: startDate,
+      courses: [],
+      message: '没有相关数据',
+    }, 0, 'portal');
+    upstreamState.upstreamExecuteCallback = true;
+    upstreamState.upstreamJsonPayload = { code: 0, data: {} };
+
+    await expect(
+      PortalScheduleService.getSchedule(1, studentId, startDate, endDate, true),
+    ).rejects.toThrow('PORTAL_SCHEDULE_PAYLOAD_MISSING');
+    expect(await CacheService.get(cacheKey)).toBeNull();
   });
 
   it('portal schedule 缓存按用户前缀执行 LRU 限额', async () => {

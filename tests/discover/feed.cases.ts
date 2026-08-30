@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 Discover 测试支架、帖子/点赞/列表/用户帖子 API、SQLite 事实与 Notifications 投影表
- * [OUTPUT]: 验证幂等点赞/作者自赞/通知撤销、popular、完整候选集稳定推荐、Unicode 校验及统一作者 DTO
- * [POS]: tests/discover 的 Discover 点赞与推荐细分用例，锁定事实/Outbox/通知一致性与点赞推荐契约
+ * [INPUT]: 依赖 Discover 测试支架、公开读取/认证帖子/点赞/列表/用户帖子 API、SQLite 事实与 Notifications 投影表
+ * [OUTPUT]: 验证匿名读取边界、幂等点赞/作者自赞/通知撤销、popular、推荐分页、Unicode 边界及统一作者 DTO
+ * [POS]: tests/discover 的公开 Feed 与认证互动细分用例，锁定匿名橱窗、事实/Outbox/通知一致性和推荐契约
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -12,6 +12,7 @@ import {
   otherAuthorId,
   likerId,
   createApp,
+  createDiscoverComment,
   createDiscoverPost,
   createUser,
   setCommunityProfile,
@@ -22,6 +23,72 @@ import {
 } from './harness';
 
 describe('Discover 点赞与推荐', () => {
+  it('匿名只读帖子、详情和评论，用户主页与全部写操作仍需登录', async () => {
+    const app = createApp();
+    await setCommunityProfile(authorId, {
+      nickname: '好饭作者',
+      avatarUrl: '/media/community-avatar/public-author.webp',
+    });
+    const post = await createDiscoverPost(app, {
+      userId: authorId,
+      studentId: '2023001001',
+      title: '匿名橱窗内容',
+    });
+    const comment = await createDiscoverComment(app, {
+      postId: post.id,
+      userId: otherAuthorId,
+      studentId: '2023001002',
+      content: '公开讨论内容',
+    });
+
+    const [metaResponse, listResponse, detailResponse, commentsResponse] = await Promise.all([
+      app.request('http://localhost/api/public/discover/meta'),
+      app.request('http://localhost/api/public/discover/posts?sort=latest'),
+      app.request(`http://localhost/api/public/discover/posts/${post.id}`),
+      app.request(`http://localhost/api/public/discover/posts/${post.id}/comments`),
+    ]);
+
+    expect(metaResponse.status).toBe(200);
+    expect(listResponse.status).toBe(200);
+    expect(detailResponse.status).toBe(200);
+    expect(commentsResponse.status).toBe(200);
+    expect((await listResponse.json() as any).data.items[0]).toMatchObject({
+      id: post.id,
+      likedByMe: false,
+      isMine: false,
+      author: {
+        id: authorId,
+        displayName: '好饭作者',
+        avatarUrl: '/media/community-avatar/public-author.webp',
+      },
+    });
+    expect((await detailResponse.json() as any).data).toMatchObject({
+      id: post.id,
+      likedByMe: false,
+      isMine: false,
+    });
+    expect((await commentsResponse.json() as any).data.items[0]).toMatchObject({
+      id: comment.id,
+      content: '公开讨论内容',
+      isMine: false,
+    });
+
+    const publicProfilePosts = await app.request(
+      `http://localhost/api/public/discover/users/${authorId}/posts`,
+    );
+    const publicLike = await app.request(
+      `http://localhost/api/public/discover/posts/${post.id}/like`,
+      { method: 'PUT' },
+    );
+    const privateLikeWithoutToken = await app.request(
+      `http://localhost/api/discover/posts/${post.id}/like`,
+      { method: 'PUT' },
+    );
+    expect(publicProfilePosts.status).toBe(404);
+    expect(publicLike.status).toBe(404);
+    expect(privateLikeWithoutToken.status).toBe(401);
+  });
+
   it('点赞/取消点赞幂等、计数一致，并允许作者点赞自己的帖子', async () => {
     const app = createApp();
     const post = await createDiscoverPost(app, {

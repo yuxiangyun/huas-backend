@@ -9,6 +9,7 @@ db-snapshot.ts: SQLite VACUUM INTO 快照命令，要求显式数据库路径与
 deploy-huas.sh: 历史快速入口的维护发布别名，统一委托受 destructive migration 门禁保护的远端流程。
 deploy-huas-zero-downtime.sh: 保留历史文件名的本地维护发布编排器，上传工作区 release，透传 release 保留/磁盘余量策略并明确触发远端停流窗口。
 remote-blue-green-deploy.sh: 远端 contract release 核心，先安全淘汰非活动 release 并按解析后的数据库与四媒体根执行存量感知磁盘门禁，再严格执行停流、停 writer、快照、migration 与冒烟开放流量。
+rotate-self-jwt-secret-remote.sh: 本机编排百度远端 Self JWT 密钥轮换；默认只读预检，显式确认后在 maintenance 内全量预解密并事务重加密用户密码，可定向清空异常密码并删除该用户全部 credentials，同步 blue/green 环境后以旧/新签名的差异化 401 双探针闭环再恢复流量。
 seed-early-rising-mock.ts: Early Rising 真实用户打卡的可审计 mock 播种与 manifest 精确撤销入口
 seed-early-rising-remote.ts: 百度活动 release 的 Early Rising 远程播种编排器，失败路径也统一清理临时工作区
 seed-social-test-data.ts: 非生产 Social 测试数据幂等播种器，复用唯一组合根创建本地账户、Community 头像、Treehole 文本帖与 Discover 单图/多图帖。
@@ -24,6 +25,7 @@ Social 测试播种只能在非生产环境执行；账户不保存学校凭证�
 migration 后只能在新 Server `/health/ready` 与 Web `/m` 本机冒烟同时成功后开放流量；任一失败都必须保持停流与停 writer，不得恢复旧 upstream，只允许 forward-fix。
 active-slot 以同目录候选文件原子替换；Web 包管理器按锁文件确定且优先 package-lock。
 PM2 必须以 `interpreter: none` 直接执行 `bun run src/index.ts`；目标槽每次停写后重建进程元数据，禁止让 `startOrReload` 保留旧 script path，也禁止经 Bun require wrapper 装载含顶层异步初始化的 ESM 入口。
+Self JWT 密钥轮换必须先全量验证旧密钥可解密的用户密码，再于停流停 writer 后用新密钥事务重加密；共享与槽位环境、PM2 元数据和新旧签名探针未全部收敛前不得恢复流量，失败必须保留受限恢复材料并保持 maintenance。
 使用 `mock.module` 的套件必须独立进程执行；普通套件以单并发运行，共享 SQLite 的测试不得并行清理数据。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md

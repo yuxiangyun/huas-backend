@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 domain AcademicRuntimePorts、canonical PortalScheduleParser/端点、config 与 AppError
  * [OUTPUT]: 对外提供 PortalScheduleApplicationService，并分离 current 与 stale 日期课表读取
- * [POS]: academic/application 的 Portal 单源课表用例，负责日期区间校验、同键回源合并、缓存与显式过期兜底
+ * [POS]: academic/application 的 Portal 单源课表用例，负责日期区间校验、同键回源合并、旧缺载荷缓存的条件淘汰与显式过期兜底
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -32,6 +32,15 @@ function getLookup(startDate: string, endDate: string, rangeDays: number): 'week
   const start = new Date(`${startDate}T00:00:00Z`);
   const end = new Date(`${endDate}T00:00:00Z`);
   return rangeDays === 7 && start.getUTCDay() === 1 && end.getUTCDay() === 0 ? 'weekly' : 'range';
+}
+
+function isLegacyMissingPayloadCache(data: unknown): boolean {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return false;
+  const record = data as { courses?: unknown; message?: unknown };
+  return Array.isArray(record.courses)
+    && record.courses.length === 0
+    && typeof record.message === 'string'
+    && record.message.trim().length > 0;
 }
 
 export class PortalScheduleApplicationService {
@@ -91,11 +100,29 @@ export class PortalScheduleApplicationService {
     if (!forceRefresh) {
       const cached = await this.ports.cache.get(cacheKey);
       if (cached) {
-        return {
-          data: cached.data,
-          _meta: { ...cached.meta, source: cached.meta.source || 'portal' },
-          _request: { ...requestMeta, cache: 'hit' as const },
-        };
+        // 旧版把缺失 data.schedule 的成功码写成带 message 的空表；不能继续短路 JW fallback。
+        if (isLegacyMissingPayloadCache(cached.data)) {
+          const invalidated = cached.versionToken
+            ? await this.ports.cache.invalidateIfVersion(cacheKey, cached.versionToken)
+            : false;
+          if (!invalidated) {
+            // 条件删除失败说明该 key 已被并发请求改写；只接受改写后的真实课表。
+            const replacement = await this.ports.cache.get(cacheKey);
+            if (replacement && !isLegacyMissingPayloadCache(replacement.data)) {
+              return {
+                data: replacement.data,
+                _meta: { ...replacement.meta, source: replacement.meta.source || 'portal' },
+                _request: { ...requestMeta, cache: 'hit' as const },
+              };
+            }
+          }
+        } else {
+          return {
+            data: cached.data,
+            _meta: { ...cached.meta, source: cached.meta.source || 'portal' },
+            _request: { ...requestMeta, cache: 'hit' as const },
+          };
+        }
       }
     }
 
@@ -142,8 +169,13 @@ export class PortalScheduleApplicationService {
       error,
       source: 'portal',
       studentId,
+      discardCached: isLegacyMissingPayloadCache,
     });
     if (!fallback) return null;
+
+    if (isLegacyMissingPayloadCache(fallback.data)) {
+      return null;
+    }
 
     return {
       data: fallback.data,

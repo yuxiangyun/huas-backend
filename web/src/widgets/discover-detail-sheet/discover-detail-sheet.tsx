@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 Discover 查询/写入 hooks、全屏详情容器、媒体轮播、社区资料与评论树
- * [OUTPUT]: 对外提供 DiscoverDetailSheet，以全屏双栏/单栏阅读、仅横向切图的媒体轮播、单顶分隔线互动栏、固定评论输入器和独立图片查看器展示好饭详情
- * [POS]: widgets/discover-detail-sheet 的详情业务容器，保留 URL 深链与 mutation 语义，将纵向阅读、横向切图和图片预览明确分层
+ * [INPUT]: 依赖认证交互能力、Discover 查询/写入 hooks、全屏详情容器、媒体轮播、社区资料与评论树
+ * [OUTPUT]: 对外提供 DiscoverDetailSheet，匿名可读详情与评论，点赞/回复/评论以固定登录动作替代写入器
+ * [POS]: widgets/discover-detail-sheet 的公开详情容器，保留 URL 深链并把读取、身份动作、媒体预览和评论写入明确分层
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -36,8 +36,10 @@ const LazyImageViewer = lazy(async () => {
 });
 
 interface DiscoverDetailSheetProps {
+  isAuthenticated: boolean;
   postId: number | null;
   onClose: () => void;
+  onAuthenticationRequired: () => void;
   onMessageAuthor: (userId: number) => void;
   onOpenProfile: (userId: number) => void;
 }
@@ -188,12 +190,14 @@ function DetailAuthor({ post, onOpenProfile }: { post: DiscoverPost; onOpenProfi
 }
 
 function DiscoverActionBar({
+  isAuthenticated,
   post,
   likeBusy,
   onToggleLike,
   onFocusComments,
   onMessageAuthor,
 }: {
+  isAuthenticated: boolean;
   post: DiscoverPost;
   likeBusy: boolean;
   onToggleLike: () => void;
@@ -204,7 +208,7 @@ function DiscoverActionBar({
     <div className="flex flex-wrap items-center gap-1 border-t border-line py-2">
       <SocialCountAction
         active={post.likedByMe}
-        aria-label={post.likedByMe ? '取消点赞' : '点赞'}
+        aria-label={!isAuthenticated ? '登录后点赞' : post.likedByMe ? '取消点赞' : '点赞'}
         aria-pressed={post.likedByMe}
         count={post.likeCount}
         disabled={likeBusy}
@@ -247,7 +251,14 @@ function DiscoverDetailLoading() {
   );
 }
 
-export function DiscoverDetailSheet({ postId, onClose, onMessageAuthor, onOpenProfile }: DiscoverDetailSheetProps) {
+export function DiscoverDetailSheet({
+  isAuthenticated,
+  postId,
+  onAuthenticationRequired,
+  onClose,
+  onMessageAuthor,
+  onOpenProfile,
+}: DiscoverDetailSheetProps) {
   const postQuery = useDiscoverPostDetailQuery(postId);
   const metaQuery = useDiscoverMetaQuery();
   const commentPageSize = Math.min(20, metaQuery.data?.pagination.maxCommentPageSize ?? 20);
@@ -305,6 +316,10 @@ export function DiscoverDetailSheet({ postId, onClose, onMessageAuthor, onOpenPr
   };
 
   const submitComment = async () => {
+    if (!isAuthenticated) {
+      onAuthenticationRequired();
+      return;
+    }
     if (!postId) return;
     const requestedPostId = postId;
     const submittedDraft = commentDraft;
@@ -328,6 +343,10 @@ export function DiscoverDetailSheet({ postId, onClose, onMessageAuthor, onOpenPr
   };
 
   const toggleLike = async () => {
+    if (!isAuthenticated) {
+      onAuthenticationRequired();
+      return;
+    }
     if (!post) return;
     const requestedPostId = post.id;
     try {
@@ -341,6 +360,10 @@ export function DiscoverDetailSheet({ postId, onClose, onMessageAuthor, onOpenPr
   };
 
   const focusComments = () => {
+    if (!isAuthenticated) {
+      onAuthenticationRequired();
+      return;
+    }
     document.getElementById('discover-detail-comment-input')?.focus();
   };
 
@@ -359,18 +382,24 @@ export function DiscoverDetailSheet({ postId, onClose, onMessageAuthor, onOpenPr
         contentClassName="p-0"
         footer={post ? (
           <div className="mx-auto w-full max-w-[var(--layout-shell-max)]">
-            <CommentComposer
-              compact
-              autoFocus={Boolean(replyTarget)}
-              draft={commentDraft}
-              inputId="discover-detail-comment-input"
-              maxLength={maxCommentLength}
-              pending={createCommentMutation.isPending}
-              replyTarget={replyTarget}
-              onCancelReply={() => setReplyTarget(null)}
-              onDraftChange={setCommentDraft}
-              onSubmit={() => void submitComment()}
-            />
+            {isAuthenticated ? (
+              <CommentComposer
+                compact
+                autoFocus={Boolean(replyTarget)}
+                draft={commentDraft}
+                inputId="discover-detail-comment-input"
+                maxLength={maxCommentLength}
+                pending={createCommentMutation.isPending}
+                replyTarget={replyTarget}
+                onCancelReply={() => setReplyTarget(null)}
+                onDraftChange={setCommentDraft}
+                onSubmit={() => void submitComment()}
+              />
+            ) : (
+              <Button fullWidth size="md" type="button" onClick={() => onAuthenticationRequired()}>
+                登录后参与讨论
+              </Button>
+            )}
           </div>
         ) : undefined}
         footerClassName="border-t border-line bg-white/95 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2.5 backdrop-blur sm:px-6 sm:pb-4"
@@ -441,6 +470,7 @@ export function DiscoverDetailSheet({ postId, onClose, onMessageAuthor, onOpenPr
                   </div>
 
                   <DiscoverActionBar
+                    isAuthenticated={isAuthenticated}
                     likeBusy={likeBusy}
                     post={post}
                     onFocusComments={focusComments}
@@ -482,7 +512,13 @@ export function DiscoverDetailSheet({ postId, onClose, onMessageAuthor, onOpenPr
                         });
                       }}
                       onLoadMore={() => void commentsQuery.fetchNextPage()}
-                      onReply={setReplyTarget}
+                      onReply={(target) => {
+                        if (!isAuthenticated) {
+                          onAuthenticationRequired();
+                          return;
+                        }
+                        setReplyTarget(target);
+                      }}
                     />
                   </section>
 

@@ -1,11 +1,11 @@
 /**
  * [INPUT]: 依赖 Drizzle/SQLite cache 表、FreshnessPolicy、cache envelope、CacheMeta、北京时间、统一 Logger 与可选访问观察器
- * [OUTPUT]: 对外提供 SqliteCacheStore，以 created_at 表达当前数据写入时间、updated_at 维护 LRU 访问时间，并支持版本兼容、TTL 与清理
- * [POS]: cache/infrastructure 的本地持久化适配器，是 cache 表时间语义、领域元数据与 LRU 的唯一翻译边界
+ * [OUTPUT]: 对外提供 SqliteCacheStore，以 created_at 表达当前数据写入时间、updated_at 维护 LRU 访问时间，并支持版本兼容、TTL、快照条件失效与清理
+ * [POS]: cache/infrastructure 的本地持久化适配器，是 cache 表时间语义、领域元数据、LRU 与防并发误删令牌的唯一翻译边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { getDb, schema } from '../../../db';
 import type { CacheMeta } from '../../../types';
 import { beijingIsoString } from '../../../utils/time';
@@ -16,6 +16,13 @@ import { expiresAtFor, type FreshnessPolicy } from '../domain/freshness-policy';
 export interface CacheReadOptions {
   touch?: boolean;
   allowExpired?: boolean;
+}
+
+export interface CacheReadResult<T> {
+  data: T;
+  meta: CacheMeta;
+  // 仅供同一缓存边界执行条件失效，禁止投影到 API DTO 或日志。
+  versionToken: string;
 }
 
 export class SqliteCacheStore {
@@ -29,7 +36,7 @@ export class SqliteCacheStore {
     }
   }
 
-  async get<T>(key: string, options?: CacheReadOptions): Promise<{ data: T; meta: CacheMeta } | null> {
+  async get<T>(key: string, options?: CacheReadOptions): Promise<CacheReadResult<T> | null> {
     const db = getDb();
     const rows = await db.select()
       .from(schema.cache)
@@ -88,6 +95,7 @@ export class SqliteCacheStore {
         source: entry.source || undefined,
         stale: expired || undefined,
       },
+      versionToken: entry.data,
     };
   }
 
@@ -113,6 +121,14 @@ export class SqliteCacheStore {
   async invalidate(key: string): Promise<void> {
     const db = getDb();
     await db.delete(schema.cache).where(eq(schema.cache.key, key));
+  }
+
+  async invalidateIfVersion(key: string, versionToken: string): Promise<boolean> {
+    const db = getDb();
+    const removed = await db.delete(schema.cache)
+      .where(and(eq(schema.cache.key, key), eq(schema.cache.data, versionToken)))
+      .returning({ id: schema.cache.id });
+    return removed.length > 0;
   }
 
   async cleanupExpired(): Promise<void> {

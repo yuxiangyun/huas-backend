@@ -12,7 +12,7 @@ app-factory.test.ts: 注入式 Hono 应用工厂、Web 分层缓存、私有 API
 activity-outbox-integration.test.ts: Discover 点赞与 Treehole 评论的事实/计数/Outbox 同事务失败回滚，以及提交后投影失败重试门禁
 business-flows.test.ts: 核心业务流薄聚合入口，在独立 Bun 进程内装配 business-flows/ 能力用例并维持模块 mock 隔离
 business-flows/: 登录、凭证、课表/日历、缓存与持久化边界的共享支架和细分能力用例
-cache-modernization.test.ts: Cache 永久/限时新鲜度、数据时间/LRU 访问时间分离、版本 envelope、singleflight 与 observer 隔离回归测试
+cache-modernization.test.ts: Cache 永久/限时新鲜度、数据时间/LRU 访问时间分离、版本 envelope、快照条件失效、singleflight 与 observer 隔离回归测试
 calendar-compat.test.ts: Calendar canonical 实现与 routes/services/auth 旧 Facade 的引用、token 别名与 HMAC 语义兼容测试
 campus-integrations-compat.test.ts: Campus Integrations canonical 实现与 auth/core/parsers/services 旧 Facade 的引用一致性测试
 database-migrations.test.ts: SQLite destructive 授权、0003 核心守恒/旧事实丢弃、0004 Treehole 媒体列与唯一索引、schema fail-ready、repair 与快照测试
@@ -43,12 +43,12 @@ messaging-admin.test.ts: 管理员 Cookie 会话增量/三态消息/图片只读
 operations-application.test.ts: Operations Dashboard 构造注入与纯端口聚合隔离测试
 operations-compat.test.ts: Operations canonical 与旧 routes/services/runtime/middleware Facade 引用及依赖方向测试
 periodic-tasks.test.ts: Runtime 轻量周期任务注册、幂等启停、失败隔离与同任务防重叠回归测试
-portal-schedule-parser.test.ts: Portal 日期范围、课表解析、数字/字符串 code、非成功错误与一卡通余额边界回归测试
+portal-schedule-parser.test.ts: Portal 日期范围、结构完整空表/缺载荷协议错误、数字/字符串 code、非成功错误与一卡通余额边界回归测试
 public-announcements.test.ts: 公告公共接口回归测试
 runtime-check-ci.test.ts: Bun 测试临时库默认 preload、本地 check 脚本、单 job CI、触发器、并发取消与 observer 装配静态回归测试
 runtime-health-metrics.test.ts: live/ready 状态矩阵、普通/增量轮询 quiet 日志、轻量指标、校园 HTTP 结果观察与有界 shutdown hooks 回归测试
 schedule-parser.test.ts: JW 真实结构、非教学周、登录页与嵌套课程节点去重回归测试
-schedule-source-policy.test.ts: 课表来源热策略、请求快照、current/stale 固定顺序、legacy 错误优先级、持久化锁接管与管理鉴权回归测试
+schedule-source-policy.test.ts: 课表来源热策略、请求快照、缺载荷时 JW fallback、current/stale 固定顺序、legacy 错误优先级、持久化锁接管与管理鉴权回归测试
 setup.ts: 单元与业务流测试环境初始化，并在模块装载前显式迁移隔离 SQLite
 social-database.ts: 跨 Community/Discover/Treehole/Notifications/Messaging 套件的外键有序清理 helper，显式解除会话游标循环引用后清空社交与身份事实
 treehole.test.ts: Treehole 薄聚合入口，在单进程内装配 treehole/ 公共作者、低内存私有媒体、交互与管理用例

@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Bun Test、隔离 SQLite、canonical CacheService、Academic 课表用例与 PerKeySingleflight
- * [OUTPUT]: 验证 FreshnessPolicy、数据时间/LRU 访问时间分离、envelope 兼容与同键同刷新意图回源合并
+ * [OUTPUT]: 验证 FreshnessPolicy、数据时间/LRU 访问时间分离、envelope 兼容、条件失效与同键同刷新意图回源合并
  * [POS]: tests 的 Cache 专属定向套件，覆盖 Phase 4 缓存语义而不启动 HTTP 或真实校园网络
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -96,6 +96,16 @@ describe('FreshnessPolicy 与 cache envelope', () => {
     expect(rows).toHaveLength(1);
   });
 
+  it('条件失效不会删除读取后被并发刷新写入的新值', async () => {
+    await CacheService.set('cache:conditional-invalidate', { legacy: true }, 0, 'portal');
+    const observed = await CacheService.get<{ legacy: boolean }>('cache:conditional-invalidate');
+    expect(observed).not.toBeNull();
+
+    await CacheService.set('cache:conditional-invalidate', { legacy: false }, 0, 'portal');
+    expect(await CacheService.invalidateIfVersion('cache:conditional-invalidate', observed!.versionToken)).toBe(false);
+    expect((await CacheService.get<{ legacy: boolean }>('cache:conditional-invalidate'))?.data).toEqual({ legacy: false });
+  });
+
   it('可注入观察器收到真实 hit、miss 与 singleflight merge，默认实现不依赖 Runtime', async () => {
     const accesses: string[] = [];
     let merges = 0;
@@ -165,6 +175,7 @@ function createScheduleHarness() {
         ? { data: values.get(key) as T, meta: { cached: true } }
         : null,
       set: async (key: string, data: unknown) => { values.set(key, data); },
+      invalidateIfVersion: async () => false,
       enforcePrefixLimit: async () => {},
       runSingleflight: (key, forceRefresh, operation) => flights.run(key, forceRefresh ? 'refresh' : 'normal', operation),
     },
@@ -288,6 +299,30 @@ describe('stale fallback 观察器', () => {
       });
       expect(result?.data).toEqual({ old: true });
       expect(result?._meta.refresh_failed).toBe(true);
+    } finally {
+      restore();
+    }
+  });
+
+  it('调用方拒绝的 stale 在记录 fallback 指标前被条件淘汰', async () => {
+    await CacheService.set('cache:rejected-fallback', { legacy: true }, 0, 'portal');
+    let fallbacks = 0;
+    const restore = configureRefreshFallbackObservers({
+      recordFallback: () => { fallbacks += 1; },
+    });
+
+    try {
+      const result = await fallbackOnRefreshFailure<{ legacy: boolean }>({
+        forceRefresh: true,
+        cacheKey: 'cache:rejected-fallback',
+        error: new Error('REQUEST_TIMEOUT'),
+        source: 'portal',
+        studentId: '2023001007',
+        discardCached: (data) => data.legacy,
+      });
+      expect(result).toBeNull();
+      expect(fallbacks).toBe(0);
+      expect(await CacheService.get('cache:rejected-fallback')).toBeNull();
     } finally {
       restore();
     }

@@ -8,14 +8,14 @@ db/: SQLite/Drizzle 数据层，定义业务事实表、版本化 migration、�
 middleware/: Hono 中间件，处理认证、限流、日志、错误与后台 Cookie 会话
 modules/: 按业务能力组织的纵向切片，承载 Identity、Community、Early Rising、Campus Integrations、Academic、Cache、Calendar 与各社交/运维业务实现
 parsers/: 学校解析器兼容 Facade，canonical 纯解析器位于 modules/campus-integrations
-routes/: Hono 协议与认证边界，接收根组合注入的 Community/Discover/Early Rising/Treehole/Notifications/Messaging/Operations 路由实例
+routes/: Hono 协议与认证边界，接收根组合注入的 Discover 匿名只读表及 Community/社交/Early Rising/Operations 认证路由实例
 runtime/: 进程运行态，承载就绪判定、轻量指标、有界关闭 hooks 与四类独立孤儿媒体周期任务
 services/: 学校业务与 Operations 的迁移期兼容层；Discover/Treehole 旧 Facade 已物理删除
 types/: 第三方库声明补丁，隔离外部类型缺口
 utils/: 共享无状态工具，封装响应、错误、日志、时间、加密、请求体门禁与跨媒体图片转换
 config.ts: 运行时配置入口，从环境变量生成强类型配置对象，包含课表来源策略、共享状态路径、学校回源总预算、社交媒体宽限期与只能下调的 Treehole 低内存压缩/排队安全上限
 app.ts: 注入式 Hono 应用工厂，装配全局中间件、路由、私有 API no-store、静态 Web 分层缓存与媒体端点但不监听端口
-composition.ts: 唯一跨模块组合根，用同一 DB 实例连接 Community、Early Rising、Discover、Treehole、Notifications、Messaging 与 Operations 公开 ports，并集中装配 HTTP、后台展示设置、Social 聚合未读、首页弹窗及社交私有/公共媒体、观测器、四类独立孤儿媒体周期任务与关闭钩子
+composition.ts: 唯一跨模块组合根，用同一 DB 实例连接 Community、Early Rising、Discover、Treehole、Notifications、Messaging 与 Operations 公开 ports，并集中装配 Discover 匿名读表、认证 HTTP、后台展示设置、Social 聚合未读、社交媒体、观测器、周期任务与关闭钩子
 index.ts: 纯进程入口，只执行只读 schema 校验、Bun.serve、周期任务启停、信号与有界关闭
 
 架构决策
@@ -46,6 +46,7 @@ src 是应用机器相核心；新业务按 modules 纵向切片，旧 routes �
 2026-07-27: 新增 Campus Integrations 纵向切片，旧 auth/core/parsers 与 Portal 资料服务退化为兼容 Facade。
 2026-08-23: Campus Integrations 新增 epoch 条件写的 mobile-yxt 自有派生会话、独立限流/有界月缓存、严格账单与电费只读能力，保持旧 `/api/ecard` 合同不变。
 2026-08-24: Early Rising 纳入 canonical 模块地图，根组合将其 SQLite 展示设置端口注入 Operations 后台管理面。
+2026-08-29: 根组合把 Discover 匿名只读路由独立挂载到 `/api/public/discover`，认证 `/api/discover` 继续拥有用户投影与全部写操作。
 2026-07-27: 新增 modules/identity 登录纵向切片，旧 auth route 退化为单向兼容 Facade。
 2026-06-30: 播种 src L2 地图，补齐 services 父级文档锚点。
 

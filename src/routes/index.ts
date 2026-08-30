@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 Hono、authMiddleware、onAppError、稳定校园子路由与注入的 Early Rising/Community/社交/后台 routes
- * [OUTPUT]: 对外提供 registerRoutes(app, dependencies)，统一挂载 public/auth/calendar 与受 Bearer 保护的业务 /api 路由
- * [POS]: routes 的协议总装配器，只定义 URL/认证边界并挂载模块实例，不创建业务 concrete singleton
+ * [INPUT]: 依赖 Hono、authMiddleware、onAppError、稳定校园子路由与注入的 Discover 公开只读/社交/后台 routes
+ * [OUTPUT]: 对外提供 registerRoutes(app, dependencies)，挂载公共 Discover 橱窗并统一保护其余业务 /api 路由
+ * [POS]: routes 的协议总装配器，只定义 URL/认证边界并挂载模块实例，公开 Discover 只读表与认证写表物理分离
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -26,6 +26,7 @@ export interface RouteDependencies {
   adminRoutes: Hono;
   communityRoutes: Hono;
   discoverRoutes: Hono;
+  publicDiscoverRoutes: Hono;
   earlyRisingRoutes: Hono;
   messagingRoutes: Hono;
   notificationRoutes: Hono;
@@ -44,6 +45,7 @@ export function registerRoutes(app: Hono, dependencies?: RouteDependencies) {
   const api = new Hono();
   api.onError(onAppError);
   api.route('/public', publicRoutes);
+  if (dependencies) api.route('/public/discover', dependencies.publicDiscoverRoutes);
   if (dependencies) api.route('/admin', dependencies.adminRoutes);
   api.use('*', (c, next) => {
     const path = c.req.path;

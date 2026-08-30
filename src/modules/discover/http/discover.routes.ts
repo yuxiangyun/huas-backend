@@ -1,11 +1,11 @@
 /**
  * [INPUT]: 依赖 Hono、注入的 DiscoverApplicationService/上传策略、共享请求体上限与领域输入解析工具
- * [OUTPUT]: 对外提供 createDiscoverRoutes(service, uploadPolicy)，按 multipart 线序映射受限发帖、评论及幂等点赞协议
- * [POS]: modules/discover/http 的注入式协议 adapter，在 formData 前限制声明长度与流式请求体，不持有 composition singleton
+ * [OUTPUT]: 对外提供受 Bearer 保护的 createDiscoverRoutes 与匿名只读 createPublicDiscoverRoutes，共享帖子/详情/评论读取协议
+ * [POS]: modules/discover/http 的注入式协议 adapter，以独立路由表固定匿名只读边界，并在 formData 前限制声明长度与流式请求体
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { parseStringArray, type DiscoverSort } from '../domain/discover';
 import { ErrorCode } from '../../../utils/errors';
 import { appendHttpLogDetail, formatHttpLogDetail } from '../../../utils/http-log';
@@ -18,17 +18,21 @@ import {
 import { error, success } from '../../../utils/response';
 import type { DiscoverApplicationService } from '../application/discover-application-service';
 
-type DiscoverHttpService = Pick<
+type DiscoverReadHttpService = Pick<
   DiscoverApplicationService,
   | 'getMeta'
-  | 'createPost'
   | 'getPostDetail'
   | 'listPosts'
+  | 'listComments'
+>;
+
+type DiscoverHttpService = DiscoverReadHttpService & Pick<
+  DiscoverApplicationService,
+  | 'createPost'
   | 'listMyPosts'
   | 'listUserPosts'
   | 'likePost'
   | 'unlikePost'
-  | 'listComments'
   | 'createComment'
   | 'deleteComment'
   | 'deletePost'
@@ -68,12 +72,11 @@ function readImageFiles(form: FormData) {
   return files;
 }
 
-export function createDiscoverRoutes(
-  service: DiscoverHttpService,
-  uploadPolicy: DiscoverHttpUploadPolicy,
+function registerDiscoverReadRoutes(
+  routes: Hono,
+  service: DiscoverReadHttpService,
+  viewerUserId: (context: Context) => number,
 ) {
-  const routes = new Hono();
-
   routes.get('/meta', (c) => {
     const data = service.getMeta();
     appendHttpLogDetail(c, formatHttpLogDetail({
@@ -82,6 +85,50 @@ export function createDiscoverRoutes(
     }));
     return success(c, data);
   });
+
+  routes.get('/posts', async (c) => {
+    const sort = c.req.query('sort') || 'latest';
+    if (!['latest', 'popular', 'recommended'].includes(sort)) {
+      return error(c, ErrorCode.PARAM_ERROR, '排序方式不合法', 400);
+    }
+    const data = await service.listPosts(sort as DiscoverSort, {
+      userId: viewerUserId(c),
+      category: c.req.query('category'),
+      page: parsePositiveInt(c.req.query('page'), 1),
+      pageSize: parsePositiveInt(c.req.query('pageSize'), 20),
+    });
+    return success(c, data);
+  });
+
+  routes.get('/posts/:id', async (c) => {
+    const postId = parseId(c.req.param('id'));
+    if (!postId) return error(c, ErrorCode.PARAM_ERROR, '帖子 ID 不合法', 400);
+    const data = await service.getPostDetail(viewerUserId(c), postId);
+    return data ? success(c, data) : error(c, ErrorCode.PARAM_ERROR, '帖子不存在', 404);
+  });
+
+  routes.get('/posts/:id/comments', async (c) => {
+    const postId = parseId(c.req.param('id'));
+    if (!postId) return error(c, ErrorCode.PARAM_ERROR, '帖子 ID 不合法', 400);
+    const data = await service.listComments(viewerUserId(c), postId, {
+      page: parsePositiveInt(c.req.query('page'), 1),
+      pageSize: parsePositiveInt(c.req.query('pageSize'), 50),
+    });
+    return data ? success(c, data) : error(c, ErrorCode.PARAM_ERROR, '帖子不存在', 404);
+  });
+}
+
+export function createPublicDiscoverRoutes(service: DiscoverReadHttpService) {
+  const routes = new Hono();
+  registerDiscoverReadRoutes(routes, service, () => 0);
+  return routes;
+}
+
+export function createDiscoverRoutes(
+  service: DiscoverHttpService,
+  uploadPolicy: DiscoverHttpUploadPolicy,
+) {
+  const routes = new Hono();
 
   routes.post(
     '/posts',
@@ -164,26 +211,7 @@ export function createDiscoverRoutes(
     return success(c, data);
   });
 
-  routes.get('/posts', async (c) => {
-    const sort = c.req.query('sort') || 'latest';
-    if (!['latest', 'popular', 'recommended'].includes(sort)) {
-      return error(c, ErrorCode.PARAM_ERROR, '排序方式不合法', 400);
-    }
-    const data = await service.listPosts(sort as DiscoverSort, {
-      userId: c.get('userId'),
-      category: c.req.query('category'),
-      page: parsePositiveInt(c.req.query('page'), 1),
-      pageSize: parsePositiveInt(c.req.query('pageSize'), 20),
-    });
-    return success(c, data);
-  });
-
-  routes.get('/posts/:id', async (c) => {
-    const postId = parseId(c.req.param('id'));
-    if (!postId) return error(c, ErrorCode.PARAM_ERROR, '帖子 ID 不合法', 400);
-    const data = await service.getPostDetail(c.get('userId'), postId);
-    return data ? success(c, data) : error(c, ErrorCode.PARAM_ERROR, '帖子不存在', 404);
-  });
+  registerDiscoverReadRoutes(routes, service, (c) => c.get('userId'));
 
   routes.put('/posts/:id/like', async (c) => {
     const postId = parseId(c.req.param('id'));
@@ -203,16 +231,6 @@ export function createDiscoverRoutes(
 
     Logger.operation('Discover', `取消点赞帖子 #${postId}`, c.get('studentId'), c.get('name'));
     return success(c, { postId: data.id, liked: data.likedByMe, likeCount: data.likeCount });
-  });
-
-  routes.get('/posts/:id/comments', async (c) => {
-    const postId = parseId(c.req.param('id'));
-    if (!postId) return error(c, ErrorCode.PARAM_ERROR, '帖子 ID 不合法', 400);
-    const data = await service.listComments(c.get('userId'), postId, {
-      page: parsePositiveInt(c.req.query('page'), 1),
-      pageSize: parsePositiveInt(c.req.query('pageSize'), 50),
-    });
-    return data ? success(c, data) : error(c, ErrorCode.PARAM_ERROR, '帖子不存在', 404);
   });
 
   routes.post('/posts/:id/comments', async (c) => {

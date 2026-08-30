@@ -116,6 +116,26 @@ describe('ScheduleFacade current/stale 状态机', () => {
     expect(result._meta).toMatchObject({ fallback: 'jw', primary_source: 'portal' });
   });
 
+  it('Portal-first 周入口遇到缺失课表载荷时采用 JW current', async () => {
+    const calls: string[] = [];
+    const facade = createFacade({
+      calls,
+      jw: { current: async () => rawResult('jw', 'jw-current') },
+      portal: { current: async () => { throw new Error('PORTAL_SCHEDULE_PAYLOAD_MISSING'); } },
+    });
+
+    const result = await facade.getPortalFirstSchedule({
+      userId: 1,
+      studentId: '2023001001',
+      startDate: '2025-03-03',
+      endDate: '2025-03-09',
+      forceRefresh: true,
+    });
+
+    expect(calls).toEqual(['portal:current', 'jw:current']);
+    expect(result._meta).toMatchObject({ source: 'jw', primary_source: 'portal', fallback: 'jw' });
+  });
+
   it('两个 current 都失败且双缓存存在时，两种模式都固定选择 JW stale', async () => {
     for (const mode of ['jw-first', 'portal-first'] as const) {
       const calls: string[] = [];

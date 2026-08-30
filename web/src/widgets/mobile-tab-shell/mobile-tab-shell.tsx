@@ -1,15 +1,16 @@
 /**
- * [INPUT]: 依赖 React Router、`/m` 部署前缀、Social 四个主路由及其意图预载器、单请求 Social 未读摘要与共享徽标
- * [OUTPUT]: 对外提供 MobileTabShell、路径归一化与 SocialShellContext，以连续白色壳承载导航、分区轮询、四 Tab 滚动现场和重复点击回顶刷新
- * [POS]: widgets/mobile-tab-shell 的普通用户应用壳，是聚合未读唯一轮询与一级导航现场拥有者，普通 Tab 60 秒、消息页 15 秒
+ * [INPUT]: 依赖 React Router、普通用户认证事实、`/m` 前缀、Social 四路由/预载器、聚合未读与共享徽标
+ * [OUTPUT]: 对外提供 MobileTabShell、路径归一化与 SocialShellContext，匿名只承载好饭公开读取，其余 Tab 将意图定向登录
+ * [POS]: widgets/mobile-tab-shell 的 Social 应用壳，是公开/认证导航分界、聚合未读唯一轮询与一级导航现场拥有者
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { MessageCircle, Send, UserRound, Utensils } from 'lucide-react';
 import { useLayoutEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { NavLink, Outlet, useLocation, useOutletContext } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate, useOutletContext } from 'react-router-dom';
 import { appRoutes } from '@/app/router/paths';
+import { useAuthStore } from '@/entities/auth/model/auth-store';
 import { useSocialUnreadSummaryQuery } from '@/entities/social/api/social-summary-query';
 import type { SocialUnreadSummary } from '@/entities/social/model/social-summary-types';
 import { discoverQueryKeys } from '@/entities/discover/model/discover-query-keys';
@@ -23,10 +24,10 @@ import { cn } from '@/shared/lib/cn';
 import { UnreadBadge } from '@/shared/ui/unread-badge';
 
 const tabs = [
-  { to: appRoutes.treehole, label: '树洞', icon: MessageCircle, preload: () => import('@/pages/treehole') },
-  { to: appRoutes.discover, label: '好饭', icon: Utensils, preload: () => import('@/pages/discover') },
-  { to: appRoutes.messages, label: '消息', icon: Send, preload: () => import('@/pages/messages') },
-  { to: appRoutes.me, label: '我的', icon: UserRound, preload: () => import('@/pages/me') },
+  { to: appRoutes.treehole, label: '树洞', icon: MessageCircle, requiresAuth: true, preload: () => import('@/pages/treehole') },
+  { to: appRoutes.discover, label: '好饭', icon: Utensils, requiresAuth: false, preload: () => import('@/pages/discover') },
+  { to: appRoutes.messages, label: '消息', icon: Send, requiresAuth: true, preload: () => import('@/pages/messages') },
+  { to: appRoutes.me, label: '我的', icon: UserRound, requiresAuth: true, preload: () => import('@/pages/me') },
 ] as const;
 
 const tabScrollPositions = new Map<string, number>();
@@ -52,14 +53,17 @@ function tabRootForPath(pathname: string) {
 
 export function MobileTabShell() {
   const location = useLocation();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const normalizedPathname = normalizeSocialPathname(location.pathname);
   const activeTabRoot = tabRootForPath(normalizedPathname);
   const activeTabRootRef = useRef(activeTabRoot);
   const summaryQuery = useSocialUnreadSummaryQuery(
     normalizedPathname === appRoutes.messages && !new URLSearchParams(location.search).has('userId')
       ? 15_000
-      : 60_000
+      : 60_000,
+    isAuthenticated,
   );
   const unreadSummary = summaryQuery.data ?? {
     messagingUnreadCount: 0,
@@ -161,7 +165,12 @@ export function MobileTabShell() {
     }
   };
 
-  const handleTabClick = (event: { preventDefault(): void }, path: string) => {
+  const handleTabClick = (event: { preventDefault(): void }, path: string, requiresAuth: boolean) => {
+    if (requiresAuth && !isAuthenticated) {
+      event.preventDefault();
+      navigate(appRoutes.login, { state: { from: path } });
+      return;
+    }
     if (normalizedPathname !== path) return;
     event.preventDefault();
     tabScrollPositions.set(path, 0);
@@ -186,9 +195,13 @@ export function MobileTabShell() {
                       isActive ? 'bg-tint-soft text-ink' : 'text-muted hover:bg-tint-soft hover:text-ink'
                     )}
                     to={tab.to}
-                    onFocus={() => void tab.preload()}
-                    onPointerEnter={() => void tab.preload()}
-                    onClick={(event) => handleTabClick(event, tab.to)}
+                    onFocus={() => {
+                      if (isAuthenticated || !tab.requiresAuth) void tab.preload();
+                    }}
+                    onPointerEnter={() => {
+                      if (isAuthenticated || !tab.requiresAuth) void tab.preload();
+                    }}
+                    onClick={(event) => handleTabClick(event, tab.to, tab.requiresAuth)}
                   >
                     <Icon aria-hidden="true" className="size-[1.125rem]" strokeWidth={1.9} />
                     <span className="flex-1">{tab.label}</span>
@@ -221,9 +234,13 @@ export function MobileTabShell() {
                 isActive ? 'text-ink' : 'text-ink active:bg-tint-soft'
               )}
               to={tab.to}
-              onFocus={() => void tab.preload()}
-              onPointerDown={() => void tab.preload()}
-              onClick={(event) => handleTabClick(event, tab.to)}
+              onFocus={() => {
+                if (isAuthenticated || !tab.requiresAuth) void tab.preload();
+              }}
+              onPointerDown={() => {
+                if (isAuthenticated || !tab.requiresAuth) void tab.preload();
+              }}
+              onClick={(event) => handleTabClick(event, tab.to, tab.requiresAuth)}
             >
               {({ isActive }) => (
                 <>
