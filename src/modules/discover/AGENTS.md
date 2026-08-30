@@ -4,9 +4,9 @@
 成员清单
 application/: Discover 用例编排层，仅依赖 domain ports 与规则
 domain/: Discover 稳定 DTO、校验/分页规则、persistence/media ports 与 Operations 管理只读查询契约
-http/: Discover Hono 协议适配器，共享只读 handler 并分别暴露 `/api/public/discover` 匿名读表与受 Bearer/请求体上限保护的 `/api/discover` 完整路由
+http/: Discover Hono 协议适配器，以 createDiscoverRoutes(service, uploadPolicy) 工厂暴露受请求体上限保护的 /api/discover 路由
 infrastructure/: 构造注入的 SQLite 查询/事务、Operations 点赞快照与按引用/宽限期回收孤儿目录的本地图片生命周期 adapters
-composition.ts: 局部模块组合根，接收 db/CommunityProfileReader/Notifications Outbox 与投影 ports，并返回公开/认证 routes、孤儿回收用例、media 与 Operations query 实例
+composition.ts: 局部模块组合根，接收 db/CommunityProfileReader/Notifications Outbox 与投影 ports，并返回含孤儿回收用例的 service、routes、media 与 Operations query 实例
 
 架构决策
 依赖方向固定为 http → application → domain ports；composition 只组装本模块实例，application 不感知 Drizzle、Bun、Community 具体实现或文件系统。
@@ -14,11 +14,9 @@ composition.ts: 局部模块组合根，接收 db/CommunityProfileReader/Notific
 Discover 媒体周期回收只删除未被有效帖子引用、严格 UUID 命名且早于宽限截止时间的目录，覆盖软删除即时清理失败与写库补偿失败，不触碰未知目录。
 帖子、评论与 Operations 查询只读取 Discover 自有事实，再经 CommunityProfileReader.getMany 批量投影作者，禁止 JOIN users/community_profiles。
 推荐偏好仅来源于当前用户点赞过帖子的分类与标签；候选集按 publishedAt 取最近 recommendationCandidateLimit 帖（默认 1000，可经 DISCOVER_RECOMMENDATION_CANDIDATE_LIMIT 调整）后按分数、点赞、发布时间、ID 建立唯一顺序分页，无偏好或无匹配候选时退化 latest，popular 固定按 likeCount、publishedAt、id 排序。
-匿名边界只开放元数据、帖子列表、帖子详情与评论列表；viewerUserId 固定为 0，使 `likedByMe/isMine` 必为 false。指定用户帖子、个人资料、发布、点赞、评论与删除不进入公开路由表。
 
 变更日志
 2026-08-16: 删帖/删评论同事务撤回 Outbox 事件与通知；推荐候选集有界化并纳入 DiscoverPolicy。
-2026-08-29: 新增独立匿名只读路由表，复用认证路由的读取 handler，但不复用或条件放行任何写入 handler。
 2026-07-31: 删除评分与静态 singleton，加入幂等点赞、popular/点赞偏好推荐、公共用户帖子和 Community 批量作者投影。
 2026-07-29: Discover 帖子与评论接入共享社区昵称/头像，保留无昵称时的既有同学标签。
 

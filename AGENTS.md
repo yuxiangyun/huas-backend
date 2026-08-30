@@ -358,7 +358,7 @@ Treehole 发帖仅接受 multipart，最多九张图片；服务端在读取正�
 Messaging 只建一对一唯一会话，首条消息事务内延迟建会话并以 UUID 严格图文幂等（并发同 UUID 冲突在事务内闭环为幂等返回）；会话轮询使用 lastMessageId 高水位，消息统一最新/before/after 三态，multipart 在解析前执行请求上限；私信图片仅参与者或管理员鉴权读取，管理员三类读取写最小隐私审计。
 应用启动只有 schema metadata/fingerprint 校验权，结构变更仅由部署阶段显式 migration 执行；进程级清理由统一 PeriodicTaskRegistry 管理并在关闭时等待停止。
 所有 bun test 调用默认先 preload 临时 SQLite 环境，禁止测试清理逻辑接触 data/huas.db；真实 E2E 使用专用 CLI preload 覆盖默认 setup。
-Web 入口为 /m：匿名根入口进入 Discover 公开橱窗，只读元数据、信息流、详情与评论；已认证根入口仍进入 Treehole。Treehole、消息、我的、作者主页及全部社交写操作必须保留来源后定向登录；管理端使用独立 HttpOnly Cookie 会话，普通用户 JWT 与后台权限不互通。
+Web 入口为 /m，普通用户默认进入 Treehole；管理端使用独立 HttpOnly Cookie 会话，普通用户 JWT 与后台权限不互通。
 Web 缓存只保留一个事实源：HTML 与非哈希静态文件持久化后以弱 ETag 每次重验证，Vite `/m/assets/*` 内容哈希产物和版本化公开媒体使用一年 immutable；鉴权 API/私有媒体禁止浏览器持久缓存，分别由 TanStack Query 分级内存策略和 10 分钟/24MB Blob LRU 复用，JWT 变化同步清空 Query 与 Bearer Blob。
 普通用户 Social Web 固定使用 Treehole、Discover、Messages、Me 四 Tab；Community 统一作者资料与用户内容入口，私信与活动通知保持独立未读和高水位增量协议，后台提供 Cookie 鉴权的私信只读审计页。
 Social Web 的导航角标只轮询 `/api/social/unread-summary` 聚合读模型，Messaging 与 Notifications 事实仍独立；普通 Tab 60 秒、消息页 15 秒、聊天只以 5 秒消息高水位作为实时主循环。
@@ -371,7 +371,6 @@ Git push 始终把当前 HEAD 推到 baidu/main，由远端 hook 执行维护发
 /auth/login - CAS 登录主流程并签发服务 JWT
 /health、/health/live、/health/ready - 兼容健康、存活与发布 readiness 检查
 /api/public/* - 免 Bearer 公共接口
-/api/public/discover/meta、/api/public/discover/posts、/api/public/discover/posts/:id、/api/public/discover/posts/:id/comments - Discover 匿名只读橱窗，只投影公共作者并固定 likedByMe/isMine 为 false
 /api/public/index-popup - 免认证读取当前有效首页弹窗，未投放时返回 null
 /api/admin/session - 后台独立会话建立、探测与撤销
 /api/admin/* - HttpOnly Cookie 会话保护的管理接口
@@ -385,7 +384,7 @@ Git push 始终把当前 HEAD 推到 baidu/main，由远端 hook 执行维护发
 /api/grades、/api/ecard、/api/user - 既有校园业务接口，其中 `/api/ecard` 余额合同保持兼容
 /api/ecard/overview - Portal 余额与 mobile-yxt 指定北京时间月份交易的聚合，分别投影 unavailable/stale/freshness
 /api/utilities/electricity - 当前绑定房间的电价、剩余电量与账户状态只读投影
-/api/discover/*、/api/treehole/* - Bearer 保护的社交写入、本人/指定用户内容与 Treehole 私有读取边界；绑定 users.id 并统一投影公共作者
+/api/discover/*、/api/treehole/* - 绑定 users.id 并统一投影公共作者的独立 UGC 业务
 /api/treehole/media/:mediaKey/:fileName - Bearer JWT 保护的 Treehole 帖子私有图片
 /api/community/profile、/api/community/users/:id - Web 社区资料读写与公共用户详情
 /api/notifications/* - 六类活动通知列表、未读计数与逐条已读

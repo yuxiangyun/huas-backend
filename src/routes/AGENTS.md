@@ -9,13 +9,13 @@ calendar/: Calendar HTTP 兼容 Facade，保持认证 API 与公开 ICS 订阅�
 content/: Operations 公共公告/首页弹窗 HTTP 兼容 Facade，保持免 Bearer 挂载路径
 portal/: Portal/校园生活路由，保留一卡通余额/用户资料/课表，并挂载使用独立限流的 mobile-yxt 有界月份账单和电费只读接口
 system/: Operations 健康 HTTP 兼容 Facade，保持 `/health` 挂载路径
-index.ts: 路由协议总装配器，显式挂载 `/api/public/discover` 只读表，定义 public/admin 与其余 `/api` Bearer 边界，并装配根组合 routes
+index.ts: 路由协议总装配器，定义 public/auth/calendar 与 /api 认证边界，并挂载根组合注入的 Community/Discover/Treehole/Notifications/Messaging/Operations routes
 schedule-route-log.ts: 双源课表共享日志适配器，记录 policy/primary/source/fallback 低基数摘要但不参与来源决策
 social-summary.routes.ts: `/api/social/unread-summary` 跨域只读聚合器，并行组合 Messaging 未读与 Notifications 摘要窄端口
 
 架构决策
 路由层只做 HTTP 输入解析、认证边界、日志细节和响应包装；业务事实、事务和上游访问必须下沉到 canonical modules。
-/api/public（含 Discover 匿名只读表）与 /api/admin 在路由总装配器内显式放行，其余 /api 路由统一经过 Bearer authMiddleware；公开路由自身不得注册写操作或用户主页读取。
+/api/public 与 /api/admin 在路由总装配器内显式放行，其余 /api 路由统一经过 Bearer authMiddleware。
 `/api/admin/session` 负责建立后台会话，其余管理接口在 admin 子路由内统一经过 adminSessionMiddleware。
 
 开发规范
@@ -34,6 +34,5 @@ social-summary.routes.ts: `/api/social/unread-summary` 跨域只读聚合器，�
 2026-07-12: 管理接口升级为 HttpOnly Cookie 会话，并新增渠道分析总览接口。
 2026-06-30: 播种 routes L2 地图，明确 HTTP 边界与 /api 认证分界。
 2026-08-23: 新增受 Bearer 保护的 `/api/ecard/overview` 与 `/api/utilities/electricity`，旧 `/api/ecard` 路由合同保持不变。
-2026-08-29: 显式挂载 `/api/public/discover` 元数据、Feed、详情和评论只读表，其余 Discover 能力继续统一经过 Bearer。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md

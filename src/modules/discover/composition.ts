@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖上层注入的 Drizzle db、CommunityProfileReader、Notifications Outbox/投影 ports，以及模块内 application/infrastructure 和运行配置
- * [OUTPUT]: 对外提供 createDiscoverModule(dependencies)，返回认证/匿名只读 routes、媒体回收用例与 Operations query 实例
+ * [OUTPUT]: 对外提供 createDiscoverModule(dependencies)，返回含孤儿媒体回收用例的 service、routes、media 与 Operations query 实例
  * [POS]: modules/discover 的局部组合根，只组装本纵向切片，不创建跨模块 concrete singleton
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -13,7 +13,7 @@ import type {
   ActivityProjectionTrigger,
 } from '../notifications/domain/ports';
 import { DiscoverApplicationService } from './application/discover-application-service';
-import { createDiscoverRoutes, createPublicDiscoverRoutes } from './http/discover.routes';
+import { createDiscoverRoutes } from './http/discover.routes';
 import { DiscoverMediaService } from './infrastructure/discover-media-service';
 import { SQLiteDiscoverOperationsQuery } from './infrastructure/sqlite-discover-operations-query';
 import { SQLiteDiscoverPersistence } from './infrastructure/sqlite-discover-persistence';
@@ -62,7 +62,6 @@ export function createDiscoverModule(dependencies: DiscoverModuleDependencies) {
       maxImagesPerPost: policy.maxImagesPerPost,
       imageMaxBytes: config.discover.imageMaxBytes,
     }),
-    publicRoutes: createPublicDiscoverRoutes(service),
     media,
     operationsQuery: new SQLiteDiscoverOperationsQuery(dependencies.db, dependencies.profileReader),
   };

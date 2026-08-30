@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖认证交互能力、Discover 无限列表/点赞 hooks、共享计数互动原语、筛选控件、媒体 URL 与社区资料投影
- * [OUTPUT]: 对外提供 DiscoverFeed，匿名可读稳定图文信息流，点赞/发布等身份动作经调用方定向登录
- * [POS]: widgets/discover-feed 的公开单列信息流容器，约束媒体稳定并拥有列表互动反馈，不持有认证跳转与路由状态
+ * [INPUT]: 依赖 Discover 无限列表/点赞 hooks、共享计数互动原语、筛选控件、媒体 URL 与社区资料投影
+ * [OUTPUT]: 对外提供 DiscoverFeed，以预留稳定比例的首张主图、失效媒体兜底、作者栏、支持作者自赞的同行计数互动栏和精简摘要呈现好饭信息流
+ * [POS]: widgets/discover-feed 的单列沉浸式信息流容器，约束媒体加载前后尺寸稳定并拥有列表内互动，不持有发布和路由状态
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -24,7 +24,6 @@ import { SocialCountAction } from '@/shared/ui/social-count-action';
 
 interface DiscoverFeedProps {
   categories: readonly DiscoverCategory[];
-  isAuthenticated: boolean;
   sort: DiscoverSort;
   category: DiscoverCategory | 'all';
   onSortChange: (sort: DiscoverSort) => void;
@@ -35,7 +34,6 @@ interface DiscoverFeedProps {
   onOpenProfile: (userId: number) => void;
   onMessageAuthor: (userId: number) => void;
   onComposeClick: () => void;
-  onAuthenticationRequired: () => void;
 }
 
 function formatPublishedAt(value: string) {
@@ -121,7 +119,6 @@ function DiscoverSkeleton() {
 
 export function DiscoverFeed({
   categories,
-  isAuthenticated,
   sort,
   category,
   onSortChange,
@@ -132,7 +129,6 @@ export function DiscoverFeed({
   onOpenProfile,
   onMessageAuthor,
   onComposeClick,
-  onAuthenticationRequired,
 }: DiscoverFeedProps) {
   const postsQuery = useDiscoverInfinitePostsQuery({
     sort,
@@ -146,10 +142,6 @@ export function DiscoverFeed({
   const pendingLikePostId = likeMutation.variables?.postId ?? unlikeMutation.variables?.postId ?? null;
 
   const toggleLike = async (post: DiscoverPost) => {
-    if (!isAuthenticated) {
-      onAuthenticationRequired();
-      return;
-    }
     if (pendingLikePostId === post.id) return;
     try {
       if (post.likedByMe) await unlikeMutation.mutateAsync({ postId: post.id });
@@ -238,7 +230,7 @@ export function DiscoverFeed({
             <div className="flex items-center gap-4 px-4 pt-3.5">
               <SocialCountAction
                 active={post.likedByMe}
-                aria-label={!isAuthenticated ? '登录后点赞' : post.likedByMe ? '取消点赞' : '点赞'}
+                aria-label={post.likedByMe ? '取消点赞' : '点赞'}
                 aria-pressed={post.likedByMe}
                 className="-ml-2"
                 count={post.likeCount}

@@ -1,21 +1,15 @@
 /**
- * [INPUT]: 依赖 appRoutes、认证事实、普通用户壳/保护边界与路由级动态模块
- * [OUTPUT]: 提供 BrowserRouter，匿名根入口落到好饭只读橱窗，树洞/消息/我的保持登录保护
- * [POS]: app/router 的顶层组装点，以路由子树表达公开内容与身份能力边界并维持 Social/后台分块
+ * [INPUT]: 依赖 appRoutes、普通用户保护壳与路由级动态模块
+ * [OUTPUT]: 提供 BrowserRouter，以树洞为默认页并隔离 Social 与后台代码分块
+ * [POS]: app/router 的顶层组装点，只声明 canonical 路径和按路由加载边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { Navigate, Outlet, createBrowserRouter } from 'react-router-dom';
+import { Navigate, createBrowserRouter } from 'react-router-dom';
 import { APP_BASENAME } from '@/shared/config/env';
 import { MobileTabShell } from '@/widgets/mobile-tab-shell/mobile-tab-shell';
 import { ProtectedRoute } from '@/app/router/guards/protected-route';
 import { appRoutes } from '@/app/router/paths';
-import { useAuthStore } from '@/entities/auth/model/auth-store';
-
-function SocialIndexRedirect() {
-  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
-  return <Navigate to={isAuthenticated ? appRoutes.treehole : appRoutes.discover} replace />;
-}
 
 export const router = createBrowserRouter(
   [
@@ -104,11 +98,15 @@ export const router = createBrowserRouter(
     },
     {
       path: appRoutes.root,
-      element: <MobileTabShell />,
+      element: (
+        <ProtectedRoute>
+          <MobileTabShell />
+        </ProtectedRoute>
+      ),
       children: [
         {
           index: true,
-          element: <SocialIndexRedirect />,
+          element: <Navigate to={appRoutes.treehole} replace />,
         },
         {
           path: appRoutes.discover.slice(1),
@@ -118,48 +116,39 @@ export const router = createBrowserRouter(
           },
         },
         {
-          element: (
-            <ProtectedRoute>
-              <Outlet />
-            </ProtectedRoute>
-          ),
-          children: [
-            {
-              path: appRoutes.treehole.slice(1),
-              lazy: async () => {
-                const module = await import('@/pages/treehole');
-                return { Component: module.TreeholePage };
-              },
-            },
-            {
-              path: appRoutes.messages.slice(1),
-              lazy: async () => {
-                const module = await import('@/pages/messages');
-                return { Component: module.MessagesPage };
-              },
-            },
-            {
-              path: appRoutes.me.slice(1),
-              lazy: async () => {
-                const module = await import('@/pages/me');
-                return { Component: module.MePage };
-              },
-            },
-            {
-              path: appRoutes.meDiscover.slice(1),
-              lazy: async () => {
-                const module = await import('@/pages/me-discover');
-                return { Component: module.MeDiscoverPage };
-              },
-            },
-            {
-              path: appRoutes.meTreehole.slice(1),
-              lazy: async () => {
-                const module = await import('@/pages/me-treehole');
-                return { Component: module.MeTreeholePage };
-              },
-            },
-          ],
+          path: appRoutes.treehole.slice(1),
+          lazy: async () => {
+            const module = await import('@/pages/treehole');
+            return { Component: module.TreeholePage };
+          },
+        },
+        {
+          path: appRoutes.messages.slice(1),
+          lazy: async () => {
+            const module = await import('@/pages/messages');
+            return { Component: module.MessagesPage };
+          },
+        },
+        {
+          path: appRoutes.me.slice(1),
+          lazy: async () => {
+            const module = await import('@/pages/me');
+            return { Component: module.MePage };
+          },
+        },
+        {
+          path: appRoutes.meDiscover.slice(1),
+          lazy: async () => {
+            const module = await import('@/pages/me-discover');
+            return { Component: module.MeDiscoverPage };
+          },
+        },
+        {
+          path: appRoutes.meTreehole.slice(1),
+          lazy: async () => {
+            const module = await import('@/pages/me-treehole');
+            return { Component: module.MeTreeholePage };
+          },
         },
       ],
     },

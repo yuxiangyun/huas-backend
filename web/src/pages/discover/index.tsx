@@ -1,18 +1,17 @@
 /**
- * [INPUT]: 依赖认证事实、Discover 元数据/列表缓存、URL 查询参数与发布/详情弹层加载器
- * [OUTPUT]: 对外提供 DiscoverPage，匿名展示好饭信息流/详情/评论，发布、互动、资料与私信意图定向登录
- * [POS]: pages/discover 的公开读取组装器，拥有公开内容与身份动作的分界并原子维护详情/资料 URL 状态
+ * [INPUT]: 依赖 Discover 元数据/列表缓存、URL 查询参数与发布/详情弹层加载器
+ * [OUTPUT]: 对外提供 DiscoverPage，以紧凑统一的 Social 顶栏和黑色正圆白色加号发布入口编排拍好饭排序、分类、刷新、发布与详情路由状态
+ * [POS]: pages/discover 的路由级组装器，原子维护帖子详情与公共资料互斥并将数据语义下沉至 entities/widgets
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { lazy, startTransition, Suspense, useCallback, useEffect, useState } from 'react';
+import { lazy, startTransition, Suspense, useEffect, useState } from 'react';
 import { useIsFetching, useQueryClient } from '@tanstack/react-query';
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Plus } from 'lucide-react';
 import { appRoutes } from '@/app/router/paths';
 import { useUiStore } from '@/app/state/ui-store';
 import { useDiscoverMetaQuery } from '@/entities/discover/api/discover-queries';
-import { useAuthStore } from '@/entities/auth/model/auth-store';
 import { discoverQueryKeys } from '@/entities/discover/model/discover-query-keys';
 import {
   DISCOVER_CATEGORIES,
@@ -20,7 +19,6 @@ import {
   type DiscoverSort,
 } from '@/entities/discover/model/discover-types';
 import { DiscoverFeed } from '@/widgets/discover-feed/discover-feed';
-import { Button } from '@/shared/ui/button';
 import { IconButton } from '@/shared/ui/icon-button';
 import { PageHeader } from '@/shared/ui/page-header';
 import { SocialPageTitle } from '@/shared/ui/social-page-title';
@@ -61,10 +59,8 @@ function parseCategory(value: string | null): DiscoverCategory | 'all' {
 
 export function DiscoverPage() {
   const navigate = useNavigate();
-  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
-  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const setActiveTab = useUiStore((state) => state.setActiveTab);
   const composeSheetOpen = useUiStore((state) => state.discoverComposeSheetOpen);
   const openComposeSheet = useUiStore((state) => state.openDiscoverComposeSheet);
@@ -72,10 +68,6 @@ export function DiscoverPage() {
   const [composeSheetRequested, setComposeSheetRequested] = useState(false);
   const [detailSheetRequested, setDetailSheetRequested] = useState(false);
   const [profileDialogRequested, setProfileDialogRequested] = useState(false);
-  const redirectFrom = `${location.pathname}${location.search}${location.hash}`;
-  const requestAuthentication = useCallback((from = redirectFrom) => {
-    navigate(appRoutes.login, { state: { from } });
-  }, [navigate, redirectFrom]);
 
   useEffect(() => {
     setActiveTab('discover');
@@ -96,13 +88,9 @@ export function DiscoverPage() {
 
   useEffect(() => {
     if (!composeSheetOpen) return;
-    if (!isAuthenticated) {
-      requestAuthentication();
-      return;
-    }
     setComposeSheetRequested(true);
     void loadDiscoverComposeSheet();
-  }, [composeSheetOpen, isAuthenticated, requestAuthentication]);
+  }, [composeSheetOpen]);
 
   useEffect(() => {
     if (postId === null) return;
@@ -112,13 +100,9 @@ export function DiscoverPage() {
 
   useEffect(() => {
     if (profileUserId === null) return;
-    if (!isAuthenticated) {
-      requestAuthentication();
-      return;
-    }
     setProfileDialogRequested(true);
     void loadPublicProfileDialog();
-  }, [isAuthenticated, profileUserId, requestAuthentication]);
+  }, [profileUserId]);
 
   function patchSearchParams(
     patcher: (params: URLSearchParams) => void
@@ -156,10 +140,6 @@ export function DiscoverPage() {
   };
 
   const handleOpenComposeSheet = () => {
-    if (!isAuthenticated) {
-      requestAuthentication();
-      return;
-    }
     setComposeSheetRequested(true);
     void loadDiscoverComposeSheet();
     openComposeSheet();
@@ -174,13 +154,6 @@ export function DiscoverPage() {
   };
 
   const handleOpenProfile = (userId: number) => {
-    if (!isAuthenticated) {
-      const nextParams = new URLSearchParams(searchParams);
-      nextParams.set('profileUserId', String(userId));
-      nextParams.delete('postId');
-      requestAuthentication(`${appRoutes.discover}?${nextParams.toString()}`);
-      return;
-    }
     setProfileDialogRequested(true);
     void loadPublicProfileDialog();
     patchSearchParams((params) => {
@@ -189,18 +162,10 @@ export function DiscoverPage() {
     });
   };
 
-  const handleMessageAuthor = (userId: number) => {
-    if (!isAuthenticated) {
-      requestAuthentication(`${appRoutes.messages}?userId=${userId}`);
-      return;
-    }
-    navigate(`${appRoutes.messages}?userId=${userId}`);
-  };
-
   return (
     <div className="-mx-4 space-y-0 bg-white sm:mx-0 sm:bg-transparent">
       <PageHeader
-        action={isAuthenticated ? (
+        action={(
           <IconButton
             className="-mr-1 rounded-full"
             icon={<Plus aria-hidden="true" className="size-7" strokeWidth={2.2} />}
@@ -209,10 +174,6 @@ export function DiscoverPage() {
             variant="primary"
             onClick={handleOpenComposeSheet}
           />
-        ) : (
-          <Button size="sm" type="button" variant="secondary" onClick={() => requestAuthentication()}>
-            登录
-          </Button>
         )}
         className="mx-auto w-full max-w-[34rem] px-4 pb-0 pt-0 sm:px-0 sm:pb-0 sm:pt-0"
         compact
@@ -221,11 +182,9 @@ export function DiscoverPage() {
       <DiscoverFeed
         categories={metaQuery.data?.categories ?? DISCOVER_CATEGORIES}
         category={category}
-        isAuthenticated={isAuthenticated}
         sort={sort}
         onComposeClick={handleOpenComposeSheet}
-        onAuthenticationRequired={requestAuthentication}
-        onMessageAuthor={handleMessageAuthor}
+        onMessageAuthor={(userId) => navigate(`${appRoutes.messages}?userId=${userId}`)}
         onOpenProfile={handleOpenProfile}
         onRefreshClick={handleRefreshDiscover}
         refreshing={discoverFetchingCount > 0}
@@ -261,10 +220,8 @@ export function DiscoverPage() {
       {detailSheetRequested ? (
         <Suspense fallback={postId !== null ? <LazyTaskFallback label="好饭详情" /> : null}>
           <LazyDiscoverDetailSheet
-            isAuthenticated={isAuthenticated}
             postId={postId}
-            onAuthenticationRequired={requestAuthentication}
-            onMessageAuthor={handleMessageAuthor}
+            onMessageAuthor={(userId) => navigate(`${appRoutes.messages}?userId=${userId}`)}
             onOpenProfile={handleOpenProfile}
             onClose={() =>
               patchSearchParams((params) => {
@@ -280,7 +237,7 @@ export function DiscoverPage() {
           <LazyPublicProfileDialog
             userId={profileUserId}
             onClose={() => patchSearchParams((params) => params.delete('profileUserId'))}
-            onMessage={handleMessageAuthor}
+            onMessage={(userId) => navigate(`${appRoutes.messages}?userId=${userId}`)}
             onOpenDiscoverPost={(nextPostId) => handleOpenPost(nextPostId)}
             onOpenTreeholePost={(nextPostId) => navigate(`${appRoutes.treehole}?postId=${nextPostId}`)}
           />

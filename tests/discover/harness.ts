@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 Bun Test hooks、注入式 Discover/Notifications 模块、Community/Identity 资料端口、SQLite、sharp、JWT 与认证中间件
- * [OUTPUT]: 提供含匿名只读/认证写入边界的 Discover HTTP 测试应用、真实 Outbox 模块、用户/媒体/帖子/评论夹具及数据重置
- * [POS]: tests/discover 的共享测试支架，直接装配 canonical 公开与认证路由切片，不经过根 composition 或静态 singleton
+ * [OUTPUT]: 提供 Discover HTTP 测试应用、含真实 Outbox 投影的模块实例、用户/媒体/帖子/评论夹具及逐用例数据重置
+ * [POS]: tests/discover 的共享测试支架，直接装配 canonical 切片而不经过根 composition 或静态 singleton
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -72,8 +72,6 @@ export function createApp(module = createTestDiscoverModule()) {
       },
     });
   });
-  app.route('/api/public/discover', module.publicRoutes);
-  app.all('/api/public/discover/*', (c) => c.notFound());
 
   const api = new Hono();
   api.use('*', authMiddleware);
