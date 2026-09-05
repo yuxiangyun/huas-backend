@@ -7,7 +7,7 @@
 
 import type { ScheduleSource } from './schedule';
 
-export type ScheduleSourceMode = 'jw-first' | 'portal-first';
+export type ScheduleSourceMode = 'mobile-jw-first' | 'jw-first' | 'portal-first';
 
 export interface ScheduleSourcePolicySnapshot {
   mode: ScheduleSourceMode;
@@ -21,9 +21,10 @@ export interface ScheduleSourcePolicyStore {
 }
 
 export function isScheduleSourceMode(value: unknown): value is ScheduleSourceMode {
-  return value === 'jw-first' || value === 'portal-first';
+  return value === 'mobile-jw-first' || value === 'jw-first' || value === 'portal-first';
 }
 
 export function getScheduleSourcePlan(mode: ScheduleSourceMode): readonly ScheduleSource[] {
+  if (mode === 'mobile-jw-first') return ['mobile-jw', 'jw', 'portal'];
   return mode === 'portal-first' ? ['portal', 'jw'] : ['jw', 'portal'];
 }

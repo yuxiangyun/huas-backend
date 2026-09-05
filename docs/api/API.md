@@ -14,7 +14,7 @@
 | `POST/GET/DELETE /api/admin/session` | 登录凭据 / 后台 Cookie | 建立、探测与撤销后台会话 |
 | `GET /api/admin/dashboard` | 后台 HttpOnly Cookie | 管理仪表盘 |
 | `GET /api/admin/analytics/overview` | 后台 HttpOnly Cookie | 7/30/90 天渠道与功能使用分析 |
-| `GET/PUT /api/admin/academic/schedule-source-policy` | 后台 HttpOnly Cookie | 课表 JW/Portal 优先模式热切换 |
+| `GET/PUT /api/admin/academic/schedule-source-policy` | 后台 HttpOnly Cookie | 课表移动教务/JW/Portal 三种模式热切换 |
 | `GET/POST/PUT/DELETE /api/admin/announcements*` | 后台 HttpOnly Cookie | 公告管理 |
 | `GET /api/admin/logs` | 后台 HttpOnly Cookie | 终端日志读取 |
 | `DELETE /api/admin/discover/posts/:id` | 后台 HttpOnly Cookie | Discover 管理删帖 |
@@ -95,15 +95,15 @@ GET /calendar/schedule.ics?studentId=2023001001&sig=<hmac_sha256(studentId, CALE
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `cached` | boolean | `true` 表示本次直接命中本地缓存 |
-| `cache_time` | string | 缓存创建时间 |
-| `updated_at` | string | 缓存最近写入/触达时间 |
+| `cached` | boolean | `true` 表示返回本地缓存快照，包括回源失败后的缓存回退 |
+| `cache_time` | string | 当前缓存 payload 的写入时间；覆盖写入会更新，读取不会更新 |
+| `updated_at` | string | 当前缓存 payload 的写入时间，与 `cache_time` 相同；LRU 触达不推进此字段，不是本次响应时间或学校电表采样时间 |
 | `expires_at` | string | 缓存过期时间，当前 TTL 为 `0` 的接口通常没有该字段 |
 | `source` | string | 数据源，常见值为 `jw` 或 `portal` |
 | `stale` | boolean | `true` 表示回退到了旧缓存，或读取到了过期缓存 |
 | `refresh_failed` | boolean | `true` 表示本次回源失败，但返回了旧缓存 |
-| `last_error` | number | 导致回退的错误码，如 `3003`、`3004`、`5000` |
-| `policy_mode` | string | `/api/schedule` 本次请求采用的 `jw-first` 或 `portal-first` 快照 |
+| `last_error` | number | 导致回退的错误码，如 `3004`、`5000`；凭证错误 `3003` 不允许被 stale 缓存掩盖 |
+| `policy_mode` | string | `/api/schedule` 本次请求采用的 `mobile-jw-first`、`jw-first` 或 `portal-first` 快照 |
 | `primary_source` | string | 本次策略首选来源，取值 `jw` 或 `portal` |
 | `fallback` | string | 实际跨源/旧缓存回退，取值 `jw`、`portal` 或 `stale` |
 
@@ -489,14 +489,16 @@ CAS 统一认证登录。
 
 后端热策略控制的统一周课表接口。客户端不能通过 query 选择来源；每次请求开始时读取一次策略快照。
 
-两种状态机：
+移动教务第三源只读取当前学期；历史日期交由 JW/Portal。完整真实上游合同、500+401 恢复规则及验证证据见 [移动教务接入报告](2026-09-05_mobile-jw-contract-report.md)。
+三种状态机：
 
 ```text
+mobile-jw-first: 移动教务 current → JW current → Portal current → 移动教务 stale → JW stale → Portal stale → 错误/合法空课表
 jw-first:     JW current → Portal current → JW stale → Portal stale → 错误/合法空课表
 portal-first: Portal current → JW current → JW stale → Portal stale → 错误/合法空课表
 ```
 
-`current` 保留既有缓存语义：`refresh=false` 可以命中该来源未过期/永久缓存，`refresh=true` 强制访问校园上游。关键约束是单源失败时不得先返回自身 stale；旧缓存阶段始终 JW 优先。`_meta.source` 表示实际数据来源，不能用它推断策略首选来源。
+`current` 保留既有缓存语义：`refresh=false` 可以命中该来源未过期/永久缓存，`refresh=true` 强制访问校园上游。关键约束是单源失败时不得先返回自身 stale；新模式旧缓存顺序为移动教务→JW→Portal，旧两种模式仍为 JW→Portal。`_meta.source` 表示实际数据来源，不能用它推断策略首选来源。
 
 查询参数：
 
@@ -765,7 +767,7 @@ END:VCALENDAR
 | `month` | string | 否 | 严格 `YYYY-MM`；默认当前北京时间月份 |
 | `refresh` | string | 否 | `true` 表示余额与交易都跳过读缓存并强制回源 |
 
-成功响应：
+成功响应（假设的合法空月示例，并非实际采样）：
 
 ```json
 {
@@ -774,10 +776,10 @@ END:VCALENDAR
     "balance": { "amountCents": 12850, "status": "正常" },
     "month": "2026-08",
     "totals": {
-      "consumptionCents": -3560,
-      "rechargeCents": 10000,
-      "subsidyCents": 2000,
-      "electricityCents": -1200
+      "consumptionCents": 0,
+      "rechargeCents": 0,
+      "subsidyCents": 0,
+      "electricityCents": 0
     },
     "transactions": [],
     "partial": false,
@@ -799,7 +801,11 @@ END:VCALENDAR
 - totals 按交易分类机械汇总上游有符号金额；当前不根据 `refundFlag` 推断退款会计规则
 - `partial/unavailableParts` 只表达子源不可用；`staleParts` 表达实际使用了旧缓存
 - `degraded` 在任一子源不可用或 stale 时为 `true`
-- `freshness.balance` 与 `freshness.transactions` 独立保留 `cached/stale/refresh_failed/last_error` 等缓存事实
+- 无顶层 `_meta`；使用 `data.freshness.balance` 与 `data.freshness.transactions`，独立保留 `cached/updated_at/cache_time/stale/refresh_failed/last_error` 等缓存事实。新鲜回源通常只有 `cached: false` 与 `source`，时间字段可缺省
+- 合法空月的 transactions 为 `[]`、totals 全 0 且 transactions 不在 `unavailableParts`；交易不可用时也返回空数组与零汇总，必须先检查 `unavailableParts` 才能显示“无交易”
+- `transactions`、`totals` 与交易 freshness 来自同一个月快照；三类交易任一失败不会与其他分类的新结果拼接。余额独立读取，不代表所选历史月的余额
+- `refundFlag` 原样保留学校 `isRefund`（`string | number | boolean | null`），无 `refunded` 字段。官方 H5 对字符串 `"0"` 展示普通交易、`"1"` 展示退款；其他类型/值暂不归一化，不使用布尔强转或自行冲正金额
+- 月份先 trim，缺省/空白取当前北京时间月份，再严格校验 `YYYY-MM` 和含首尾的 24 月窗口。2026-09 的下界为 2024-10；越界为 HTTP 400、4002，当前源码文案为 `month 仅允许当前月及此前 23 个自然月`（含空格）
 - `truncated=true` 表示至少一个交易分类达到服务端分页硬上限，不能把 totals 当作完整月度总额
 
 ### 6.9 `GET /api/utilities/electricity`
@@ -840,6 +846,9 @@ END:VCALENDAR
 - `priceCentsPerKwh` 类型为 `number | null`；`remainingKwh` 类型为 `string | null`
 - `null` 只表示上游当前未提供对应值，不表示 0、欠费或凭证失效
 - `remainingKwh` 保留上游十进制字符串与负号
+- 普通读取允许永久缓存（TTL=0），`stale` 缺省不代表电量仍是当前值；按 `_meta.updated_at` 展示快照年龄
+- `refresh=true` 成功为 `_meta.cached=false`，新鲜回源时间字段可缺省；可显示“本次已刷新”，不能编造学校采样时间
+- 可用性/超时故障且有旧缓存时返回 `cached=true, stale=true, refresh_failed=true, last_error`，保留原 `updated_at/cache_time`；无旧值则报错。协议/业务/凭证失败及独立配额拒绝不经电费 stale 回退
 - 只有明确 HTTP 401 才会失效并重建 mobile-yxt 派生会话；HTTP 200 的业务/协议失败不会清理会话
 
 ### 6.10 `GET /api/user`
@@ -883,3 +892,7 @@ END:VCALENDAR
 ### 6.12 社交 API
 
 Community、Discover、Treehole、Notifications 与 Messaging 的用户契约见 [SOCIAL_API.md](./SOCIAL_API.md)。
+
+联动契约与证据边界补充：[2026-09-05 小程序后端契约核对](2026-09-05_miniprogram-backend-contract-report.md)。
+
+[PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md

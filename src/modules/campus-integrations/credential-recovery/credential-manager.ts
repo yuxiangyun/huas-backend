@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 db/schema、HttpClient、CAS/TicketExchanger、CryptoHelper、user 级 PerKeySingleflight、真实学校登录事务原语、config、截止时间与 Logger
- * [OUTPUT]: 对外提供 CredentialManager 与 CredentialSystem，管理正 TTL 基础凭证、能力感知的串行静默恢复、Portal-only 窄恢复与交互登录状态
+ * [INPUT]: 依赖 db/schema、HttpClient/共享传输错误分类、CAS/TicketExchanger、CryptoHelper、user 级 PerKeySingleflight、真实学校登录事务原语、config、截止时间与 Logger
+ * [OUTPUT]: 对外提供 CredentialManager 与 CredentialSystem，管理正 TTL 基础凭证、能力感知静默恢复、TGC 普通快照冲突有界补足、Portal-only 窄恢复与交互登录状态
  * [POS]: campus-integrations/credential-recovery 的基础凭证状态机；共享航班以实际能力自证，能力不足的 joiner 先复用新 TGC 串行补足且 mobile 调用不触碰 JW
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -14,8 +14,10 @@ import { CryptoHelper } from '../../../utils/crypto';
 import { config } from '../../../config';
 import { Logger } from '../../../utils/logger';
 import { PerKeySingleflight } from '../../cache/application/singleflight';
+import { isTransientTransportError } from '../http/transport-errors';
 import {
   commitRealSchoolLoginContext,
+  readSchoolLoginEpoch,
 } from './school-login-context';
 
 export type CredentialSystem = 'cas_tgc' | 'portal_jwt' | 'jw_session';
@@ -44,14 +46,15 @@ const MANAGED_CREDENTIAL_SYSTEMS = [
 const reAuthState = new Map<number, { failCount: number; lastAttempt: number }>();
 const REAUTH_MAX_ATTEMPTS = 3;
 const REAUTH_COOLDOWN_MS = 60 * 1000; // 1 minute cooldown after max failures
+const TGC_CONFLICT_RETRIES = 1;
 
 // 同一用户并发触发静默重认证时共享在途 CAS 登录链，防止恢复风暴打爆上游并互相覆盖凭证。
 const reAuthFlights = new PerKeySingleflight();
+const portalOnlyFlights = new PerKeySingleflight();
 
 function isTransientRecoveryError(error: unknown): boolean {
   const message = String((error as any)?.message || '');
-  if (message === 'REQUEST_TIMEOUT') return true;
-  return /ECONNRESET|EAI_AGAIN|ETIMEDOUT|ENOTFOUND|fetch failed|network|_HTTP_(?:502|503|504)$/i.test(message);
+  return isTransientTransportError(error) || /_HTTP_(?:500|502|503|504)$/i.test(message);
 }
 
 function requiredCapability(requirement: RecoveryRequirement): CredentialSystem {
@@ -193,22 +196,24 @@ export class CredentialManager {
     return this.getCredential(userId, system);
   }
 
-  /** mobile-yxt 窄端口专用：恢复 Portal 只触碰 CAS/Portal，绝不激活 JW。 */
+  /** 派生业务共享窄端口：同用户连同 TGC 换票一起合并，恢复 Portal 不激活 JW。 */
   static async getOrRefreshPortalCredentialWithoutJw(
     userId: number,
     deadlineAt?: number,
   ): Promise<ResolvedCredential | null> {
-    const existing = await this.getCredential(userId, 'portal_jwt');
-    if (existing) return existing;
-    if (await this.requiresInteractiveLogin(userId)) return null;
+    return portalOnlyFlights.run(`portal-only:${userId}`, 'normal', async () => {
+      const existing = await this.getCredential(userId, 'portal_jwt');
+      if (existing) return existing;
+      if (await this.requiresInteractiveLogin(userId)) return null;
 
-    const tgc = await this.getCredential(userId, 'cas_tgc');
-    if (tgc?.cookieJar) {
-      const refreshed = await this.refreshFromTGC(userId, 'portal_jwt', tgc.cookieJar, deadlineAt);
-      if (refreshed) return refreshed;
-    }
-    await this.recoverRequirement(userId, deadlineAt, 'portal_only');
-    return this.getCredential(userId, 'portal_jwt');
+      const tgc = await this.getCredential(userId, 'cas_tgc');
+      if (tgc?.cookieJar) {
+        const refreshed = await this.refreshFromTGC(userId, 'portal_jwt', tgc.cookieJar, deadlineAt);
+        if (refreshed) return refreshed;
+      }
+      await this.recoverRequirement(userId, deadlineAt, 'portal_only');
+      return this.getCredential(userId, 'portal_jwt');
+    });
   }
 
   /**
@@ -218,16 +223,47 @@ export class CredentialManager {
     userId: number,
     system: CredentialSystem,
     tgcJar: string,
-    deadlineAt?: number
+    deadlineAt?: number,
+    conflictRetries = TGC_CONFLICT_RETRIES,
   ): Promise<ResolvedCredential | null> {
+    const snapshot = getDb().transaction((tx) => ({
+      epoch: readSchoolLoginEpoch(tx, userId),
+      tgcJar: tx.select({ cookieJar: schema.credentials.cookieJar }).from(schema.credentials).where(and(
+        eq(schema.credentials.userId, userId), eq(schema.credentials.system, 'cas_tgc'),
+      )).get()?.cookieJar,
+    }));
+    const loginEpoch = snapshot.epoch;
+    const resolveConflict = () => this.resolveTgcConflict(userId, system, loginEpoch, conflictRetries, deadlineAt);
+    if (snapshot.tgcJar !== tgcJar) return resolveConflict();
     const client = HttpClient.fromSerializedJar(tgcJar, deadlineAt);
     const start = Date.now();
+
+    // TGC 换票可与真实 CAS 登录交错；旧 epoch 航班不得覆盖新登录的 TGC/Portal/JW。
+    const commitRefreshed = (value: string | null, cookieJar: string | null, ttlMs: number): boolean => {
+      return getDb().transaction((tx) => {
+        if (readSchoolLoginEpoch(tx, userId) !== loginEpoch) return false;
+        const currentTgc = tx.select({ cookieJar: schema.credentials.cookieJar }).from(schema.credentials).where(and(
+          eq(schema.credentials.userId, userId), eq(schema.credentials.system, 'cas_tgc'),
+        )).get();
+        // 同 epoch 的显式清理/轮换也不能被迟到换票撤销。
+        if (currentTgc?.cookieJar !== tgcJar) return false;
+        const now = new Date();
+        for (const credential of [
+          { system: 'cas_tgc', value: null, cookieJar: client.serializeJar(), ttlMs: config.ttl.tgc },
+          { system, value, cookieJar, ttlMs },
+        ]) {
+          const fields = { value: credential.value, cookieJar: credential.cookieJar, expiresAt: new Date(now.getTime() + credential.ttlMs), updatedAt: now };
+          tx.insert(schema.credentials).values({ userId, system: credential.system, createdAt: now, ...fields })
+            .onConflictDoUpdate({ target: [schema.credentials.userId, schema.credentials.system], set: fields }).run();
+        }
+        return true;
+      });
+    };
 
     if (system === 'portal_jwt') {
       const result = await TicketExchanger.exchangePortalToken(client);
       if (result.token) {
-        await this.storeCredential(userId, 'cas_tgc', null, client.serializeJar(), config.ttl.tgc);
-        await this.storeCredential(userId, 'portal_jwt', result.token, null, config.ttl.portalJwt);
+        if (!commitRefreshed(result.token, null, config.ttl.portalJwt)) return resolveConflict();
         Logger.auth(String(userId), '静默刷新 Portal', 200, Date.now() - start, undefined, [
           { label: 'TGC → Portal JWT', ok: true },
         ]);
@@ -242,8 +278,7 @@ export class CredentialManager {
     if (system === 'jw_session') {
       const result = await TicketExchanger.exchangeJwSession(client);
       if (result.success) {
-        await this.storeCredential(userId, 'cas_tgc', null, client.serializeJar(), config.ttl.tgc);
-        await this.storeCredential(userId, 'jw_session', null, client.serializeJar(), config.ttl.jwSession);
+        if (!commitRefreshed(null, client.serializeJar(), config.ttl.jwSession)) return resolveConflict();
         Logger.auth(String(userId), '静默刷新 JW', 200, Date.now() - start, undefined, [
           { label: 'TGC → JW Session', ok: true },
         ]);
@@ -259,6 +294,29 @@ export class CredentialManager {
     }
 
     return null;
+  }
+
+  /** 普通换票竞争先复用最新能力，再以同 epoch 有效 TGC 补一次；竞争耗尽不升级为密码登录。 */
+  private static async resolveTgcConflict(
+    userId: number,
+    system: CredentialSystem,
+    loginEpoch: number,
+    retries: number,
+    deadlineAt?: number,
+  ): Promise<ResolvedCredential | null> {
+    const current = await this.getCredential(userId, system);
+    if (current) return current;
+    const snapshot = getDb().transaction((tx) => ({
+      epoch: readSchoolLoginEpoch(tx, userId),
+      tgc: tx.select().from(schema.credentials).where(and(
+        eq(schema.credentials.userId, userId), eq(schema.credentials.system, 'cas_tgc'),
+      )).get(),
+    }));
+    // 真实登录切换、显式清理和过期都不是普通快照竞争，不能用旧航班继续换票。
+    if (snapshot.epoch !== loginEpoch || !snapshot.tgc?.cookieJar
+      || !snapshot.tgc.expiresAt || snapshot.tgc.expiresAt.getTime() <= Date.now()) return null;
+    if (retries <= 0 || (deadlineAt !== undefined && Date.now() >= deadlineAt)) throw new Error('REQUEST_TIMEOUT');
+    return this.refreshFromTGC(userId, system, snapshot.tgc.cookieJar, deadlineAt, retries - 1);
   }
 
   /**

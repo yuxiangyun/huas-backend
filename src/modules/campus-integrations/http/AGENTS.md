@@ -3,6 +3,7 @@
 
 成员清单
 http-client.ts: CookieJar 驱动的学校 HTTP 客户端，以单次 timeout/绝对 deadline 约束 fetch；mobile-yxt 由上层传入只含目标域 `/server` Cookie 的独立实例
+transport-errors.ts: 共享 Bun/Node cause 链错误事实与瞬态网络分类，供基础恢复隔离失败计数及独立移动业务映射各自错误，不保存原始请求 URL
 retry.ts: 无业务状态的有界异步重试原语，保留指数退避、抖动、绝对截止时间与调用方错误选择权
 
 架构决策

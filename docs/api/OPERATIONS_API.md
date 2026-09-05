@@ -158,11 +158,11 @@ interface AnalyticsOverview {
 
 ### 4.2 `PUT /api/admin/academic/schedule-source-policy`
 
-请求 `{ "mode": "jw-first" }`。`mode` 只允许 `jw-first | portal-first`。
+请求 `{ "mode": "jw-first" }`。`mode` 只允许 `mobile-jw-first | jw-first | portal-first`。Admin → 系统设置 → 课表数据源提供三个选项；移动教务优先按移动教务、JW、Portal 依次读取 current，均失败后再同序尝试 stale。旧两个模式保留原双源行为。
 
 - 只影响后续 `/api/schedule` 的来源顺序，不清缓存、不主动访问校园上游。
 - 同目录临时文件加原子 rename；写失败保留旧有效快照。
-- 首次没有有效文件时回落 `SCHEDULE_SOURCE_MODE`，再回落 `jw-first`。
+- 首次没有有效文件时回落 `SCHEDULE_SOURCE_MODE`，再回落 `mobile-jw-first`；已有持久化配置不会被升级覆盖，启用新顺序需在 Admin 切换。
 
 ## 5. 公告
 

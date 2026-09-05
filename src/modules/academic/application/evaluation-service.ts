@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 EvaluationApplicationPorts、canonical EvaluationParser、config、Logger 与 AcademicHttpClient
  * [OUTPUT]: 对外提供 EvaluationApplicationService、EvaluationParser 与评教公开结果类型
- * [POS]: academic/application 的评教用例编排器，只选择一次有界目标，可恢复读取与一次性提交分离；按稳定业务字段增量确认并保留未确认结果
+ * [POS]: academic/application 的评教用例编排器，只选择一次有界目标，可恢复读取与一次性提交分离；已尝试 POST 仅凭列表增量确认成功，无增量或回查失败均保留 unknown
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -212,7 +212,8 @@ export class EvaluationApplicationService {
         ...outcome.item,
         questionCount: outcome.questionCount,
         fullScore: outcome.fullScore,
-        status: submitted ? 'submitted' : verificationSucceeded ? 'failed' : 'unknown',
+        // 列表读成功只证明取得快照；缺少增量不能证明已发出的 POST 未执行或不会稍后生效。
+        status: submitted ? 'submitted' : 'unknown',
         ...(!submitted && { message: verificationSucceeded ? outcome.error || 'SUBMIT_NOT_CONFIRMED' : 'SUBMIT_RESULT_UNKNOWN' }),
       };
     });

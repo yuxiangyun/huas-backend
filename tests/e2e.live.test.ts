@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖真实学校账号、隔离 E2E SQLite、应用路由、JWT/凭证表与只读校园上游
- * [OUTPUT]: 验证登录、旧 JW 恢复、mobile-yxt 单月账单/真实可空电费 DTO 与 epoch 绑定的无 TTL 派生会话持久化
+ * [OUTPUT]: 验证登录、旧 JW 恢复、mobile-yxt 账单/电费和可单独执行的移动教务课表、缓存及坏令牌无感重建
  * [POS]: tests 的唯一真实学校网络入口，所有写操作仅落隔离本服务数据库，不调用学校上游写接口
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -81,6 +81,52 @@ if (!username || !password) {
       expect(systems.includes('cas_tgc')).toBe(true);
       expect(systems.includes('jw_session')).toBe(true);
     });
+
+    it('移动教务：Portal-only 建立、当前周课表、缓存复用及坏 H5 令牌无感恢复', async () => {
+      const { CryptoHelper } = await import('../src/utils/crypto');
+      const { MobileJwScheduleClient } = await import('../src/modules/campus-integrations/mobile-jw/schedule-client');
+      const { parseMobileJwWeek } = await import('../src/modules/campus-integrations/mobile-jw/schedule-parser');
+      const { mobileJwSessionRepository } = await import('../src/modules/campus-integrations/mobile-jw/session-repository');
+      const { ScheduleSourcePolicy } = await import('../src/modules/academic/schedule');
+      const previousPolicy = await ScheduleSourcePolicy.status();
+      const now = new Date();
+      const user = getDb().insert(schema.users).values({
+        studentId: username!, encryptedPassword: CryptoHelper.encryptAES(password!, config.jwtSecret),
+        createdAt: now, lastLoginAt: now,
+      }).onConflictDoUpdate({ target: schema.users.studentId, set: {
+        encryptedPassword: CryptoHelper.encryptAES(password!, config.jwtSecret),
+      } }).returning().get();
+      const jwt = await sign({ userId: user.id, studentId: username!, exp: Math.floor(Date.now() / 1000) + 600 }, config.jwtSecret, 'HS256');
+      const jwFilter = and(eq(schema.credentials.userId, user.id), eq(schema.credentials.system, 'jw_session'));
+      const jwBefore = getDb().select().from(schema.credentials).where(jwFilter).all();
+      try {
+        await ScheduleSourcePolicy.configure('mobile-jw-first', 'live-e2e');
+        const initial = parseMobileJwWeek((await new MobileJwScheduleClient().current(user.id)).data);
+        const read = async (refresh: boolean) => {
+          const response = await app.request(`http://localhost/api/schedule?date=${initial.weekStartDate}&refresh=${refresh}`, {
+            headers: { Authorization: `Bearer ${jwt}` },
+          });
+          expect(response.status).toBe(200);
+          const body = await response.json() as any;
+          expect(body.success).toBe(true);
+          expect(body._meta.source).toBe('mobile-jw');
+          expect(body.data.courses.length).toBe(initial.courses.length);
+          expect(JSON.stringify(body)).not.toMatch(/portalJwt|JSESSIONID|accessToken|generation/);
+          return body;
+        };
+        await read(true);
+        expect((await read(false))._meta.cached).toBe(true);
+        const previous = await mobileJwSessionRepository.read(user.id);
+        expect(previous).not.toBeNull();
+        await getDb().update(schema.credentials).set({ value: JSON.stringify({ v: 1, ...previous, token: 'invalid-live-e2e-token' }) })
+          .where(and(eq(schema.credentials.userId, user.id), eq(schema.credentials.system, 'derived_session:mobile_jw')));
+        await read(true);
+        expect((await mobileJwSessionRepository.read(user.id))?.generation).not.toBe(previous!.generation);
+        expect(getDb().select().from(schema.credentials).where(jwFilter).all()).toEqual(jwBefore);
+      } finally {
+        await ScheduleSourcePolicy.configure(previousPolicy.mode, 'live-e2e-cleanup');
+      }
+    }, 150_000);
 
     it('Self JWT 过期时返回 401（场景 7）', async () => {
       const now = Math.floor(Date.now() / 1000);

@@ -1,10 +1,12 @@
 /**
- * [INPUT]: 依赖课表/策略 application service、文件策略 store、config 与 defaultAcademicRuntimePorts
+ * [INPUT]: 依赖课表/策略 application service、文件策略 store、MobileJwScheduleClient、config 与 defaultAcademicRuntimePorts
  * [OUTPUT]: 对外提供兼容静态类 ScheduleService、PortalScheduleService、ScheduleFacade、ScheduleSourcePolicy 及课表类型
- * [POS]: academic 的 Schedule composition root，唯一负责单源读取、双源编排与热策略持久化装配
+ * [POS]: academic 的 Schedule composition root，唯一负责单源读取、三源编排与热策略持久化装配
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
+import { MobileJwScheduleApplicationService } from './application/mobile-jw-schedule-service';
+import { MobileJwScheduleClient } from '../campus-integrations/mobile-jw/schedule-client';
 import { ScheduleApplicationService } from './application/schedule-service';
 import { PortalScheduleApplicationService } from './application/portal-schedule-service';
 import { ScheduleFacadeApplicationService } from './application/schedule-facade';
@@ -24,6 +26,7 @@ const scheduleFacadeApplication = new ScheduleFacadeApplicationService(
   scheduleApplication,
   portalScheduleApplication,
   scheduleSourcePolicyApplicationService,
+  new MobileJwScheduleApplicationService(new MobileJwScheduleClient(), defaultAcademicRuntimePorts),
 );
 
 export class ScheduleService {

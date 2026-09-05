@@ -10,7 +10,7 @@ early-rising-settings.tsx: Early Rising 展示设置区块，控制小程序排�
 index-popup-settings.tsx: 首页弹窗单配置区块，维护海报上传预览、底部动作三态与文案草稿、启停、展示频率及可选时间窗口
 layout.tsx: 后台 Cookie 会话、登录、响应式导航、失效处理与身份切换时的 Cookie 私有媒体缓存清理壳
 logs.tsx: PM2 日志筛选、定时刷新与桌面表格页
-schedule-source-policy-settings.tsx: JW/Portal 课表来源热策略状态、确认切换与局部失败隔离区块
+schedule-source-policy-settings.tsx: 移动教务/JW/Portal 三种课表来源热策略状态、确认切换与局部失败隔离区块
 settings.tsx: 系统设置页，并发组合首页弹窗、Early Rising 个人资料入口与 Academic 课表数据源热切换区块
 treehole.tsx: Treehole 图文帖子、评论检索、Cookie 私有图片预览及管理删除页
 users.tsx: 用户搜索、专业/年级筛选与分页页

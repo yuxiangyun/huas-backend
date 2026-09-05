@@ -44,6 +44,7 @@ src 是应用机器相核心；新业务按 modules 纵向切片，旧 routes �
 2026-07-27: 新增 Calendar 纵向切片，签名、周快照与 ICS 统一迁入 modules/calendar。
 2026-07-27: 新增 Academic 纵向切片，课表、成绩、评教与空教室旧服务退化为单向兼容 Facade。
 2026-07-27: 新增 Campus Integrations 纵向切片，旧 auth/core/parsers 与 Portal 资料服务退化为兼容 Facade。
+2026-09-05: Campus Integrations 增加 mobile-jw token-only 派生会话与真实课表解析，Academic 新增移动教务优先策略；共享 Portal reader 与 TGC 条件提交隔离凭证依赖。
 2026-08-23: Campus Integrations 新增 epoch 条件写的 mobile-yxt 自有派生会话、独立限流/有界月缓存、严格账单与电费只读能力，保持旧 `/api/ecard` 合同不变。
 2026-08-24: Early Rising 纳入 canonical 模块地图，根组合将其 SQLite 展示设置端口注入 Operations 后台管理面。
 2026-07-27: 新增 modules/identity 登录纵向切片，旧 auth route 退化为单向兼容 Facade。

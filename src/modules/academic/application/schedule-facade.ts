@@ -1,11 +1,12 @@
 /**
- * [INPUT]: 依赖 JW/Portal current/stale readers、来源策略快照、fallback error 与日期/错误工具
- * [OUTPUT]: 对外提供 ScheduleFacadeApplicationService、单源 reader ports 与统一有序双源编排
- * [POS]: academic/application 的课表编排门面，按请求级策略快照先穷尽 current 再固定读 stale，并保留 legacy 主源未公布短路与错误优先级
+ * [INPUT]: 依赖移动教务/JW/Portal current/stale readers、来源策略快照、fallback error 与日期/错误工具
+ * [OUTPUT]: 对外提供 ScheduleFacadeApplicationService、单源 reader ports 与统一有序三源编排
+ * [POS]: academic/application 的课表编排门面，先穷尽 current 再固定读 stale，仲裁排除来源能力限制并保留 legacy 未公布短路
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import type { CacheMeta } from '../../../types';
+import { ScheduleSourceUnsupportedError } from '../domain/schedule';
 import { AppError, ErrorCode } from '../../../utils/errors';
 import { resolveFallbackError } from '../../../utils/fallback-error';
 import { beijingDate } from '../../../utils/time';
@@ -64,7 +65,7 @@ export interface ScheduleSourcePolicyReader {
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const DAY_MS = 86_400_000;
 const MAX_PORTAL_RANGE_DAYS = 62;
-const STALE_SOURCE_PLAN = ['jw', 'portal'] as const;
+const STALE_SOURCE_PLAN = ['mobile-jw', 'jw', 'portal'] as const;
 
 type RawRequestMeta = Partial<Omit<ScheduleRequestMeta, 'cache' | 'fallback' | 'lookup'> & {
   cache: string;
@@ -243,12 +244,18 @@ function selectFailure(
   plan: readonly ScheduleSource[],
   studentId: string,
 ): unknown {
-  const [primarySource, fallbackSource] = plan;
-  const primaryError = errors.get(primarySource);
-  if (!fallbackSource) return primaryError;
-  const fallbackError = errors.get(fallbackSource);
-  if (fallbackError === undefined) return primaryError;
-  return resolveFallbackError({ primarySource, fallbackSource, primaryError, fallbackError, studentId });
+  const supportedPlan = plan.filter((source) => !(errors.get(source) instanceof ScheduleSourceUnsupportedError));
+  if (!supportedPlan.length) return new AppError(ErrorCode.SERVICE_ACCOUNT_UNAVAILABLE, '没有支持该日期的课表来源');
+  let selectedSource = supportedPlan[0];
+  let selected = errors.get(selectedSource);
+  for (const source of supportedPlan.slice(1)) {
+    const fallbackError = errors.get(source);
+    if (fallbackError === undefined) continue;
+    const next = resolveFallbackError({ primarySource: selectedSource, fallbackSource: source, primaryError: selected, fallbackError, studentId });
+    if (Object.is(next, fallbackError)) selectedSource = source;
+    selected = next;
+  }
+  return selected;
 }
 
 export class ScheduleFacadeApplicationService {
@@ -256,6 +263,7 @@ export class ScheduleFacadeApplicationService {
     private readonly jwSchedule: JwScheduleReader,
     private readonly portalSchedule: PortalScheduleReader,
     private readonly policy?: ScheduleSourcePolicyReader,
+    private readonly mobileJwSchedule?: JwScheduleReader,
   ) {}
 
   async getSchedule(options: {
@@ -354,8 +362,10 @@ export class ScheduleFacadeApplicationService {
   }
 
   private readCurrent(source: ScheduleSource, options: OrchestrationOptions): Promise<RawScheduleResult> {
-    if (source === 'jw') {
-      return this.jwSchedule.getCurrentSchedule(
+    if (source === 'jw' || source === 'mobile-jw') {
+      const reader = source === 'jw' ? this.jwSchedule : this.mobileJwSchedule;
+      if (!reader) throw new ScheduleSourceUnsupportedError();
+      return reader.getCurrentSchedule(
         options.userId,
         options.studentId,
         options.range.queryDate ?? options.range.startDate,
@@ -374,8 +384,10 @@ export class ScheduleFacadeApplicationService {
   }
 
   private readStale(source: ScheduleSource, sourceError: unknown, options: OrchestrationOptions) {
-    if (source === 'jw') {
-      return this.jwSchedule.getStaleSchedule(
+    if (source === 'jw' || source === 'mobile-jw') {
+      const reader = source === 'jw' ? this.jwSchedule : this.mobileJwSchedule;
+      if (!reader) return Promise.resolve(null);
+      return reader.getStaleSchedule(
         options.studentId,
         options.range.queryDate ?? options.range.startDate,
         sourceError,
@@ -393,6 +405,10 @@ export class ScheduleFacadeApplicationService {
 
   private requestFor(source: ScheduleSource, options: OrchestrationOptions): ScheduleRequestMeta {
     const cache = options.forceRefresh ? 'bypass' : 'miss';
+    if (source === 'mobile-jw') return {
+      ...buildJwRequest(options.studentId, options.range.queryDate ?? options.range.startDate, options.range.startDate, cache),
+      cacheKey: `mobile-jw-schedule:${options.studentId}:${options.range.startDate}`,
+    };
     if (source === 'jw') {
       return buildJwRequest(
         options.studentId,

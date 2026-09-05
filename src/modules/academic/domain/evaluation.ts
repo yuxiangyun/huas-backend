@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 AcademicUpstream/AcademicHttpClient 与成绩模块共享的评教发现结果
  * [OUTPUT]: 对外提供评教任务、状态、提交 DTO 以及 EvaluationApplicationPorts
- * [POS]: academic/domain 的评教稳定契约，分离本批提交计数与列表累计完成计数，以 unknown 和可选元信息表达批末验证失败
+ * [POS]: academic/domain 的评教稳定契约，分离本批提交计数与列表累计完成计数；unknown 表达已尝试但未确认，verificationSucceeded=false 单独表达回查失败及旧列表快照
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 

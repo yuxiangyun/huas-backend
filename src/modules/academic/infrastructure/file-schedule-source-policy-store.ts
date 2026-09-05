@@ -17,7 +17,7 @@ import {
   type ScheduleSourcePolicyStore,
 } from '../domain/schedule-source-policy';
 
-const DEFAULT_MODE: ScheduleSourceMode = 'jw-first';
+const DEFAULT_MODE: ScheduleSourceMode = 'mobile-jw-first';
 const LOCK_RETRY_LIMIT = 40;
 const LOCK_RETRY_DELAY_MS = 10;
 const STALE_LOCK_MS = 30_000;

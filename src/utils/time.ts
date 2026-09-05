@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 config.timeZone 与 Intl.DateTimeFormat，统一项目北京时间格式
+ * [OUTPUT]: 对外提供北京时间日期、日期时间、带偏移 ISO、日初与时间戳转换
+ * [POS]: utils 的无状态时间边界，为缓存数据时间与业务日期提供共同格式，不决定缓存过期策略
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ */
+
 import { config } from '../config';
 
 const DATE_FORMATTER = new Intl.DateTimeFormat('en-CA', {

@@ -23,7 +23,7 @@ community.test.ts: Community 缺省名称、昵称校验、DTO 隔离、并发�
 discover.test.ts: Discover 薄聚合入口，在单进程内装配 discover/ 媒体、推荐、评论与管理用例
 discover/: Discover HTTP/媒体共享支架及按业务能力细分的回归用例
 discover-application.test.ts: Discover application 媒体补偿、删除清理失败语义与孤儿清理委托回归测试
-e2e.live.test.ts: 真实上游端到端验证入口，覆盖登录/JW 恢复与 mobile-yxt 账单、电费只读 DTO 及 epoch 绑定无 TTL 派生会话
+e2e.live.test.ts: 真实上游端到端验证入口，支持单独运行移动教务课表/缓存/坏令牌恢复，并覆盖登录/JW 恢复与 mobile-yxt 账单、电费只读 DTO 及 epoch 绑定无 TTL 派生会话
 e2e.setup.ts: 真实上游测试隔离环境与临时 SQLite 显式迁移入口
 evaluation-parser.test.ts: 教评解析、延后 JW 登录表单、actionable/blocked 状态、有界续批、提交响应与抗重排批末回查测试
 fixtures/: 测试二进制样本目录，包含 HEIC 图片
@@ -35,6 +35,7 @@ notifications.test.ts: Notifications 差异回复事件、Outbox 幂等/撤销/�
 messaging.test.ts: Messaging 延迟会话/目标定位、会话高水位、严格 UUID 图文幂等、三态消息、未读与私有媒体测试
 messaging-timestamps.test.ts: Messaging 慢图片/快文本并发提交时间与 repository 会话时间单调回归测试
 messaging-upload.test.ts: Messaging HTTP 上传边界，锁定混合字段图片线序、解析前 413 与坏 multipart 的稳定 400
+mobile-jw.test.ts: 真实 500+401、SSO 同源/Portal 条件失效、会话单飞/epoch/generation、TGC 清理竞态、基础临时故障不误入冷却、临时错误预算及真实日期/缓存/解析合同回归
 mobile-yxt.test.ts: 登录 epoch/Portal 401/200 HTML 恢复、generation 条件失效、Cookie 白名单、Bun/Node 传输错误归一化、账单 freshness/有符号 totals、真实电费合同、同键回源合流、Portal/JW/限流隔离、24 月/6 键 LRU 与旧 `/api/ecard` 合同专项回归
 mobile-yxt-auth-state.test.ts: 严格派生命名空间、损坏/越权 CookieJar 事务淘汰、自动重建、合法会话读取及 Cookie/accessToken 低敏感错误日志专项反例
 social-upload-limits.test.ts: Discover/Community HTTP 上传边界，锁定声明长度、流式及无关字段请求在 formData 前统一返回 413
@@ -48,7 +49,7 @@ public-announcements.test.ts: 公告公共接口回归测试
 runtime-check-ci.test.ts: Bun 测试临时库默认 preload、本地 check 脚本、单 job CI、触发器、并发取消与 observer 装配静态回归测试
 runtime-health-metrics.test.ts: live/ready 状态矩阵、普通/增量轮询 quiet 日志、轻量指标、校园 HTTP 结果观察与有界 shutdown hooks 回归测试
 schedule-parser.test.ts: JW 真实结构、非教学周、登录页与嵌套课程节点去重回归测试
-schedule-source-policy.test.ts: 课表来源热策略、请求快照、缺载荷时 JW fallback、current/stale 固定顺序、legacy 错误优先级、持久化锁接管与管理鉴权回归测试
+schedule-source-policy.test.ts: 课表三种来源热策略与 Admin 写入读回、请求快照、缺载荷时 JW fallback、current/stale 固定顺序、legacy 错误优先级、持久化锁接管与管理鉴权回归测试
 setup.ts: 单元与业务流测试环境初始化，并在模块装载前显式迁移隔离 SQLite
 social-database.ts: 跨 Community/Discover/Treehole/Notifications/Messaging 套件的外键有序清理 helper，显式解除会话游标循环引用后清空社交与身份事实
 treehole.test.ts: Treehole 薄聚合入口，在单进程内装配 treehole/ 公共作者、低内存私有媒体、交互与管理用例

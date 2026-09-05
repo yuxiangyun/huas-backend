@@ -134,7 +134,7 @@ export interface AdminAnalyticsOverview {
   series: Array<Record<string, string | number>>;
 }
 
-export type AdminScheduleSourceMode = 'jw-first' | 'portal-first';
+export type AdminScheduleSourceMode = 'mobile-jw-first' | 'jw-first' | 'portal-first';
 
 export interface AdminScheduleSourcePolicy {
   mode: AdminScheduleSourceMode;

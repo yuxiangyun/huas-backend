@@ -96,7 +96,7 @@ export function createAdminRoutes(dependencies: AdminRouteDependencies) {
       return error(c, ErrorCode.PARAM_ERROR, '请求体必须是有效的 JSON', 400);
     }
     if (!isScheduleSourceMode(body?.mode)) {
-      return error(c, ErrorCode.PARAM_ERROR, 'mode 必须是 jw-first 或 portal-first', 400);
+      return error(c, ErrorCode.PARAM_ERROR, 'mode 必须是 mobile-jw-first、jw-first 或 portal-first', 400);
     }
 
     const actor = c.get('adminUser') || 'admin';

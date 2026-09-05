@@ -89,7 +89,7 @@ export interface CacheMeta {
   stale?: boolean;
   refresh_failed?: boolean;
   last_error?: number;
-  policy_mode?: 'jw-first' | 'portal-first';
-  primary_source?: 'jw' | 'portal';
-  fallback?: 'jw' | 'portal' | 'stale';
+  policy_mode?: 'mobile-jw-first' | 'jw-first' | 'portal-first';
+  primary_source?: 'mobile-jw' | 'jw' | 'portal';
+  fallback?: 'mobile-jw' | 'jw' | 'portal' | 'stale';
 }

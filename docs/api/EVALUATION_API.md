@@ -340,11 +340,14 @@ const body = await res.json();
 一次调用只选择最初列表中的 `batch.limit` 项，不会因恢复会话或批末回查重选下一批。初始列表、表单和最终列表读取沿用有界上游重试；每项 POST 最多一次。POST 超时也可能已生效，服务端只通过最终列表的稳定业务身份及已提交增量确认，不重放提交；一个增量不能重复确认两项。
 
 - `targetCount` / `batch.selectedCount` 是本批选中数，`attemptedCount` 是实际尝试 POST 数。
-- `previewedCount`、`submittedCount`、`failedCount` 分别是预检完成、确认提交、失败条目数。`items` 保留初始任务字段，以条目 `status` 判断本批结果；最新全量任务状态在 `status.items`。
+- `previewedCount`、`submittedCount`、`failedCount` 分别是预检完成、确认提交、POST 前准备失败条目数。`items` 保留初始任务字段，以条目 `status` 判断本批结果；最新全量任务状态在 `status.items`。
 - `batch.verificationRequests` 表示逻辑批末回查次数（0 或 1），内部有限读取重试不增加此值。
 - 批末回查耗尽时，已尝试提交的条目返回 `status: "unknown"`、`message: "SUBMIT_RESULT_UNKNOWN"`，另增加 `unconfirmedCount` 和 `batch.verificationSucceeded: false`。此时 `status`、`remainingCount`、`hasMore` 来自初始快照，不代表提交后的真实剩余量。
-- 正常结果不增加以上可选未确认字段；不能仅凭 `failedCount === 0` 提示全部完成。`unknown` 时必须停止自动续批、重新查询状态；不要自动重放提交请求。请求整体断线、无法取得批次响应时也应先查状态。
+- 批末回查成功但未观察到目标身份的完成增量时，已尝试 POST 的条目同样为 `unknown`，计入 `unconfirmedCount`；message 保留提交错误或为 `SUBMIT_NOT_CONFIRMED`。此时 `verificationSucceeded` 不返回 false，`status` 是批末读取的快照，但该快照不能证明学校没有执行或稍后不会完成提交。
+- 无未确认条目时省略 `unconfirmedCount`；只有回查失败时才返回 `verificationSucceeded: false`，成功并不显式返回 true。不能仅凭 `failedCount === 0` 提示全部完成。`unknown` 时必须停止自动续批、重新查询状态；不要自动重放提交请求。请求整体断线、客户端超时/取消、无法取得批次响应时也应先查状态；取消客户端等待不表示学校提交被取消。单次回查仍待处理时也不要自动重放 POST。
 - 即使本批全部成功，仍需检查 `batch.hasMore`、`status.blockedCount` 和 `status.pendingCount`。阻塞项不进入可提交批次，但仍可能阻止成绩查询。
+
+兼容说明（2026-09-05）：已尝试 POST、批末回查成功但无增量的条目由 `failed` 改为已有枚举 `unknown`；对应计数从 `failedCount` 移到 `unconfirmedCount`。没有新增字段，客户端必须同时消费三类结果；`verificationSucceeded !== false` 不能替代未确认计数检查。
 
 ## 5. 错误响应
 

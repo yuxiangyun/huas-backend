@@ -5,7 +5,7 @@
 academic/: 学业领域纵向切片，承载课表、成绩、评教与空教室 application/domain/infrastructure
 cache/: 本地缓存纵向切片，显式建模永久/限时新鲜度、版本 envelope、SQLite 持久化与进程内 singleflight
 calendar/: 日历订阅纵向切片，承载签名、用户查询、Academic 课表编排与 RFC 5545 ICS
-campus-integrations/: 学校 CAS、Portal、JW、mobile-yxt 防腐层，收敛 HTTP、凭证恢复、上游编排、只读账单/电费、资料服务与纯解析器唯一实现
+campus-integrations/: 学校 CAS、Portal、JW、mobile-yxt、mobile-jw 防腐层，收敛 HTTP、凭证恢复、上游编排、只读账单/电费、资料服务与纯解析器唯一实现
 community/: 公共社区资料纵向切片，统一默认 displayName、昵称校验、公共/本人 DTO、资料读写与头像媒体
 discover/: 好饭内容纵向切片，承载点赞/评论/推荐、Community 作者投影、SQLite 事务与本地媒体
 early-rising/: 早起打卡纵向切片，承载北京时间打卡、统计/趋势/排行榜与后台可控的个人资料入口设置

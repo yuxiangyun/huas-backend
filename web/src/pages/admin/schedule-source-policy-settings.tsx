@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖课表来源策略查询/变更、后台会话、Query cache、ConfirmSheet 与全局 Toast
- * [OUTPUT]: 提供 ScheduleSourcePolicySettings，展示并热切换 JW/Portal 课表优先策略
+ * [OUTPUT]: 提供 ScheduleSourcePolicySettings，展示并热切换 移动教务/JW/Portal 课表优先策略
  * [POS]: pages/admin/settings 的单职运维区块，只保存待确认目标并以服务端快照更新界面
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -17,6 +17,10 @@ import { Button } from '@/shared/ui/button';
 import { ConfirmSheet } from '@/shared/ui/confirm-sheet';
 
 const MODE_CONTENT: Record<AdminScheduleSourceMode, { label: string; path: string }> = {
+  'mobile-jw-first': {
+    label: '移动教务优先',
+    path: '移动教务新数据 → 教务新数据 → Portal 新数据 → 移动教务旧缓存 → 教务旧缓存 → Portal 旧缓存',
+  },
   'jw-first': {
     label: '教务优先',
     path: '教务新数据 → Portal 新数据 → 教务旧缓存 → Portal 旧缓存',
@@ -27,7 +31,7 @@ const MODE_CONTENT: Record<AdminScheduleSourceMode, { label: string; path: strin
   },
 };
 
-const MODES = ['jw-first', 'portal-first'] as const;
+const MODES = ['mobile-jw-first', 'jw-first', 'portal-first'] as const;
 
 function formatUpdatedAt(value: string) {
   const date = new Date(value);
@@ -135,7 +139,7 @@ export function ScheduleSourcePolicySettings({
           <div>
             <p className="text-sm font-medium text-ink">切换运行策略</p>
             <div
-              className="mt-2 grid gap-2 rounded-xl bg-black/[0.045] p-1 sm:grid-cols-2"
+              className="mt-2 grid gap-2 rounded-xl bg-black/[0.045] p-1 sm:grid-cols-3"
               role="group"
               aria-label="课表数据源优先策略"
             >

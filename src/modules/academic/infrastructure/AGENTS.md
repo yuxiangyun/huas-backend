@@ -12,6 +12,6 @@ classroom-service-account.ts: 以 CLASSROOM_ADMIN_STUDENT_ID 查询已登录服�
 
 架构决策
 infrastructure 只桥接既有共享基础设施与 Campus Integrations，不复制 cache policy、重试或凭证恢复规则。
-课表策略文件默认跟随 DB 数据目录并允许显式覆盖，发布槽只共享状态文件，不共享进程内可变变量。
+课表策略优先持久化文件、其次显式 env、最后默认 mobile-jw-first；文件默认跟随 DB 数据目录并允许显式覆盖，发布槽只共享状态文件，不共享进程内可变变量。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md

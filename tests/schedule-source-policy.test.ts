@@ -38,7 +38,8 @@ function rawResult(source: ScheduleSource, tag: string, stale = false) {
 }
 
 function createFacade(options: {
-  mode?: 'jw-first' | 'portal-first';
+  mode?: 'mobile-jw-first' | 'jw-first' | 'portal-first';
+  mobile?: ReaderBehavior;
   calls: string[];
   jw: ReaderBehavior;
   portal: ReaderBehavior;
@@ -63,6 +64,7 @@ function createFacade(options: {
     reader('jw', options.jw),
     reader('portal', options.portal),
     { status: options.policyStatus ?? (async () => snapshot) },
+    options.mobile ? reader('mobile-jw', options.mobile) : undefined,
   );
 }
 
@@ -74,6 +76,37 @@ const request = {
 };
 
 describe('ScheduleFacade current/stale 状态机', () => {
+  it('移动教务优先成功时不调用另外两源', async () => {
+    const calls: string[] = [];
+    const result = await createFacade({calls, mode:'mobile-jw-first', mobile:{}, jw:{}, portal:{}}).getSchedule(request);
+    expect(calls).toEqual(['mobile-jw:current']);
+    expect(result._meta).toMatchObject({source:'mobile-jw',primary_source:'mobile-jw',policy_mode:'mobile-jw-first'});
+  });
+
+  it('移动教务与 JW 失败后读取 Portal current，再考虑 stale', async () => {
+    const calls: string[] = [];
+    const fail = async () => { throw new Error('REQUEST_TIMEOUT'); };
+    const result = await createFacade({calls, mode:'mobile-jw-first', mobile:{current:fail,stale:async()=>rawResult('mobile-jw','stale',true)},jw:{current:fail},portal:{}}).getSchedule(request);
+    expect(calls).toEqual(['mobile-jw:current','jw:current','portal:current']);
+    expect(result._meta).toMatchObject({source:'portal',primary_source:'mobile-jw',fallback:'portal'});
+  });
+
+  it('第三源的 3003 参与错误仲裁，不能被前两源超时和 stale 掩盖', async () => {
+    const calls: string[] = [];
+    const fail = async () => { throw new Error('REQUEST_TIMEOUT'); };
+    const facade = createFacade({calls,mode:'mobile-jw-first',mobile:{current:fail},jw:{current:fail},portal:{current:async()=>{throw new AppError(ErrorCode.CREDENTIAL_EXPIRED,'expired');}}});
+    await expect(facade.getSchedule(request)).rejects.toMatchObject({code:3003});
+    expect(calls).toEqual(['mobile-jw:current','jw:current','portal:current']);
+  });
+
+  it('三源 current 都失败后按移动教务、JW、Portal 读取旧缓存', async () => {
+    const calls: string[] = [];
+    const fail = async () => { throw new Error('REQUEST_TIMEOUT'); };
+    const result = await createFacade({calls,mode:'mobile-jw-first',mobile:{current:fail},jw:{current:fail,stale:async()=>rawResult('jw','stale',true)},portal:{current:fail}}).getSchedule(request);
+    expect(calls).toEqual(['mobile-jw:current','jw:current','portal:current','mobile-jw:stale','jw:stale']);
+    expect(result._meta.stale).toBe(true);
+  });
+
   it('jw-first 的 JW current 成功后不调用 Portal', async () => {
     const calls: string[] = [];
     const facade = createFacade({ calls, mode: 'jw-first', jw: {}, portal: {} });
@@ -249,7 +282,7 @@ describe('FileScheduleSourcePolicyStore', () => {
     const stateFile = join(root, 'policy.json');
     try {
       const first = new FileScheduleSourcePolicyStore(stateFile, '');
-      expect(await first.read()).toMatchObject({ mode: 'jw-first' });
+      expect(await first.read()).toMatchObject({ mode: 'mobile-jw-first' });
       expect(await first.write('portal-first', 'admin-a')).toMatchObject({ mode: 'portal-first' });
 
       const second = new FileScheduleSourcePolicyStore(stateFile, 'jw-first');
@@ -269,12 +302,12 @@ describe('FileScheduleSourcePolicyStore', () => {
     }
   });
 
-  it('非法 env 安全回落 jw-first，损坏文件保留最后有效快照', async () => {
+  it('非法 env 安全回落 mobile-jw-first，损坏文件保留最后有效快照', async () => {
     const root = await mkdtemp(join(tmpdir(), 'schedule-policy-corrupt-'));
     const stateFile = join(root, 'policy.json');
     try {
       const store = new FileScheduleSourcePolicyStore(stateFile, 'invalid-mode');
-      expect((await store.read()).mode).toBe('jw-first');
+      expect((await store.read()).mode).toBe('mobile-jw-first');
       const valid = await store.write('portal-first', 'admin');
       await writeFile(stateFile, '{broken', 'utf8');
       expect(await store.read()).toEqual(valid);
@@ -405,6 +438,18 @@ describe('课表来源策略管理 API', () => {
       headers: { Cookie: cookie },
     });
     expect((await after.json() as any).data).toEqual(updateBody.data);
+  });
+
+  it('第三种移动教务模式可经 Admin 写入并原样读回', async () => {
+    const path = 'http://localhost/api/admin/academic/schedule-source-policy';
+    const update = await app.request(path, {
+      method: 'PUT', headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'mobile-jw-first' }),
+    });
+    expect(update.status).toBe(200);
+    expect((await update.json() as any).data.mode).toBe('mobile-jw-first');
+    const read = await app.request(path, { headers: { Cookie: cookie } });
+    expect((await read.json() as any).data).toMatchObject({ mode: 'mobile-jw-first', updatedBy: 'test-admin' });
   });
 
   it('拒绝缺失或非法 mode', async () => {
