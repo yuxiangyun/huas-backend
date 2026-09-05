@@ -7,6 +7,7 @@
 
 import './business-flows/auth-login.cases';
 import './business-flows/credential-recovery.cases';
+import './business-flows/recovery-cooldown.cases';
 import './business-flows/schedule-fallback.cases';
 import './business-flows/calendar-subscription.cases';
 import './business-flows/user-cache.cases';

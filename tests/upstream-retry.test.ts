@@ -9,6 +9,7 @@ import { beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { generateKeyPairSync } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { getDb, schema } from '../src/db';
+import { config } from '../src/config';
 import { upstream } from '../src/services/infra/upstream';
 import type { HttpClient } from '../src/core/http-client';
 import { TicketExchanger } from '../src/auth/ticket-exchanger';
@@ -244,6 +245,43 @@ describe('auth upstream failure semantics', () => {
     } as unknown as HttpClient;
 
     await expect(TicketExchanger.exchangePortalToken(client)).rejects.toThrow('REQUEST_TIMEOUT');
+  });
+
+  it('Portal 换票直接 5xx 与嵌套连接故障不退化为缺少 ticket', async () => {
+    for (const status of [500, 502, 503, 504]) {
+      const client = { request: async () => new Response('unavailable', { status }) } as unknown as HttpClient;
+      await expect(TicketExchanger.exchangePortalToken(client)).rejects.toThrow(`PORTAL_TOKEN_HTTP_${status}`);
+    }
+    const failure = new Error('request failed', { cause: { code: 'ECONNREFUSED' } });
+    const client = { request: async () => { throw failure; } } as unknown as HttpClient;
+    await expect(TicketExchanger.exchangePortalToken(client)).rejects.toBe(failure);
+  });
+
+  it('JW 直接 5xx、重定向 5xx 与嵌套连接故障均保留上游不可用证据', async () => {
+    const originalAttempts = config.retry.jwActivationMax;
+    config.retry.jwActivationMax = 1;
+    try {
+      for (const failure of ['direct', 'redirect', 'network'] as const) {
+        let requests = 0;
+        const client = {
+          // 剩余预算充足，仅执行一次换票以单独证明故障分类。
+          getRemainingTimeMs: () => 10_000,
+          request: async () => {
+            requests += 1;
+            if (failure === 'network') throw new Error('request failed', { cause: { code: 'ECONNREFUSED' } });
+            return failure === 'direct'
+              ? new Response('unavailable', { status: 503 })
+              : new Response(null, { status: 302, headers: { location: 'https://xyjw.huas.edu.cn/sso-step' } });
+          },
+          followRedirects: async () => ({ success: false, finalStatus: 503 }),
+        } as unknown as HttpClient;
+        const result = await TicketExchanger.exchangeJwSession(client);
+        expect(result).toMatchObject({ success: false, upstreamUnavailable: true });
+        expect(result.steps).toHaveLength(1);
+        expect(result.steps[0].detail).toBe(failure === 'network' ? 'request failed' : 'status:503');
+        expect(requests).toBe(1);
+      }
+    } finally { config.retry.jwActivationMax = originalAttempts; }
   });
 
   it('Portal 换票透传 fetch/解析器已识别的全部瞬态网络错误', async () => {

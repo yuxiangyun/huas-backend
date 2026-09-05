@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖独立 EvaluationParser、EvaluationService、HttpClient 测试替身与教务评教 HTML 边界样本
- * [OUTPUT]: 验证延后登录页拒绝、入口发现、列表/表单解析、有界续批、重排安全回查与结果 DTO 口径
+ * [OUTPUT]: 验证延后登录页拒绝、入口发现、列表/表单解析、有界续批、重排安全回查、已提交但未确认的 unknown 语义与结果 DTO 口径
  * [POS]: tests 的评教业务回归套件，保护 HTML 适配与提交事实不可伪造
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -261,8 +261,9 @@ describe('EvaluationParser', () => {
     expect(fake.getPostCount()).toBe(1);
     expect(fake.getListGetCount()).toBe(2);
     expect(result.submittedCount).toBe(0);
-    expect(result.failedCount).toBe(1);
-    expect(result.items[0].status).toBe('failed');
+    expect(result.failedCount).toBe(0);
+    expect(result.unconfirmedCount).toBe(1);
+    expect(result.items[0].status).toBe('unknown');
     expect(result.items[0].message).toBe('EVALUATION_UPSTREAM_ERROR_PAGE');
     expect(result.status.pendingCount).toBe(1);
     expect(result.status.completedCount).toBe(0);
@@ -328,7 +329,9 @@ describe('EvaluationParser', () => {
     });
 
     expect(result.submittedCount).toBe(0);
-    expect(result.failedCount).toBe(1);
+    expect(result.failedCount).toBe(0);
+    expect(result.unconfirmedCount).toBe(1);
+    expect(result.items[0].status).toBe('unknown');
     expect(result.items[0].message).toBe('SUBMIT_NOT_CONFIRMED');
     expect(result.status.pendingCount).toBe(1);
   });

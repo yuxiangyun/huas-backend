@@ -1,11 +1,12 @@
 /**
- * [INPUT]: 依赖带剩余预算的 HttpClient、CryptoHelper、URLS、config、JW 主框架判定与 LoginStep 类型
+ * [INPUT]: 依赖带剩余预算的 HttpClient、CryptoHelper、URLS、config、JW 主框架判定、共享 cause 链传输分类与 LoginStep 类型
  * [OUTPUT]: 对外提供 TicketExchanger，在客户端 deadline 内执行 TGC 到 Portal JWT/JW Session 的交换并验证 JW 已登录主框架
  * [POS]: campus-integrations/cas 的学校子凭证交换器，被登录流程和有界凭证恢复链消费
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { HttpClient } from '../http/http-client';
+import { isTransientTransportError } from '../http/transport-errors';
 import { CryptoHelper } from '../../../utils/crypto';
 import { URLS } from '../endpoints';
 import { config } from '../../../config';
@@ -13,12 +14,6 @@ import type { LoginStep } from '../../../utils/logger';
 import { looksLikeAuthenticatedJwMainPage, looksLikeJwLoginPage } from '../jw/parsers/session-page';
 
 export class TicketExchanger {
-  private static isTransientUpstreamError(message: string): boolean {
-    if (!message) return false;
-    if (message === 'REQUEST_TIMEOUT') return true;
-    return /ECONNRESET|EAI_AGAIN|ETIMEDOUT|ENOTFOUND|fetch failed|network/i.test(message);
-  }
-
   private static async verifyJwSession(client: HttpClient): Promise<{
     active: boolean;
     upstreamUnavailable: boolean;
@@ -78,6 +73,7 @@ export class TicketExchanger {
         timeout: config.timeout.cas,
       });
 
+      if (res.status >= 500) throw new Error(`PORTAL_TOKEN_HTTP_${res.status}`);
       const loc = res.headers.get('location');
       if (loc?.includes('ticket=')) {
         const token = CryptoHelper.extractTokenFromUrl(loc);
@@ -91,7 +87,7 @@ export class TicketExchanger {
     } catch (e: any) {
       const detail = String(e?.message || '');
       steps.push({ label: 'portal', ok: false, detail });
-      if (this.isTransientUpstreamError(detail)) throw e;
+      if (isTransientTransportError(e) || /_HTTP_5\d\d$/.test(detail)) throw e;
       return { token: null, steps };
     }
   }
@@ -129,6 +125,11 @@ export class TicketExchanger {
           timeout: config.timeout.cas,
         });
 
+        if (jwRes.status >= 500) {
+          upstreamUnavailable = true;
+          steps.push({ label: `jw#${attempt + 1}`, ok: false, detail: `status:${jwRes.status}` });
+          continue;
+        }
         const jwLoc = jwRes.headers.get('location');
         if (jwLoc) {
           const result = await client.followRedirects(jwLoc);
@@ -146,7 +147,7 @@ export class TicketExchanger {
               });
             }
           } else {
-            if (result.finalStatus === 0) {
+            if (result.finalStatus === 0 || result.finalStatus >= 500) {
               upstreamUnavailable = true;
             }
             steps.push({ label: `jw#${attempt + 1}`, ok: false, detail: `status:${result.finalStatus}` });
@@ -156,7 +157,7 @@ export class TicketExchanger {
         }
       } catch (e: any) {
         const detail = String(e?.message || '');
-        if (this.isTransientUpstreamError(detail)) {
+        if (isTransientTransportError(e)) {
           upstreamUnavailable = true;
         }
         steps.push({ label: `jw#${attempt + 1}`, ok: false, detail });

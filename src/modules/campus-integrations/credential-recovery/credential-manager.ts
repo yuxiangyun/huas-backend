@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 db/schema、HttpClient/共享传输错误分类、CAS/TicketExchanger、CryptoHelper、user 级 PerKeySingleflight、真实学校登录事务原语、config、截止时间与 Logger
- * [OUTPUT]: 对外提供 CredentialManager 与 CredentialSystem，管理正 TTL 基础凭证、能力感知静默恢复、TGC 普通快照冲突有界补足、Portal-only 窄恢复与交互登录状态
+ * [INPUT]: 依赖 db/schema、HttpClient/共享传输错误分类、CAS/TicketExchanger、CryptoHelper、user 级 PerKeySingleflight、真实学校登录事务原语、epoch 绑定的五秒 RecoveryCooldown、config、截止时间与 Logger
+ * [OUTPUT]: 对外提供 CredentialManager 与 CredentialSystem，管理正 TTL 基础凭证、五秒分能力冷却与真实登录代次隔离、能力感知静默恢复、TGC 普通快照冲突有界补足、Portal-only 窄恢复与交互登录状态
  * [POS]: campus-integrations/credential-recovery 的基础凭证状态机；共享航班以实际能力自证，能力不足的 joiner 先复用新 TGC 串行补足且 mobile 调用不触碰 JW
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -15,12 +15,13 @@ import { config } from '../../../config';
 import { Logger } from '../../../utils/logger';
 import { PerKeySingleflight } from '../../cache/application/singleflight';
 import { isTransientTransportError } from '../http/transport-errors';
+import { RecoveryCooldown, type RecoveryScope } from './recovery-cooldown';
 import {
   commitRealSchoolLoginContext,
   readSchoolLoginEpoch,
 } from './school-login-context';
 
-export type CredentialSystem = 'cas_tgc' | 'portal_jwt' | 'jw_session';
+export type CredentialSystem = RecoveryScope;
 type RecoveryRequirement = CredentialSystem | 'portal_only';
 
 interface ResolvedCredential {
@@ -42,19 +43,17 @@ const MANAGED_CREDENTIAL_SYSTEMS = [
   INTERACTIVE_LOGIN_REQUIRED_SYSTEM,
 ] as const;
 
-// Silent re-auth cooldown tracking
-const reAuthState = new Map<number, { failCount: number; lastAttempt: number }>();
-const REAUTH_MAX_ATTEMPTS = 3;
-const REAUTH_COOLDOWN_MS = 60 * 1000; // 1 minute cooldown after max failures
+const recoveryCooldown = new RecoveryCooldown((userId) => readSchoolLoginEpoch(getDb(), userId));
 const TGC_CONFLICT_RETRIES = 1;
 
 // 同一用户并发触发静默重认证时共享在途 CAS 登录链，防止恢复风暴打爆上游并互相覆盖凭证。
 const reAuthFlights = new PerKeySingleflight();
-const portalOnlyFlights = new PerKeySingleflight();
+const credentialFlights = new PerKeySingleflight();
+const tgcFlights = new PerKeySingleflight();
 
 function isTransientRecoveryError(error: unknown): boolean {
   const message = String((error as any)?.message || '');
-  return isTransientTransportError(error) || /_HTTP_(?:500|502|503|504)$/i.test(message);
+  return isTransientTransportError(error) || /_HTTP_5\d\d$/i.test(message);
 }
 
 function requiredCapability(requirement: RecoveryRequirement): CredentialSystem {
@@ -110,7 +109,7 @@ export class CredentialManager {
         eq(schema.credentials.userId, userId),
         eq(schema.credentials.system, INTERACTIVE_LOGIN_REQUIRED_SYSTEM)
       ));
-    reAuthState.delete(userId);
+    recoveryCooldown.clear(userId);
   }
 
   /**
@@ -169,6 +168,12 @@ export class CredentialManager {
     system: CredentialSystem,
     deadlineAt?: number,
   ): Promise<ResolvedCredential | null> {
+    return this.resolveWithCooldown(userId, system, () => this.resolveCredential(userId, system, deadlineAt));
+  }
+
+  private static async resolveCredential(
+    userId: number, system: CredentialSystem, deadlineAt?: number,
+  ): Promise<ResolvedCredential | null> {
     const existing = await this.getCredential(userId, system);
     if (existing) return existing;
 
@@ -201,7 +206,7 @@ export class CredentialManager {
     userId: number,
     deadlineAt?: number,
   ): Promise<ResolvedCredential | null> {
-    return portalOnlyFlights.run(`portal-only:${userId}`, 'normal', async () => {
+    return this.resolveWithCooldown(userId, 'portal_only', async () => {
       const existing = await this.getCredential(userId, 'portal_jwt');
       if (existing) return existing;
       if (await this.requiresInteractiveLogin(userId)) return null;
@@ -216,6 +221,46 @@ export class CredentialManager {
     });
   }
 
+  /** 失败窗口只约束缺失能力；已有凭证始终优先，普通登录不参与此路径。 */
+  private static async resolveWithCooldown(
+    userId: number,
+    requirement: RecoveryRequirement,
+    operation: () => Promise<ResolvedCredential | null>,
+  ): Promise<ResolvedCredential | null> {
+    const system = requiredCapability(requirement);
+    // 显式登录可能已提交新凭证；新请求不应继续等待旧恢复航班。
+    const available = await this.getCredential(userId, system);
+    if (available) return available;
+    return credentialFlights.run(`credential:${userId}:${requirement}`, 'normal', async () => {
+      const current = await this.getCredential(userId, system);
+      if (current) return current;
+      if (await this.requiresInteractiveLogin(userId)) return null;
+      if (this.isRecoveryCooling(userId, system)) return null;
+      const epoch = readSchoolLoginEpoch(getDb(), userId);
+      try {
+        const result = await operation();
+        if (!result && !recoveryCooldown.read(userId, 'cas_tgc')) recoveryCooldown.record(userId, system, epoch);
+        return result;
+      } catch (error) {
+        if (readSchoolLoginEpoch(getDb(), userId) !== epoch) {
+          const latest = await this.getCredential(userId, system);
+          if (latest) return latest;
+        }
+        if (!recoveryCooldown.read(userId, 'cas_tgc')) recoveryCooldown.record(userId, system, epoch, error);
+        throw error;
+      }
+    });
+  }
+
+  private static isRecoveryCooling(userId: number, scope: CredentialSystem): boolean {
+    const state = recoveryCooldown.read(userId, scope);
+    if (!state) return false;
+    Logger.warn('CredentialManager', '凭证恢复冷却中',
+      `system=${scope} retryAfterSeconds=${Math.ceil((state.retryAt - Date.now()) / 1000)}`, String(userId));
+    if (state.error) throw state.error;
+    return true;
+  }
+
   /**
    * Refresh a sub-credential using a valid TGC
    */
@@ -225,6 +270,14 @@ export class CredentialManager {
     tgcJar: string,
     deadlineAt?: number,
     conflictRetries = TGC_CONFLICT_RETRIES,
+  ): Promise<ResolvedCredential | null> {
+    return tgcFlights.run(`tgc:${userId}:${system}`, 'normal', () =>
+      this.exchangeFromTGC(userId, system, tgcJar, deadlineAt, conflictRetries));
+  }
+
+  private static async exchangeFromTGC(
+    userId: number, system: CredentialSystem, tgcJar: string,
+    deadlineAt?: number, conflictRetries = TGC_CONFLICT_RETRIES,
   ): Promise<ResolvedCredential | null> {
     const snapshot = getDb().transaction((tx) => ({
       epoch: readSchoolLoginEpoch(tx, userId),
@@ -316,13 +369,13 @@ export class CredentialManager {
     if (snapshot.epoch !== loginEpoch || !snapshot.tgc?.cookieJar
       || !snapshot.tgc.expiresAt || snapshot.tgc.expiresAt.getTime() <= Date.now()) return null;
     if (retries <= 0 || (deadlineAt !== undefined && Date.now() >= deadlineAt)) throw new Error('REQUEST_TIMEOUT');
-    return this.refreshFromTGC(userId, system, snapshot.tgc.cookieJar, deadlineAt, retries - 1);
+    return this.exchangeFromTGC(userId, system, snapshot.tgc.cookieJar, deadlineAt, retries - 1);
   }
 
   /**
    * Silent re-authentication: re-run full CAS flow using stored password.
    * User is completely unaware this is happening.
-   * Max 3 attempts with 1-minute cooldown after exhaustion.
+   * 失败后固定冷却五秒；CAS 拒绝与各子系统激活失败分别节流，不累计历史失败。
    * 同一用户并发调用共享在途恢复（首个调用方的 deadline 主导本次恢复）。
    */
   static async silentReAuth(
@@ -340,6 +393,10 @@ export class CredentialManager {
     deadlineAt: number | undefined,
     requirement: RecoveryRequirement,
   ): Promise<RecoveryOutcome> {
+    if (await this.requiresInteractiveLogin(userId)) return recoveryOutcome(requirement, false, []);
+    if (this.isRecoveryCooling(userId, requiredCapability(requirement))) {
+      return recoveryOutcome(requirement, false, []);
+    }
     let operation = () => this.executeSilentReAuth(userId, deadlineAt, requirement);
 
     // 同 key 保证任何时刻只有一条恢复链；joiner 只能在共享结果自证能力不足后排队补足。
@@ -361,6 +418,7 @@ export class CredentialManager {
     const system = requiredCapability(requirement);
     const current = await this.getCredential(userId, system);
     if (current) return recoveryOutcome(requirement, false, [system]);
+    if (this.isRecoveryCooling(userId, system)) return recoveryOutcome(requirement, false, []);
 
     const tgc = await this.getCredential(userId, 'cas_tgc');
     if (system === 'cas_tgc' && tgc) {
@@ -386,17 +444,8 @@ export class CredentialManager {
       return recoveryOutcome(requirement, false, []);
     }
 
-    // Cooldown check
-    const state = reAuthState.get(userId);
-    if (state) {
-      if (state.failCount >= REAUTH_MAX_ATTEMPTS) {
-        if (Date.now() - state.lastAttempt < REAUTH_COOLDOWN_MS) {
-          Logger.warn('SilentReAuth', `冷却中, 跳过重认证 (${state.failCount} 次失败)`, undefined, String(userId));
-          return recoveryOutcome(requirement, false, []);
-        }
-        reAuthState.delete(userId);
-      }
-    }
+    if (this.isRecoveryCooling(userId, 'cas_tgc')) return recoveryOutcome(requirement, false, []);
+    const loginEpoch = readSchoolLoginEpoch(getDb(), userId);
 
     const db = getDb();
     const users = await db.select()
@@ -431,11 +480,25 @@ export class CredentialManager {
     let portalToken: string | null = null;
     let jwCookieJar: string | null = null;
     let commitAttempted = false;
+    let committedEpoch: number | null = null;
+    let failureScope: CredentialSystem = 'cas_tgc';
+    const latestOutcome = async () => {
+      const capabilities: CredentialSystem[] = [];
+      // Portal-only 恢复不得读取 JW，即使正在复用另一条真实登录提交的上下文。
+      for (const system of requirement === 'portal_only'
+        ? ['cas_tgc', 'portal_jwt'] as const : ['cas_tgc', 'portal_jwt', 'jw_session'] as const) {
+        if (await this.getCredential(userId, system)) capabilities.push(system);
+      }
+      return recoveryOutcome(requirement, false, capabilities);
+    };
+    const staleLogin = () => readSchoolLoginEpoch(getDb(), userId) !== (committedEpoch ?? loginEpoch);
+    const recordFailure = (scope: CredentialSystem, error: unknown = null) =>
+      recoveryCooldown.record(userId, scope, committedEpoch ?? loginEpoch, error);
 
     const commitAuthenticatedContext = async () => {
       if (!casAuthenticated || commitAttempted) return;
       commitAttempted = true;
-      await this.persistRealSchoolLogin(userId, client.serializeJar(), portalToken, jwCookieJar);
+      committedEpoch = this.persistRealSchoolLogin(userId, client.serializeJar(), portalToken, jwCookieJar, loginEpoch);
     };
 
     const acquiredCapabilities = (): CredentialSystem[] => [
@@ -453,20 +516,19 @@ export class CredentialManager {
       const execution = await engine.getExecution();
       if (!execution) {
         steps.push({ label: 'Execution', ok: false, detail: '获取失败' });
-        this.recordReAuthFailure(userId);
-        Logger.auth(user.studentId, '静默重认证失败', 0, Date.now() - start, user.name || undefined, steps);
-        return recoveryOutcome(requirement, false, []);
+        throw new Error('REQUEST_TIMEOUT');
       }
       steps.push({ label: 'Execution', ok: true });
 
       // 3. Login without captcha
+      if (staleLogin()) return latestOutcome();
       const result = await engine.login(user.studentId, password, '', execution);
+      if (staleLogin()) return latestOutcome();
       if (!result.success) {
         steps.push({ label: 'CAS Login', ok: false, detail: result.needCaptcha ? '需要验证码' : result.message });
-        this.recordReAuthFailure(userId);
+        recordFailure('cas_tgc');
         if (result.needCaptcha) {
-          await this.invalidateSchoolCredentials(userId);
-          await this.markInteractiveLoginRequired(userId);
+          this.markInteractiveLoginRequiredIfEpochMatches(userId, loginEpoch);
         }
         Logger.auth(user.studentId, '静默重认证失败', 0, Date.now() - start, user.name || undefined, steps);
         return recoveryOutcome(requirement, false, []);
@@ -475,6 +537,7 @@ export class CredentialManager {
       casAuthenticated = true;
 
       // 4. Portal token
+      failureScope = 'portal_jwt';
       portalToken = result.portalToken || null;
       if (!portalToken) {
         const portalResult = await TicketExchanger.exchangePortalToken(client);
@@ -489,8 +552,9 @@ export class CredentialManager {
       // 5. Portal-only recovery stops here: Portal/mobile reads must never activate or replace JW.
       if (requiredSystem === 'portal_only') {
         await commitAuthenticatedContext();
+        if (staleLogin()) return latestOutcome();
         if (!portalToken) {
-          this.recordReAuthFailure(userId);
+          recordFailure('portal_jwt');
           Logger.auth(user.studentId, '静默重认证失败', 0, Date.now() - start, user.name || undefined, steps);
           return recoveryOutcome(requirement, true, acquiredCapabilities());
         }
@@ -499,14 +563,17 @@ export class CredentialManager {
       }
 
       // 6. Activate JW session
+      failureScope = 'jw_session';
       const jwResult = await TicketExchanger.exchangeJwSession(client);
       if (!jwResult.success) {
         steps.push({ label: 'JW 激活', ok: false });
         await commitAuthenticatedContext();
+        if (staleLogin()) return latestOutcome();
+        if (!portalToken) recordFailure('portal_jwt');
         if (jwResult.upstreamUnavailable && requiredSystem === 'jw_session') {
           throw new Error('REQUEST_TIMEOUT');
         }
-        this.recordReAuthFailure(userId);
+        recordFailure('jw_session', jwResult.upstreamUnavailable ? new Error('REQUEST_TIMEOUT') : null);
         Logger.auth(user.studentId, '静默重认证失败', 0, Date.now() - start, user.name || undefined, steps);
         return recoveryOutcome(requirement, true, acquiredCapabilities());
       }
@@ -515,10 +582,13 @@ export class CredentialManager {
       // 7. 一次事务提交真实 CAS 登录的新上下文与本次可用基础凭证。
       jwCookieJar = client.serializeJar();
       await commitAuthenticatedContext();
+      if (staleLogin()) return latestOutcome();
+      if (!portalToken) recordFailure('portal_jwt');
       Logger.auth(user.studentId, '静默重认证成功', 200, Date.now() - start, user.name || undefined, steps);
       return recoveryOutcome(requirement, true, acquiredCapabilities());
     } catch (caught: any) {
-      let e = caught;
+      let e = caught?.message === 'CAS_MAINTENANCE'
+        ? new Error('REQUEST_TIMEOUT', { cause: caught }) : caught;
       if (casAuthenticated && !commitAttempted) {
         try {
           await commitAuthenticatedContext();
@@ -526,38 +596,44 @@ export class CredentialManager {
           e = persistenceError;
         }
       }
+      if (staleLogin()) return latestOutcome();
       steps.push({ label: '异常', ok: false, detail: e.message });
       Logger.auth(user.studentId, '静默重认证异常', 0, Date.now() - start, user.name || undefined, steps);
+      recordFailure(failureScope, isTransientRecoveryError(e) ? e : null);
       if (isTransientRecoveryError(e)) throw e;
-      this.recordReAuthFailure(userId);
       return recoveryOutcome(requirement, casAuthenticated, casAuthenticated ? acquiredCapabilities() : []);
     }
   }
 
-  private static recordReAuthFailure(userId: number): void {
-    const state = reAuthState.get(userId) || { failCount: 0, lastAttempt: 0 };
-    state.failCount++;
-    state.lastAttempt = Date.now();
-    reAuthState.set(userId, state);
+  /** 验证码拒绝与新登录竞争时，只允许旧代次原子清理自身凭证并写入交互标记。 */
+  private static markInteractiveLoginRequiredIfEpochMatches(userId: number, epoch: number): void {
+    getDb().transaction((tx) => {
+      if (readSchoolLoginEpoch(tx, userId) !== epoch) return;
+      tx.delete(schema.credentials).where(and(
+        eq(schema.credentials.userId, userId),
+        inArray(schema.credentials.system, ['cas_tgc', 'portal_jwt', 'jw_session']),
+      )).run();
+      const now = new Date();
+      tx.insert(schema.credentials).values({
+        userId, system: INTERACTIVE_LOGIN_REQUIRED_SYSTEM, value: 'captcha_required',
+        cookieJar: null, expiresAt: null, createdAt: now, updatedAt: now,
+      }).onConflictDoUpdate({
+        target: [schema.credentials.userId, schema.credentials.system],
+        set: { value: 'captcha_required', updatedAt: now },
+      }).run();
+    });
   }
 
-  private static async persistRealSchoolLogin(
-    userId: number,
-    casCookieJar: string,
-    portalToken: string | null,
-    jwCookieJar: string | null,
-  ): Promise<void> {
-    const at = new Date();
-    getDb().transaction((tx) => {
-      commitRealSchoolLoginContext(tx, {
-        userId,
-        casCookieJar,
-        portalToken,
-        jwCookieJar,
-        at,
+  private static persistRealSchoolLogin(
+    userId: number, casCookieJar: string, portalToken: string | null,
+    jwCookieJar: string | null, expectedEpoch: number,
+  ): number | null {
+    return getDb().transaction((tx) => {
+      if (readSchoolLoginEpoch(tx, userId) !== expectedEpoch) return null;
+      return commitRealSchoolLoginContext(tx, {
+        userId, casCookieJar, portalToken, jwCookieJar, at: new Date(),
       });
     });
-    reAuthState.delete(userId);
   }
 
   /**

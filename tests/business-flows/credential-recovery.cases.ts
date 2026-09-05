@@ -5,7 +5,7 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, spyOn } from 'bun:test';
 import { and } from 'drizzle-orm';
 import {
   eq,
@@ -124,9 +124,15 @@ describe('静默凭证链路', () => {
     expect(await joined).toBeNull();
     expect(loginCount).toBe(1);
 
-    expect((await CredentialManager.getOrRefreshPortalCredentialWithoutJw(userId))?.value)
-      .toBe('portal-after-failure');
-    expect(loginCount).toBe(2);
+    expect(await CredentialManager.getOrRefreshPortalCredentialWithoutJw(userId)).toBeNull();
+    expect(loginCount).toBe(1);
+    const now = Date.now() + 5_000;
+    const clock = spyOn(Date, 'now').mockReturnValue(now);
+    try {
+      expect((await CredentialManager.getOrRefreshPortalCredentialWithoutJw(userId))?.value)
+        .toBe('portal-after-failure');
+      expect(loginCount).toBe(2);
+    } finally { clock.mockRestore(); }
   });
 
   it('portal_only 中 CAS 成功但 Portal 失败仍推进 epoch 并清理旧派生会话', async () => {

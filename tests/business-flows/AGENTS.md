@@ -8,6 +8,7 @@
 auth-login.cases.ts: 登录能力用例，覆盖本地快捷、CAS、验证码原因透传、Portal-only、激活全失败仍提交真实登录上下文但不签 JWT、并发 upsert、限流与错误映射
 calendar-subscription.cases.ts: 日历订阅用例，覆盖签名、双源课表缓存、fallback、ICS UID/折行与日期推导
 credential-recovery.cases.ts: 凭证恢复用例，覆盖能力感知并发 join/串行补足、Portal-only 的 JW 隔离、航班失败释放、CAS 成功失败的 epoch 边界、JW/Portal 刷新与超时穿透
+recovery-cooldown.cases.ts: 五秒固定窗口与到期合流、本地登录无上游、维护故障分类、能力隔离和真实登录阻断迟到恢复的事故回归
 harness.ts: 进程级共享支架，先注册 Campus Integrations、Academic 与 Portal 模块 mock，再延迟装载业务模块并重置逐用例状态
 persistence-boundaries.cases.ts: 持久化边界用例，覆盖 SQLite 约束/upsert、缓存键限额、Portal 解析失败与一卡通 stale fallback
 schedule-cache.cases.ts: 课表缓存用例，覆盖日期校验、周粒度复用、强制刷新、旧键提升、Portal 缺载荷缓存淘汰与 LRU 限额

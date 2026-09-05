@@ -1,11 +1,11 @@
 /**
  * [INPUT]: 依赖真实协议脱敏结构、隔离 SQLite、移动教务 SSO/会话/解析器与 Academic reader
- * [OUTPUT]: 验证 500+401 恢复、Portal 失效、并发/epoch/坏行、只读参数、日期映射与刷新缓存合同
+ * [OUTPUT]: 验证 500+401 恢复、基础恢复五秒冷却与错误穿透、Portal 失效、并发/epoch/坏行、只读参数、日期映射与刷新缓存合同
  * [POS]: tests 的移动教务专项回归，网络全部替身，真实账号只由独立 live E2E 注入
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { and, eq } from 'drizzle-orm';
 import { getDb, schema } from '../src/db';
 import { clearSocialTestData } from './social-database';
@@ -247,13 +247,15 @@ describe('移动教务真实协议与会话恢复', () => {
     } finally { TicketExchanger.exchangePortalToken = original; }
   });
 
-  it('基础静默登录的 500 和嵌套网络故障不计入密码失败冷却', async () => {
+  it('基础静默登录的 500 和嵌套网络故障保留错误并只冷却五秒', async () => {
     const { AuthEngine } = await import('../src/modules/campus-integrations/cas/auth-engine');
     const { CryptoHelper } = await import('../src/utils/crypto');
     const { config } = await import('../src/config');
     await getDb().update(schema.users).set({ encryptedPassword: CryptoHelper.encryptAES('fixture-password', config.jwtSecret) })
       .where(eq(schema.users.id, userId));
     const original = AuthEngine.prototype.getCaptcha;
+    let now = Date.now();
+    const clock = spyOn(Date, 'now').mockImplementation(() => now);
     try {
       for (const failure of [new Error('CAS_LOGIN_HTTP_500'), new Error('request failed', { cause: { code: 'ECONNREFUSED' } })]) {
         let attempts = 0;
@@ -261,10 +263,14 @@ describe('移动教务真实协议与会话恢复', () => {
         for (let attempt = 0; attempt < 4; attempt += 1) {
           await expect(CredentialManager.silentReAuth(userId, deadline(), 'portal_jwt')).rejects.toBe(failure);
         }
-        expect(attempts).toBe(4);
+        expect(attempts).toBe(1);
+        now += 5_000;
+        await expect(CredentialManager.silentReAuth(userId, deadline(), 'portal_jwt')).rejects.toBe(failure);
+        expect(attempts).toBe(2);
+        now += 5_000;
         expect(await CredentialManager.requiresInteractiveLogin(userId)).toBe(false);
       }
-    } finally { AuthEngine.prototype.getCaptcha = original; }
+    } finally { AuthEngine.prototype.getCaptcha = original; clock.mockRestore(); }
   });
 
   it('只读 POST 参数位于 query，学校 token 只在请求头；过期 deadline 不发请求', async () => {
@@ -315,7 +321,7 @@ describe('移动教务解析与 Academic 缓存', () => {
     expect(calls).toEqual([1, 3]);
     await service.getCurrentSchedule(userId, 'mobile-jw-test', '2026-09-23', true);
     expect(calls).toEqual([1, 3, 1, 3]);
-    await expect(service.getCurrentSchedule(userId, 'mobile-jw-test', '2026-08-31')).rejects.toThrow('SCHEDULE_NOT_AVAILABLE');
+    await expect(service.getCurrentSchedule(userId, 'mobile-jw-test', '2026-08-31')).rejects.toThrow('SCHEDULE_SOURCE_UNSUPPORTED');
     expect(await service.getStaleSchedule('mobile-jw-test', '2026-09-23', protocolFailure(), true)).toBeNull();
     expect(await service.getStaleSchedule('mobile-jw-test', '2026-09-23', credentialRejected(), true)).toBeNull();
   });

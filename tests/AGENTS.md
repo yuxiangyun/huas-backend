@@ -11,7 +11,7 @@ auth-login-rate-limit.test.ts: 登录失败限流策略回归测试
 app-factory.test.ts: 注入式 Hono 应用工厂、Web 分层缓存、私有 API no-store、媒体端口与启动入口无隐式 migration 回归测试
 activity-outbox-integration.test.ts: Discover 点赞与 Treehole 评论的事实/计数/Outbox 同事务失败回滚，以及提交后投影失败重试门禁
 business-flows.test.ts: 核心业务流薄聚合入口，在独立 Bun 进程内装配 business-flows/ 能力用例并维持模块 mock 隔离
-business-flows/: 登录、凭证、课表/日历、缓存与持久化边界的共享支架和细分能力用例
+business-flows/: 登录、凭证及五秒恢复冷却、课表/日历、缓存与持久化边界的共享支架和细分能力用例
 cache-modernization.test.ts: Cache 永久/限时新鲜度、数据时间/LRU 访问时间分离、版本 envelope、快照条件失效、singleflight 与 observer 隔离回归测试
 calendar-compat.test.ts: Calendar canonical 实现与 routes/services/auth 旧 Facade 的引用、token 别名与 HMAC 语义兼容测试
 campus-integrations-compat.test.ts: Campus Integrations canonical 实现与 auth/core/parsers/services 旧 Facade 的引用一致性测试
@@ -25,7 +25,7 @@ discover/: Discover HTTP/媒体共享支架及按业务能力细分的回归用�
 discover-application.test.ts: Discover application 媒体补偿、删除清理失败语义与孤儿清理委托回归测试
 e2e.live.test.ts: 真实上游端到端验证入口，支持单独运行移动教务课表/缓存/坏令牌恢复，并覆盖登录/JW 恢复与 mobile-yxt 账单、电费只读 DTO 及 epoch 绑定无 TTL 派生会话
 e2e.setup.ts: 真实上游测试隔离环境与临时 SQLite 显式迁移入口
-evaluation-parser.test.ts: 教评解析、延后 JW 登录表单、actionable/blocked 状态、有界续批、提交响应与抗重排批末回查测试
+evaluation-parser.test.ts: 教评解析、延后 JW 登录表单、actionable/blocked 状态、有界续批、提交响应、未确认 unknown 与抗重排批末回查测试
 fixtures/: 测试二进制样本目录，包含 HEIC 图片
 grade-parser.test.ts: 成绩表结构、HTTP 200 登录页会话失效、合法空表、错误页拒绝与评教门禁回归测试
 identity-login-application.test.ts: Identity/Login 应用编排、验证码固定周期清理、CAS 提交耗时、Portal/JW 分支与 SQLite 用户凭证原子回滚测试
@@ -35,7 +35,7 @@ notifications.test.ts: Notifications 差异回复事件、Outbox 幂等/撤销/�
 messaging.test.ts: Messaging 延迟会话/目标定位、会话高水位、严格 UUID 图文幂等、三态消息、未读与私有媒体测试
 messaging-timestamps.test.ts: Messaging 慢图片/快文本并发提交时间与 repository 会话时间单调回归测试
 messaging-upload.test.ts: Messaging HTTP 上传边界，锁定混合字段图片线序、解析前 413 与坏 multipart 的稳定 400
-mobile-jw.test.ts: 真实 500+401、SSO 同源/Portal 条件失效、会话单飞/epoch/generation、TGC 清理竞态、基础临时故障不误入冷却、临时错误预算及真实日期/缓存/解析合同回归
+mobile-jw.test.ts: 真实 500+401、SSO 同源/Portal 条件失效、会话单飞/epoch/generation、TGC 清理竞态、基础临时故障保持原错误且五秒后恢复、临时错误预算及真实日期/缓存/解析合同回归
 mobile-yxt.test.ts: 登录 epoch/Portal 401/200 HTML 恢复、generation 条件失效、Cookie 白名单、Bun/Node 传输错误归一化、账单 freshness/有符号 totals、真实电费合同、同键回源合流、Portal/JW/限流隔离、24 月/6 键 LRU 与旧 `/api/ecard` 合同专项回归
 mobile-yxt-auth-state.test.ts: 严格派生命名空间、损坏/越权 CookieJar 事务淘汰、自动重建、合法会话读取及 Cookie/accessToken 低敏感错误日志专项反例
 social-upload-limits.test.ts: Discover/Community HTTP 上传边界，锁定声明长度、流式及无关字段请求在 formData 前统一返回 413
