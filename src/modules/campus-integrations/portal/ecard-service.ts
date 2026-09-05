@@ -1,10 +1,11 @@
 /**
- * [INPUT]: 依赖 Portal 一卡通 HTTP/JSON、ECardParser、canonical upstream/CacheService 与刷新失败兜底
+ * [INPUT]: 依赖 OrderedCommit 的并发提交顺序保护，依赖 Portal 一卡通 HTTP/JSON、ECardParser、canonical upstream/CacheService 与刷新失败兜底
  * [OUTPUT]: 对外提供 ECardService.getECard，仅缓存具有明确余额字段的稳定一卡通 DTO
- * [POS]: campus-integrations/portal 的一卡通资料适配器，保留既有缓存、同意图回源合并与 stale fallback 语义
+ * [POS]: campus-integrations/portal 的一卡通资料适配器，保留既有缓存、同意图回源合并、代次提交缓存与 stale fallback 语义
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
+import { OrderedCommit } from '../../../utils/ordered-commit';
 import { upstream } from '../upstream/upstream';
 import { CacheService } from '../../cache/cache-service';
 import { ECardParser } from './parsers/ecard-parser';
@@ -18,6 +19,8 @@ function assertECardResponse(response: Response) {
     throw new Error(`ECARD_HTTP_${response.status}`);
   }
 }
+
+const cacheWrites = new OrderedCommit();
 
 export class ECardService {
   static async getECard(userId: number, studentId: string, forceRefresh = false) {
@@ -33,13 +36,17 @@ export class ECardService {
       data = await CacheService.runSingleflight(
         cacheKey,
         forceRefresh,
-        () => upstream(userId, 'portal', async ({ client, portalToken }) => {
+        () => cacheWrites.run(cacheKey, () => upstream(userId, 'portal', async ({ client, portalToken }) => {
           const res = await client.request(URLS.ecardApi, {
             headers: { 'X-Id-Token': portalToken! },
             timeout: config.timeout.business,
           });
           assertECardResponse(res);
           return ECardParser.parse(await res.json());
+        }), async (fresh) => {
+          if (fresh) {
+            await CacheService.set(cacheKey, fresh, config.cacheTtl.ecard, 'portal');
+          }
         }),
       );
     } catch (error) {
@@ -52,10 +59,6 @@ export class ECardService {
       });
       if (fallback) return fallback;
       throw error;
-    }
-
-    if (data) {
-      await CacheService.set(cacheKey, data, config.cacheTtl.ecard, 'portal');
     }
 
     return { data, _meta: { cached: false, source: 'portal' } };

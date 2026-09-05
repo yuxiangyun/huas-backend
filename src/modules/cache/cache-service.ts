@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 SqliteCacheStore、FreshnessPolicy 转换、PerKeySingleflight 与可注入低基数观察器
- * [OUTPUT]: 对外提供 canonical CacheService，兼容秒级 set API、显式策略写入、快照令牌条件失效、联合键 singleflight 与观察器注册
+ * [OUTPUT]: 对外提供 canonical CacheService，兼容秒级 set API、显式策略写入、快照令牌条件失效、保时无覆盖提升、联合键 singleflight 与观察器注册
  * [POS]: cache 模块 composition root，供业务 infrastructure 直接消费，旧 services 路径仅单向再导出
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -41,6 +41,10 @@ export class CacheService {
 
   static invalidate(key: string): Promise<void> {
     return store.invalidate(key);
+  }
+
+  static promoteIfAbsent(sourceKey: string, targetKey: string, versionToken: string): Promise<void> {
+    return store.promoteIfAbsent(sourceKey, targetKey, versionToken);
   }
 
   static invalidateIfVersion(key: string, versionToken: string): Promise<boolean> {

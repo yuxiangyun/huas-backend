@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 无运行时依赖，描述用户、课表、一卡通、成绩、响应与缓存元信息结构
- * [OUTPUT]: 对外提供业务 DTO、GradePassStatus 与 ApiResponse/CacheMeta（含课表策略观测）类型
+ * [OUTPUT]: 对外提供业务 DTO、可选课程 date、GradePassStatus 与 ApiResponse/CacheMeta（含课表策略观测）类型
  * [POS]: types 的共享契约源，被 parsers、services、routes 与客户端响应模型共同参照
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -20,6 +20,8 @@ export interface ICourse {
   teacher: string;
   location: string;
   day: number;
+  // Portal 的具体上课日期；JW 周课表可按请求周起始日与 day 推导。
+  date?: string;
   section: string;
   weekStr?: string;
 }

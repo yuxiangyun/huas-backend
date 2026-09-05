@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 EvaluationApplicationPorts、canonical EvaluationParser、config、Logger 与 AcademicHttpClient
  * [OUTPUT]: 对外提供 EvaluationApplicationService、EvaluationParser 与评教公开结果类型
- * [POS]: academic/application 的评教用例编排器，负责批次控制和稳定业务字段提交确认
+ * [POS]: academic/application 的评教用例编排器，只选择一次有界目标，可恢复读取与一次性提交分离；按稳定业务字段增量确认并保留未确认结果
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -40,6 +40,7 @@ interface PendingVerification {
   item: EvaluationListItem;
   questionCount: number;
   fullScore: number;
+  error?: string;
 }
 
 const DEFAULT_COMMENT = '好';
@@ -96,19 +97,14 @@ function submittedCountForIdentity(rows: EvaluationListRow[], target: Evaluation
   return rows.filter((row) => evaluationIdentity(row) === identity && isEvaluationSubmitted(row.submitted)).length;
 }
 
-function isConfirmedSubmitted(initialRows: EvaluationListRow[], finalRows: EvaluationListRow[], target: EvaluationListRow) {
-  return submittedCountForIdentity(finalRows, target) > submittedCountForIdentity(initialRows, target);
-}
-
 async function fetchEvaluationRows(client: AcademicHttpClient, listUrl: string) {
   const response = await client.request(listUrl, { timeout: config.timeout.business });
   assertEvaluationResponse(response, 'EVALUATION_LIST');
   return EvaluationParser.extractListRows(await response.text());
 }
 
-function rethrowSessionExpired(error: unknown) {
-  if (String((error as any)?.message || '') === 'SESSION_EXPIRED') throw error;
-}
+type EvaluationRead = <T>(operation: (client: AcademicHttpClient) => Promise<T>) => Promise<T>;
+type SubmitOptions = { dryRun?: boolean; comment?: string; batchSize?: number };
 
 export class EvaluationApplicationService {
   constructor(private readonly ports: EvaluationApplicationPorts) {}
@@ -131,11 +127,15 @@ export class EvaluationApplicationService {
     listUrl: string,
     options: { dryRun?: boolean; comment?: string; batchSize?: number } = {},
   ): Promise<EvaluationSubmitResult> {
+    return this.submitBatch((operation) => operation(client), listUrl, options);
+  }
+
+  private async submitBatch(read: EvaluationRead, listUrl: string, options: SubmitOptions): Promise<EvaluationSubmitResult> {
     const safeUrl = assertJwEvaluationListUrl(listUrl);
     const dryRun = options.dryRun ?? true;
     const comment = normalizeEvaluationText(options.comment || DEFAULT_COMMENT) || DEFAULT_COMMENT;
     const batchLimit = normalizeBatchSize(options.batchSize);
-    const rows = await fetchEvaluationRows(client, safeUrl);
+    const rows = await read((client) => fetchEvaluationRows(client, safeUrl));
     const actionableRows = rows.filter((row) => row.actionable);
     const targetRows = actionableRows.slice(0, batchLimit);
     const outcomes: Array<EvaluationSubmitItem | PendingVerification> = [];
@@ -145,11 +145,15 @@ export class EvaluationApplicationService {
       const baseItem = toPublicItem(row);
       let questionCount = 0;
       let fullScore = 0;
+      let attempted = false;
 
       try {
-        const editResponse = await client.request(row.editUrl, { timeout: config.timeout.business });
-        assertEvaluationResponse(editResponse, 'EVALUATION_FORM');
-        const form = EvaluationParser.buildFullScoreForm(await editResponse.text(), row.editUrl, comment);
+        // 表单读取可以恢复凭证；返回同一客户端，确保一次性 POST 使用组参时的会话。
+        const { form, client } = await read(async (client) => {
+          const editResponse = await client.request(row.editUrl, { timeout: config.timeout.business });
+          assertEvaluationResponse(editResponse, 'EVALUATION_FORM');
+          return { form: EvaluationParser.buildFullScoreForm(await editResponse.text(), row.editUrl, comment), client };
+        });
         questionCount = form.questionCount;
         fullScore = form.fullScore;
 
@@ -158,6 +162,7 @@ export class EvaluationApplicationService {
           continue;
         }
 
+        attempted = true;
         attemptedCount += 1;
         const submitResponse = await client.request(form.actionUrl, {
           method: 'POST',
@@ -168,7 +173,12 @@ export class EvaluationApplicationService {
         assertSubmitResponse(submitResponse, await submitResponse.text(), form.actionUrl);
         outcomes.push({ target: row, item: baseItem, questionCount, fullScore });
       } catch (error: any) {
-        rethrowSessionExpired(error);
+        // 已发出的提交即使超时也可能生效，只能回查，不能重放。
+        if (attempted) {
+          outcomes.push({ target: row, item: baseItem, questionCount, fullScore, error: String(error?.message || 'SUBMIT_FAILED') });
+          continue;
+        }
+        if (attemptedCount === 0 && String(error?.message || '') === 'SESSION_EXPIRED') throw error;
         outcomes.push({
           ...baseItem,
           questionCount,
@@ -180,29 +190,44 @@ export class EvaluationApplicationService {
     }
 
     const verificationRequests = !dryRun && attemptedCount > 0 ? 1 : 0;
-    const finalRows = verificationRequests ? await fetchEvaluationRows(client, safeUrl) : rows;
+    let finalRows = rows;
+    let verificationSucceeded = verificationRequests === 0;
+    if (verificationRequests) {
+      try {
+        finalRows = await read((client) => fetchEvaluationRows(client, safeUrl));
+        verificationSucceeded = true;
+      } catch {
+        // 校验耗尽只影响确认程度，不能丢失本批目标或重新选择下一批。
+      }
+    }
+    const confirmedIncrements = new Map<string, number>();
     const results = outcomes.map((outcome): EvaluationSubmitItem => {
       if (!('target' in outcome)) return outcome;
-      const submitted = isConfirmedSubmitted(rows, finalRows, outcome.target);
+      const identity = evaluationIdentity(outcome.target);
+      const remaining = confirmedIncrements.get(identity)
+        ?? Math.max(0, submittedCountForIdentity(finalRows, outcome.target) - submittedCountForIdentity(rows, outcome.target));
+      const submitted = verificationSucceeded && remaining > 0;
+      if (submitted) confirmedIncrements.set(identity, remaining - 1);
       return {
         ...outcome.item,
         questionCount: outcome.questionCount,
         fullScore: outcome.fullScore,
-        status: submitted ? 'submitted' : 'failed',
-        ...(!submitted && { message: 'SUBMIT_NOT_CONFIRMED' }),
+        status: submitted ? 'submitted' : verificationSucceeded ? 'failed' : 'unknown',
+        ...(!submitted && { message: verificationSucceeded ? outcome.error || 'SUBMIT_NOT_CONFIRMED' : 'SUBMIT_RESULT_UNKNOWN' }),
       };
     });
     const status = toStatus(finalRows);
     const previewedCount = results.filter((item) => item.status === 'dry_run').length;
     const submittedCount = results.filter((item) => item.status === 'submitted').length;
     const failedCount = results.filter((item) => item.status === 'failed').length;
+    const unconfirmedCount = results.filter((item) => item.status === 'unknown').length;
 
     Logger.operation(
       'Evaluation',
       dryRun ? '评教满分组参预检' : '评教满分提交',
       undefined,
       undefined,
-      `available=${actionableRows.length}; target=${targetRows.length}; attempted=${attemptedCount}; previewed=${previewedCount}; submitted=${submittedCount}; failed=${failedCount}; remaining=${status.actionableCount}; blocked=${status.blockedCount}`,
+      `available=${actionableRows.length}; target=${targetRows.length}; attempted=${attemptedCount}; previewed=${previewedCount}; submitted=${submittedCount}; failed=${failedCount}; unconfirmed=${unconfirmedCount}; verification_failed=${!verificationSucceeded}; remaining=${status.actionableCount}; blocked=${status.blockedCount}`,
     );
 
     return {
@@ -213,6 +238,7 @@ export class EvaluationApplicationService {
       previewedCount,
       submittedCount,
       failedCount,
+      ...(unconfirmedCount > 0 && { unconfirmedCount }),
       batch: {
         limit: batchLimit,
         availableCount: actionableRows.length,
@@ -220,6 +246,7 @@ export class EvaluationApplicationService {
         remainingCount: status.actionableCount,
         hasMore: status.actionableCount > 0,
         verificationRequests,
+        ...(!verificationSucceeded && { verificationSucceeded: false as const }),
       },
       items: results,
     };
@@ -230,6 +257,10 @@ export class EvaluationApplicationService {
     listUrl: string,
     options: { dryRun?: boolean; comment?: string; batchSize?: number } = {},
   ) {
-    return this.ports.upstream(userId, 'jw', ({ client }) => this.submitFullScoreFromClient(client, listUrl, options));
+    return this.submitBatch(
+      (operation) => this.ports.upstream(userId, 'jw', ({ client }) => operation(client)),
+      listUrl,
+      options,
+    );
   }
 }

@@ -1,12 +1,13 @@
 /**
- * [INPUT]: 依赖 GradeApplicationPorts、canonical GradeParser/端点、config 与统一错误
+ * [INPUT]: 依赖 OrderedCommit 的并发提交顺序保护，依赖 GradeApplicationPorts、canonical GradeParser/端点、config 与统一错误
  * [OUTPUT]: 对外提供可注入 GradeApplicationPorts 的 GradeApplicationService，以 45 秒总预算有限恢复凭证和重试成绩临时故障
- * [POS]: academic/application 的 fresh-first 成绩读取用例，合并同键刷新并仅在新鲜路径穷尽后进入 stale fallback
+ * [POS]: academic/application 的 fresh-first 成绩读取用例，合并同意图回源、按开始代次提交缓存，并仅在新鲜路径穷尽后进入 stale fallback
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { GradeParser } from '../../campus-integrations/jw/parsers/grade-parser';
 import { URLS } from '../../campus-integrations/endpoints';
+import { OrderedCommit } from '../../../utils/ordered-commit';
 import { config } from '../../../config';
 import { AppError, ErrorCode } from '../../../utils/errors';
 import { normalizeGradeQuery, type GradeApplicationPorts, type GradeQuery } from '../domain/grade';
@@ -22,6 +23,8 @@ function isRetryableGradeError(error: unknown): boolean {
   const message = String((error as any)?.message || '');
   return /^GRADE_HTTP_(?:502|503|504)$/.test(message) || message === 'GRADE_PAGE_INVALID';
 }
+
+const cacheWrites = new OrderedCommit();
 
 export class GradeApplicationService {
   constructor(private readonly ports: GradeApplicationPorts) {}
@@ -46,7 +49,7 @@ export class GradeApplicationService {
       data = await this.ports.cache.runSingleflight(
         cacheKey,
         forceRefresh,
-        () => this.ports.upstream(userId, 'jw', async ({ client }) => {
+        () => cacheWrites.run(cacheKey, () => this.ports.upstream(userId, 'jw', async ({ client }) => {
           const params = new URLSearchParams();
           params.append('kksj', term);
           params.append('kcxz', kcxz);
@@ -83,6 +86,8 @@ export class GradeApplicationService {
           credentialMaxAttempts: 2,
           requestMaxAttempts: config.retry.businessMaxAttempts,
           isRetryableError: isRetryableGradeError,
+        }), async (fresh) => {
+          await this.ports.cache.set(cacheKey, fresh, config.cacheTtl.grades, 'jw');
         }),
       );
     } catch (error) {
@@ -97,7 +102,6 @@ export class GradeApplicationService {
       throw error;
     }
 
-    await this.ports.cache.set(cacheKey, data, config.cacheTtl.grades, 'jw');
     await this.ports.cache.enforcePrefixLimit(`grades:${studentId}:`, config.cacheLimit.gradesPerUser);
 
     return { data, _meta: { cached: false, source: 'jw' } };

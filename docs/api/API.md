@@ -147,7 +147,7 @@ GET /calendar/schedule.ics?studentId=2023001001&sig=<hmac_sha256(studentId, CALE
 
 - 所有 7 个带缓存语义的校园业务接口都会把成功回源结果写入 `cache` 表
 - `refresh=false`：先查缓存，命中直接返回
-- `refresh=true`：跳过读缓存，强制回源，并覆盖写回缓存
+- `refresh=true`：跳过读缓存，强制回源。JW/Portal 课表、成绩、Portal 余额和资料的 normal/refresh 分别合并并有序提交，较新成功结果不被旧请求覆盖；mobile-yxt 账单和电费保持 miss/refresh 同键合流。
 - `/api/schedule` 的首选来源 current 失败后，必须先尝试第二来源 current；两边都失败才固定按 JW、Portal 顺序查旧缓存
 - 其他单源业务回源失败时：如果同 key 还有旧缓存，会回退旧缓存并返回 `_meta.stale=true`
 
@@ -338,14 +338,16 @@ async function apiRequest<T>(path: string, token?: string): Promise<ApiResponse<
 | `courses[].location` | string | 上课地点 |
 | `courses[].day` | number | 周几，1-7 |
 | `courses[].section` | string | 节次，如 `1-2` |
-| `courses[].weekStr` | string | 原始时间文本 |
+| `courses[].date` | string，可选 | Portal 的具体上课日期 `YYYY-MM-DD`，跨周查询必须保留；JW 周课表可以缺省 |
+| `courses[].weekStr` | string | 周次文本；Portal 为空串 |
 
 注意：
 
 - 接口路径不保证最终来源，必须结合 `_meta.source` 判断真实数据源。
 - `/api/schedule` 返回 `_meta.source = "portal"`、`/api/v1/schedule` 返回 `_meta.source = "jw"` 都是合法结果。
 - JW 课表中的 `weekStr` 通常是周次文本，例如 `1-16周`
-- Portal 课表中的 `weekStr` 当前实现存的是具体日期字符串，例如 `2026-03-08`
+- Portal 课表用独立 `date` 保存具体日期，`weekStr` 为空串。Calendar 优先使用 `date`；旧 JW 周课表仍按请求周一和 `day` 推导日期。
+- Portal 返回的日期映射、每日列表和课程条目必须结构有效；协议异常会尝试备用源，不会覆盖缓存为空课表。旧 Portal 永久缓存会在升级后首次访问时失效并回源一次；无法从旧跨周 `day` 恢复日期，故不会将其作为 stale 返回。
 
 ### 5.2 `IGradeList`
 
@@ -590,7 +592,8 @@ Portal 优先课表接口。虽然路径名带 `v1`，但当前语义是“统�
         "location": "教B201",
         "day": 2,
         "section": "3-4",
-        "weekStr": "2026-03-03"
+        "date": "2026-03-03",
+        "weekStr": ""
       }
     ]
   },

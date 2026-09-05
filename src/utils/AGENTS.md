@@ -8,6 +8,7 @@ errors.ts: API 错误码与 AppError 契约源
 fallback-error.ts: 主备上游错误选择工具，用于返回更具体的兜底错误
 http-log.ts: HTTP 日志细节上下文工具，管理 `_httpLog` 约定键
 image.ts: 进程内单槽、sharp 单线程且禁用 libvips cache 的低内存图片边界，执行真实格式识别、像素/页数/动画门禁、受控 HEIC 兜底与严格字节上限 WebP 编码
+ordered-commit.ts: 进程内按资源键协调并发读与串行提交，较新成功代次阻止旧结果覆盖，失败不抹除可用旧结果且空闲释放状态
 logger.ts: 控制台与文件日志统一门面，封装 winston 与 DailyRotateFile
 private-media-response.ts: Treehole/Messaging 用户与管理私有 WebP 的 no-store、nosniff 安全响应构造器
 request-body-limit.ts: Hono 请求体上限门禁，统一校验 Content-Length、限制流式读取并为 multipart 预留固定协议开销

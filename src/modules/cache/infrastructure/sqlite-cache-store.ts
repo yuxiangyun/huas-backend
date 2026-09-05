@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Drizzle/SQLite cache 表、FreshnessPolicy、cache envelope、CacheMeta、北京时间、统一 Logger 与可选访问观察器
- * [OUTPUT]: 对外提供 SqliteCacheStore，以 created_at 表达当前数据写入时间、updated_at 维护 LRU 访问时间，并支持版本兼容、TTL、快照条件失效与清理
+ * [OUTPUT]: 对外提供 SqliteCacheStore，以 created_at 表达当前数据写入时间、updated_at 维护 LRU 访问时间，并支持版本兼容、TTL、快照条件失效、保留原时间的条件提升与清理
  * [POS]: cache/infrastructure 的本地持久化适配器，是 cache 表时间语义、领域元数据、LRU 与防并发误删令牌的唯一翻译边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -121,6 +121,16 @@ export class SqliteCacheStore {
   async invalidate(key: string): Promise<void> {
     const db = getDb();
     await db.delete(schema.cache).where(eq(schema.cache.key, key));
+  }
+
+  async promoteIfAbsent(sourceKey: string, targetKey: string, versionToken: string): Promise<void> {
+    // 单条语句只提升曾读到的原始快照；保留数据时间且绝不覆盖并发写入的周缓存。
+    await getDb().run(sql`
+      INSERT INTO cache (key, data, source, created_at, updated_at, expires_at)
+      SELECT ${targetKey}, data, source, created_at, updated_at, expires_at
+      FROM cache WHERE key = ${sourceKey} AND data = ${versionToken}
+      ON CONFLICT (key) DO NOTHING
+    `);
   }
 
   async invalidateIfVersion(key: string, versionToken: string): Promise<boolean> {

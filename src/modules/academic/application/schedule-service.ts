@@ -1,12 +1,13 @@
 /**
- * [INPUT]: 依赖 domain AcademicRuntimePorts、canonical ScheduleParser/JW 端点、配置、CacheMeta 与北京时间
+ * [INPUT]: 依赖 OrderedCommit 的并发提交顺序保护，依赖 domain AcademicRuntimePorts、canonical ScheduleParser/JW 端点、配置、CacheMeta 与北京时间
  * [OUTPUT]: 对外提供可注入 AcademicRuntimePorts 的 ScheduleApplicationService，并分离 current 与 stale 读取
- * [POS]: academic/application 的 JW 单源课表用例，负责教务读取、同键回源合并、周缓存、旧缓存提升与显式旧值回退
+ * [POS]: academic/application 的 JW 单源课表用例，负责教务读取、同意图回源合并、代次提交周缓存、保留数据时间且不覆盖新值的旧缓存提升与显式旧值回退
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { ScheduleParser } from '../../campus-integrations/jw/parsers/schedule-parser';
 import { URLS } from '../../campus-integrations/endpoints';
+import { OrderedCommit } from '../../../utils/ordered-commit';
 import { config, JW_SJMS_VALUE } from '../../../config';
 import { AppError, ErrorCode } from '../../../utils/errors';
 import type { CacheMeta } from '../../../types';
@@ -103,6 +104,8 @@ async function findScheduleRefreshFallback<T>(options: {
   return null;
 }
 
+const cacheWrites = new OrderedCommit();
+
 export class ScheduleApplicationService {
   constructor(private readonly ports: AcademicRuntimePorts) {}
 
@@ -140,7 +143,9 @@ export class ScheduleApplicationService {
         const legacyCached = await this.ports.cache.get(legacyCacheKey);
         if (!legacyCached) continue;
 
-        await this.ports.cache.set(cacheKey, legacyCached.data, config.cacheTtl.schedule, legacyCached.meta.source || 'jw');
+        if (legacyCached.versionToken) {
+          await this.ports.cache.promoteIfAbsent?.(legacyCacheKey, cacheKey, legacyCached.versionToken);
+        }
         return {
           data: legacyCached.data,
           _meta: { ...legacyCached.meta, source: legacyCached.meta.source || 'jw' },
@@ -159,7 +164,7 @@ export class ScheduleApplicationService {
     const data = await this.ports.cache.runSingleflight(
       cacheKey,
       forceRefresh,
-      () => this.ports.upstream(userId, 'jw', async ({ client }) => {
+      () => cacheWrites.run(cacheKey, () => this.ports.upstream(userId, 'jw', async ({ client }) => {
         const params = new URLSearchParams();
         params.append('rq', queryDate);
         params.append('sjmsValue', JW_SJMS_VALUE);
@@ -171,10 +176,11 @@ export class ScheduleApplicationService {
           timeout: config.timeout.business,
         });
         return ScheduleParser.parse(await res.text(), { studentId, name });
+      }), async (fresh) => {
+        await this.ports.cache.set(cacheKey, fresh, config.cacheTtl.schedule, 'jw');
       }),
     );
 
-    await this.ports.cache.set(cacheKey, data, config.cacheTtl.schedule, 'jw');
     await this.ports.cache.enforcePrefixLimit(`schedule:${studentId}:`, config.cacheLimit.schedulePerUser);
 
     return {

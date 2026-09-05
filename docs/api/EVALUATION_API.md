@@ -133,7 +133,7 @@ if (!grades.success && grades.error_code === 4004 && grades.data?.evaluationRequ
 
 ## 3. 满分评教预检
 
-用于用户点击确认前，先验证当前账号是否能正常解析所有评教表单。不会提交评教。
+用于用户点击确认前，验证本批目标的评教表单。不会提交评教。`batchSize` 默认 2、上限 3、下限 1；预检与真实提交各自从当前列表选择一次目标。
 
 ```http
 POST /api/evaluations/submit-full-score
@@ -157,21 +157,63 @@ const res = await fetch(`${API_BASE}/api/evaluations/submit-full-score`, {
 const body = await res.json();
 ```
 
-成功响应：
+成功响应（只有一项可操作任务的例子）：
 
 ```json
 {
   "success": true,
   "data": {
     "dryRun": true,
-    "total": 12,
-    "pendingCount": 12,
-    "successCount": 12,
+    "status": {
+      "total": 1,
+      "pendingCount": 1,
+      "actionableCount": 1,
+      "blockedCount": 0,
+      "completedCount": 0,
+      "items": [
+        {
+          "index": "1",
+          "teacherId": "2431",
+          "teacherName": "张华",
+          "college": "文史与法学学院",
+          "category": "理论课",
+          "totalScore": "0",
+          "evaluated": "否",
+          "submitted": "否",
+          "pending": true,
+          "actionable": true,
+          "blocked": false,
+          "state": "pending"
+        }
+      ]
+    },
+    "targetCount": 1,
+    "attemptedCount": 0,
+    "previewedCount": 1,
+    "submittedCount": 0,
     "failedCount": 0,
+    "batch": {
+      "limit": 2,
+      "availableCount": 1,
+      "selectedCount": 1,
+      "remainingCount": 1,
+      "hasMore": true,
+      "verificationRequests": 0
+    },
     "items": [
       {
-        "teacherName": "张华",
+        "index": "1",
         "teacherId": "2431",
+        "teacherName": "张华",
+        "college": "文史与法学学院",
+        "category": "理论课",
+        "totalScore": "0",
+        "evaluated": "否",
+        "submitted": "否",
+        "pending": true,
+        "actionable": true,
+        "blocked": false,
+        "state": "pending",
         "questionCount": 17,
         "fullScore": 100,
         "status": "dry_run"
@@ -212,25 +254,66 @@ const res = await fetch(`${API_BASE}/api/evaluations/submit-full-score`, {
 const body = await res.json();
 ```
 
-成功响应：
+成功响应（只有一项可操作任务的例子）：
 
 ```json
 {
   "success": true,
   "data": {
     "dryRun": false,
-    "total": 12,
-    "pendingCount": 12,
-    "successCount": 12,
+    "status": {
+      "total": 1,
+      "pendingCount": 0,
+      "actionableCount": 0,
+      "blockedCount": 0,
+      "completedCount": 1,
+      "items": [
+        {
+          "index": "1",
+          "teacherId": "2431",
+          "teacherName": "张华",
+          "college": "文史与法学学院",
+          "category": "理论课",
+          "totalScore": "100",
+          "evaluated": "是",
+          "submitted": "是",
+          "pending": false,
+          "actionable": false,
+          "blocked": false,
+          "state": "completed"
+        }
+      ]
+    },
+    "targetCount": 1,
+    "attemptedCount": 1,
+    "previewedCount": 0,
+    "submittedCount": 1,
     "failedCount": 0,
+    "batch": {
+      "limit": 2,
+      "availableCount": 1,
+      "selectedCount": 1,
+      "remainingCount": 0,
+      "hasMore": false,
+      "verificationRequests": 1
+    },
     "items": [
       {
-        "teacherName": "张华",
+        "index": "1",
         "teacherId": "2431",
+        "teacherName": "张华",
+        "college": "文史与法学学院",
+        "category": "理论课",
+        "totalScore": "0",
+        "evaluated": "否",
+        "submitted": "否",
+        "pending": true,
+        "actionable": true,
+        "blocked": false,
+        "state": "pending",
         "questionCount": 17,
         "fullScore": 100,
-        "status": "submitted",
-        "message": "status=200"
+        "status": "submitted"
       }
     ]
   },
@@ -251,6 +334,17 @@ const body = await res.json();
 ```
 
 才会真实提交。缺少任意一个字段都会按预检处理。
+
+### 批次结果与未确认状态
+
+一次调用只选择最初列表中的 `batch.limit` 项，不会因恢复会话或批末回查重选下一批。初始列表、表单和最终列表读取沿用有界上游重试；每项 POST 最多一次。POST 超时也可能已生效，服务端只通过最终列表的稳定业务身份及已提交增量确认，不重放提交；一个增量不能重复确认两项。
+
+- `targetCount` / `batch.selectedCount` 是本批选中数，`attemptedCount` 是实际尝试 POST 数。
+- `previewedCount`、`submittedCount`、`failedCount` 分别是预检完成、确认提交、失败条目数。`items` 保留初始任务字段，以条目 `status` 判断本批结果；最新全量任务状态在 `status.items`。
+- `batch.verificationRequests` 表示逻辑批末回查次数（0 或 1），内部有限读取重试不增加此值。
+- 批末回查耗尽时，已尝试提交的条目返回 `status: "unknown"`、`message: "SUBMIT_RESULT_UNKNOWN"`，另增加 `unconfirmedCount` 和 `batch.verificationSucceeded: false`。此时 `status`、`remainingCount`、`hasMore` 来自初始快照，不代表提交后的真实剩余量。
+- 正常结果不增加以上可选未确认字段；不能仅凭 `failedCount === 0` 提示全部完成。`unknown` 时必须停止自动续批、重新查询状态；不要自动重放提交请求。请求整体断线、无法取得批次响应时也应先查状态。
+- 即使本批全部成功，仍需检查 `batch.hasMore`、`status.blockedCount` 和 `status.pendingCount`。阻塞项不进入可提交批次，但仍可能阻止成绩查询。
 
 ## 5. 错误响应
 
@@ -283,7 +377,7 @@ if (!discovery.evaluationRequired || !listUrl) {
 
 const status = await getEvaluationStatus(listUrl);
 
-if (status.pendingCount <= 0) {
+if (status.pendingCount === 0) {
   // 直接继续查成绩
   return;
 }
@@ -304,7 +398,26 @@ const result = await submitFullScore({
   confirm: true,
 });
 
-if (result.failedCount === 0) {
-  // 提示完成，然后重新拉取成绩
+if (result.batch.verificationSucceeded === false || (result.unconfirmedCount ?? 0) > 0) {
+  // 展示“提交结果待确认”，停止自动续批；只回查状态，不重放本次 POST。
+  const latest = await getEvaluationStatus(listUrl);
+  // 根据 latest 展示实际完成、剩余及阻塞任务，由用户决定后续操作。
+  return;
+}
+if (result.failedCount > 0) {
+  // 展示失败条目，停止自动续批。
+  return;
+}
+if (result.batch.hasMore) {
+  // 本批已完成；按用户已确认的范围继续下一批，每批都检查未确认和失败状态。
+  return;
+}
+if (result.status.pendingCount === 0) {
+  // 全部评教已完成，可以强刷成绩。
+} else {
+  // 仍有 blocked 任务，展示上游限制，不宣称全部完成。
 }
 ```
+
+
+[PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md

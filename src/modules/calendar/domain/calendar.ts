@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 仅依赖共享 ICourse 数据契约与 node:crypto 的确定性 SHA-1
- * [OUTPUT]: 对外提供北京本周范围、ICS 序列化、订阅 URL、响应头与节次时间纯规则
+ * [OUTPUT]: 对外提供北京本周范围、优先使用课程 date 并兼容旧日期的 ICS 序列化、订阅 URL、响应头与节次时间纯规则
  * [POS]: calendar/domain 的纯规则核心，不读配置、数据库、网络或应用运行态
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -137,6 +137,7 @@ function buildEventUid(course: ICourse, studentId: string, date: string): string
 }
 
 function resolveCourseDate(course: ICourse, weekStart: string): string {
+  if (typeof course.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(course.date)) return course.date;
   if (typeof course.weekStr === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(course.weekStr)) {
     return course.weekStr;
   }

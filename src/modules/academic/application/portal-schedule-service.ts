@@ -1,12 +1,13 @@
 /**
- * [INPUT]: 依赖 domain AcademicRuntimePorts、canonical PortalScheduleParser/端点、config 与 AppError
+ * [INPUT]: 依赖 OrderedCommit 的并发提交顺序保护，依赖 domain AcademicRuntimePorts、canonical PortalScheduleParser/端点、config 与 AppError
  * [OUTPUT]: 对外提供 PortalScheduleApplicationService，并分离 current 与 stale 日期课表读取
- * [POS]: academic/application 的 Portal 单源课表用例，负责日期区间校验、同键回源合并、旧缺载荷缓存的条件淘汰与显式过期兜底
+ * [POS]: academic/application 的 Portal 单源课表用例，负责日期区间校验、同意图回源合并、代次提交缓存、旧日期/空表缓存的版本条件淘汰与显式过期兜底
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { PortalScheduleParser } from '../../campus-integrations/portal/parsers/portal-schedule-parser';
 import { URLS } from '../../campus-integrations/endpoints';
+import { OrderedCommit } from '../../../utils/ordered-commit';
 import { config } from '../../../config';
 import { AppError, ErrorCode } from '../../../utils/errors';
 import type { AcademicRuntimePorts } from '../domain/ports';
@@ -34,14 +35,20 @@ function getLookup(startDate: string, endDate: string, rangeDays: number): 'week
   return rangeDays === 7 && start.getUTCDay() === 1 && end.getUTCDay() === 0 ? 'weekly' : 'range';
 }
 
-function isLegacyMissingPayloadCache(data: unknown): boolean {
-  if (!data || typeof data !== 'object' || Array.isArray(data)) return false;
-  const record = data as { courses?: unknown; message?: unknown };
-  return Array.isArray(record.courses)
-    && record.courses.length === 0
-    && typeof record.message === 'string'
-    && record.message.trim().length > 0;
+// 私有版本标记不进入 DTO；旧永久缓存无法证明日期与空表来源，必须重新回源。
+const PORTAL_SCHEDULE_SCHEMA = 2;
+
+function isInvalidScheduleCache(data: unknown): boolean {
+  return !data || typeof data !== 'object'
+    || (data as { _portalScheduleSchema?: unknown })._portalScheduleSchema !== PORTAL_SCHEDULE_SCHEMA;
 }
+
+function toPublicSchedule(data: any) {
+  const { _portalScheduleSchema: _version, ...schedule } = data;
+  return schedule;
+}
+
+const cacheWrites = new OrderedCommit();
 
 export class PortalScheduleApplicationService {
   constructor(private readonly ports: AcademicRuntimePorts) {}
@@ -100,17 +107,17 @@ export class PortalScheduleApplicationService {
     if (!forceRefresh) {
       const cached = await this.ports.cache.get(cacheKey);
       if (cached) {
-        // 旧版把缺失 data.schedule 的成功码写成带 message 的空表；不能继续短路 JW fallback。
-        if (isLegacyMissingPayloadCache(cached.data)) {
+        // 旧版日期丢失和异常空表均不可从 DTO 恢复；按原始快照条件淘汰。
+        if (isInvalidScheduleCache(cached.data)) {
           const invalidated = cached.versionToken
             ? await this.ports.cache.invalidateIfVersion(cacheKey, cached.versionToken)
             : false;
           if (!invalidated) {
             // 条件删除失败说明该 key 已被并发请求改写；只接受改写后的真实课表。
             const replacement = await this.ports.cache.get(cacheKey);
-            if (replacement && !isLegacyMissingPayloadCache(replacement.data)) {
+            if (replacement && !isInvalidScheduleCache(replacement.data)) {
               return {
-                data: replacement.data,
+                data: toPublicSchedule(replacement.data),
                 _meta: { ...replacement.meta, source: replacement.meta.source || 'portal' },
                 _request: { ...requestMeta, cache: 'hit' as const },
               };
@@ -118,7 +125,7 @@ export class PortalScheduleApplicationService {
           }
         } else {
           return {
-            data: cached.data,
+            data: toPublicSchedule(cached.data),
             _meta: { ...cached.meta, source: cached.meta.source || 'portal' },
             _request: { ...requestMeta, cache: 'hit' as const },
           };
@@ -129,7 +136,7 @@ export class PortalScheduleApplicationService {
     const data = await this.ports.cache.runSingleflight(
       cacheKey,
       forceRefresh,
-      () => this.ports.upstream(userId, 'portal', async ({ client, portalToken }) => {
+      () => cacheWrites.run(cacheKey, () => this.ports.upstream(userId, 'portal', async ({ client, portalToken }) => {
         const url = new URL(URLS.portalScheduleEvents);
         url.searchParams.append('startDate', normalizedStartDate);
         url.searchParams.append('endDate', normalizedEndDate);
@@ -141,10 +148,11 @@ export class PortalScheduleApplicationService {
           timeout: config.timeout.business,
         });
         return PortalScheduleParser.parse(await res.json(), normalizedStartDate, normalizedEndDate, { studentId, name });
+      }), async (fresh) => {
+        await this.ports.cache.set(cacheKey, { ...fresh, _portalScheduleSchema: PORTAL_SCHEDULE_SCHEMA }, config.cacheTtl.schedule, 'portal');
       }),
     );
 
-    await this.ports.cache.set(cacheKey, data, config.cacheTtl.schedule, 'portal');
     await this.ports.cache.enforcePrefixLimit(`portal-schedule:${studentId}:`, config.cacheLimit.portalSchedulePerUser);
 
     return { data, _meta: { cached: false, source: 'portal' }, _request: requestMeta };
@@ -169,16 +177,16 @@ export class PortalScheduleApplicationService {
       error,
       source: 'portal',
       studentId,
-      discardCached: isLegacyMissingPayloadCache,
+      discardCached: isInvalidScheduleCache,
     });
     if (!fallback) return null;
 
-    if (isLegacyMissingPayloadCache(fallback.data)) {
+    if (isInvalidScheduleCache(fallback.data)) {
       return null;
     }
 
     return {
-      data: fallback.data,
+      data: toPublicSchedule(fallback.data),
       _meta: { ...fallback._meta, source: fallback._meta.source || 'portal' },
       _request: {
         queryDate: normalizedStartDate,

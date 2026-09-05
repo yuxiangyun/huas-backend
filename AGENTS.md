@@ -346,6 +346,7 @@ mobile-yxt 业务会话只在固定 HTTP 401 证据后失效；基础 Portal JWT
 校园卡 overview 把既有 Portal 余额与 mobile-yxt 当前月/此前 23 个自然月的三类交易作为独立子源聚合并分别投影 availability/freshness，交易缓存使用固定长度用户月键并每用户保留 6 个 LRU；账单/电费同键 cache miss 与强刷共享在途回源并使用独立配额，不消耗成绩、课表、Portal/JW 的 Academic refresh 桶。
 电费只读取 electric config/account：先从 config.location 取得房间展示与七个官方位置 code，再带 code 查询 account，电价/电量按 account.templateList code 映射；真正未提供的 price/quantity 诚实投影 null，负电量与账户状态原样保留。明细、水费、上游支付和未验证官方 handoff 均保持关闭。refundFlag 原样投影，totals 仅为有符号金额机械求和，不宣称退款会计语义已由 fixture 证明。
 课表由 Academic Facade 按持久化策略执行双源 current，再按 JW、Portal 固定顺序选择 stale；管理面只调用 Academic 暴露的策略用例。
+JW/Portal 课表、成绩与 Portal 资料回源保持 normal/refresh 独立合并，缓存及资料回写按回源开始代次串行提交，较新成功值不被旧航班覆盖；旧 JW 日缓存只按原快照保时无覆盖提升。Portal 课表严格校验完整结构并保留独立 date，旧无版本永久缓存首次访问须重新回源；评教每调用固定一次批次目标，只恢复读取，POST 不重放，批末验证失败显式返回 unknown。
 成绩强制刷新执行 JW fresh-first：45 秒总预算内有限恢复凭证并重试明确临时错误，只有新鲜路径穷尽后才允许 stale fallback。
 课表来源策略文件默认位于 dirname(DB_PATH)，生产蓝绿槽必须共享同一绝对持久路径，运行态 JSON、锁与临时文件不得纳入 Git。
 首页弹窗是 Operations 自有单配置展示能力；设置与有界保留的 WebP 版本跟随 dirname(DB_PATH) 共享，换图或修改 public_account/text/none 三态动作内容生成不可变版本，服务端只向匿名接口投影启用且命中时间窗的内容。
