@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 Calendar 路由、双源课表缓存、签名与 ICS 测试工厂
- * [OUTPUT]: 验证订阅签名、缓存复用、双源 fallback、UID、折行与日期推导
+ * [INPUT]: 依赖 Calendar 路由、移动教务课表缓存、签名与 ICS 测试工厂
+ * [OUTPUT]: 验证订阅签名、缓存复用、单源隔离、UID、折行与日期推导
  * [POS]: tests/business-flows 的独立能力用例集，由聚合入口在进程级 mock 隔离内装配
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -13,7 +13,6 @@ import {
   getDb,
   schema,
   registerRoutes,
-  PortalScheduleService,
   addDaysInTest,
   unfoldIcs,
   createUser,
@@ -30,8 +29,8 @@ describe('日历订阅', () => {
     courseDate.setDate(courseDate.getDate() + 1);
     const tuesday = courseDate.toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' });
 
-    upstreamState.upstreamResolver = async (_userId: number, mode: 'jw' | 'portal') => {
-      expect(mode).toBe('portal');
+    upstreamState.upstreamResolver = async (_userId: number, mode: string) => {
+      expect(mode).toBe('mobile-jw');
       return {
         week: currentWeek.startDate,
         courses: [
@@ -76,7 +75,7 @@ describe('日历订阅', () => {
     expect(secondLinkBody.data.url).toBe(linkBody.data.url);
   });
 
-  it('门户周课表本周缓存已存在时，日历直接复用同一缓存', async () => {
+  it('移动教务本周缓存已存在时，日历直接复用同一缓存', async () => {
     const userId = await createUser('2023001999', 'pass-calendar-shared-cache');
     const app = new Hono();
     registerRoutes(app);
@@ -99,15 +98,11 @@ describe('日历订阅', () => {
       message: '',
     });
 
-    const portalSchedule = await PortalScheduleService.getSchedule(
-      userId,
-      '2023001999',
-      currentWeek.startDate,
-      currentWeek.endDate,
-      true,
-      'name-2023001999'
-    );
-    expect(portalSchedule._meta.cached).toBe(false);
+    const { ScheduleFacade } = await import('../../src/modules/academic/schedule');
+    const mobileSchedule = await ScheduleFacade.getMobileJwSchedule({
+      userId, studentId: '2023001999', date: currentWeek.startDate, forceRefresh: true,
+    });
+    expect(mobileSchedule._meta.cached).toBe(false);
     expect(upstreamState.upstreamCallCount).toBe(1);
 
     const { generateToken } = await import('../../src/auth/jwt.ts');
@@ -126,7 +121,7 @@ describe('日历订阅', () => {
     expect(ics).toContain('SUMMARY:线性代数');
     expect(ics).toContain(`DTSTART;TZID=Asia/Shanghai:${addDaysInTest(currentWeek.startDate, 2).replace(/-/g, '')}T100000`);
 
-    const cacheKey = `portal-schedule:2023001999:${currentWeek.startDate}:${currentWeek.endDate}`;
+    const cacheKey = `mobile-jw-schedule:2023001999:${currentWeek.startDate}`;
     await getDb().update(schema.cache)
       .set({ createdAt: new Date(Date.now() - 16 * 60 * 1000) })
       .where(eq(schema.cache.key, cacheKey));
@@ -135,28 +130,20 @@ describe('日历订阅', () => {
     expect(upstreamState.upstreamCallCount).toBe(2);
   });
 
-  it('Portal 首读失败时日历按统一门面回退 JW 周课表', async () => {
-    const userId = await createUser('2023001998', 'pass-calendar-fallback');
+  it('移动教务失败时不回退 Portal 或 JW，也不伪造空日历', async () => {
+    await createUser('2023001998', 'pass-calendar-failure');
     const app = new Hono();
     registerRoutes(app);
     const requestedModes: string[] = [];
-    upstreamState.upstreamResolver = async (_userId: number, mode: 'jw' | 'portal') => {
+    upstreamState.upstreamResolver = async (_userId: number, mode: string) => {
       requestedModes.push(mode);
-      if (mode === 'portal') throw new Error('REQUEST_TIMEOUT');
-      return {
-        week: '第7周',
-        courses: [{ name: 'JW容灾课程', day: 1, section: '1-2', teacher: '', location: '', weekStr: '' }],
-      };
+      throw new Error('REQUEST_TIMEOUT');
     };
-    const { generateToken } = await import('../../src/auth/jwt.ts');
-    const token = await generateToken({ userId, studentId: '2023001998' });
-    const link = await app.request('http://localhost/api/calendar/link', { headers: { Authorization: `Bearer ${token}` } });
-    const body = await link.json() as any;
-
-    const response = await app.request(body.data.url);
-    expect(response.status).toBe(200);
-    expect(await response.text()).toContain('SUMMARY:JW容灾课程');
-    expect(requestedModes).toEqual(['portal', 'jw']);
+    const { generateCalendarSignature } = await import('../../src/auth/calendar-signature');
+    const response = await app.request(`http://localhost/calendar/schedule.ics?studentId=2023001998&sig=${generateCalendarSignature('2023001998')}`);
+    expect(response.status).toBe(500);
+    expect(await response.text()).not.toContain('BEGIN:VCALENDAR');
+    expect(requestedModes).toEqual(['mobile-jw']);
   });
 
   it('订阅链接使用 studentId + HMAC 签名，且与业务 JWT 无关', async () => {
@@ -175,9 +162,9 @@ describe('日历订阅', () => {
     const { generateToken } = await import('../../src/auth/jwt.ts');
     const authToken = await generateToken({ userId, studentId: '2023001888', name: 'name-2023001888' });
 
-    const requestedModes: Array<'jw' | 'portal'> = [];
+    const requestedModes: string[] = [];
     upstreamState.upstreamCallCount = 0;
-    upstreamState.upstreamResolver = async (_userId: number, mode: 'jw' | 'portal') => {
+    upstreamState.upstreamResolver = async (_userId: number, mode: string) => {
       requestedModes.push(mode);
       return {
         week: currentWeek.startDate,
@@ -207,7 +194,7 @@ describe('日历订阅', () => {
     const second = await app.request(subscriptionUrl.toString());
     expect(second.status).toBe(200);
     expect(upstreamState.upstreamCallCount).toBe(1);
-    expect(requestedModes).toEqual(['portal']);
+    expect(requestedModes).toEqual(['mobile-jw']);
   });
 
   it('同名同节次但不同地点的课程会生成不同 UID', async () => {

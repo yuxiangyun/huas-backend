@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 CalendarUser、ICourse 与 Academic 缓存观测字段的类型契约
- * [OUTPUT]: 对外提供用户查询、签名、Academic 课表与时钟的最小 ports
+ * [OUTPUT]: 对外提供用户查询、签名、移动教务单源课表与时钟的最小 ports
  * [POS]: calendar/application 的依赖边界，使用例只看到 Calendar 真正需要的外部能力
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -23,11 +23,10 @@ export type CalendarScheduleResult = {
 };
 
 export interface AcademicSchedulePort<TResult extends CalendarScheduleResult = CalendarScheduleResult> {
-  getPortalFirstSchedule(options: {
+  getMobileJwSchedule(options: {
     userId: number;
     studentId: string;
-    startDate: string;
-    endDate: string;
+    date: string;
     forceRefresh: boolean;
     name?: string;
   }): Promise<TResult>;

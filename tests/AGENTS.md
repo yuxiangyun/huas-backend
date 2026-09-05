@@ -49,7 +49,7 @@ public-announcements.test.ts: 公告公共接口回归测试
 runtime-check-ci.test.ts: Bun 测试临时库默认 preload、本地 check 脚本、单 job CI、触发器、并发取消与 observer 装配静态回归测试
 runtime-health-metrics.test.ts: live/ready 状态矩阵、普通/增量轮询 quiet 日志、轻量指标、校园 HTTP 结果观察与有界 shutdown hooks 回归测试
 schedule-parser.test.ts: JW 真实结构、非教学周、登录页与嵌套课程节点去重回归测试
-schedule-source-policy.test.ts: 课表三种来源热策略与 Admin 写入读回、请求快照、缺载荷时 JW fallback、current/stale 固定顺序、legacy 错误优先级、持久化锁接管与管理鉴权回归测试
+schedule-source-policy.test.ts: 日历固定移动教务单源与全局策略隔离、 课表三种来源热策略与 Admin 写入读回、请求快照、缺载荷时 JW fallback、current/stale 固定顺序、legacy 错误优先级、持久化锁接管与管理鉴权回归测试
 setup.ts: 单元与业务流测试环境初始化，并在模块装载前显式迁移隔离 SQLite
 social-database.ts: 跨 Community/Discover/Treehole/Notifications/Messaging 套件的外键有序清理 helper，显式解除会话游标循环引用后清空社交与身份事实
 treehole.test.ts: Treehole 薄聚合入口，在单进程内装配 treehole/ 公共作者、低内存私有媒体、交互与管理用例

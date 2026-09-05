@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖移动教务/JW/Portal current/stale readers、来源策略快照、fallback error 与日期/错误工具
- * [OUTPUT]: 对外提供 ScheduleFacadeApplicationService、单源 reader ports 与统一有序三源编排
+ * [OUTPUT]: 对外提供 ScheduleFacadeApplicationService、单源 reader ports、统一有序三源编排与移动教务固定单源入口
  * [POS]: academic/application 的课表编排门面，先穷尽 current 再固定读 stale，仲裁排除来源能力限制并保留 legacy 未公布短路
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -282,6 +282,22 @@ export class ScheduleFacadeApplicationService {
       plan: getScheduleSourcePlan(policy.mode),
       stopOnUnavailable: false,
       policy,
+    });
+  }
+
+  async getMobileJwSchedule(options: {
+    userId: number;
+    studentId: string;
+    date?: string;
+    forceRefresh?: boolean;
+    name?: string;
+  }): Promise<ScheduleFacadeResult> {
+    return this.orchestrate({
+      ...options,
+      forceRefresh: options.forceRefresh ?? false,
+      range: getWeekRange(options.date),
+      plan: ['mobile-jw'],
+      stopOnUnavailable: false,
     });
   }
 

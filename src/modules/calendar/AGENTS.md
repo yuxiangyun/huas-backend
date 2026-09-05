@@ -9,7 +9,7 @@ infrastructure/: HMAC、SQLite 用户查询、Academic ScheduleFacade 适配与�
 calendar.ts: Calendar canonical 公开 facade，向旧 services 路径提供稳定规则与应用函数
 
 架构决策
-Calendar 只单向依赖 Academic 公开 ScheduleFacade；application 仅通过最小 ports 使用签名、用户、课表与时钟，domain 不触及配置、数据库或网络。
+Calendar 固定调用 Academic 公开 ScheduleFacade.getMobileJwSchedule，只读取移动教务及其同源缓存，不受后台来源策略影响；Calendar 只单向依赖 Academic 公开 ScheduleFacade；application 仅通过最小 ports 使用签名、用户、课表与时钟，domain 不触及配置、数据库或网络。
 旧 routes/services/auth 只允许单向再导出或委托本切片，不得保留第二套 HMAC、快照或 ICS 实现。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md

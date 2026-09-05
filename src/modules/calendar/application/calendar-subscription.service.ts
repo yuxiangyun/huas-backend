@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 Calendar 最小 ports、纯 ICS/URL/本周规则与 15 分钟快照窗口
  * [OUTPUT]: 对外提供 CalendarSubscriptionApplicationService 及链接/公开订阅结果契约
- * [POS]: calendar/application 的用例编排核心，统一签名、用户、Academic 课表刷新与空 ICS 退化
+ * [POS]: calendar/application 的用例编排核心，统一签名、用户、移动教务单源课表刷新与空 ICS 退化
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -88,11 +88,10 @@ export class CalendarSubscriptionApplicationService<TResult extends CalendarSche
 
   async getCurrentWeekSchedule(user: CalendarUser) {
     const { startDate, endDate } = getCurrentWeekRange(this.clock.now());
-    const readSchedule = (forceRefresh: boolean) => this.schedules.getPortalFirstSchedule({
+    const readSchedule = (forceRefresh: boolean) => this.schedules.getMobileJwSchedule({
       userId: user.id,
       studentId: user.studentId,
-      startDate,
-      endDate,
+      date: startDate,
       forceRefresh,
       name: user.name,
     });

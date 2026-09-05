@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 Bun Test hooks/mock、Hono、测试数据库及 Campus Integrations/Academic/Portal 的可控模块边界
+ * [INPUT]: 依赖 Bun Test hooks/mock、Hono、测试数据库及 Campus Integrations/Academic/Portal 及移动教务客户端的可控模块边界
  * [OUTPUT]: 提供跨业务流共享的模块 mock、运行时服务、上游状态、数据工厂与逐用例数据库重置
  * [POS]: tests/business-flows 的隔离进程测试支架，先注册 mock 再延迟装载业务模块，不定义业务断言
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -140,6 +140,31 @@ export function makeUserPayload(name: string, studentId: string, className: stri
     organizationCode: 'mock-org',
   };
 }
+
+// 移动教务保留真实解析和缓存，仅替换校园 HTTP 客户端边界。
+mock.module('../../src/modules/campus-integrations/mobile-jw/schedule-client.ts', () => ({
+  MobileJwScheduleClient: class {
+    async current(userId: number) {
+      upstreamState.upstreamCallCount += 1;
+      const schedule = await upstreamState.upstreamResolver(userId, 'mobile-jw');
+      const { getCurrentWeekRange } = await import('../../src/modules/calendar/domain/calendar');
+      const { startDate } = getCurrentWeekRange();
+      const courses = schedule.courses.map((course: any) => {
+        const [first, last = first] = course.section.split('-').map(Number);
+        return {
+          courseName: course.name, teacherName: course.teacher, location: course.location,
+          classWeek: course.weekStr,
+          classTime: String(course.day) + Array.from({ length: last - first + 1 }, (_, i) => String(first + i).padStart(2, '0')).join(''),
+        };
+      });
+      return { data: [{
+        week: 1, date: Array.from({ length: 7 }, (_, i) => ({ mxrq: addDaysInTest(startDate, i) })),
+        nodesLst: Array.from({ length: 12 }, (_, i) => ({ nodeNumber: i + 1 })), courses,
+        item: Array.from({ length: 7 }, (_, i) => [courses.filter((course: any) => Number(course.classTime[0]) === i + 1)]),
+      }] };
+    }
+  },
+}));
 
 mock.module('../../src/modules/campus-integrations/cas/auth-engine.ts', () => ({
   AuthEngine: class {

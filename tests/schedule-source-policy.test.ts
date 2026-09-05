@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Bun Test、Academic 策略 store/application facade、管理路由与隔离测试目录
- * [OUTPUT]: 验证热切换持久化、请求快照、current/stale 顺序、legacy 错误优先级、锁接管与管理鉴权契约
+ * [OUTPUT]: 验证热切换持久化、请求快照、current/stale 顺序、日历固定单源隔离、legacy 错误优先级、锁接管与管理鉴权契约
  * [POS]: tests 的课表来源策略定向套件，不访问真实校园上游
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -76,6 +76,22 @@ const request = {
 };
 
 describe('ScheduleFacade current/stale 状态机', () => {
+  it('日历单源入口跳过全局策略，移动教务临时失败仅尝试同源 stale', async () => {
+    const calls: string[] = [];
+    const facade = createFacade({
+      calls, jw: {}, portal: {},
+      policyStatus: async () => { throw new Error('日历不得读取全局策略'); },
+      mobile: {
+        current: async () => { throw new Error('REQUEST_TIMEOUT'); },
+        stale: async () => rawResult('mobile-jw', 'cached-week', true),
+      },
+    });
+    const result = await facade.getMobileJwSchedule(request);
+    expect(result._meta.source).toBe('mobile-jw');
+    expect(result._meta.fallback).toBe('stale');
+    expect(calls).toEqual(['mobile-jw:current', 'mobile-jw:stale']);
+  });
+
   it('移动教务优先成功时不调用另外两源', async () => {
     const calls: string[] = [];
     const result = await createFacade({calls, mode:'mobile-jw-first', mobile:{}, jw:{}, portal:{}}).getSchedule(request);

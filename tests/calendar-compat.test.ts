@@ -66,7 +66,7 @@ describe('Calendar 兼容 Facade', () => {
         verify: () => true,
       },
       schedules: {
-        getPortalFirstSchedule: async () => {
+        getMobileJwSchedule: async () => {
           throw new Error('SCHEDULE_NOT_AVAILABLE');
         },
       },
