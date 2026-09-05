@@ -340,7 +340,7 @@ nginx.conf - 反向代理样板
 AGENTS.md 是全局导航入口；各模块通过 L2 地图与业务文件 L3 契约维持代码、文档同构。
 业务能力按 domain、application、infrastructure 与 composition 分层，高层依赖端口而非具体存储或校园上游实现。
 SQLite 是业务事实源；data 下 JSON、媒体与内存态只承载运行策略、会话或资源，不代替业务表。
-CAS/Portal/JW 基础凭证由 CredentialManager 收敛且必须使用非 null 数值 TTL，客户端只持本服务 JWT；凭证恢复失败统一返回 3003，同用户静默重认证共享 user 级在途恢复并返回实际能力，能力不足的 joiner 等待航班结束后优先复用新 TGC 串行补足；恢复失败按 epoch 绑定固定五秒冷却，CAS 按用户、Portal/JW 按能力隔离且命中不续期，真实登录换代后旧恢复不能覆盖凭证或补写验证码标记，本地快捷登录不检查学校也不清冷却；upstream 单次恢复链同时取得 token 与客户端。
+CAS/Portal/JW 基础凭证由 CredentialManager 收敛且必须使用非 null 数值 TTL，客户端只持本服务 JWT；Portal 换票直接 HTTP 5xx 返回无 token 和故障证据，真实登录继续 JW 激活，静默恢复传播上游异常并冷却；凭证恢复失败统一返回 3003，同用户静默重认证共享 user 级在途恢复并返回实际能力，能力不足的 joiner 等待航班结束后优先复用新 TGC 串行补足；恢复失败按 epoch 绑定固定五秒冷却，CAS 按用户、Portal/JW 按能力隔离且命中不续期，真实登录换代后旧恢复不能覆盖凭证或补写验证码标记，本地快捷登录不检查学校也不清冷却；upstream 单次恢复链同时取得 token 与客户端。
 mobile-yxt 只经窄 PortalCredentialReader 派生无 TTL 会话，不读取或激活 JW；真实 CAS 成功与学校系统激活/JWT 签发解耦，统一事务推进 school login epoch、写入实际基础凭证、删除本次缺失的旧 Portal JWT 并以字面前缀清理旧派生会话。exchange 仅在 epoch 未变时条件写，普通 Portal/JW 轮换和本地快捷登录不推进 epoch；派生 CookieJar 读写共享严格单 JSESSIONID codec，坏行事务淘汰为 miss。
 mobile-yxt 业务会话只在固定 HTTP 401 证据后失效；基础 Portal JWT 在 host/open 返回 HTTP 401 或真实过期凭证的 200 HTML 无 tid 时按值条件删除并窄恢复一次。业务 401 按 generation 条件失效并同用户单飞重建一次，第二次 401 先条件删除再返回 3003；持久化 Cookie 仅含目标域 `/server` JSESSIONID，CAS TGC、Portal Cookie、accessToken、tid、refreshToken 与 authorization 永不进入 DTO、缓存键、错误或日志。
 校园卡 overview 把既有 Portal 余额与 mobile-yxt 当前月/此前 23 个自然月的三类交易作为独立子源聚合并分别投影 availability/freshness，交易缓存使用固定长度用户月键并每用户保留 6 个 LRU；账单/电费同键 cache miss 与强刷共享在途回源并使用独立配额，不消耗成绩、课表、Portal/JW 的 Academic refresh 桶。

@@ -28,7 +28,7 @@ e2e.setup.ts: 真实上游测试隔离环境与临时 SQLite 显式迁移入口
 evaluation-parser.test.ts: 教评解析、延后 JW 登录表单、actionable/blocked 状态、有界续批、提交响应、未确认 unknown 与抗重排批末回查测试
 fixtures/: 测试二进制样本目录，包含 HEIC 图片
 grade-parser.test.ts: 成绩表结构、HTTP 200 登录页会话失效、合法空表、错误页拒绝与评教门禁回归测试
-identity-login-application.test.ts: Identity/Login 应用编排、验证码固定周期清理、CAS 提交耗时、Portal/JW 分支与 SQLite 用户凭证原子回滚测试
+identity-login-application.test.ts: Identity/Login 应用编排、验证码固定周期清理、CAS 提交耗时、Portal/JW 分支、真实 Portal 5xx 后继续 JW 及超时兼容、SQLite 用户凭证原子回滚测试
 image.test.ts: 共享图片 sharp 无缓存单线程资源策略、真实格式识别、输入/像素/页数边界、EXIF 清理、动画策略、安全 HEIC fallback 与严格输出上限回归测试
 index-popup.test.ts: 首页弹窗启停/时间窗、三态底栏/旧配置兼容、动作内容版本、multipart 校验、公开 null、原子设置与最近三版不可变媒体回归测试
 notifications.test.ts: Notifications 差异回复事件、Outbox 幂等/撤销/退避/双层失败隔离、ID 增量、摘要校准与永久保留回归测试

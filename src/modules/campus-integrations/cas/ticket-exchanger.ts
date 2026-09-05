@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖带剩余预算的 HttpClient、CryptoHelper、URLS、config、JW 主框架判定、共享 cause 链传输分类与 LoginStep 类型
- * [OUTPUT]: 对外提供 TicketExchanger，在客户端 deadline 内执行 TGC 到 Portal JWT/JW Session 的交换并验证 JW 已登录主框架
+ * [OUTPUT]: 对外提供 TicketExchanger，在客户端 deadline 内交换 Portal/JW 凭证；Portal HTTP 5xx 作为结果中的上游故障证据，由调用方决定继续登录激活或中止静默恢复
  * [POS]: campus-integrations/cas 的学校子凭证交换器，被登录流程和有界凭证恢复链消费
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -64,7 +64,11 @@ export class TicketExchanger {
    * TGC -> Portal JWT
    * Follow CAS redirect to portal, extract idToken from ticket
    */
-  static async exchangePortalToken(client: HttpClient): Promise<{ token: string | null; steps: LoginStep[] }> {
+  static async exchangePortalToken(client: HttpClient): Promise<{
+    token: string | null;
+    steps: LoginStep[];
+    upstreamError?: Error;
+  }> {
     const steps: LoginStep[] = [];
     try {
       const loginUrl = `${URLS.login}?service=${encodeURIComponent(URLS.servicePortal)}`;
@@ -73,7 +77,12 @@ export class TicketExchanger {
         timeout: config.timeout.cas,
       });
 
-      if (res.status >= 500) throw new Error(`PORTAL_TOKEN_HTTP_${res.status}`);
+      if (res.status >= 500) {
+        const upstreamError = new Error(`PORTAL_TOKEN_HTTP_${res.status}`);
+        steps.push({ label: 'portal', ok: false, detail: upstreamError.message });
+        // 真实登录仍可继续激活 JW；静默恢复必须保留故障，不能升级为密码重认证。
+        return { token: null, steps, upstreamError };
+      }
       const loc = res.headers.get('location');
       if (loc?.includes('ticket=')) {
         const token = CryptoHelper.extractTokenFromUrl(loc);

@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖业务流上游替身、可控时钟、真实 Identity 提交事务与 CredentialManager
- * [OUTPUT]: 验证五秒固定窗口、本地登录隔离、能力失败隔离、换票合流及新登录阻断迟到恢复
+ * [OUTPUT]: 验证五秒固定窗口、Portal HTTP 故障证据穿透、本地登录隔离、能力失败隔离、换票合流及新登录阻断迟到恢复
  * [POS]: tests/business-flows 的登录恢复事故回归，以调用次数和最终凭证事实证明兼容性
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -24,6 +24,35 @@ async function realLogin(studentId: string) {
 }
 
 describe('五秒恢复冷却与真实登录隔离', () => {
+  it('Portal HTTP 故障证据在 TGC 和 CAS 后换票两条恢复路径中都保留五秒冷却', async () => {
+    for (const withTgc of [true, false]) {
+      const userId = await createUser(`cooldown-portal-http-${withTgc}`, 'password');
+      if (withTgc) await CredentialManager.storeCredential(userId, 'cas_tgc', null, '{"cookies":[]}', 60_000);
+      const clock = clockAtNow();
+      let casCalls = 0;
+      let portalCalls = 0;
+      const failure = new Error('PORTAL_TOKEN_HTTP_503');
+      authBehavior.login = async () => { casCalls += 1; return { success: true, portalToken: null, steps: [] }; };
+      ticketBehavior.exchangePortalToken = async () => {
+        portalCalls += 1;
+        return { token: null, steps: [], upstreamError: failure };
+      };
+      try {
+        await expect(CredentialManager.getOrRefreshPortalCredentialWithoutJw(userId)).rejects.toBe(failure);
+        clock.advance(4_999);
+        await expect(CredentialManager.getOrRefreshPortalCredentialWithoutJw(userId)).rejects.toBe(failure);
+        expect(portalCalls).toBe(1);
+        expect(casCalls).toBe(withTgc ? 0 : 1);
+        expect(await CredentialManager.requiresInteractiveLogin(userId)).toBe(false);
+        clock.advance(1);
+        ticketBehavior.exchangePortalToken = async () => { portalCalls += 1; return { token: 'restored', steps: [] }; };
+        expect((await CredentialManager.getOrRefreshPortalCredentialWithoutJw(userId))?.value).toBe('restored');
+        expect(portalCalls).toBe(2);
+        expect(casCalls).toBe(withTgc ? 0 : 1);
+      } finally { clock.restore(); }
+    }
+  });
+
   it('本地登录不访问上游；跨来源连续失败不续期，五秒到点并发只登录一次 CAS', async () => {
     const userId = await createUser('cooldown-local', 'local-password');
     const clock = clockAtNow();

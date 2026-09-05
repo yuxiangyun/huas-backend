@@ -1,11 +1,11 @@
 /**
- * [INPUT]: 依赖 Bun Test、LoginApplicationService ports、SqliteIdentityStore、测试数据库与 Bun SQLite 故障触发器
- * [OUTPUT]: 提供本地/验证码/Portal-JW 分支、激活全失败仍提交 CAS 但不签 JWT，及用户凭证事务回滚的 Identity/Login 回归测试
+ * [INPUT]: 依赖 Bun Test、LoginApplicationService ports、真实校园 adapter/换票器、SqliteIdentityStore、测试数据库与 Bun SQLite 故障触发器
+ * [OUTPUT]: 提供本地/验证码/Portal-JW 分支、Portal HTTP 5xx 后继续 JW、激活全失败仍提交 CAS 但不签 JWT，及用户凭证事务回滚的 Identity/Login 回归测试
  * [POS]: tests 的登录应用边界套件，既验证纯用例决策，也证明 SQLite 失败不会暴露半写入身份事实
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { Database } from 'bun:sqlite';
 import { eq } from 'drizzle-orm';
 import { LoginApplicationService } from '../src/modules/identity/application/login-application.service';
@@ -17,6 +17,8 @@ import type {
 } from '../src/modules/identity/application/login.ports';
 import type { LoginCredentialSet, LoginUser } from '../src/modules/identity/domain/login';
 import { SqliteIdentityStore } from '../src/modules/identity/infrastructure/sqlite-identity.store';
+import { LegacyCampusLoginAdapter } from '../src/modules/identity/infrastructure/legacy-campus-login.adapter';
+import { HttpClient } from '../src/modules/campus-integrations/http/http-client';
 import { config } from '../src/config';
 import { getDb, schema } from '../src/db';
 import { clearSocialTestData } from './social-database';
@@ -38,7 +40,7 @@ class FakeCampus implements CampusLoginPort {
   async login() { this.loginCalls += 1; this.onLogin?.(); return this.loginResult; }
   async getCaptcha() { return new Uint8Array([1, 2, 3]).buffer; }
   async getExecution() { return this.execution; }
-  async exchangePortalToken() { return this.portalResult; }
+  async exchangePortalToken(): ReturnType<CampusLoginPort['exchangePortalToken']> { return this.portalResult; }
   async exchangeJwSession() { return this.jwResult; }
 }
 
@@ -223,6 +225,57 @@ describe('LoginApplicationService', () => {
       jwCookieJar: null,
     });
     expect(rejectedCase.issuedTokenCount()).toBe(0);
+  });
+});
+
+describe('真实 Portal 换票与登录编排兼容', () => {
+  it('Portal HTTP 5xx 不阻断 JW；JW 成功签 JWT，双源失败仍只提交 CAS', async () => {
+    const adapter = new LegacyCampusLoginAdapter();
+    for (const status of [500, 502, 503, 504]) {
+      for (const jwSuccess of [true, false]) {
+        const request = spyOn(HttpClient.prototype, 'request').mockResolvedValue(new Response('unavailable', { status }));
+        try {
+          const campus = new FakeCampus();
+          campus.loginResult = { success: true, portalToken: null, steps: [] };
+          campus.exchangePortalToken = () => adapter.exchangePortalToken({ opaque: new HttpClient() });
+          let jwCalls = 0;
+          campus.exchangeJwSession = async () => { jwCalls += 1; return { success: jwSuccess, steps: [] }; };
+          const testCase = createService({ campus });
+          const result = await testCase.service.execute({ username: 'portal-5xx-login', password: 'pass' });
+
+          expect(request).toHaveBeenCalledTimes(1);
+          expect(jwCalls).toBe(1);
+          expect(result.kind).toBe(jwSuccess ? 'success' : 'failure');
+          if (result.kind === 'success') expect(result.mode).toBe('school');
+          if (result.kind === 'failure') expect(result.reason).toBe('school-activation-failed');
+          expect(testCase.issuedTokenCount()).toBe(jwSuccess ? 1 : 0);
+          expect(testCase.store.persisted).toEqual({
+            casCookieJar: '{"cookies":[]}', portalToken: null,
+            jwCookieJar: jwSuccess ? '{"cookies":[]}' : null,
+          });
+          expect(result.steps).toContainEqual({ label: 'portal', ok: false, detail: `PORTAL_TOKEN_HTTP_${status}` });
+        } finally { request.mockRestore(); }
+      }
+    }
+  });
+
+  it('原有 Portal 网络超时仍中止激活且保留 CAS 提交，不被兼容分支吞掉', async () => {
+    const failure = new Error('REQUEST_TIMEOUT');
+    const request = spyOn(HttpClient.prototype, 'request').mockRejectedValue(failure);
+    try {
+      const campus = new FakeCampus();
+      campus.loginResult = { success: true, portalToken: null, steps: [] };
+      campus.exchangePortalToken = () => new LegacyCampusLoginAdapter().exchangePortalToken({ opaque: new HttpClient() });
+      let jwCalls = 0;
+      campus.exchangeJwSession = async () => { jwCalls += 1; return { success: true, steps: [] }; };
+      const testCase = createService({ campus });
+      const result = await testCase.service.execute({ username: 'portal-timeout-login', password: 'pass' });
+      expect(result.kind).toBe('failure');
+      if (result.kind === 'failure') expect(result.reason).toBe('upstream-timeout');
+      expect(jwCalls).toBe(0);
+      expect(testCase.issuedTokenCount()).toBe(0);
+      expect(testCase.store.persisted).toEqual({ casCookieJar: '{"cookies":[]}', portalToken: null, jwCookieJar: null });
+    } finally { request.mockRestore(); }
   });
 });
 

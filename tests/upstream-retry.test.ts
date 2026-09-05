@@ -250,7 +250,10 @@ describe('auth upstream failure semantics', () => {
   it('Portal 换票直接 5xx 与嵌套连接故障不退化为缺少 ticket', async () => {
     for (const status of [500, 502, 503, 504]) {
       const client = { request: async () => new Response('unavailable', { status }) } as unknown as HttpClient;
-      await expect(TicketExchanger.exchangePortalToken(client)).rejects.toThrow(`PORTAL_TOKEN_HTTP_${status}`);
+      const result = await TicketExchanger.exchangePortalToken(client);
+      expect(result.token).toBeNull();
+      expect(result.upstreamError?.message).toBe(`PORTAL_TOKEN_HTTP_${status}`);
+      expect(result.steps).toEqual([{ label: 'portal', ok: false, detail: `PORTAL_TOKEN_HTTP_${status}` }]);
     }
     const failure = new Error('request failed', { cause: { code: 'ECONNREFUSED' } });
     const client = { request: async () => { throw failure; } } as unknown as HttpClient;

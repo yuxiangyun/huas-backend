@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 db/schema、HttpClient/共享传输错误分类、CAS/TicketExchanger、CryptoHelper、user 级 PerKeySingleflight、真实学校登录事务原语、epoch 绑定的五秒 RecoveryCooldown、config、截止时间与 Logger
+ * [INPUT]: 依赖 db/schema、HttpClient/共享传输错误分类、CAS/TicketExchanger 的凭证与上游故障证据、CryptoHelper、user 级 PerKeySingleflight、真实学校登录事务原语、epoch 绑定的五秒 RecoveryCooldown、config、截止时间与 Logger
  * [OUTPUT]: 对外提供 CredentialManager 与 CredentialSystem，管理正 TTL 基础凭证、五秒分能力冷却与真实登录代次隔离、能力感知静默恢复、TGC 普通快照冲突有界补足、Portal-only 窄恢复与交互登录状态
  * [POS]: campus-integrations/credential-recovery 的基础凭证状态机；共享航班以实际能力自证，能力不足的 joiner 先复用新 TGC 串行补足且 mobile 调用不触碰 JW
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -315,6 +315,7 @@ export class CredentialManager {
 
     if (system === 'portal_jwt') {
       const result = await TicketExchanger.exchangePortalToken(client);
+      if (result.upstreamError) throw result.upstreamError;
       if (result.token) {
         if (!commitRefreshed(result.token, null, config.ttl.portalJwt)) return resolveConflict();
         Logger.auth(String(userId), '静默刷新 Portal', 200, Date.now() - start, undefined, [
@@ -542,6 +543,7 @@ export class CredentialManager {
       if (!portalToken) {
         const portalResult = await TicketExchanger.exchangePortalToken(client);
         steps.push(...portalResult.steps);
+        if (portalResult.upstreamError) throw portalResult.upstreamError;
         if (portalResult.token) {
           portalToken = portalResult.token;
         }
