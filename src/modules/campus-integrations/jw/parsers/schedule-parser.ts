@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 cheerio、ICourse 类型、Logger、SESSION_EXPIRED_INDICATORS 与共享 JW 登录页判定
- * [OUTPUT]: 对外提供 ScheduleParser，解析 JW HTML 课表为统一课程模型
+ * [OUTPUT]: 对外提供 ScheduleParser，解析 JW HTML 为统一课程模型；未公布抛出 SCHEDULE_NOT_AVAILABLE 交由上层编排
  * [POS]: campus-integrations/jw/parsers 的课表纯解析核心，识别非教学周、session 过期并去重
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -140,7 +140,7 @@ export const ScheduleParser = {
 
     if (rawHtml.includes('课表暂未公布') || latestLiShowWeek.includes('课表暂未公布')) {
       Logger.warn('ScheduleParser', '课表未公布', '教务系统提示课表暂未公布');
-      return { week: '暂无', courses: [], message: '课表暂未公布' };
+      throw new Error('SCHEDULE_NOT_AVAILABLE');
     }
 
     if (!hasScheduleTable) {

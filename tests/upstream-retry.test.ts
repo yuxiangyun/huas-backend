@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 upstream、CredentialManager、TicketExchanger、AuthEngine、HttpClient 测试替身与隔离数据库
- * [OUTPUT]: 验证凭证恢复/成绩临时错误的次数与 deadline 边界、JW 主框架激活、Portal 换票及 CAS 拒绝/服务故障语义
+ * [OUTPUT]: 验证请求快照失效不误删新登录/轮换凭证、恢复/成绩重试预算、JW 激活、Portal 换票及 CAS 故障语义
  * [POS]: tests 的学校上游有界恢复回归套件，防止瞬态故障过早降级或无限等待并避免故障退化为凭证/密码错误
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -15,6 +15,7 @@ import type { HttpClient } from '../src/core/http-client';
 import { TicketExchanger } from '../src/auth/ticket-exchanger';
 import { AuthEngine } from '../src/auth/auth-engine';
 import { CredentialManager } from '../src/modules/campus-integrations/credential-recovery/credential-manager';
+import { commitRealSchoolLoginContext } from '../src/modules/campus-integrations/credential-recovery/school-login-context';
 import { AppError, ErrorCode } from '../src/utils/errors';
 import { clearSocialTestData } from './social-database';
 
@@ -61,6 +62,70 @@ beforeEach(async () => {
 });
 
 describe('upstream retry', () => {
+  for (const mode of ['portal', 'jw'] as const) {
+    for (const change of ['login', 'rotation'] as const) {
+      it(`${mode} 旧请求失效不删除 ${change} 提交的新凭证，并直接复用`, async () => {
+        const system = mode === 'portal' ? 'portal_jwt' : 'jw_session';
+        await CredentialManager.storeCredential(userId, system,
+          mode === 'portal' ? 'old-portal' : null, mode === 'jw' ? EMPTY_JAR_JSON : null, 60_000);
+        let release!: () => void;
+        let entered!: () => void;
+        const blocked = new Promise<void>((resolve) => { release = resolve; });
+        const started = new Promise<void>((resolve) => { entered = resolve; });
+        let calls = 0;
+        const pending = upstream(userId, mode, async ({ client, portalToken }) => {
+          calls += 1;
+          if (calls === 1) { entered(); await blocked; throw new Error('SESSION_EXPIRED'); }
+          return mode === 'portal' ? portalToken : client.serializeJar();
+        });
+        // 提前接收失败，避免反例在等待最终断言前产生未处理拒绝。
+        const result = pending.then((value) => ({ value }), (error) => ({ error }));
+        await started;
+        const jar = JSON.parse(EMPTY_JAR_JSON);
+        jar.cookies.push({ key: 'JSESSIONID', value: 'new-jw', domain: 'xyjw.huas.edu.cn', path: '/', hostOnly: true });
+        const freshJar = JSON.stringify(jar);
+        if (change === 'login') {
+          getDb().transaction((tx) => commitRealSchoolLoginContext(tx, {
+            userId, casCookieJar: EMPTY_JAR_JSON, portalToken: 'new-portal', jwCookieJar: freshJar, at: new Date(),
+          }));
+        } else {
+          await CredentialManager.storeCredential(userId, system,
+            mode === 'portal' ? 'new-portal' : null, mode === 'jw' ? freshJar : null, 120_000);
+        }
+        const exchangePortal = TicketExchanger.exchangePortalToken;
+        const exchangeJw = TicketExchanger.exchangeJwSession;
+        let exchanges = 0;
+        TicketExchanger.exchangePortalToken = async () => { exchanges++; return { token: null, steps: [] }; };
+        TicketExchanger.exchangeJwSession = async () => { exchanges++; return { success: false, steps: [] }; };
+        try {
+          release();
+          const resolved = await result;
+          expect('error' in resolved).toBe(false);
+          if ('value' in resolved) expect(resolved.value).toContain(mode === 'portal' ? 'new-portal' : 'new-jw');
+          expect(calls).toBe(2);
+          expect(exchanges).toBe(0);
+          expect(await CredentialManager.getCredential(userId, system)).not.toBeNull();
+        } finally {
+          TicketExchanger.exchangePortalToken = exchangePortal;
+          TicketExchanger.exchangeJwSession = exchangeJw;
+        }
+      });
+    }
+  }
+
+  it('同值凭证也受登录代次保护，原快照只允许失效一次', async () => {
+    await CredentialManager.storeCredential(userId, 'portal_jwt', 'same-portal', null, 60_000);
+    const previous = await CredentialManager.resolveCredentialClient(userId, 'portal_jwt');
+    getDb().transaction((tx) => commitRealSchoolLoginContext(tx, {
+      userId, casCookieJar: EMPTY_JAR_JSON, portalToken: 'same-portal', jwCookieJar: null, at: new Date(),
+    }));
+    expect(await previous!.invalidateIfCurrent()).toBe(false);
+    const current = await CredentialManager.resolveCredentialClient(userId, 'portal_jwt');
+    expect(await current!.invalidateIfCurrent()).toBe(true);
+    expect(await current!.invalidateIfCurrent()).toBe(false);
+    expect(await CredentialManager.getCredential(userId, 'portal_jwt')).toBeNull();
+  });
+
   it('REQUEST_TIMEOUT 会自动重试一次并成功', async () => {
     let calls = 0;
     const data = await upstream(userId, 'jw', async () => {

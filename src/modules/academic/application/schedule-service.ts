@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 OrderedCommit 的并发提交顺序保护，依赖 domain AcademicRuntimePorts、canonical ScheduleParser/JW 端点、配置、CacheMeta 与北京时间
  * [OUTPUT]: 对外提供可注入 AcademicRuntimePorts 的 ScheduleApplicationService，并分离 current 与 stale 读取
- * [POS]: academic/application 的 JW 单源课表用例，负责教务读取、同意图回源合并、代次提交周缓存、保留数据时间且不覆盖新值的旧缓存提升与显式旧值回退
+ * [POS]: academic/application 的 JW 单源课表用例，负责回源合并与代次提交，条件淘汰历史未公布缓存，并为真实课表保留旧缓存提升与 stale 回退
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -15,6 +15,22 @@ import { beijingDate } from '../../../utils/time';
 import type { AcademicRuntimePorts } from '../domain/ports';
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+function isUnpublishedSchedule(data: unknown): boolean {
+  return !!data && typeof data === 'object'
+    && (data as { message?: unknown }).message === '课表暂未公布';
+}
+
+async function readPublishedCache(cache: AcademicRuntimePorts['cache'], key: string) {
+  let cached = await cache.get(key);
+  if (cached && isUnpublishedSchedule(cached.data)) {
+    // 历史周/日缓存都可能保存未公布；只淘汰读到的快照，竞争后优先接受新课表。
+    if (cached.versionToken) await cache.invalidateIfVersion(key, cached.versionToken);
+    cached = await cache.get(key);
+    if (cached && isUnpublishedSchedule(cached.data)) return null;
+  }
+  return cached;
+}
 
 function normalizeDate(rawDate?: string): string {
   const trimmed = (rawDate ?? '').trim();
@@ -82,8 +98,9 @@ async function findScheduleRefreshFallback<T>(options: {
       error: options.error,
       source: options.source,
       studentId: options.studentId,
+      discardCached: isUnpublishedSchedule,
     });
-    if (!fallback) continue;
+    if (!fallback || isUnpublishedSchedule(fallback.data)) continue;
 
     if (currentCacheKey === options.cacheKey) {
       return {
@@ -124,7 +141,7 @@ export class ScheduleApplicationService {
     const { queryDate, weekStartDate, cacheKey, legacyCacheKeys } = buildScheduleCacheContext(studentId, date);
 
     if (!forceRefresh) {
-      const cached = await this.ports.cache.get(cacheKey);
+      const cached = await readPublishedCache(this.ports.cache, cacheKey);
       if (cached) {
         return {
           data: cached.data,
@@ -140,7 +157,7 @@ export class ScheduleApplicationService {
       }
 
       for (const legacyCacheKey of legacyCacheKeys) {
-        const legacyCached = await this.ports.cache.get(legacyCacheKey);
+        const legacyCached = await readPublishedCache(this.ports.cache, legacyCacheKey);
         if (!legacyCached) continue;
 
         if (legacyCached.versionToken) {

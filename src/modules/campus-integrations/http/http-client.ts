@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 tough-cookie CookieJar、config.timeout、USER_AGENT、可选绝对截止时间与外层注入的低基数请求结果 observer
- * [OUTPUT]: 对外提供 HttpClient 与 configureHttpClientObservers，封装受单次超时和总预算共同约束的 Cookie 会话 HTTP 及结果观测
+ * [OUTPUT]: 对外提供 HttpClient 与 configureHttpClientObservers，在单次超时和总预算内读完正文，返回仍可消费的完整 Response 并观测最终结果
  * [POS]: campus-integrations/http 的共享传输实现；CAS/Portal/JW 可持完整各自会话，mobile-yxt 由认证适配器提供仅含目标域 `/server` Cookie 的独立实例
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -113,8 +113,12 @@ export class HttpClient {
         }
       }
 
+      // 校园接口均消费完整页面/JSON/验证码；在计时器内读完正文，避免响应头提前结束预算。
+      // clone 保留 URL、状态、响应头和未消费的正文，调用方继续使用标准 Response API。
+      const buffered = res.clone();
+      await res.arrayBuffer();
       recordOutcome(res.status < 400 ? 'success' : 'failure');
-      return res;
+      return buffered;
     } catch (e: any) {
       if (e.name === 'AbortError' || e.name === 'TimeoutError') {
         recordOutcome('timeout');

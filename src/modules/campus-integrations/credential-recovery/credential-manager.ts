@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 db/schema、HttpClient/共享传输错误分类、CAS/TicketExchanger 的凭证与上游故障证据、CryptoHelper、user 级 PerKeySingleflight、真实学校登录事务原语、epoch 绑定的五秒 RecoveryCooldown、config、截止时间与 Logger
- * [OUTPUT]: 对外提供 CredentialManager 与 CredentialSystem，管理正 TTL 基础凭证、五秒分能力冷却与真实登录代次隔离、能力感知静默恢复、TGC 普通快照冲突有界补足、Portal-only 窄恢复与交互登录状态
+ * [OUTPUT]: 对外提供 CredentialManager 与 CredentialSystem，管理正 TTL 基础凭证、登录代次及请求快照条件失效、五秒冷却、能力感知恢复、TGC 有界补足、Portal-only 窄恢复与交互登录状态
  * [POS]: campus-integrations/credential-recovery 的基础凭证状态机；共享航班以实际能力自证，能力不足的 joiner 先复用新 TGC 串行补足且 mobile 调用不触碰 JW
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -639,32 +639,51 @@ export class CredentialManager {
   }
 
   /**
-   * 单次恢复链解析凭证与客户端：一次 getOrRefreshCredential 同时返回 value 与可发请求的 client，
-   * 避免 portal 模式恢复链跑两遍、白白消耗请求级总预算。
+   * 单次恢复后原子取得当前凭证/登录代次，以同一快照构造客户端与条件失效能力。
+   * 快照只保存在闭包中；迟到请求不能删除新登录或同代次轮换后的凭证。
    */
   static async resolveCredentialClient(
     userId: number,
     system: CredentialSystem,
     deadlineAt?: number,
-  ): Promise<{ client: HttpClient; value: string | null } | null> {
-    const cred = await this.getOrRefreshCredential(userId, system, deadlineAt);
-    if (!cred) return null;
+  ): Promise<{ client: HttpClient; value: string | null; invalidateIfCurrent: () => Promise<boolean> } | null> {
+    if (!await this.getOrRefreshCredential(userId, system, deadlineAt)) return null;
+    const db = getDb();
+    const snapshot = db.transaction((tx) => {
+      const credential = tx.select().from(schema.credentials).where(and(
+        eq(schema.credentials.userId, userId), eq(schema.credentials.system, system),
+      )).get();
+      if (!credential?.expiresAt || credential.expiresAt.getTime() <= Date.now()) return null;
+      const tgc = system === 'portal_jwt' ? tx.select().from(schema.credentials).where(and(
+        eq(schema.credentials.userId, userId), eq(schema.credentials.system, 'cas_tgc'),
+      )).get() : null;
+      return {
+        credential,
+        epoch: readSchoolLoginEpoch(tx, userId),
+        jar: credential.cookieJar || (tgc?.expiresAt && tgc.expiresAt.getTime() > Date.now() ? tgc.cookieJar : null),
+      };
+    });
+    if (!snapshot) return null;
 
-    if (cred.cookieJar) {
-      return { client: HttpClient.fromSerializedJar(cred.cookieJar, deadlineAt), value: cred.value };
-    }
-
-    // For portal_jwt, we need the TGC's cookie jar
-    if (system === 'portal_jwt') {
-      const tgc = await this.getCredential(userId, 'cas_tgc');
-      if (tgc?.cookieJar) {
-        return { client: HttpClient.fromSerializedJar(tgc.cookieJar, deadlineAt), value: cred.value };
-      }
-    }
-
-    const client = new HttpClient();
+    const client = snapshot.jar ? HttpClient.fromSerializedJar(snapshot.jar, deadlineAt) : new HttpClient();
     client.setDeadline(deadlineAt);
-    return { client, value: cred.value };
+    return {
+      client,
+      value: snapshot.credential.value,
+      invalidateIfCurrent: async () => db.transaction((tx) => {
+        if (readSchoolLoginEpoch(tx, userId) !== snapshot.epoch) return false;
+        const current = tx.select().from(schema.credentials).where(and(
+          eq(schema.credentials.userId, userId), eq(schema.credentials.system, system),
+        )).get();
+        const expected = snapshot.credential;
+        if (!current || current.id !== expected.id || current.value !== expected.value
+          || current.cookieJar !== expected.cookieJar
+          || current.updatedAt.getTime() !== expected.updatedAt.getTime()
+          || current.expiresAt?.getTime() !== expected.expiresAt?.getTime()) return false;
+        tx.delete(schema.credentials).where(eq(schema.credentials.id, current.id)).run();
+        return true;
+      }),
+    };
   }
 
   /**

@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖校园 HttpClient、CredentialManager、有截止时间的 retry、config 与统一错误/日志能力
- * [OUTPUT]: 对外提供 UpstreamContext、UpstreamExecutionOptions 与 upstream()，执行有界凭证恢复、瞬态重试和会话过期重建
+ * [OUTPUT]: 对外提供 UpstreamContext、UpstreamExecutionOptions 与 upstream()，执行有界恢复/重试，并按请求凭证快照条件失效后重建会话
  * [POS]: campus-integrations/upstream 的统一执行边界，为 Portal/JW 适配器屏蔽凭证生命周期并落实请求级总预算
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -16,6 +16,8 @@ export interface UpstreamContext {
   client: HttpClient;
   portalToken?: string;
 }
+
+type CredentialContext = UpstreamContext & { invalidateIfCurrent: () => Promise<boolean> };
 
 export interface UpstreamExecutionOptions {
   totalTimeoutMs?: number;
@@ -51,14 +53,14 @@ export async function upstream<T>(
     Math.floor(options.requestMaxAttempts ?? config.retry.businessMaxAttempts),
   );
 
-  const buildContext = async (): Promise<UpstreamContext | null> => {
+  const buildContext = async (): Promise<CredentialContext | null> => {
     // 单次恢复链：resolveCredentialClient 已合并同用户并发恢复，portal 不再二次刷新。
     const resolved = await CredentialManager.resolveCredentialClient(userId, system, deadlineAt);
     if (!resolved) return null;
     if (mode === 'portal' && !resolved.value) return null;
     return resolved.value
-      ? { client: resolved.client, portalToken: resolved.value }
-      : { client: resolved.client };
+      ? { client: resolved.client, portalToken: resolved.value, invalidateIfCurrent: resolved.invalidateIfCurrent }
+      : { client: resolved.client, invalidateIfCurrent: resolved.invalidateIfCurrent };
   };
 
   const isTransientRetryableError = (error: unknown): boolean => {
@@ -93,7 +95,7 @@ export async function upstream<T>(
     },
   });
 
-  const buildContextWithRetry = async (): Promise<UpstreamContext | null> => retryAsync(
+  const buildContextWithRetry = async (): Promise<CredentialContext | null> => retryAsync(
     buildContext,
     retryOptions(credentialMaxAttempts, '凭证恢复'),
   );
@@ -115,9 +117,9 @@ export async function upstream<T>(
     return await executeWithRetry(ctx);
   } catch (e: any) {
     if (e.message === 'SESSION_EXPIRED') {
-      // Invalidate the stale credential, then let the refresh chain handle recovery
+      // 只删除本请求使用且仍为当前值的凭证；已换代时重建直接复用新登录。
       Logger.warn('Upstream', `${system} 会话过期, 重试中`, undefined, String(userId));
-      await CredentialManager.invalidate(userId, system);
+      await ctx.invalidateIfCurrent();
 
       // Second attempt — buildContext triggers getOrRefreshCredential → refreshFromTGC → silentReAuth
       ctx = await buildContextWithRetry();
