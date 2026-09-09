@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖移动教务真实周课表 data、七天日期槽、三层 item、classTime 与统一课程 DTO
- * [OUTPUT]: 对外提供 parseMobileJwWeek，返回已验证周锚点和逐日期、逐连续节次投影的课程
+ * [OUTPUT]: 对外提供 parseMobileJwWeek，返回原始上游 week、已验证七天日期锚点和逐日期、逐连续节次投影的课程
  * [POS]: mobile-jw 的纯解析边界，不把缺载荷当空课表、不混用 courses 与 item，不丢失同节并行课程
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -36,6 +36,7 @@ function dateValue(value: unknown): string {
 }
 
 export interface MobileJwWeek {
+  /** 原始上游周次；指定周响应可能仍为当前周，由 Academic 结合日期锚点换算展示周次。 */
   week: number;
   weekStartDate: string;
   semesterId: string | null;

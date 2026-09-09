@@ -1,13 +1,14 @@
 /**
- * [INPUT]: 依赖窄 MobileJwSchedulePort、来源范围错误、Academic 缓存/fallback、移动课表纯解析器、OrderedCommit 与北京时间
+ * [INPUT]: 依赖窄 MobileJwSchedulePort、来源范围错误、Academic 缓存/fallback、移动课表纯解析器、OrderedCommit、Logger 与北京时间
  * [OUTPUT]: 对外提供 MobileJwScheduleApplicationService，提供第三来源 current/stale reader
- * [POS]: Academic 的移动教务周课表用例，使用真实学期日期锚点换算目标周并严格核对返回日期，遵循统一刷新缓存与降级编排
+ * [POS]: Academic 的移动教务周课表用例，以当前周日期锚点换算 DTO 教学周，按完整七天日期确认目标周；回源失败记录低敏感阶段后交由统一降级编排
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { config } from '../../../config';
 import type { ICourse } from '../../../types';
 import { AppError, ErrorCode } from '../../../utils/errors';
+import { Logger } from '../../../utils/logger';
 import { OrderedCommit } from '../../../utils/ordered-commit';
 import { beijingDate } from '../../../utils/time';
 import { parseMobileJwWeek } from '../../campus-integrations/mobile-jw/schedule-parser';
@@ -53,26 +54,57 @@ export class MobileJwScheduleApplicationService {
     }
     const data = await this.ports.cache.runSingleflight(request.cacheKey, forceRefresh, () => cacheWrites.run(
       request.cacheKey,
-      async () => {
-        const deadlineAt = Date.now() + config.timeout.mobileJwTotalBudget;
-        const initial = parseMobileJwWeek((await this.client.current(userId, {}, deadlineAt)).data);
-        let result = initial;
-        if (initial.weekStartDate !== request.weekStartDate) {
-          const offset = (Date.parse(request.weekStartDate) - Date.parse(initial.weekStartDate)) / WEEK_MS;
-          const week = initial.week + offset;
-          // 该接口只保证当前学期；不把历史端点的假空态写成真实“无课”。
-          if (initial.maxWeek === null) throw protocolFailure();
-          if (!Number.isInteger(week) || week < 1 || week > initial.maxWeek) throw new ScheduleSourceUnsupportedError();
-          result = parseMobileJwWeek((await this.client.current(userId, { week }, deadlineAt)).data);
-          if (result.week !== week || (result.semesterId && initial.semesterId && result.semesterId !== initial.semesterId)) throw protocolFailure();
-        }
-        if (result.weekStartDate !== request.weekStartDate) throw protocolFailure();
-        return { week: `第${result.week}周`, courses: result.courses, message: result.courses.length ? '' : '本周暂无课程' };
-      },
+      () => this.fetchSchedule(userId, request.weekStartDate, forceRefresh),
       (fresh) => this.ports.cache.set(request.cacheKey, { v: 1, weekStartDate: request.weekStartDate, data: fresh }, config.cacheTtl.schedule, 'mobile-jw'),
     ));
     await this.ports.cache.enforcePrefixLimit(`mobile-jw-schedule:${studentId}:`, config.cacheLimit.portalSchedulePerUser);
     return { data, _meta: { cached: false, source: 'mobile-jw' }, _request: { ...request, cache: forceRefresh ? 'bypass' as const : 'miss' as const } };
+  }
+
+  private async fetchSchedule(userId: number, weekStartDate: string, forceRefresh: boolean): Promise<ScheduleData> {
+    const deadlineAt = Date.now() + config.timeout.mobileJwTotalBudget;
+    let stage = 'anchor_request';
+    let targetWeek: number | null = null;
+    let returnedWeek: number | null = null;
+    try {
+      const initialResponse = await this.client.current(userId, {}, deadlineAt);
+      stage = 'anchor_parse';
+      const initial = parseMobileJwWeek(initialResponse.data);
+      returnedWeek = initial.week;
+      stage = 'target_resolution';
+      const offset = (Date.parse(weekStartDate) - Date.parse(initial.weekStartDate)) / WEEK_MS;
+      targetWeek = initial.week + offset;
+      let result = initial;
+      if (initial.weekStartDate !== weekStartDate) {
+        // 该接口只保证当前学期；不把历史端点的假空态写成真实“无课”。
+        if (initial.maxWeek === null) throw protocolFailure();
+        if (!Number.isInteger(targetWeek) || targetWeek < 1 || targetWeek > initial.maxWeek) throw new ScheduleSourceUnsupportedError();
+        stage = 'target_request';
+        returnedWeek = null;
+        const response = await this.client.current(userId, { week: targetWeek }, deadlineAt);
+        stage = 'target_parse';
+        result = parseMobileJwWeek(response.data);
+        returnedWeek = result.week;
+        stage = 'semester_validation';
+        if (result.semesterId && initial.semesterId && result.semesterId !== initial.semesterId) throw protocolFailure();
+      }
+      stage = 'date_validation';
+      // 解析器已保证周一至周日连续七天；起点一致即完整目标周一致。
+      if (result.weekStartDate !== weekStartDate) throw protocolFailure();
+      // 指定周响应的 week 可能仍为当前周，展示周次由已验证的日期锚点换算。
+      return { week: `第${targetWeek}周`, courses: result.courses, message: result.courses.length ? '' : '本周暂无课程' };
+    } catch (error) {
+      const kind = error instanceof MobileJwError ? error.kind
+        : error instanceof ScheduleSourceUnsupportedError ? 'unsupported'
+        : error instanceof AppError ? 'application' : 'unknown';
+      // 只记录内部用户 ID、受控分类及日期/周次，不输出异常原文、课程或学校凭证。
+      Logger.warn('MobileJwSchedule', '移动教务课表回源失败，交由来源编排处理', [
+        'source=mobile-jw', `userId=${userId}`, `stage=${stage}`, `kind=${kind}`,
+        `code=${error instanceof AppError ? error.code : 'none'}`, `forceRefresh=${forceRefresh}`,
+        `weekStartDate=${weekStartDate}`, `targetWeek=${targetWeek ?? 'unknown'}`, `returnedWeek=${returnedWeek ?? 'unknown'}`,
+      ].join('; '));
+      throw error;
+    }
   }
 
   async getStaleSchedule(studentId: string, date: string | undefined, error: unknown, forceRefresh = false) {
