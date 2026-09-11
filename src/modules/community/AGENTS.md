@@ -11,6 +11,7 @@ infrastructure/: community_profiles SQLite adapter 与按引用/宽限期回收�
 Community 是公开身份投影的唯一所有者；只经 Identity 的 CommunityIdentityReader 取得 id/className，不复制校园班级，也不向消费者泄露学号、真实姓名或完整班级；nickname 仅在当前用户资料契约额外返回。
 Discover、Treehole、Messaging、Notifications 只依赖 CommunityProfileReader 批量取得 `{ id, displayName, avatarUrl }`，不得 JOIN users/community_profiles；Community 不反向依赖这些消费者。
 昵称与头像元数据落在 community_profiles；两字段以原子 patch 独立更新，头像切换返回被替换 URL 并在确认全表无引用后清理。旧 `{id}.webp` 可继续读取，新上传使用不可变 UUID 文件名以保证 DB 失败补偿和长期缓存正确。
+头像 multipart 通过显式替换意图校验文件确实到达，避免昵称/Bio 字段掩盖传输丢失；HTTP 边界同时兼容标准 PUT 与微信原生上传固定使用的 POST，应用层仍消费同一原子 patch。
 周期回收只处理模块白名单文件名，数据库已发布 URL 永远优先保留；超过宽限期的无引用头像覆盖候选补偿或旧头像即时清理失败，不触碰未知文件。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md

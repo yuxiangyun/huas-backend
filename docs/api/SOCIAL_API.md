@@ -83,18 +83,20 @@ interface Page<T> {
 }
 ```
 
-### 3.2 `PUT /api/community/profile`
+### 3.2 `PUT|POST /api/community/profile`
 
-请求必须为 `multipart/form-data`，至少提交一个字段：
+请求必须为 `multipart/form-data`，至少提交一个资料字段。普通 Web/文本更新使用 `PUT`；微信小程序头像上传使用原生 `wx.uploadFile` 固定发出的 `POST`，两者进入同一个原子更新处理器。
 
 | 字段 | 类型 | 规则 |
 |---|---|---|
 | `nickname` | string | trim 后保存；空字符串清除昵称并恢复默认 displayName |
+| `bio` | string | trim 后保存；空字符串清除 Bio |
 | `avatar` | File | 非空图片，默认最大 2MB |
+| `avatarIntent` | `replace` | 客户端要求替换头像时必传；此时 `avatar` 缺失直接返回 `400 + 4002`，不得退化为纯文本更新 |
 
 头像支持 JPG、PNG、WebP、GIF、HEIC/HEIF、AVIF、TIFF。服务端识别真实格式、自动旋转，按默认 `512 × 512` cover 和质量 `78` 输出 WebP；新文件使用不可变 `{userId}-{uuid}.webp` 名称。multipart 总请求在解析前按“头像上限 + 1MB 协议开销”限制，所有字段都计入，超限返回 `413 + 4002`。
 
-昵称与头像使用字段级原子 patch，互相并发更新不会覆盖另一字段。资料写入失败会补偿删除候选头像；切换成功后仅在数据库确认旧 URL 已无任何资料引用时清理旧文件。
+昵称、Bio 与头像使用字段级原子 patch，互相并发更新不会覆盖未提交字段。资料写入失败会补偿删除候选头像；切换成功后仅在数据库确认旧 URL 已无任何资料引用时清理旧文件。`avatarIntent` 只验证文件完整到达，不写入资料。
 
 成功返回更新后的 `CurrentCommunityProfile`。示例：
 

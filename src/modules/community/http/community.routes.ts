@@ -1,11 +1,11 @@
 /**
  * [INPUT]: 依赖 Hono、注入的 CommunityApplicationService/头像策略、共享请求体上限与统一响应工具
- * [OUTPUT]: 对外提供 createCommunityRoutes(service, uploadPolicy)，沿用受限 multipart 更新 nickname/Bio/avatar 并读取详细公共资料
- * [POS]: modules/community/http 的认证后协议 adapter，在 formData 前限制声明长度与流式请求体并维持字段披露边界
+ * [OUTPUT]: 对外提供 createCommunityRoutes(service, uploadPolicy)，以 PUT/微信原生上传 POST 接收受限 multipart 更新 nickname/Bio/avatar 并读取详细公共资料
+ * [POS]: modules/community/http 的认证后协议 adapter，在 formData 前限制声明长度与流式请求体，以头像替换意图阻止缺失文件被文本字段掩盖，并维持字段披露边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { ErrorCode } from '../../../utils/errors';
 import { appendHttpLogDetail, formatHttpLogDetail } from '../../../utils/http-log';
 import {
@@ -45,53 +45,62 @@ export function createCommunityRoutes(
     return profile ? success(c, profile) : profileNotFound(c);
   });
 
-  routes.put(
-    '/profile',
-    requestBodyLimit({
-      maxSize: multipartRequestMaxBytes(uploadPolicy.avatarMaxBytes),
-      tooLargeMessage: '资料上传请求体过大',
-    }),
-    async (c) => {
-      let form: FormData;
-      try {
-        form = await c.req.formData();
-      } catch (cause) {
-        if (isBodyLimitError(cause)) throw cause;
-        return error(c, ErrorCode.PARAM_ERROR, '请求必须是 multipart/form-data', 400);
-      }
+  const profileBodyLimit = requestBodyLimit({
+    maxSize: multipartRequestMaxBytes(uploadPolicy.avatarMaxBytes),
+    tooLargeMessage: '资料上传请求体过大',
+  });
+  const updateProfile = async (c: Context) => {
+    let form: FormData;
+    try {
+      form = await c.req.formData();
+    } catch (cause) {
+      if (isBodyLimitError(cause)) throw cause;
+      return error(c, ErrorCode.PARAM_ERROR, '请求必须是 multipart/form-data', 400);
+    }
 
-      const hasNickname = form.has('nickname');
-      const nickname = form.get('nickname');
-      if (hasNickname && typeof nickname !== 'string') {
-        return error(c, ErrorCode.PARAM_ERROR, '昵称必须是字符串', 400);
-      }
-      const hasBio = form.has('bio');
-      const bio = form.get('bio');
-      if (hasBio && typeof bio !== 'string') {
-        return error(c, ErrorCode.PARAM_ERROR, 'Bio 必须是字符串', 400);
-      }
-      const avatarEntry = form.get('avatar');
-      if (avatarEntry !== null && (!(avatarEntry instanceof File) || avatarEntry.size <= 0)) {
-        return error(c, ErrorCode.PARAM_ERROR, '头像文件不合法', 400);
-      }
-      const avatar = avatarEntry instanceof File ? avatarEntry : undefined;
-      if (!hasNickname && !hasBio && !avatar) {
-        return error(c, ErrorCode.PARAM_ERROR, '至少提交昵称、Bio 或头像', 400);
-      }
+    const hasNickname = form.has('nickname');
+    const nickname = form.get('nickname');
+    if (hasNickname && typeof nickname !== 'string') {
+      return error(c, ErrorCode.PARAM_ERROR, '昵称必须是字符串', 400);
+    }
+    const hasBio = form.has('bio');
+    const bio = form.get('bio');
+    if (hasBio && typeof bio !== 'string') {
+      return error(c, ErrorCode.PARAM_ERROR, 'Bio 必须是字符串', 400);
+    }
+    const avatarEntry = form.get('avatar');
+    if (avatarEntry !== null && (!(avatarEntry instanceof File) || avatarEntry.size <= 0)) {
+      return error(c, ErrorCode.PARAM_ERROR, '头像文件不合法', 400);
+    }
+    const avatar = avatarEntry instanceof File ? avatarEntry : undefined;
+    const avatarIntent = form.get('avatarIntent');
+    if ((avatarIntent !== null && avatarIntent !== 'replace')
+      || (c.req.method === 'POST' && avatarIntent !== 'replace')) {
+      return error(c, ErrorCode.PARAM_ERROR, '头像更新意图不合法', 400);
+    }
+    if (avatarIntent === 'replace' && !avatar) {
+      return error(c, ErrorCode.PARAM_ERROR, '头像文件未随请求上传，请重新选择', 400);
+    }
+    if (!hasNickname && !hasBio && !avatar) {
+      return error(c, ErrorCode.PARAM_ERROR, '至少提交昵称、Bio 或头像', 400);
+    }
 
-      appendHttpLogDetail(c, formatHttpLogDetail({
-        nicknameLength: typeof nickname === 'string' ? Array.from(nickname.trim()).length : undefined,
-        bioLength: typeof bio === 'string' ? Array.from(bio.trim()).length : undefined,
-        avatarBytes: avatar?.size ?? 0,
-      }));
-      const profile = await service.updateProfile(c.get('userId'), {
-        nickname: hasNickname ? nickname : undefined,
-        bio: hasBio ? bio : undefined,
-        avatar,
-      });
-      return success(c, profile);
-    },
-  );
+    appendHttpLogDetail(c, formatHttpLogDetail({
+      nicknameLength: typeof nickname === 'string' ? Array.from(nickname.trim()).length : undefined,
+      bioLength: typeof bio === 'string' ? Array.from(bio.trim()).length : undefined,
+      avatarBytes: avatar?.size ?? 0,
+    }));
+    const profile = await service.updateProfile(c.get('userId'), {
+      nickname: hasNickname ? nickname : undefined,
+      bio: hasBio ? bio : undefined,
+      avatar,
+    });
+    return success(c, profile);
+  };
+
+  routes.put('/profile', profileBodyLimit, updateProfile);
+  // wx.uploadFile 固定使用 POST；保留 PUT 供文本更新和 Web FormData 调用。
+  routes.post('/profile', profileBodyLimit, updateProfile);
 
   routes.delete('/profile/avatar', async (c) => {
     return success(c, await service.clearAvatar(c.get('userId')));
