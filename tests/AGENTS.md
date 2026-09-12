@@ -2,7 +2,7 @@
 > L2 | 父级: /AGENTS.md
 
 成员清单
-academic-refresh-rate-limit.test.ts: 学业/Portal 强制刷新共享桶与 classrooms/evaluation 固定实时回源独立桶回归测试
+academic-refresh-rate-limit.test.ts: 学业/Portal 强制刷新共享桶、classrooms/evaluation 固定实时回源独立桶与日历 24 小时窗口双向隔离回归测试
 academic-compat.test.ts: Academic canonical composition 与旧 services Facade 的运行时引用一致性测试
 admin-dashboard-activity.test.ts: 管理后台活跃度、仅 CAS/Portal/JW 基础凭证计数、显式渠道优先级与历史 unknown 隔离口径回归测试
 admin-session.test.ts: 后台 HttpOnly Cookie 会话建立、无自动过期、保护与撤销回归测试
@@ -13,6 +13,7 @@ activity-outbox-integration.test.ts: Discover 点赞与 Treehole 评论的事实
 business-flows.test.ts: 核心业务流薄聚合入口，在独立 Bun 进程内装配 business-flows/ 能力用例并维持模块 mock 隔离
 business-flows/: 登录、凭证及五秒恢复冷却、课表/日历、缓存与持久化边界的共享支架和细分能力用例
 cache-modernization.test.ts: Cache 永久/限时新鲜度、数据时间/LRU 访问时间分离、版本 envelope、快照条件失效、singleflight 与 observer 隔离回归测试
+calendar-semester.test.ts: 当前学期逐周完整性、独立 24 小时订阅窗口、并发合流、跨实例持久化、其他行为隔离与失败保留旧 ICS 回归
 calendar-compat.test.ts: Calendar canonical 实现与 routes/services/auth 旧 Facade 的引用、token 别名与 HMAC 语义兼容测试
 campus-http-client.test.ts: 本地真实流式 HTTP 响应验证正文迟到的单次/总预算、超时重试与 Response 元数据/二进制/重定向合同
 campus-integrations-compat.test.ts: Campus Integrations canonical 实现与 auth/core/parsers/services 旧 Facade 的引用一致性测试

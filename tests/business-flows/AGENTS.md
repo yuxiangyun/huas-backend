@@ -6,7 +6,7 @@
 ## 成员清单
 
 auth-login.cases.ts: 登录能力用例，覆盖本地快捷、CAS、验证码原因透传、Portal-only、激活全失败仍提交真实登录上下文但不签 JWT、并发 upsert、限流与错误映射
-calendar-subscription.cases.ts: 日历订阅用例，覆盖签名、移动教务单源周缓存与 15 分钟刷新、失败不跨源、ICS UID/折行与日期推导
+calendar-subscription.cases.ts: 日历订阅用例，覆盖签名、移动教务整学期快照与普通周缓存隔离、24 小时命中不回源、失败不跨源、ICS UID/折行与日期推导
 credential-recovery.cases.ts: 凭证恢复用例，覆盖能力感知并发 join/串行补足、Portal-only 的 JW 隔离、航班失败释放、CAS 成功失败的 epoch 边界、JW/Portal 刷新与超时穿透
 recovery-cooldown.cases.ts: 五秒固定窗口与到期合流、本地登录无上游、维护及 Portal HTTP 故障证据分类、能力隔离和真实登录阻断迟到恢复的事故回归
 harness.ts: 进程级共享支架，先注册 Campus Integrations、Academic、Portal 与移动教务客户端模块 mock，再延迟装载业务模块并重置逐用例状态

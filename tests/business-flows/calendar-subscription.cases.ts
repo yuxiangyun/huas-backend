@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 Calendar 路由、移动教务课表缓存、签名与 ICS 测试工厂
- * [OUTPUT]: 验证订阅签名、缓存复用、单源隔离、UID、折行与日期推导
+ * [INPUT]: 依赖 Calendar 路由、移动教务单周学期替身、独立订阅快照、签名与 ICS 测试工厂
+ * [OUTPUT]: 验证订阅签名、学期快照与周缓存隔离、单源隔离、UID、折行与日期推导
  * [POS]: tests/business-flows 的独立能力用例集，由聚合入口在进程级 mock 隔离内装配
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -19,7 +19,7 @@ import {
 } from './harness';
 
 describe('日历订阅', () => {
-  it('固定 token 链接可生成并输出本周 ICS', async () => {
+  it('固定 token 链接可生成并输出当前学期 ICS', async () => {
     const userId = await createUser('2023001777', 'pass-calendar');
     const app = new Hono();
     registerRoutes(app);
@@ -75,7 +75,7 @@ describe('日历订阅', () => {
     expect(secondLinkBody.data.url).toBe(linkBody.data.url);
   });
 
-  it('移动教务本周缓存已存在时，日历直接复用同一缓存', async () => {
+  it('学期订阅独立采集，登录及周缓存刷新不绕过 24 小时窗口', async () => {
     const userId = await createUser('2023001999', 'pass-calendar-shared-cache');
     const app = new Hono();
     registerRoutes(app);
@@ -113,14 +113,25 @@ describe('日历订阅', () => {
     const linkBody = await linkRes.json() as any;
     const subscriptionUrl = new URL(linkBody.data.url);
 
+    const { CalendarSnapshotCacheStore } = await import('../../src/modules/calendar/infrastructure/calendar-snapshot.store');
+    const snapshots = new CalendarSnapshotCacheStore();
+    const login = () => app.request('http://localhost/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: '2023001999', password: 'pass-calendar-shared-cache' }),
+    });
+    expect((await login()).status).toBe(200);
+    expect(await snapshots.get(userId)).toBeNull();
     const icsRes = await app.request(subscriptionUrl.toString());
     expect(icsRes.status).toBe(200);
-    expect(upstreamState.upstreamCallCount).toBe(1);
+    expect(upstreamState.upstreamCallCount).toBe(2);
 
     const ics = await icsRes.text();
     expect(ics).toContain('SUMMARY:线性代数');
     expect(ics).toContain(`DTSTART;TZID=Asia/Shanghai:${addDaysInTest(currentWeek.startDate, 2).replace(/-/g, '')}T100000`);
 
+    const snapshot = await snapshots.get(userId);
+    expect((await login()).status).toBe(200);
+    expect(await snapshots.get(userId)).toEqual(snapshot);
     const cacheKey = `mobile-jw-schedule:2023001999:${currentWeek.startDate}`;
     await getDb().update(schema.cache)
       .set({ createdAt: new Date(Date.now() - 16 * 60 * 1000) })
@@ -152,7 +163,7 @@ describe('日历订阅', () => {
     expect(generateCalendarSignature('2023001001')).not.toBe(generateCalendarSignature('2023001002'));
   });
 
-  it('本周缓存未命中时仅回源一次，后续订阅请求命中缓存', async () => {
+  it('学期快照未命中时采集一轮，后续订阅请求命中快照', async () => {
     const userId = await createUser('2023001888', 'pass-calendar-cache');
     const app = new Hono();
     registerRoutes(app);

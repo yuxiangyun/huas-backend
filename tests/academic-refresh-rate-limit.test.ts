@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Academic canonical composition mock、Hono 路由、JWT 与 SQLite 测试环境
- * [OUTPUT]: 验证课表/成绩/Portal refresh 限流桶、固定实时回源桶及普通缓存读取不占用配额
+ * [OUTPUT]: 验证课表/成绩/Portal refresh 限流桶、固定实时回源桶，以及普通读取和日历订阅窗口的双向配额隔离
  * [POS]: tests 的 Academic HTTP 限流回归，mock 边界对齐 modules/academic composition root
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -14,11 +14,13 @@ import {
   mock,
 } from 'bun:test';
 import { Hono } from 'hono';
+import { isPreferredScheduleSource, isScheduleSourceMode } from '../src/modules/academic/domain/schedule-source-policy';
 
 const serviceCalls = {
   grades: 0,
   portalSchedule: 0,
   schedule: 0,
+  calendar: 0,
 };
 
 const scheduleService = {
@@ -57,7 +59,8 @@ const portalScheduleService = {
 };
 
 mock.module('../src/modules/academic/schedule.ts', () => ({
-  isScheduleSourceMode: (value: unknown) => value === 'jw-first' || value === 'portal-first',
+  isScheduleSourceMode,
+  isPreferredScheduleSource,
   ScheduleService: scheduleService,
   PortalScheduleService: portalScheduleService,
   ScheduleSourcePolicy: {
@@ -69,6 +72,10 @@ mock.module('../src/modules/academic/schedule.ts', () => ({
     },
   },
   ScheduleFacade: {
+    async getMobileJwSemesterSchedule() {
+      serviceCalls.calendar += 1;
+      return { semesterId: '2026-2027-1', startDate: '2026-09-07', courses: [] };
+    },
     async getSchedule(options: any) {
       return {
         ...await scheduleService.getSchedule(options.userId, options.studentId),
@@ -151,11 +158,39 @@ beforeEach(async () => {
   serviceCalls.grades = 0;
   serviceCalls.portalSchedule = 0;
   serviceCalls.schedule = 0;
+  serviceCalls.calendar = 0;
   resetAcademicRefreshRateLimitStateForTests();
   await resetDb();
 });
 
 describe('教务 refresh 限流', () => {
+  it('日历回源和学业 refresh 桶双向隔离，生成链接不消耗日历窗口', async () => {
+    const { CalendarSnapshotCacheStore } = await import('../src/modules/calendar/infrastructure/calendar-snapshot.store');
+    const snapshots = new CalendarSnapshotCacheStore();
+    const app = createApp();
+    for (const calendarFirst of [false, true]) {
+      const studentId = `calendar-isolated-${calendarFirst}`;
+      const userId = await createUser(studentId);
+      const headers = await authHeaderFor(userId, studentId);
+      const link = await app.request('http://localhost/api/calendar/link', { headers });
+      const { data: { url } } = await link.json() as any;
+      expect(await snapshots.get(userId)).toBeNull();
+      const readCalendar = async () => {
+        for (let i = 0; i < 8; i += 1) expect((await app.request(url)).status).toBe(200);
+      };
+      if (calendarFirst) await readCalendar();
+      const before = await snapshots.get(userId);
+      for (let i = 0; i < 5; i += 1) {
+        expect((await app.request('http://localhost/api/schedule?refresh=true', { headers })).status).toBe(200);
+      }
+      expect(await snapshots.get(userId)).toEqual(before);
+      expect((await app.request('http://localhost/api/schedule?refresh=true', { headers })).status).toBe(429);
+      await readCalendar();
+    }
+    expect(serviceCalls.calendar).toBe(2);
+    expect(serviceCalls.schedule).toBe(10);
+  });
+
   it('固定实时回源不依赖 refresh 参数并使用独立限流桶', async () => {
     const app = new Hono();
     app.use('*', async (c, next) => {

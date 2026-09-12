@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 config.calendar、Calendar application 与 HMAC/SQLite/Academic 生产适配器
+ * [INPUT]: 依赖 config.calendar、Calendar application 与 HMAC/SQLite 用户及订阅快照/Academic 生产适配器
  * [OUTPUT]: 对外提供 createCalendarApplication 纯装配函数与 defaultCalendarApplication 生产实例
  * [POS]: calendar/infrastructure 的 composition root，唯一负责把外部实现注入应用层
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -12,17 +12,20 @@ import type {
   CalendarClock,
   CalendarRuntimeConfig,
   CalendarScheduleResult,
+  CalendarSnapshotStore,
   CalendarSignaturePort,
   CalendarUserReader,
 } from '../application/calendar.ports';
 import { AcademicScheduleAdapter } from './academic-schedule.adapter';
 import { HmacCalendarSignature } from './hmac-calendar-signature';
 import { SqliteCalendarUserReader } from './sqlite-calendar-user.reader';
+import { CalendarSnapshotCacheStore } from './calendar-snapshot.store';
 
 export function createCalendarApplication<TResult extends CalendarScheduleResult>(options: {
   users: CalendarUserReader;
   signatures: CalendarSignaturePort;
   schedules: AcademicSchedulePort<TResult>;
+  snapshots?: CalendarSnapshotStore;
   clock?: CalendarClock;
   runtimeConfig: CalendarRuntimeConfig;
 }): CalendarSubscriptionApplicationService<TResult> {
@@ -32,6 +35,7 @@ export function createCalendarApplication<TResult extends CalendarScheduleResult
     options.schedules,
     options.clock ?? { now: () => new Date() },
     options.runtimeConfig,
+    options.snapshots ?? new CalendarSnapshotCacheStore(),
   );
 }
 

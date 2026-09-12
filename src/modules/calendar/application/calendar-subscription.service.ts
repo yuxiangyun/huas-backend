@@ -1,28 +1,31 @@
 /**
- * [INPUT]: 依赖 Calendar 最小 ports、纯 ICS/URL/本周规则与 15 分钟快照窗口
+ * [INPUT]: 依赖 Calendar 最小 ports、纯 ICS/URL 规则、持久快照与每用户 24 小时回源窗口
  * [OUTPUT]: 对外提供 CalendarSubscriptionApplicationService 及链接/公开订阅结果契约
- * [POS]: calendar/application 的用例编排核心，统一签名、用户、移动教务单源课表刷新与空 ICS 退化
+ * [POS]: calendar/application 的用例编排核心，订阅读取完整学期快照，合流回源并在失败时保留完整旧日历
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import {
   buildCalendarSubscriptionUrl,
-  buildEmptyWeeklyScheduleIcs,
-  buildWeeklyScheduleIcs,
+  buildSemesterScheduleIcs,
   getCalendarSubscriptionContentHeaders,
   getCurrentWeekRange,
 } from '../domain/calendar';
 import type { CalendarUser } from '../domain/calendar';
+import { AppError, ErrorCode } from '../../../utils/errors';
+import { Logger } from '../../../utils/logger';
 import type {
   AcademicSchedulePort,
   CalendarClock,
   CalendarRuntimeConfig,
   CalendarScheduleResult,
+  CalendarSnapshotStore,
   CalendarSignaturePort,
   CalendarUserReader,
 } from './calendar.ports';
 
 const CALENDAR_SNAPSHOT_MAX_AGE_MS = 15 * 60 * 1000;
+const CALENDAR_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 export type CalendarLinkResult =
   | { kind: 'missing-base-url' }
@@ -42,6 +45,7 @@ export class CalendarSubscriptionApplicationService<TResult extends CalendarSche
     private readonly schedules: AcademicSchedulePort<TResult>,
     private readonly clock: CalendarClock,
     private readonly runtimeConfig: CalendarRuntimeConfig,
+    private readonly snapshots: CalendarSnapshotStore,
   ) {}
 
   createSubscriptionLink(studentId: string): CalendarLinkResult {
@@ -65,21 +69,35 @@ export class CalendarSubscriptionApplicationService<TResult extends CalendarSche
     const user = await this.users.findByStudentId(studentId);
     if (!user) return { kind: 'user-not-found' };
 
-    let ics: string;
-    try {
-      const { range, result } = await this.getCurrentWeekSchedule(user);
-      ics = buildWeeklyScheduleIcs({
-        studentId: user.studentId,
-        name: user.name,
-        weekStart: range.startDate,
-        courses: Array.isArray(result.data?.courses) ? result.data.courses : [],
+    const ics = await this.snapshots.runSingleflight(user.id, () => this.resolveSemesterSnapshot(user));
+    return { kind: 'success', ics, headers: getCalendarSubscriptionContentHeaders() };
+  }
+
+  private async resolveSemesterSnapshot(user: CalendarUser): Promise<string> {
+    const snapshot = await this.snapshots.get(user.id);
+    const now = this.clock.now().getTime();
+    if (snapshot && now - snapshot.attemptedAt < CALENDAR_REFRESH_INTERVAL_MS) {
+      if (snapshot.ics !== null) return snapshot.ics;
+      throw new AppError(ErrorCode.SERVICE_ACCOUNT_UNAVAILABLE, '日历尚无完整课表，请在回源窗口到期后重试', {
+        nextRetryAt: new Date(snapshot.attemptedAt + CALENDAR_REFRESH_INTERVAL_MS).toISOString(),
       });
-    } catch (error: any) {
-      if (error?.message !== 'SCHEDULE_NOT_AVAILABLE') throw error;
-      ics = buildEmptyWeeklyScheduleIcs({ studentId: user.studentId, name: user.name });
     }
 
-    return { kind: 'success', ics, headers: getCalendarSubscriptionContentHeaders() };
+    // 先持久化本轮机会，失败或重启也不能因客户端重复订阅再次回源。
+    await this.snapshots.set(user.id, { v: 1, attemptedAt: now, ics: snapshot?.ics ?? null });
+    try {
+      const semester = await this.schedules.getMobileJwSemesterSchedule(user.id);
+      const ics = buildSemesterScheduleIcs({
+        studentId: user.studentId, name: user.name, semesterId: semester.semesterId,
+        weekStart: semester.startDate, courses: semester.courses, generatedAt: this.clock.now(),
+      });
+      await this.snapshots.set(user.id, { v: 1, attemptedAt: now, ics });
+      return ics;
+    } catch (error) {
+      Logger.warn('Calendar', '整学期采集失败，保留原快照及本轮回源时间', `userId=${user.id}; hasSnapshot=${snapshot?.ics != null}`);
+      if (snapshot?.ics != null) return snapshot.ics;
+      throw error;
+    }
   }
 
   resolveUser(studentId: string): Promise<CalendarUser | null> {

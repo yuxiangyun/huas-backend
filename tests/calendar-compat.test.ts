@@ -56,7 +56,7 @@ describe('Calendar 兼容 Facade', () => {
     expect(verifyCalendarToken('2023001002', signature)).toBe(false);
   });
 
-  it('Academic 显式暂无课表时应用层仍输出空 ICS', async () => {
+  it('Academic 无完整学期时返回错误，避免空 ICS 清除客户端已有事件', async () => {
     const service = createCalendarApplication({
       users: {
         findByStudentId: async (studentId) => ({ id: 1, studentId, name: '测试用户' }),
@@ -66,6 +66,9 @@ describe('Calendar 兼容 Facade', () => {
         verify: () => true,
       },
       schedules: {
+        getMobileJwSemesterSchedule: async () => {
+          throw new Error('SCHEDULE_NOT_AVAILABLE');
+        },
         getMobileJwSchedule: async () => {
           throw new Error('SCHEDULE_NOT_AVAILABLE');
         },
@@ -74,11 +77,6 @@ describe('Calendar 兼容 Facade', () => {
       runtimeConfig: { baseUrl: 'https://calendar.example.test', secretConfigured: true },
     });
 
-    const result = await service.resolveSubscription('2023001001', 'valid-signature');
-    expect(result.kind).toBe('success');
-    if (result.kind !== 'success') throw new Error('expected success');
-    expect(result.ics).toContain('BEGIN:VCALENDAR');
-    expect(result.ics).not.toContain('BEGIN:VEVENT');
-    expect(result.headers['Content-Disposition']).toBe('inline; filename="schedule.ics"');
+    await expect(service.resolveSubscription('2023001001', 'valid-signature')).rejects.toThrow('SCHEDULE_NOT_AVAILABLE');
   });
 });

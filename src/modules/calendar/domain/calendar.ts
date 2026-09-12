@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 仅依赖共享 ICourse 数据契约与 node:crypto 的确定性 SHA-1
- * [OUTPUT]: 对外提供北京本周范围、优先使用课程 date 并兼容旧日期的 ICS 序列化、订阅 URL、响应头与节次时间纯规则
+ * [OUTPUT]: 对外提供北京本周范围、周/学期 ICS 序列化、24 小时客户端刷新提示、订阅 URL、响应头与节次时间纯规则
  * [POS]: calendar/domain 的纯规则核心，不读配置、数据库、网络或应用运行态
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -173,9 +173,10 @@ export function buildWeeklyScheduleIcs(options: {
   weekStart: string;
   courses: ICourse[];
   generatedAt?: Date;
+  semesterId?: string;
 }): string {
   const generatedAt = options.generatedAt || new Date();
-  const calendarName = `${options.name || options.studentId} 本周课表`;
+  const calendarName = `${options.name || options.studentId} ${options.semesterId ? `${options.semesterId} 学期课表` : '本周课表'}`;
   const lines: string[] = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
@@ -184,6 +185,7 @@ export function buildWeeklyScheduleIcs(options: {
     'METHOD:PUBLISH',
     `X-WR-CALNAME:${escapeIcsText(calendarName)}`,
     `X-WR-TIMEZONE:${ICS_TIMEZONE}`,
+    ...(options.semesterId ? ['REFRESH-INTERVAL;VALUE=DURATION:P1D', 'X-PUBLISHED-TTL:P1D'] : []),
     'BEGIN:VTIMEZONE',
     `TZID:${ICS_TIMEZONE}`,
     'BEGIN:STANDARD',
@@ -233,6 +235,10 @@ export function buildWeeklyScheduleIcs(options: {
 
   lines.push('END:VCALENDAR');
   return `${lines.join('\r\n')}\r\n`;
+}
+
+export function buildSemesterScheduleIcs(options: Parameters<typeof buildWeeklyScheduleIcs>[0] & { semesterId: string }): string {
+  return buildWeeklyScheduleIcs(options);
 }
 
 export function buildEmptyWeeklyScheduleIcs(options: {

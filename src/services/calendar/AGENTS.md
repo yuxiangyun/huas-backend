@@ -5,7 +5,7 @@
 calendar-subscription-service.ts: Calendar canonical 公开 API 的单向再导出 Facade，保留旧函数名与路径
 
 架构决策
-旧 services 路径不再保存订阅实现；签名、15 分钟快照与 ICS 规则唯一归属 modules/calendar。
+旧 services 路径不再保存订阅实现；签名、学期快照、订阅专属 24 小时窗口与 ICS 规则唯一归属 modules/calendar。
 
 开发规范
 ICS UID、签名链接和缓存复用规则变更必须跑日历订阅测试。

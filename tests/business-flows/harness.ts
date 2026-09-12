@@ -158,7 +158,8 @@ mock.module('../../src/modules/campus-integrations/mobile-jw/schedule-client.ts'
         };
       });
       return { data: [{
-        week: 1, date: Array.from({ length: 7 }, (_, i) => ({ mxrq: addDaysInTest(startDate, i) })),
+        week: 1, topInfo: [{ semesterId: '2026-2027-1', maxWeek: 1 }],
+        date: Array.from({ length: 7 }, (_, i) => ({ mxrq: addDaysInTest(startDate, i) })),
         nodesLst: Array.from({ length: 12 }, (_, i) => ({ nodeNumber: i + 1 })), courses,
         item: Array.from({ length: 7 }, (_, i) => [courses.filter((course: any) => Number(course.classTime[0]) === i + 1)]),
       }] };
