@@ -1,3 +1,10 @@
+<!--
+[INPUT]: 依赖后端 HTTP 路由、Academic 来源编排与共享响应/缓存契约
+[OUTPUT]: 提供校园 API 参数、来源首选与后台回退边界、响应元信息和错误语义
+[POS]: docs/api 的校园业务契约入口，社交与 Operations 细节委托分册
+[PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+-->
+
 # HUAS Server API 文档
 
 > 基线日期：2026-08-23
@@ -20,7 +27,7 @@
 | `DELETE /api/admin/discover/posts/:id` | 后台 HttpOnly Cookie | Discover 管理删帖 |
 | `GET/DELETE /api/admin/treehole/*` | 后台 HttpOnly Cookie | Treehole 管理接口 |
 | `GET /api/admin/messaging/*` | 后台 HttpOnly Cookie | 私信会话、消息与媒体只读管理接口 |
-| `GET /api/schedule` | Bearer JWT | 后端策略控制 JW/Portal 优先级的统一周课表 |
+| `GET /api/schedule` | Bearer JWT | 用户首选前置、后续由后台策略编排的统一周课表 |
 | `GET /api/v1/schedule` | Bearer JWT | Portal 优先课表；周视图请求失败时可回退 JW |
 | `GET /api/calendar/link` | Bearer JWT | 获取当前用户日历订阅链接 |
 | `GET /api/grades` | Bearer JWT | 成绩 |
@@ -99,13 +106,13 @@ GET /calendar/schedule.ics?studentId=2023001001&sig=<hmac_sha256(studentId, CALE
 | `cache_time` | string | 当前缓存 payload 的写入时间；覆盖写入会更新，读取不会更新 |
 | `updated_at` | string | 当前缓存 payload 的写入时间，与 `cache_time` 相同；LRU 触达不推进此字段，不是本次响应时间或学校电表采样时间 |
 | `expires_at` | string | 缓存过期时间，当前 TTL 为 `0` 的接口通常没有该字段 |
-| `source` | string | 数据源，常见值为 `jw` 或 `portal` |
+| `source` | string | 实际数据来源，课表为 `mobile-jw`、`jw` 或 `portal` |
 | `stale` | boolean | `true` 表示回退到了旧缓存，或读取到了过期缓存 |
 | `refresh_failed` | boolean | `true` 表示本次回源失败，但返回了旧缓存 |
 | `last_error` | number | 导致回退的错误码，如 `3004`、`5000`；凭证错误 `3003` 不允许被 stale 缓存掩盖 |
 | `policy_mode` | string | `/api/schedule` 本次请求采用的 `mobile-jw-first`、`jw-first` 或 `portal-first` 快照 |
-| `primary_source` | string | 本次策略首选来源，取值 `jw` 或 `portal` |
-| `fallback` | string | 实际跨源/旧缓存回退，取值 `jw`、`portal` 或 `stale` |
+| `primary_source` | string | 本次实际执行的首选来源，取值 `mobile-jw`、`jw` 或 `portal`；传入用户首选时反映用户首选，`policy_mode` 仍记录后台快照 |
+| `fallback` | string | 实际跨源/旧缓存回退，取值 `mobile-jw`、`jw`、`portal` 或 `stale` |
 
 ### 2.3 失败响应
 
@@ -148,7 +155,7 @@ GET /calendar/schedule.ics?studentId=2023001001&sig=<hmac_sha256(studentId, CALE
 - 所有 7 个带缓存语义的校园业务接口都会把成功回源结果写入 `cache` 表
 - `refresh=false`：先查缓存，命中直接返回
 - `refresh=true`：跳过读缓存，强制回源。JW/Portal 课表、成绩、Portal 余额和资料的 normal/refresh 分别合并并有序提交，较新成功结果不被旧请求覆盖；mobile-yxt 账单和电费保持 miss/refresh 同键合流。
-- `/api/schedule` 的首选来源 current 失败后，必须先尝试第二来源 current；两边都失败才固定按 JW、Portal 顺序查旧缓存
+- `/api/schedule` 必须先穷尽本次所有来源的 current，再按后台原参与范围及移动教务、JW、Portal 固定顺序查旧缓存；用户首选只前置 current，不更改 stale 规则
 - 其他单源业务回源失败时：如果同 key 还有旧缓存，会回退旧缓存并返回 `_meta.stale=true`
 
 ### 3.2 当前 TTL
@@ -487,7 +494,7 @@ CAS 统一认证登录。
 
 ### 6.4 `GET /api/schedule`
 
-后端热策略控制的统一周课表接口。客户端不能通过 query 选择来源；每次请求开始时读取一次策略快照。
+统一周课表接口，每次请求开始时读取一次后台策略快照。可选 `preferred_source` 只决定本次 current 首先尝试哪个来源，不写入或替换后台持久化策略；未传时保持旧客户端行为。
 
 移动教务第三源只读取当前学期；历史日期交由 JW/Portal。完整真实上游合同、500+401 恢复规则及验证证据见 [移动教务接入报告](2026-09-05_mobile-jw-contract-report.md)。
 三种状态机：
@@ -498,13 +505,27 @@ jw-first:     JW current → Portal current → JW stale → Portal stale → �
 portal-first: Portal current → JW current → JW stale → Portal stale → 错误/合法空课表
 ```
 
-`current` 保留既有缓存语义：`refresh=false` 可以命中该来源未过期/永久缓存，`refresh=true` 强制访问校园上游。关键约束是单源失败时不得先返回自身 stale；新模式旧缓存顺序为移动教务→JW→Portal，旧两种模式仍为 JW→Portal。`_meta.source` 表示实际数据来源，不能用它推断策略首选来源。
+`current` 保留既有缓存语义：`refresh=false` 可以命中该来源未过期/永久缓存，`refresh=true` 强制访问校园上游。单源内部凭证恢复和有界重试结束后才尝试下一来源，不能先返回自身 stale。合法无课仍是成功结果，不触发跨源回退。
+
+用户首选前置后，按后台原队列继续尝试，跳过本次已尝试的来源；不直接替换首项，避免丢掉原后台首选。全部 current 失败后仍使用原后台策略的旧缓存参与范围与固定顺序，凭证错误继续按原仲裁规则阻止 stale：
+
+| 后台快照 | 用户首选 | current 尝试顺序 | stale 尝试顺序 |
+|---|---|---|---|
+| mobile-jw-first | mobile-jw | mobile-jw → jw → portal | mobile-jw → jw → portal |
+| mobile-jw-first | jw | jw → mobile-jw → portal | mobile-jw → jw → portal |
+| jw-first | mobile-jw | mobile-jw → jw → portal | jw → portal |
+| jw-first | jw | jw → portal | jw → portal |
+| portal-first | mobile-jw | mobile-jw → portal → jw | jw → portal |
+| portal-first | jw | jw → portal | jw → portal |
+
+`_meta.source` 表示实际返回来源；`primary_source` 表示本次首先尝试的来源；`policy_mode` 始终记录后台快照，不被用户偏好改写。首选来源不增加或混用单源缓存键。日历固定单源和 legacy 入口不接受这一偏好。
 
 查询参数：
 
 | 参数 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `date` | string | 否 | `YYYY-MM-DD`，默认取北京时间当天 |
+| `preferred_source` | string | 否 | 仅 `mobile-jw`（智慧文理）或 `jw`（教务系统）；空串/其它值返回 4002。客户端可本机保存，每次请求透传，后台不持久化个人偏好 |
 | `refresh` | string | 否 | `true` 表示跳过读缓存并强制回源 |
 
 正常响应：

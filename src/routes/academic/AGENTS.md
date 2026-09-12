@@ -5,7 +5,7 @@
 classroom.routes.ts: 空教室 HTTP 适配器，以固定实时回源桶限流后解析楼栋/日期/节次查询并调用 ClassroomFreeService
 evaluation.routes.ts: 评教 HTTP 适配器，以固定实时回源桶限流发现/状态/提交并返回 actionable/blocked、有界批次与回查结果
 grade.routes.ts: 成绩 HTTP 适配器，解析查询参数并调用 GradeService
-schedule.routes.ts: 统一周课表 HTTP 适配器，读取 date/refresh 参数并委托后端热策略 ScheduleFacade，不接受客户端来源选择
+schedule.routes.ts: 统一周课表 HTTP 适配器，读取 date/refresh 并严格校验可选 preferred_source（mobile-jw/jw），委托 Academic 在后台快照上前置首选；无参数保持原行为
 
 架构决策
 教务路由表达统一业务入口；具体来源 plan、current/stale 分阶段缓存、刷新、fallback 和凭证恢复由 Academic 与 middleware 承担。

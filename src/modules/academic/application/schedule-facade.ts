@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖移动教务/JW/Portal current/stale readers、来源策略快照、fallback error 与日期/错误工具
+ * [INPUT]: 依赖移动教务/JW/Portal current/stale readers、后台策略快照与用户首选前置规则、fallback error 与日期/错误工具
  * [OUTPUT]: 对外提供 ScheduleFacadeApplicationService、单源 reader ports、统一有序三源编排与移动教务固定单源入口
- * [POS]: academic/application 的课表编排门面，先穷尽 current 再固定读 stale，仲裁排除来源能力限制并保留 legacy 未公布短路
+ * [POS]: academic/application 的课表编排门面，用户只调整 current 首选；stale 保持后台参与范围与固定顺序，仲裁排除来源能力限制并保留 legacy 未公布短路
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -18,6 +18,8 @@ import type {
 } from '../domain/schedule';
 import {
   getScheduleSourcePlan,
+  prioritizeScheduleSource,
+  type PreferredScheduleSource,
   type ScheduleSourceMode,
   type ScheduleSourcePolicySnapshot,
 } from '../domain/schedule-source-policy';
@@ -92,6 +94,7 @@ type OrchestrationOptions = {
   forceRefresh: boolean;
   range: PortalRange & { queryDate?: string };
   plan: readonly ScheduleSource[];
+  staleSources?: readonly ScheduleSource[];
   stopOnUnavailable: boolean;
   policy?: ScheduleSourcePolicySnapshot;
 };
@@ -272,14 +275,17 @@ export class ScheduleFacadeApplicationService {
     date?: string;
     forceRefresh?: boolean;
     name?: string;
+    preferredSource?: PreferredScheduleSource;
   }): Promise<ScheduleFacadeResult> {
     if (!this.policy) throw new Error('SCHEDULE_SOURCE_POLICY_NOT_CONFIGURED');
     const policy = await this.policy.status();
+    const policyPlan = getScheduleSourcePlan(policy.mode);
     return this.orchestrate({
       ...options,
       forceRefresh: options.forceRefresh ?? false,
       range: getWeekRange(options.date),
-      plan: getScheduleSourcePlan(policy.mode),
+      plan: prioritizeScheduleSource(policyPlan, options.preferredSource),
+      staleSources: policyPlan,
       stopOnUnavailable: false,
       policy,
     });
@@ -365,7 +371,7 @@ export class ScheduleFacadeApplicationService {
     if (isCredentialError(selectedError)) throw selectedError;
 
     for (const source of STALE_SOURCE_PLAN) {
-      if (!errors.has(source) || !options.plan.includes(source)) continue;
+      if (!errors.has(source) || !(options.staleSources ?? options.plan).includes(source)) continue;
       const stale = await this.readStale(source, errors.get(source), options);
       if (stale) return completeResult(stale, source, primarySource, 'stale', options.policy);
     }

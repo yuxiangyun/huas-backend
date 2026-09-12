@@ -346,7 +346,7 @@ mobile-yxt 业务会话只在固定 HTTP 401 证据后失效；基础 Portal JWT
 校园卡 overview 把既有 Portal 余额与 mobile-yxt 当前月/此前 23 个自然月的三类交易作为独立子源聚合并分别投影 availability/freshness，交易缓存使用固定长度用户月键并每用户保留 6 个 LRU；账单/电费同键 cache miss 与强刷共享在途回源并使用独立配额，不消耗成绩、课表、Portal/JW 的 Academic refresh 桶。
 电费只读取 electric config/account：先从 config.location 取得房间展示与七个官方位置 code，再带 code 查询 account，电价/电量按 account.templateList code 映射；真正未提供的 price/quantity 诚实投影 null，负电量与账户状态原样保留。明细、水费、上游支付和未验证官方 handoff 均保持关闭。refundFlag 原样投影，totals 仅为有符号金额机械求和，不宣称退款会计语义已由 fixture 证明。
 日历订阅固定通过 Academic 的移动教务单源入口读取本周，复用同源周缓存与 15 分钟刷新，仅允许同源 stale 兜底，不受后台来源策略影响。
-课表由 Academic Facade 按持久化策略编排：mobile-jw-first 依次移动教务、JW、Portal current，再同序 stale；旧 jw-first/portal-first 保留双源行为。无配置时默认 mobile-jw-first，已有文件/env 优先；管理面只调用 Academic 暴露的策略用例。
+课表由 Academic Facade 按持久化策略编排；/api/schedule 可接受 mobile-jw/jw 用户首选，仅前置到本次 current 队列并去重，后备相对顺序和 stale 范围/顺序仍服从后台快照，无首选参数保持原行为：mobile-jw-first 依次移动教务、JW、Portal current，再同序 stale；旧 jw-first/portal-first 保留双源行为。无配置时默认 mobile-jw-first，已有文件/env 优先；管理面只调用 Academic 暴露的策略用例。
 mobile-jw 自有 token-only、无 TTL 的 H5 会话，与 mobile-yxt 共享 Portal-only reader 和基础恢复合流。真实 HTTP 500 + 字符串 code=401 与 HTTP 401/200 的明确失效触发 generation 条件失效和一次重建重放；普通临时故障在 45 秒预算内有限重试。SSO 拒绝仅条件失效当前 Portal JWT，不触碰 JW；TGC 换票提交同时核对 epoch 与 TGC 快照，旧航班不能覆盖新登录或撤销显式清理；同 epoch 普通快照竞争先复用目标凭证或最新有效 TGC 补一次，竞争耗尽按临时超时结束。来源范围不支持独立于未公布且不参与失败仲裁，缺少周元信息仍视为协议错误。课表按响应真实七天日期定位周缓存，指定学期端点的实测假空态不作为正式数据源。
 JW 未公布以来源错误交 Facade 编排且不缓存，历史未公布周/日缓存按快照淘汰，合法无课与非教学周保留空表语义。JW/Portal 课表、成绩与 Portal 资料回源保持 normal/refresh 独立合并，缓存及资料回写按回源开始代次串行提交，较新成功值不被旧航班覆盖；旧 JW 日缓存只按原快照保时无覆盖提升。Portal 课表严格校验完整结构并保留独立 date，旧无版本永久缓存首次访问须重新回源；评教每调用固定一次批次目标，只恢复读取，POST 不重放；已尝试 POST 在批末无完成增量或验证失败时显式返回 unknown，验证失败另标记旧列表快照。
 成绩强制刷新执行 JW fresh-first：45 秒总预算内有限恢复凭证并重试明确临时错误，只有新鲜路径穷尽后才允许 stale fallback。

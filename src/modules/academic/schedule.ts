@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖课表/策略 application service、文件策略 store、MobileJwScheduleClient、config 与 defaultAcademicRuntimePorts
- * [OUTPUT]: 对外提供兼容静态类 ScheduleService、PortalScheduleService、ScheduleFacade、ScheduleSourcePolicy 及课表类型
+ * [OUTPUT]: 对外提供兼容静态类 ScheduleService、PortalScheduleService、ScheduleFacade、ScheduleSourcePolicy 及课表类型和用户首选来源校验
  * [POS]: academic 的 Schedule composition root，唯一负责单源读取、三源编排、日历移动教务单源入口与热策略持久化装配
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -70,5 +70,5 @@ export class ScheduleSourcePolicy {
 }
 
 export type { ScheduleFacadeResult, ScheduleRequestMeta } from './domain/schedule';
-export type { ScheduleSourceMode, ScheduleSourcePolicySnapshot } from './domain/schedule-source-policy';
-export { isScheduleSourceMode } from './domain/schedule-source-policy';
+export type { PreferredScheduleSource, ScheduleSourceMode, ScheduleSourcePolicySnapshot } from './domain/schedule-source-policy';
+export { isPreferredScheduleSource, isScheduleSourceMode } from './domain/schedule-source-policy';

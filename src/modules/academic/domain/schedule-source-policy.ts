@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 无运行时依赖，表达课表来源编排模式与持久化端口
- * [OUTPUT]: 对外提供 ScheduleSourceMode、PolicySnapshot、PolicyStore 与来源顺序纯规则
+ * [OUTPUT]: 对外提供后台策略、用户首选来源校验与首选前置去重规则；后台后备顺序保持原样
  * [POS]: academic/domain 的课表来源策略语言，隔离 application 编排与文件热状态实现
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -8,6 +8,20 @@
 import type { ScheduleSource } from './schedule';
 
 export type ScheduleSourceMode = 'mobile-jw-first' | 'jw-first' | 'portal-first';
+export type PreferredScheduleSource = 'mobile-jw' | 'jw';
+
+export function isPreferredScheduleSource(value: unknown): value is PreferredScheduleSource {
+  return value === 'mobile-jw' || value === 'jw';
+}
+
+export function prioritizeScheduleSource(
+  plan: readonly ScheduleSource[],
+  preferredSource?: PreferredScheduleSource,
+): readonly ScheduleSource[] {
+  if (!preferredSource) return plan;
+  // 首选失败后继续后台原有队列；该来源已完成自身恢复，不重复尝试。
+  return [preferredSource, ...plan.filter(source => source !== preferredSource)];
+}
 
 export interface ScheduleSourcePolicySnapshot {
   mode: ScheduleSourceMode;
