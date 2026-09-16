@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖业务流上游替身、可控时钟、真实 Identity 提交事务与 CredentialManager
- * [OUTPUT]: 验证五秒固定窗口、Portal HTTP 故障证据穿透、本地登录隔离、能力失败隔离、换票合流及新登录阻断迟到恢复
+ * [OUTPUT]: 验证 CAS 安全读取共享重试、execution 缺失非超时、五秒固定窗口、Portal HTTP 故障证据穿透、本地登录隔离、能力失败隔离、换票合流及新登录阻断迟到恢复
  * [POS]: tests/business-flows 的登录恢复事故回归，以调用次数和最终凭证事实证明兼容性
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -112,7 +112,9 @@ describe('五秒恢复冷却与真实登录隔离', () => {
       };
       try {
         for (let index = 0; index < 4; index += 1) {
-          await expect(CredentialManager.getOrRefreshPortalCredentialWithoutJw(userId)).rejects.toThrow('REQUEST_TIMEOUT');
+          const attempt = CredentialManager.getOrRefreshPortalCredentialWithoutJw(userId);
+          if (failure === 'maintenance') await expect(attempt).rejects.toThrow('REQUEST_TIMEOUT');
+          else await expect(attempt).rejects.toMatchObject({ code: 3005, httpStatus: 503 });
         }
         expect(calls).toBe(1);
         expect(await CredentialManager.requiresInteractiveLogin(userId)).toBe(false);
@@ -158,9 +160,11 @@ describe('五秒恢复冷却与真实登录隔离', () => {
     authBehavior.login = async () => { casCalls += 1; return { success: true, portalToken: 'portal-ok', steps: [] }; };
     ticketBehavior.exchangeJwSession = async () => { jwCalls += 1; return { success: false, steps: [] }; };
     try {
-      expect(await CredentialManager.getOrRefreshCredential(userId, 'jw_session')).toBeNull();
+      await expect(CredentialManager.getOrRefreshCredential(userId, 'jw_session'))
+        .rejects.toMatchObject({ code: 3005, httpStatus: 503 });
       expect((await CredentialManager.getOrRefreshPortalCredentialWithoutJw(userId))?.value).toBe('portal-ok');
-      expect(await CredentialManager.getOrRefreshCredential(userId, 'jw_session')).toBeNull();
+      await expect(CredentialManager.getOrRefreshCredential(userId, 'jw_session'))
+        .rejects.toMatchObject({ code: 3005, httpStatus: 503 });
       expect(jwCalls).toBe(1);
       clock.advance(5_000);
       ticketBehavior.exchangeJwSession = async () => { jwCalls += 1; return { success: true, steps: [] }; };
@@ -233,5 +237,81 @@ describe('五秒恢复冷却与真实登录隔离', () => {
       expect((await CredentialManager.getOrRefreshPortalCredentialWithoutJw(userId))?.value).toBe('new-login-portal');
       expect(readSchoolLoginEpoch(getDb(), userId)).toBe(1);
     }
+  });
+});
+
+describe('CAS 安全读取在共享恢复内重试', () => {
+  for (const phase of ['getCaptcha', 'getExecution'] as const) {
+    it(`${phase} 瞬态失败后真正重试，并发调用只提交一次登录`, async () => {
+      const userId = await createUser(`cas-read-retry-${phase}`, 'password');
+      let reads = 0;
+      let logins = 0;
+      const original = authBehavior[phase];
+      const read = async () => {
+        reads += 1;
+        if (reads === 1) throw new Error('REQUEST_TIMEOUT');
+        return original();
+      };
+      if (phase === 'getCaptcha') authBehavior.getCaptcha = read as typeof authBehavior.getCaptcha;
+      else authBehavior.getExecution = read as typeof authBehavior.getExecution;
+      authBehavior.login = async () => {
+        logins += 1;
+        return { success: true, portalToken: 'recovered-after-read-retry', steps: [] };
+      };
+      const results = await Promise.all(Array.from({ length: 8 }, () =>
+        CredentialManager.getOrRefreshPortalCredentialWithoutJw(userId, Date.now() + 10_000)));
+      expect(results.every((result) => result?.value === 'recovered-after-read-retry')).toBe(true);
+      expect(reads).toBe(2);
+      expect(logins).toBe(1);
+      expect(await CredentialManager.requiresInteractiveLogin(userId)).toBe(false);
+    });
+  }
+
+  it('读取重试耗尽才开始五秒冷却，冷却内请求不再访问 CAS', async () => {
+    const userId = await createUser('cas-read-exhausted', 'password');
+    const clock = clockAtNow();
+    let reads = 0;
+    const failure = new Error('CAS_CAPTCHA_HTTP_503');
+    authBehavior.getCaptcha = async () => {
+      reads += 1;
+      clock.advance(1_000);
+      throw failure;
+    };
+    try {
+      await expect(CredentialManager.getOrRefreshPortalCredentialWithoutJw(userId)).rejects.toBe(failure);
+      expect(reads).toBe(config.retry.businessMaxAttempts);
+      clock.advance(4_999);
+      await expect(CredentialManager.getOrRefreshPortalCredentialWithoutJw(userId)).rejects.toBe(failure);
+      expect(reads).toBe(config.retry.businessMaxAttempts);
+      clock.advance(1);
+      authBehavior.getCaptcha = async () => { reads += 1; return new ArrayBuffer(0); };
+      expect(await CredentialManager.getOrRefreshPortalCredentialWithoutJw(userId)).not.toBeNull();
+      expect(reads).toBe(config.retry.businessMaxAttempts + 1);
+    } finally { clock.restore(); }
+  });
+
+  it('剩余预算不足以退避时不再启动读取或提交登录', async () => {
+    const userId = await createUser('cas-read-deadline', 'password');
+    const clock = clockAtNow();
+    let reads = 0;
+    let logins = 0;
+    authBehavior.getCaptcha = async () => { reads += 1; throw new Error('REQUEST_TIMEOUT'); };
+    authBehavior.login = async () => { logins += 1; return { success: true }; };
+    try {
+      await expect(CredentialManager.getOrRefreshPortalCredentialWithoutJw(userId, Date.now() + 1))
+        .rejects.toThrow('REQUEST_TIMEOUT');
+      expect(reads).toBe(1);
+      expect(logins).toBe(0);
+    } finally { clock.restore(); }
+  });
+
+  it('登录 POST 超时保持原错误，不因安全读取重试而再次提交', async () => {
+    const userId = await createUser('cas-login-no-replay', 'password');
+    let logins = 0;
+    const failure = new Error('REQUEST_TIMEOUT');
+    authBehavior.login = async () => { logins += 1; throw failure; };
+    await expect(CredentialManager.getOrRefreshPortalCredentialWithoutJw(userId)).rejects.toBe(failure);
+    await expect(CredentialManager.getOrRefreshPortalCredentialWithoutJw(userId)).rejects.toBe(failure);
+    expect(logins).toBe(1);
   });
 });

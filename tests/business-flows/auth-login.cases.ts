@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖认证 mock、测试数据库、登录路由、学校登录 epoch、mobile 派生会话仓储与凭证/用户工厂
- * [OUTPUT]: 验证本地/CAS/验证码/Portal-only 登录、真实登录 epoch/派生会话清理、并发 upsert、限流与错误映射
+ * [OUTPUT]: 验证本地/CAS/验证码/Portal-only 登录、真实登录 epoch/派生会话清理、并发 upsert、限流与学校激活失败的 3005/503 映射
  * [POS]: tests/business-flows 的独立能力用例集，由聚合入口在进程级 mock 隔离内装配
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -242,7 +242,8 @@ describe('登录流程', () => {
     });
     const body = await response.json() as any;
 
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(503);
+    expect(body.error_code).toBe(3005);
     expect(body.success).toBe(false);
     expect(body.data?.token).toBeUndefined();
     expect(readSchoolLoginEpoch(getDb(), userId)).toBe(1);
@@ -606,10 +607,12 @@ describe('登录流程', () => {
       body: JSON.stringify({ username: '2023001669', password: 'pass-all-failed' }),
     });
 
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(503);
     const body = await res.json() as any;
     expect(body.success).toBe(false);
-    expect(body.error_message).toBe('学校系统激活失败');
+    expect(body.error_code).toBe(3005);
+    expect(body.data?.token).toBeUndefined();
+    expect(body.error_message).toBe('学校账号验证成功，但学校服务暂时不可用，请稍后重试');
   });
 
   it('Portal 换票超时返回 3004，不误报凭证或密码错误', async () => {

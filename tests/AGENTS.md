@@ -38,7 +38,7 @@ messaging.test.ts: Messaging 延迟会话/目标定位、会话高水位、严�
 messaging-timestamps.test.ts: Messaging 慢图片/快文本并发提交时间与 repository 会话时间单调回归测试
 messaging-upload.test.ts: Messaging HTTP 上传边界，锁定混合字段图片线序、解析前 413 与坏 multipart 的稳定 400
 jw-schedule-unavailable.test.ts: 真实 JW parser→service→Facade 的未公布跨源编排、历史周/日缓存条件淘汰、并发替代值复用及真实空表/stale 保留回归
-mobile-jw.test.ts: 真实 500+401、SSO 同源/Portal 条件失效、会话单飞/epoch/generation、TGC 清理竞态、基础临时故障保持原错误且五秒后恢复、临时错误预算及真实日期/缓存/解析合同回归
+mobile-jw.test.ts: 真实 500+401、SSO 同源/Portal 条件失效、会话单飞/epoch/generation、TGC 清理竞态、基础 CAS 安全读取有界重试后保持原错误且五秒后恢复、临时错误预算及真实日期/缓存/解析合同回归
 mobile-yxt.test.ts: 登录 epoch/Portal 401/200 HTML 恢复、generation 条件失效、Cookie 白名单、Bun/Node 传输错误归一化、账单 freshness/有符号 totals、真实电费合同、同键回源合流、Portal/JW/限流隔离、24 月/6 键 LRU 与旧 `/api/ecard` 合同专项回归
 mobile-yxt-auth-state.test.ts: 严格派生命名空间、损坏/越权 CookieJar 事务淘汰、自动重建、合法会话读取及 Cookie/accessToken 低敏感错误日志专项反例
 social-upload-limits.test.ts: Discover/Community HTTP 上传边界，锁定声明长度、流式及无关字段请求在 formData 前统一返回 413
@@ -59,7 +59,7 @@ treehole.test.ts: Treehole 薄聚合入口，在单进程内装配 treehole/ 公
 treehole/: Treehole HTTP/事务/Community 作者投影与私有图片共享支架，按帖子、媒体、交互和管理能力细分回归用例
 web-social-state.test.ts: 无 DOM 验证私信单一目标/历史合并、资料/详情 URL 互斥、basename 归一化、上传格式、Discover 排序/分页失效与通知 total 校准规则
 web-cache-policy.test.ts: Web 标准/引用/后台/强刷 Query 时间层级及高水位键有界回收策略测试
-upstream-retry.test.ts: Portal/JW 迟到失效保护新登录/轮换凭证、同值登录 epoch 隔离，以及上游请求/凭证恢复次数与 deadline、成绩临时错误、JW 主框架激活验证、CAS 结构化拒绝、HTTP 维护页及 Portal 换票瞬态网络语义回归测试
+upstream-retry.test.ts: Portal/JW 迟到失效保护新登录/轮换凭证、同值登录 epoch 隔离，以及上游请求/凭证恢复次数与 deadline、成绩临时错误、JW 主框架激活验证、CAS 结构化拒绝及 credentialsRejected 标记、HTTP 维护页及 Portal 换票瞬态网络语义回归测试
 
 架构决策
 测试默认隔离学校真实网络，以 mock 边界验证业务编排；e2e.live.test.ts 是唯一真实上游入口。

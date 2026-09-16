@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 db/schema、HttpClient/共享传输错误分类、CAS/TicketExchanger 的凭证与上游故障证据、CryptoHelper、user 级 PerKeySingleflight、真实学校登录事务原语、epoch 绑定的五秒 RecoveryCooldown、config、截止时间、AppError 与 Logger
+ * [INPUT]: 依赖 db/schema、HttpClient/共享传输错误分类及有界 retryAsync、CAS/TicketExchanger 的凭证与上游故障证据、CryptoHelper、user 级 PerKeySingleflight、真实学校登录事务原语、epoch 绑定的五秒 RecoveryCooldown、config、截止时间、AppError 与 Logger
  * [OUTPUT]: 对外提供 CredentialManager 与 CredentialSystem，管理正 TTL 基础凭证、登录代次及请求快照条件失效、五秒冷却、能力感知恢复、TGC 有界补足、Portal-only 窄恢复与验证码/明确凭据拒绝的交互登录状态，认证成功后学校能力不足返回非 401
- * [POS]: campus-integrations/credential-recovery 的基础凭证状态机；共享航班以实际能力自证，能力不足的 joiner 先复用新 TGC 串行补足且 mobile 调用不触碰 JW
+ * [POS]: campus-integrations/credential-recovery 的基础凭证状态机；共享恢复内先重试 CAS 安全读取再施加冷却，不重放登录提交，缺少 execution 保留协议异常；能力不足的 joiner 复用新 TGC 串行补足且 mobile 不触碰 JW
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -16,6 +16,7 @@ import { Logger } from '../../../utils/logger';
 import { AppError, ErrorCode } from '../../../utils/errors';
 import { PerKeySingleflight } from '../../cache/application/singleflight';
 import { isTransientTransportError } from '../http/transport-errors';
+import { retryAsync } from '../http/retry';
 import { RecoveryCooldown, type RecoveryScope } from './recovery-cooldown';
 import {
   commitRealSchoolLoginContext,
@@ -518,16 +519,30 @@ export class CredentialManager {
       ...(jwCookieJar ? ['jw_session' as const] : []),
     ];
 
+    // 安全读取在同一共享恢复内耗尽重试后才进入冷却；登录 POST 不得重放。
+    const readCas = <T>(label: string, read: () => Promise<T>) => retryAsync(read, {
+      attempts: config.retry.businessMaxAttempts,
+      baseDelayMs: config.retry.businessBaseDelayMs,
+      maxDelayMs: config.retry.businessMaxDelayMs,
+      jitterMs: config.retry.businessJitterMs,
+      deadlineAt,
+      shouldRetry: (error) => !staleLogin() && isTransientRecoveryError(error),
+      onRetry: (_error, attempt, delayMs) => {
+        steps.push({ label, ok: false, detail: `retry=${attempt + 1} delayMs=${delayMs}` });
+      },
+      createDeadlineError: () => new Error('REQUEST_TIMEOUT'),
+    });
+
     try {
       // 1. Get CAS cookies
-      await engine.getCaptcha();
+      await readCas('CAS Cookie', () => engine.getCaptcha());
       steps.push({ label: 'CAS Cookie', ok: true });
 
       // 2. Get execution token
-      const execution = await engine.getExecution();
+      const execution = await readCas('Execution', () => engine.getExecution());
       if (!execution) {
         steps.push({ label: 'Execution', ok: false, detail: '获取失败' });
-        throw new Error('REQUEST_TIMEOUT');
+        throw new AppError(ErrorCode.SERVICE_ACCOUNT_UNAVAILABLE, '学校登录服务响应异常，请稍后重试');
       }
       steps.push({ label: 'Execution', ok: true });
 

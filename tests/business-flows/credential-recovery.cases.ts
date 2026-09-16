@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖凭证管理器能力感知 singleflight、正 TTL 写入、学校登录 epoch、CAS/TGC 交换 mock 与持久化凭证状态
- * [OUTPUT]: 验证 Portal-only/JW 并发串行补足与隔离、失败释放、真实 CAS epoch 边界、验证码阻断和超时穿透
+ * [OUTPUT]: 验证 Portal-only/JW 并发串行补足与隔离、失败释放、真实 CAS epoch 边界、验证码阻断、超时穿透和激活失败非 401 语义
  * [POS]: tests/business-flows 的独立能力用例集，由聚合入口在进程级 mock 隔离内装配
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -141,7 +141,8 @@ describe('静默凭证链路', () => {
     authBehavior.login = async () => ({ success: true, portalToken: null, steps: [] });
     ticketBehavior.exchangePortalToken = async () => ({ token: null, steps: [] });
 
-    expect(await CredentialManager.getOrRefreshPortalCredentialWithoutJw(userId)).toBeNull();
+    await expect(CredentialManager.getOrRefreshPortalCredentialWithoutJw(userId))
+      .rejects.toMatchObject({ code: 3005, httpStatus: 503 });
     expect(readSchoolLoginEpoch(getDb(), userId)).toBe(1);
     expect(await getDb().select().from(schema.credentials).where(and(
       eq(schema.credentials.userId, userId),
@@ -156,7 +157,8 @@ describe('静默凭证链路', () => {
     ticketBehavior.exchangePortalToken = async () => ({ token: null, steps: [] });
     ticketBehavior.exchangeJwSession = async () => ({ success: false, steps: [], upstreamUnavailable: false });
 
-    expect(await CredentialManager.getOrRefreshCredential(userId, 'jw_session')).toBeNull();
+    await expect(CredentialManager.getOrRefreshCredential(userId, 'jw_session'))
+      .rejects.toMatchObject({ code: 3005, httpStatus: 503 });
     expect(readSchoolLoginEpoch(getDb(), userId)).toBe(1);
     expect(await CredentialManager.getCredential(userId, 'cas_tgc')).not.toBeNull();
     expect(await getDb().select().from(schema.credentials).where(and(

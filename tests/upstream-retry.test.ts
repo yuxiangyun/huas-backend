@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 upstream、CredentialManager、TicketExchanger、AuthEngine、HttpClient 测试替身与隔离数据库
- * [OUTPUT]: 验证请求快照失效不误删新登录/轮换凭证、恢复/成绩重试预算、JW 激活、Portal 换票及 CAS 故障语义
+ * [OUTPUT]: 验证请求快照失效不误删新登录/轮换凭证、恢复/成绩重试预算、JW 激活、Portal 换票及 CAS 明确凭据拒绝/故障语义
  * [POS]: tests 的学校上游有界恢复回归套件，防止瞬态故障过早降级或无限等待并避免故障退化为凭证/密码错误
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -419,6 +419,7 @@ describe('auth upstream failure semantics', () => {
       success: false,
       needCaptcha: false,
       message: '账号或密码错误',
+      credentialsRejected: true,
       steps: [],
     });
   });
