@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Hono、注入式登录应用服务、登录 DTO、登录限流与登录 analytics 观测端口
- * [OUTPUT]: 对外提供 `/login` Hono 路由与其应用服务实例，保持登录契约并透传可操作的验证码失败原因
+ * [OUTPUT]: 对外提供 `/login` Hono 路由与其应用服务实例，保持登录请求契约，透传验证码原因与非认证型学校服务失败
  * [POS]: identity/http 的薄适配器，只解析/校验 HTTP；验证码清理由根周期任务注册器统一调度
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -14,7 +14,7 @@ import {
   recordAuthLoginFailure,
   resetAuthLoginRateLimit,
 } from '../../../middleware/auth-login-rate-limit.middleware';
-import { ErrorCode } from '../../../utils/errors';
+import { AppError, ErrorCode } from '../../../utils/errors';
 import { appendHttpLogDetail, formatHttpLogDetail } from '../../../utils/http-log';
 import { Logger } from '../../../utils/logger';
 import { error, success } from '../../../utils/response';
@@ -113,14 +113,18 @@ function respondWithFailure(c: Context, username: string, rateLimitKey: string, 
       return error(c, ErrorCode.CAS_LOGIN_FAILED, outcome.message, 400);
     case 'school-activation-failed':
       appendHttpLogDetail(c, 'result=school-activation-failed');
-      Logger.auth(username, '学校系统激活失败', 400, outcome.durationMs, undefined, outcome.steps);
-      return error(c, ErrorCode.CAS_LOGIN_FAILED, outcome.message, 400);
+      Logger.auth(username, outcome.message, 503, outcome.durationMs, undefined, outcome.steps);
+      resetAuthLoginRateLimit(rateLimitKey);
+      return error(c, ErrorCode.SERVICE_ACCOUNT_UNAVAILABLE, outcome.message, 503);
     case 'upstream-timeout':
     case 'exception':
       appendHttpLogDetail(c, formatHttpLogDetail({
         result: outcome.reason === 'upstream-timeout' ? 'upstream-timeout' : 'exception',
       }));
       Logger.error('Auth', '登录异常', outcome.cause);
+      if (outcome.cause instanceof AppError && outcome.cause.code === ErrorCode.SERVICE_ACCOUNT_UNAVAILABLE) {
+        return error(c, outcome.cause.code, outcome.cause.message, outcome.cause.httpStatus);
+      }
       return outcome.reason === 'upstream-timeout'
         ? error(c, ErrorCode.UPSTREAM_TIMEOUT, '学校服务器超时', 504)
         : error(c, ErrorCode.INTERNAL_ERROR, '登录服务异常', 500);
@@ -162,7 +166,7 @@ auth.post('/login', async (c) => {
   }));
 
   const outcome = await loginService.execute(body, {
-    onLocalShortcutDisabled: () => appendHttpLogDetail(c, 'localShortcut=disabled-need-captcha'),
+    onLocalShortcutDisabled: () => appendHttpLogDetail(c, 'localShortcut=disabled-school-reauth'),
   });
   return outcome.kind === 'success'
     ? respondWithSuccess(c, body.username, rateLimitKey, outcome)

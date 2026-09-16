@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖校园 HttpClient、CredentialManager、有截止时间的 retry、config 与统一错误/日志能力
- * [OUTPUT]: 对外提供 UpstreamContext、UpstreamExecutionOptions 与 upstream()，执行有界恢复/重试，并按请求凭证快照条件失效后重建会话
+ * [OUTPUT]: 对外提供 UpstreamContext、UpstreamExecutionOptions 与 upstream()，执行有界恢复/重试，并按请求凭证快照条件失效后重建会话，重放仍失效时返回非认证型服务不可用
  * [POS]: campus-integrations/upstream 的统一执行边界，为 Portal/JW 适配器屏蔽凭证生命周期并落实请求级总预算
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -126,7 +126,14 @@ export async function upstream<T>(
       if (!ctx) {
         throw new AppError(ErrorCode.CREDENTIAL_EXPIRED, '凭证刷新失败，请重新登录');
       }
-      return await executeWithRetry(ctx);
+      try {
+        return await executeWithRetry(ctx);
+      } catch (replayError: any) {
+        if (replayError?.message !== 'SESSION_EXPIRED') throw replayError;
+        // 已完成一次恢复仍不能访问业务，继续要求登录会造成循环。
+        await ctx.invalidateIfCurrent();
+        throw new AppError(ErrorCode.SERVICE_ACCOUNT_UNAVAILABLE, '学校会话恢复后仍不可用，请稍后重试');
+      }
     }
 
     throw e; // Other errors pass through

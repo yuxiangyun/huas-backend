@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 HttpClient、CryptoHelper、URLS、config 与 LoginStep 类型
- * [OUTPUT]: 对外提供 AuthEngine，封装 CAS 验证码、execution、登录提交及结构化失败原因识别
+ * [INPUT]: 依赖 HttpClient、CryptoHelper、URLS、config、统一 AppError 与 LoginStep 类型
+ * [OUTPUT]: 对外提供 AuthEngine，封装 CAS 验证码、execution 与登录提交，仅明确拒绝标记 credentialsRejected，未知响应保留非认证错误
  * [POS]: campus-integrations/cas 的原始登录执行器，区分验证码错误、登录凭证拒绝与真实上游故障
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -9,6 +9,7 @@ import { HttpClient } from '../http/http-client';
 import { CryptoHelper } from '../../../utils/crypto';
 import { URLS } from '../endpoints';
 import { config } from '../../../config';
+import { AppError, ErrorCode } from '../../../utils/errors';
 import type { LoginStep } from '../../../utils/logger';
 
 function assertCasHttpResponse(response: Response, operation: string, allowRedirect = false) {
@@ -103,6 +104,7 @@ export class AuthEngine {
     success: boolean;
     message?: string;
     needCaptcha?: boolean;
+    credentialsRejected?: boolean;
     portalToken?: string | null;
     steps?: LoginStep[];
   }> {
@@ -117,7 +119,9 @@ export class AuthEngine {
     const pubKey = await resKey.text();
     assertNotCasErrorPage(pubKey);
     const encryptedPw = CryptoHelper.encryptPassword(password, pubKey);
-    if (!encryptedPw) return { success: false, message: 'Encryption failed', steps };
+    if (!encryptedPw) {
+      throw new AppError(ErrorCode.SERVICE_ACCOUNT_UNAVAILABLE, '学校认证加密参数异常，请稍后重试');
+    }
 
     // 2. Submit login
     const params = new URLSearchParams();
@@ -173,6 +177,18 @@ export class AuthEngine {
       };
     }
 
-    return { success: false, needCaptcha: false, message: '账号或密码错误', steps };
+    // 只有明确拒绝才能要求用户重新认证；未知 HTML 不能冒充密码错误。
+    const credentialsRejected = res.status === 401 || (casError !== null && (
+      /(?:账号|帐号|用户名|用户|学号|密码).*(?:错误|有误|不正确|不存在|不匹配|无效)/.test(casError)
+      || /(?:账号|帐号|账户|用户).*(?:锁定|禁用|冻结|停用)/.test(casError)
+    ));
+    if (credentialsRejected) {
+      const restricted = /锁定|禁用|冻结|停用/.test(casError || '');
+      return {
+        success: false, needCaptcha: false, credentialsRejected: true,
+        message: restricted ? '学校账号受限，请到学校统一认证处理' : '账号或密码错误', steps,
+      };
+    }
+    throw new AppError(ErrorCode.SERVICE_ACCOUNT_UNAVAILABLE, '学校认证响应暂时无法识别，请稍后重试');
   }
 }

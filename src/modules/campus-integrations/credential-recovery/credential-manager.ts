@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 db/schema、HttpClient/共享传输错误分类、CAS/TicketExchanger 的凭证与上游故障证据、CryptoHelper、user 级 PerKeySingleflight、真实学校登录事务原语、epoch 绑定的五秒 RecoveryCooldown、config、截止时间与 Logger
- * [OUTPUT]: 对外提供 CredentialManager 与 CredentialSystem，管理正 TTL 基础凭证、登录代次及请求快照条件失效、五秒冷却、能力感知恢复、TGC 有界补足、Portal-only 窄恢复与交互登录状态
+ * [INPUT]: 依赖 db/schema、HttpClient/共享传输错误分类、CAS/TicketExchanger 的凭证与上游故障证据、CryptoHelper、user 级 PerKeySingleflight、真实学校登录事务原语、epoch 绑定的五秒 RecoveryCooldown、config、截止时间、AppError 与 Logger
+ * [OUTPUT]: 对外提供 CredentialManager 与 CredentialSystem，管理正 TTL 基础凭证、登录代次及请求快照条件失效、五秒冷却、能力感知恢复、TGC 有界补足、Portal-only 窄恢复与验证码/明确凭据拒绝的交互登录状态，认证成功后学校能力不足返回非 401
  * [POS]: campus-integrations/credential-recovery 的基础凭证状态机；共享航班以实际能力自证，能力不足的 joiner 先复用新 TGC 串行补足且 mobile 调用不触碰 JW
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -13,6 +13,7 @@ import { TicketExchanger } from '../cas/ticket-exchanger';
 import { CryptoHelper } from '../../../utils/crypto';
 import { config } from '../../../config';
 import { Logger } from '../../../utils/logger';
+import { AppError, ErrorCode } from '../../../utils/errors';
 import { PerKeySingleflight } from '../../cache/application/singleflight';
 import { isTransientTransportError } from '../http/transport-errors';
 import { RecoveryCooldown, type RecoveryScope } from './recovery-cooldown';
@@ -23,6 +24,7 @@ import {
 
 export type CredentialSystem = RecoveryScope;
 type RecoveryRequirement = CredentialSystem | 'portal_only';
+type InteractiveLoginReason = 'captcha_required' | 'credentials_rejected';
 
 interface ResolvedCredential {
   value: string | null;
@@ -54,6 +56,11 @@ const tgcFlights = new PerKeySingleflight();
 function isTransientRecoveryError(error: unknown): boolean {
   const message = String((error as any)?.message || '');
   return isTransientTransportError(error) || /_HTTP_5\d\d$/i.test(message);
+}
+
+function schoolServiceUnavailable(system: 'portal_jwt' | 'jw_session'): AppError {
+  const label = system === 'jw_session' ? '教务' : '门户';
+  return new AppError(ErrorCode.SERVICE_ACCOUNT_UNAVAILABLE, `学校账号验证成功，但${label}服务暂时不可用，请稍后重试`);
 }
 
 function requiredCapability(requirement: RecoveryRequirement): CredentialSystem {
@@ -178,7 +185,7 @@ export class CredentialManager {
     if (existing) return existing;
 
     if (await this.requiresInteractiveLogin(userId)) {
-      Logger.warn('CredentialManager', '等待验证码登录，跳过静默恢复', `system=${system}`, String(userId));
+      Logger.warn('CredentialManager', '等待学校交互认证，跳过静默恢复', `system=${system}`, String(userId));
       return null;
     }
 
@@ -403,7 +410,10 @@ export class CredentialManager {
     // 同 key 保证任何时刻只有一条恢复链；joiner 只能在共享结果自证能力不足后排队补足。
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const outcome = await reAuthFlights.run(`silent-reauth:${userId}`, 'normal', operation);
-      if (satisfiesRequirement(outcome, requirement) || outcome.requirement === requirement) {
+      if (satisfiesRequirement(outcome, requirement)) return outcome;
+      if (outcome.requirement === requirement) {
+        // 先把实际取得的能力交给所有 joiner，再由缺少能力的调用方重放对应错误。
+        this.isRecoveryCooling(userId, requiredCapability(requirement));
         return outcome;
       }
       operation = () => this.supplementRecovery(userId, deadlineAt, requirement);
@@ -441,7 +451,7 @@ export class CredentialManager {
   ): Promise<RecoveryOutcome> {
     const requirement = requiredSystem || 'jw_session';
     if (await this.requiresInteractiveLogin(userId)) {
-      Logger.warn('SilentReAuth', '等待验证码登录，跳过静默重认证', undefined, String(userId));
+      Logger.warn('SilentReAuth', '等待学校交互认证，跳过静默重认证', undefined, String(userId));
       return recoveryOutcome(requirement, false, []);
     }
 
@@ -528,8 +538,10 @@ export class CredentialManager {
       if (!result.success) {
         steps.push({ label: 'CAS Login', ok: false, detail: result.needCaptcha ? '需要验证码' : result.message });
         recordFailure('cas_tgc');
-        if (result.needCaptcha) {
-          this.markInteractiveLoginRequiredIfEpochMatches(userId, loginEpoch);
+        if (result.needCaptcha || result.credentialsRejected) {
+          this.markInteractiveLoginRequiredIfEpochMatches(
+            userId, loginEpoch, result.needCaptcha ? 'captcha_required' : 'credentials_rejected',
+          );
         }
         Logger.auth(user.studentId, '静默重认证失败', 0, Date.now() - start, user.name || undefined, steps);
         return recoveryOutcome(requirement, false, []);
@@ -556,7 +568,7 @@ export class CredentialManager {
         await commitAuthenticatedContext();
         if (staleLogin()) return latestOutcome();
         if (!portalToken) {
-          recordFailure('portal_jwt');
+          recordFailure('portal_jwt', schoolServiceUnavailable('portal_jwt'));
           Logger.auth(user.studentId, '静默重认证失败', 0, Date.now() - start, user.name || undefined, steps);
           return recoveryOutcome(requirement, true, acquiredCapabilities());
         }
@@ -571,11 +583,9 @@ export class CredentialManager {
         steps.push({ label: 'JW 激活', ok: false });
         await commitAuthenticatedContext();
         if (staleLogin()) return latestOutcome();
-        if (!portalToken) recordFailure('portal_jwt');
-        if (jwResult.upstreamUnavailable && requiredSystem === 'jw_session') {
-          throw new Error('REQUEST_TIMEOUT');
-        }
-        recordFailure('jw_session', jwResult.upstreamUnavailable ? new Error('REQUEST_TIMEOUT') : null);
+        const unavailable = schoolServiceUnavailable('jw_session');
+        if (!portalToken) recordFailure('portal_jwt', schoolServiceUnavailable('portal_jwt'));
+        recordFailure('jw_session', jwResult.upstreamUnavailable ? new Error('REQUEST_TIMEOUT') : unavailable);
         Logger.auth(user.studentId, '静默重认证失败', 0, Date.now() - start, user.name || undefined, steps);
         return recoveryOutcome(requirement, true, acquiredCapabilities());
       }
@@ -585,7 +595,10 @@ export class CredentialManager {
       jwCookieJar = client.serializeJar();
       await commitAuthenticatedContext();
       if (staleLogin()) return latestOutcome();
-      if (!portalToken) recordFailure('portal_jwt');
+      if (!portalToken) {
+        const unavailable = schoolServiceUnavailable('portal_jwt');
+        recordFailure('portal_jwt', unavailable);
+      }
       Logger.auth(user.studentId, '静默重认证成功', 200, Date.now() - start, user.name || undefined, steps);
       return recoveryOutcome(requirement, true, acquiredCapabilities());
     } catch (caught: any) {
@@ -601,14 +614,18 @@ export class CredentialManager {
       if (staleLogin()) return latestOutcome();
       steps.push({ label: '异常', ok: false, detail: e.message });
       Logger.auth(user.studentId, '静默重认证异常', 0, Date.now() - start, user.name || undefined, steps);
-      recordFailure(failureScope, isTransientRecoveryError(e) ? e : null);
-      if (isTransientRecoveryError(e)) throw e;
+      const propagate = isTransientRecoveryError(e)
+        || (e instanceof AppError && e.code === ErrorCode.SERVICE_ACCOUNT_UNAVAILABLE);
+      recordFailure(failureScope, propagate ? e : null);
+      if (propagate) throw e;
       return recoveryOutcome(requirement, casAuthenticated, casAuthenticated ? acquiredCapabilities() : []);
     }
   }
 
-  /** 验证码拒绝与新登录竞争时，只允许旧代次原子清理自身凭证并写入交互标记。 */
-  private static markInteractiveLoginRequiredIfEpochMatches(userId: number, epoch: number): void {
+  /** 验证码或明确凭据拒绝只在原登录代次原子清理学校凭证并阻断快捷登录。 */
+  private static markInteractiveLoginRequiredIfEpochMatches(
+    userId: number, epoch: number, reason: InteractiveLoginReason,
+  ): void {
     getDb().transaction((tx) => {
       if (readSchoolLoginEpoch(tx, userId) !== epoch) return;
       tx.delete(schema.credentials).where(and(
@@ -617,11 +634,11 @@ export class CredentialManager {
       )).run();
       const now = new Date();
       tx.insert(schema.credentials).values({
-        userId, system: INTERACTIVE_LOGIN_REQUIRED_SYSTEM, value: 'captcha_required',
+        userId, system: INTERACTIVE_LOGIN_REQUIRED_SYSTEM, value: reason,
         cookieJar: null, expiresAt: null, createdAt: now, updatedAt: now,
       }).onConflictDoUpdate({
         target: [schema.credentials.userId, schema.credentials.system],
-        set: { value: 'captcha_required', updatedAt: now },
+        set: { value: reason, updatedAt: now },
       }).run();
     });
   }

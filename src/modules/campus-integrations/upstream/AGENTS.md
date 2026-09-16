@@ -2,7 +2,7 @@
 > L2 | 父级: /Users/xiangyun/workspace/huas-wechat-app/huas-server/src/modules/campus-integrations/AGENTS.md
 
 成员清单
-upstream.ts: Portal/JW 请求上下文构造器，按调用方可选总预算编排有限凭证恢复、瞬态请求重试、session expired 的登录代次/凭证快照条件失效与一次重建
+upstream.ts: Portal/JW 请求上下文构造器，按调用方可选总预算编排有限凭证恢复、瞬态请求重试、session expired 的登录代次/凭证快照条件失效与一次重建；重放仍失效时再次条件淘汰该会话并返回 3005/503，避免再次驱动登录
 
 架构决策
 3003、4004 与参数错误不参与瞬态重试；3004/网络错误及调用方明确声明的临时业务错误只在次数和 deadline 双边界内重试。只有真实 session expired 才尝试按本请求的登录代次与凭证快照条件失效；并发真实登录或普通轮换后直接复用新凭证，否则触发恢复链，无凭证结果统一映射为客户端凭证过期。

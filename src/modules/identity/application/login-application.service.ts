@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖登录领域类型与 Campus/Recovery/IdentityStore/Cipher/Token/Profile/Runtime ports
- * [OUTPUT]: 对外提供 LoginApplicationService.execute、CAS 成功即提交上下文但仅在学校系统激活后签发 JWT 的登录编排、验证码挑战与清理入口
+ * [OUTPUT]: 对外提供 LoginApplicationService.execute、CAS 成功即提交上下文但仅在学校系统激活后签发 JWT 的登录编排、验证码/凭据拒绝后的真实登录、认证后服务不可用语义与挑战清理入口
  * [POS]: identity/application 的用例核心，把真实学校认证事实、激活能力与本服务 JWT 三个状态转换分离在端口之上
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -116,7 +116,7 @@ export class LoginApplicationService {
 
       if (activationError) throw activationError;
       if (!portalToken && !jwResult.success) {
-        return this.failure('school-activation-failed', '学校系统激活失败', durationMs, allSteps, true);
+        return this.failure('school-activation-failed', '学校账号验证成功，但学校服务暂时不可用，请稍后重试', durationMs, allSteps, false);
       }
 
       let resolvedName = user.name?.trim() || undefined;
