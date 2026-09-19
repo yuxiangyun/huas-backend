@@ -1,16 +1,14 @@
 /**
- * [INPUT]: 依赖 OrderedCommit 的并发提交顺序保护，依赖 canonical upstream/CacheService、UserParser、URLS、config、refresh fallback、db/schema 与 drizzle eq
+ * [INPUT]: 依赖 OrderedCommit 的并发提交顺序保护，依赖 SchoolAccess 资料操作、CacheService、config、refresh fallback、db/schema 与 drizzle eq
  * [OUTPUT]: 对外提供 UserService.getUserInfo，读取 Portal 用户资料并回写姓名班级缓存
  * [POS]: campus-integrations/portal 的用户资料适配器，负责同意图回源合并，按开始代次串行提交缓存与用户事实
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { OrderedCommit } from '../../../utils/ordered-commit';
-import { upstream } from '../upstream/upstream';
+import { schoolAccess } from '../school-access/school-access';
 import { CacheService } from '../../cache/cache-service';
-import { UserParser } from './parsers/user-parser';
-import { URLS } from '../endpoints';
-import { config, PORTAL_HEADERS } from '../../../config';
+import { config } from '../../../config';
 import { fallbackOnRefreshFailure } from '../../../services/infra/refresh-fallback';
 import { getDb, schema } from '../../../db';
 import { eq } from 'drizzle-orm';
@@ -31,17 +29,7 @@ export class UserService {
       data = await CacheService.runSingleflight(
         cacheKey,
         forceRefresh,
-        () => cacheWrites.run(cacheKey, () => upstream(userId, 'portal', async ({ client, portalToken }) => {
-          const res = await client.request(URLS.userInfo, {
-            headers: {
-              'X-Id-Token': portalToken!,
-              ...PORTAL_HEADERS,
-            },
-            timeout: config.timeout.business,
-          });
-          const json = await res.json() as any;
-          return UserParser.parse(json);
-        }), async (fresh) => {
+        () => cacheWrites.run(cacheKey, () => schoolAccess.execute(userId, { name: 'portal.profile', input: {} }), async (fresh) => {
           if (fresh) {
             await getDb().update(schema.users)
               .set({

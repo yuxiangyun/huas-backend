@@ -1,11 +1,12 @@
 /**
- * [INPUT]: 依赖 process.env 与 node:path，读取端口、密钥、数据库、缓存、课表来源策略、四类社交媒体/孤儿宽限期、Treehole 低内存压缩门禁、服务账号、限流、成绩、mobile-yxt 与 mobile-jw 回源总预算及上游超时
+ * [INPUT]: 依赖 RuntimeConfig 的冻结认证规则、process.env 与 node:path，读取端口、密钥、数据库、缓存、课表来源策略、四类社交媒体/孤儿宽限期、Treehole 低内存压缩门禁、服务账号、限流、成绩、mobile-yxt 与 mobile-jw 回源总预算及上游超时
  * [OUTPUT]: 对外提供 config、USER_AGENT 等运行时配置常量，并强制 TZ 为 Asia/Shanghai
  * [POS]: src 的配置源，所有模块通过它读取运行参数，避免散落读取环境变量
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { dirname, join } from 'node:path';
+import { runtimeConfig } from './runtime-config';
 
 const BEIJING_TIME_ZONE = 'Asia/Shanghai';
 const DEFAULT_DB_PATH = './data/huas.db';
@@ -43,11 +44,7 @@ export const config = {
   server: {
     idleTimeoutSeconds: Math.min(parsePositiveInt(process.env.SERVER_IDLE_TIMEOUT_SECONDS, 60), 255),
   },
-  authLoginRateLimit: {
-    maxFailures: parsePositiveInt(process.env.AUTH_LOGIN_RATE_LIMIT_MAX_FAILURES, 20),
-    windowMs: parsePositiveInt(process.env.AUTH_LOGIN_RATE_LIMIT_WINDOW_MS, 5 * 60 * 1000),
-    blockMs: parsePositiveInt(process.env.AUTH_LOGIN_RATE_LIMIT_BLOCK_MS, 10 * 60 * 1000),
-  },
+  authLoginRateLimit: runtimeConfig.authLoginRateLimit,
 
   schoolService: {
     classroomAdminStudentId: process.env.CLASSROOM_ADMIN_STUDENT_ID?.trim() || '',
@@ -60,12 +57,7 @@ export const config = {
   },
 
   // Credential TTLs (school-side)
-  ttl: {
-    tgc: 7 * 24 * 60 * 60 * 1000,        // TGC: 7 days (local TTL)
-    portalJwt: 7 * 24 * 60 * 60 * 1000,  // Portal JWT: 7 days (local TTL)
-    jwSession: 7 * 24 * 60 * 60 * 1000,  // JW Session: 7 days (local TTL)
-    selfJwt: 90 * 24 * 60 * 60 * 1000,   // Self JWT: 90 days
-  },
+  ttl: runtimeConfig.ttl,
 
   // Cache TTLs (seconds)
   // 语义约定：0 = 永久缓存（读路径直接命中，仅 refresh=true 回源；refresh 失败仍可经 allowExpired
@@ -85,26 +77,11 @@ export const config = {
   },
 
   // Request timeouts (ms)
-  timeout: {
-    cas: 2000,      // CAS auth requests（更快暴露失败，交给有界重试兜底）
-    business: 4000, // Business data requests（覆盖学校上游慢请求主区间，失败交重试兜底）
-    gradeFreshBudget: 45_000, // Fresh grades include bounded credential recovery and upstream retries
-    mobileYxtTotalBudget: 20_000, // 单个 mobile-yxt 只读调用包含凭证派生与一次会话重建的总预算
-    mobileJwTotalBudget: 45_000, // 移动教务课表只读调用包含 Portal 恢复、SSO 与一次失效重建的总预算
-  },
-
-  // Retry settings
-  retry: {
-    jwActivationMax: 3,       // JW SSO activation max attempts
-    jwActivationDelay: 150,   // ms between retries（激活失败多为会话态问题，快速再试比长等待划算）
-    businessMaxAttempts: parsePositiveInt(process.env.BUSINESS_RETRY_MAX_ATTEMPTS, 2),
-    businessBaseDelayMs: parsePositiveInt(process.env.BUSINESS_RETRY_BASE_DELAY_MS, 200),
-    businessMaxDelayMs: parsePositiveInt(process.env.BUSINESS_RETRY_MAX_DELAY_MS, 800),
-    businessJitterMs: parsePositiveInt(process.env.BUSINESS_RETRY_JITTER_MS, 100),
-  },
+  timeout: runtimeConfig.timeout,
+  retry: runtimeConfig.retry,
 
   // Pre-login captcha session
-  captchaSessionTtl: 10 * 60 * 1000,  // 10 minutes
+  captchaSessionTtl: runtimeConfig.captcha.ttlMs,  // 10 minutes
 
   // Cleanup interval
   cleanupInterval: 60 * 60 * 1000,    // 1 hour

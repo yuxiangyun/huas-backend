@@ -312,6 +312,7 @@ Keep the map aligned with the terrain, or the terrain will be lost.
 Bun + TypeScript + Hono + Drizzle ORM + SQLite + React 19 + Vite + winston
 
 <directory>
+.scratch/ - 本地规格、独立任务及验收证据，工作流见 docs/agents/issue-tracker.md
 src/ - 应用机器相，承载模块化业务、路由、认证、数据库、运行态与共享库
 web/ - 管理端与移动端 SPA，生产构建产物由后端托管于 /m
 tests/ - 业务流、模块契约、路由与端到端测试
@@ -325,6 +326,7 @@ public/ - 后端直接托管的静态资源
 </directory>
 
 <config>
+CONTEXT.md - 本服务身份与学校访问的领域词汇，区分登录态、学校认证、业务能力及资料
 package.json - Bun 脚本、依赖与质量门禁入口
 bunfig.toml - Bun 测试默认 preload 隔离 SQLite 环境，CLI preload 可为真实 E2E 覆盖
 bun.lock - 服务端依赖解析锁
@@ -340,14 +342,16 @@ nginx.conf - 反向代理样板
 AGENTS.md 是全局导航入口；各模块通过 L2 地图与业务文件 L3 契约维持代码、文档同构。
 业务能力按 domain、application、infrastructure 与 composition 分层，高层依赖端口而非具体存储或校园上游实现。
 SQLite 是业务事实源；data 下 JSON、媒体与内存态只承载运行策略、会话或资源，不代替业务表。
-CAS/Portal/JW 基础凭证由 CredentialManager 收敛且必须使用非 null 数值 TTL，客户端只持本服务 JWT；Portal 换票直接 HTTP 5xx 返回无 token 和故障证据，真实登录继续 JW 激活，静默恢复传播上游异常并冷却；需要交互认证的凭证恢复失败返回 3003，同用户静默重认证共享 user 级在途恢复并返回实际能力，能力不足的 joiner 等待航班结束后优先复用新 TGC 串行补足；静默恢复的 CAS 验证码/execution 安全读取在共享任务内有限重试网络故障与 HTTP 5xx，不重放登录 POST，缺少 execution 按 3005/503 返回；恢复失败按 epoch 绑定固定五秒冷却，CAS 按用户、Portal/JW 按能力隔离且命中不续期，真实登录换代后旧恢复不能覆盖凭证或补写交互认证标记；明确 CAS 凭据拒绝与验证码按 epoch 原子写入无 TTL 交互标记并阻断本地快捷登录，真实 CAS 提交后清除；未知认证响应、认证后能力不足与恢复后业务仍失效保留非 401 的 3005/503，超时保持 504；无交互标记的本地快捷登录不检查学校也不清冷却；upstream 单次恢复链同时取得 token 与客户端，业务失效按该请求的凭证快照/epoch 条件删除以保护并发新登录和轮换；学校 HTTP 超时覆盖完整正文读取。
-mobile-yxt 只经窄 PortalCredentialReader 派生无 TTL 会话，不读取或激活 JW；真实 CAS 成功与学校系统激活/JWT 签发解耦，统一事务推进 school login epoch、写入实际基础凭证、删除本次缺失的旧 Portal JWT 并以字面前缀清理旧派生会话。exchange 仅在 epoch 未变时条件写，普通 Portal/JW 轮换和本地快捷登录不推进 epoch；派生 CookieJar 读写共享严格单 JSESSIONID codec，坏行事务淘汰为 miss。
-mobile-yxt 业务会话只在固定 HTTP 401 证据后失效；基础 Portal JWT 在 host/open 返回 HTTP 401 或真实过期凭证的 200 HTML 无 tid 时按值条件删除并窄恢复一次。业务 401 按 generation 条件失效并同用户单飞重建一次，第二次 401 先条件删除再返回 3003；持久化 Cookie 仅含目标域 `/server` JSESSIONID，CAS TGC、Portal Cookie、accessToken、tid、refreshToken 与 authorization 永不进入 DTO、缓存键、错误或日志。
+认证与学校访问收敛为 Identity、SchoolAccess、RuntimeConfig：Identity 负责本地快捷、JWT 和登录结果；SchoolAccess.authenticate/execute 负责学校身份认证与具名业务操作；RuntimeConfig 启动时校验并冻结整数、毫秒单位、零值语义、超时/重试/TTL/验证码规则。业务动态策略仍归原模块。
+CAS 明确成功立即原子提交身份并签发 JWT，不等待 Portal/JW 激活、资料回填或后台预热。并发认证按开始序号和最近成功提交排序，迟到成功仍可登录但不覆盖新密码、凭证或交互标记；新尝试失败不阻止旧成功。静默认证共用提交规则并额外核对开始 epoch，本地快捷不推进 epoch 或清冷却。
+SchoolAccess 按 CAS→Portal/JW、Portal→mobile 目标依赖恢复，CAS 按用户合流、目标按用户/能力合流；共享恢复只返回冻结快照并有自身 45 秒预算，每个请求独立等待、创建客户端和使用截止时间。唯一请求执行器管理有界重试与一次业务恢复重放；CAS 登录 POST、评教提交不可重放。HTTP 层只报告传输事实，完整正文也受预算约束。
+只有 CAS 明确拒绝保存凭据或要求验证码时才按 epoch 原子写交互标记并返回 3003/401，阻断本地快捷，真实认证成功清除；普通 403/429、缺 execution、未知认证页、能力故障及二次会话拒绝返回 3005/503，超时 3004/504。验证码十分钟且读取时即判到期，一次消费；学校读取故障不计密码失败。共享恢复失败按 epoch 绑定固定五秒冷却，CAS 按用户、Portal/JW 按目标隔离且命中不续期，等待者超时不写账号故障。
+基础凭证保持正数 TTL；真实 CAS 提交推进 school login epoch，写实际取得的基础凭证，删除缺失 Portal 并清理旧派生会话。Portal-only 恢复保留 JW；TGC 换票提交同时检查 epoch 与原 TGC 快照，业务失败按完整原快照条件删除。mobile 自有无 TTL 会话按 epoch 创建、按 generation 删除，CookieJar 经严格单 JSESSIONID codec 校验，坏行事务淘汰；共享恢复不携带客户端或 CookieJar 对象。
 校园卡 overview 把既有 Portal 余额与 mobile-yxt 当前月/此前 23 个自然月的三类交易作为独立子源聚合并分别投影 availability/freshness，交易缓存使用固定长度用户月键并每用户保留 6 个 LRU；账单/电费同键 cache miss 与强刷共享在途回源并使用独立配额，不消耗成绩、课表、Portal/JW 的 Academic refresh 桶。
 电费只读取 electric config/account：先从 config.location 取得房间展示与七个官方位置 code，再带 code 查询 account，电价/电量按 account.templateList code 映射；真正未提供的 price/quantity 诚实投影 null，负电量与账户状态原样保留。明细、水费、上游支付和未验证官方 handoff 均保持关闭。refundFlag 原样投影，totals 仅为有符号金额机械求和，不宣称退款会计语义已由 fixture 证明。
 日历订阅固定通过 Academic 移动教务单源采集当前学期全部周，以真实日期和学期元信息验证完整性后保存独立 SQLite ICS 快照。仅有效订阅请求在每用户上次采集开始满 24 小时后触发下一轮；先持久化机会、并发合流、失败也占窗口且保留完整旧日历，无旧快照则报错。登录、链接生成、普通课表查询及强刷不参与此窗口，日历命中不续期；不受来源策略影响，也不拼接周缓存或跨源降级。
 课表由 Academic Facade 按持久化策略编排；/api/schedule 可接受 mobile-jw/jw 用户首选，仅前置到本次 current 队列并去重，后备相对顺序和 stale 范围/顺序仍服从后台快照，无首选参数保持原行为：mobile-jw-first 依次移动教务、JW、Portal current，再同序 stale；旧 jw-first/portal-first 保留双源行为。无配置时默认 mobile-jw-first，已有文件/env 优先；管理面只调用 Academic 暴露的策略用例。
-mobile-jw 自有 token-only、无 TTL 的 H5 会话，与 mobile-yxt 共享 Portal-only reader 和基础恢复合流。真实 HTTP 500 + 字符串 code=401 与 HTTP 401/200 的明确失效触发 generation 条件失效和一次重建重放；普通临时故障在 45 秒预算内有限重试。SSO 拒绝仅条件失效当前 Portal JWT，不触碰 JW；TGC 换票提交同时核对 epoch 与 TGC 快照，旧航班不能覆盖新登录或撤销显式清理；同 epoch 普通快照竞争先复用目标凭证或最新有效 TGC 补一次，竞争耗尽按临时超时结束。来源范围不支持独立于未公布且不参与失败仲裁，缺少周元信息仍视为协议错误。课表按响应真实七天日期定位周缓存，指定学期端点的实测假空态不作为正式数据源。
+mobile-jw 自有 token-only、无 TTL 的 H5 会话，与 mobile-yxt 共享 SchoolAccess Portal 目标恢复。真实 HTTP 500 + 字符串 code=401 与 HTTP 401/200 的明确失效触发 generation 条件失效和一次重建重放；普通临时故障在 45 秒预算内有限重试。SSO 拒绝仅按原快照条件失效 Portal JWT，不触碰 JW；TGC 换票提交同时核对 epoch 与 TGC 快照，旧航班不能覆盖新登录或撤销显式清理；同 epoch 普通快照竞争先复用目标凭证或最新有效 TGC 补一次，竞争耗尽按临时超时结束。来源范围不支持独立于未公布且不参与失败仲裁，缺少周元信息仍视为协议错误。课表按响应真实七天日期定位周缓存，指定学期端点的实测假空态不作为正式数据源。
 JW 未公布以来源错误交 Facade 编排且不缓存，历史未公布周/日缓存按快照淘汰，合法无课与非教学周保留空表语义。JW/Portal 课表、成绩与 Portal 资料回源保持 normal/refresh 独立合并，缓存及资料回写按回源开始代次串行提交，较新成功值不被旧航班覆盖；旧 JW 日缓存只按原快照保时无覆盖提升。Portal 课表严格校验完整结构并保留独立 date，旧无版本永久缓存首次访问须重新回源；评教每调用固定一次批次目标，只恢复读取，POST 不重放；已尝试 POST 在批末无完成增量或验证失败时显式返回 unknown，验证失败另标记旧列表快照。
 成绩强制刷新执行 JW fresh-first：45 秒总预算内有限恢复凭证并重试明确临时错误，只有新鲜路径穷尽后才允许 stale fallback。
 课表来源策略文件默认位于 dirname(DB_PATH)，生产蓝绿槽必须共享同一绝对持久路径，运行态 JSON、锁与临时文件不得纳入 Git。

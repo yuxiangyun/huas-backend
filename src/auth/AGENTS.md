@@ -2,16 +2,13 @@
 > L2 | 父级: /Users/xiangyun/workspace/huas-wechat-app/huas-server/src/AGENTS.md
 
 成员清单
-auth-engine.ts: AuthEngine 兼容再导出，canonical CAS 登录执行器位于 campus-integrations/cas
 calendar-signature.ts: Calendar canonical HMAC 签名的兼容再导出，保留旧 signature API
 calendar-token.ts: Calendar canonical HMAC 的 token 命名兼容层，保留旧 token/signature 导出
-credential-manager.ts: CredentialManager/CredentialSystem 兼容再导出，canonical CAS/Portal/JW 显式数值 TTL 生命周期实现位于 campus-integrations/credential-recovery
 jwt.ts: 本服务 JWT 签发与验证工具，隔离客户端身份令牌
-ticket-exchanger.ts: TicketExchanger 兼容再导出，canonical TGC 换票实现位于 campus-integrations/cas
 
 架构决策
-客户端只持有本服务 JWT；学校上游凭证实现全部归属 Campus Integrations，auth 仅保留旧导入兼容面。
-普通凭证过期继续使用加密密码静默恢复；只有 CAS 明确要求验证码才写入无 TTL 的持久化交互标记，直到真实 CAS 登录成功后清除。
+客户端只持有本服务 JWT；学校上游凭证与恢复由 SchoolAccess 管理。
+普通凭证过期继续使用加密密码静默恢复；只有 CAS 明确拒绝保存凭据或要求验证码才写入无 TTL 的持久化交互标记，直到真实 CAS 登录成功后清除。
 calendar-signature.ts 与 calendar-token.ts 只是兼容薄包装，真实签名逻辑只能存在于 modules/calendar/infrastructure。
 
 开发规范

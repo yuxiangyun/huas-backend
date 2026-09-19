@@ -8,7 +8,7 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { getDb, schema } from '../../../db';
-import { readSchoolLoginEpoch } from '../credential-recovery/school-login-context';
+import { readSchoolLoginEpoch } from '../school-access/school-login-context';
 import { isValidH5Token } from './auth-exchanger';
 import { protocolFailure } from './errors';
 

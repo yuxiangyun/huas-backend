@@ -59,7 +59,7 @@ export const credentials = sqliteTable('credentials', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   userId: integer('user_id').notNull().references(() => users.id),
   // 三类 TTL 学校凭证 + interactive_login_required + school_login_epoch + derived_session:*。
-  // mobile-yxt 只经模块自有仓储使用 derived_session:mobile_yxt；通用 CredentialManager 不解释派生会话。
+  // mobile-yxt 只经模块自有仓储使用 derived_session:mobile_yxt；SchoolAccess 基础仓储不解释派生会话。
   system: text('system').notNull(),
   value: text('value'),
   cookieJar: text('cookie_jar'), // JSON serialized CookieJar；mobile-yxt 只允许目标域 /server JSESSIONID

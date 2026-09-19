@@ -1,12 +1,10 @@
 /**
- * [INPUT]: 依赖 OrderedCommit 的并发提交顺序保护，依赖 domain AcademicRuntimePorts、canonical PortalScheduleParser/端点、config 与 AppError
+ * [INPUT]: 依赖 OrderedCommit 的并发提交顺序保护，依赖 domain AcademicRuntimePorts、具名 Portal 课表读取端口、config 与 AppError
  * [OUTPUT]: 对外提供 PortalScheduleApplicationService，并分离 current 与 stale 日期课表读取
  * [POS]: academic/application 的 Portal 单源课表用例，负责日期区间校验、同意图回源合并、代次提交缓存、旧日期/空表缓存的版本条件淘汰与显式过期兜底
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { PortalScheduleParser } from '../../campus-integrations/portal/parsers/portal-schedule-parser';
-import { URLS } from '../../campus-integrations/endpoints';
 import { OrderedCommit } from '../../../utils/ordered-commit';
 import { config } from '../../../config';
 import { AppError, ErrorCode } from '../../../utils/errors';
@@ -136,19 +134,7 @@ export class PortalScheduleApplicationService {
     const data = await this.ports.cache.runSingleflight(
       cacheKey,
       forceRefresh,
-      () => cacheWrites.run(cacheKey, () => this.ports.upstream(userId, 'portal', async ({ client, portalToken }) => {
-        const url = new URL(URLS.portalScheduleEvents);
-        url.searchParams.append('startDate', normalizedStartDate);
-        url.searchParams.append('endDate', normalizedEndDate);
-        url.searchParams.append('reqType', 'MonthView');
-        url.searchParams.append('random_number', Math.random().toString());
-
-        const res = await client.request(url.toString(), {
-          headers: { 'X-Id-Token': portalToken! },
-          timeout: config.timeout.business,
-        });
-        return PortalScheduleParser.parse(await res.json(), normalizedStartDate, normalizedEndDate, { studentId, name });
-      }), async (fresh) => {
+      () => cacheWrites.run(cacheKey, () => this.ports.readPortalSchedule(userId, { startDate: normalizedStartDate, endDate: normalizedEndDate, studentId, name }), async (fresh) => {
         await this.ports.cache.set(cacheKey, { ...fresh, _portalScheduleSchema: PORTAL_SCHEDULE_SCHEMA }, config.cacheTtl.schedule, 'portal');
       }),
     );

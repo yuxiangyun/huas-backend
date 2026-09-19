@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 HttpClient、CryptoHelper、URLS、config、统一 AppError 与 LoginStep 类型
- * [OUTPUT]: 对外提供 AuthEngine，封装 CAS 验证码、execution 与登录提交，仅明确拒绝标记 credentialsRejected，未知响应保留非认证错误
+ * [OUTPUT]: 对外提供 AuthEngine，封装 CAS 验证码、execution 与登录提交，仅明确拒绝标记 credentialsRejected，未知响应保留非认证错误，成功票据不再等待 Portal 跳转
  * [POS]: campus-integrations/cas 的原始登录执行器，区分验证码错误、登录凭证拒绝与真实上游故障
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -77,7 +77,7 @@ export class AuthEngine {
   async getCaptcha(): Promise<ArrayBuffer> {
     const res = await this.client.request(
       `${URLS.captcha}?r=${Date.now()}`,
-      { isAuthFlow: true, timeout: config.timeout.cas }
+      { timeout: config.timeout.cas }
     );
     assertCasHttpResponse(res, 'CAS_CAPTCHA');
     return res.arrayBuffer();
@@ -86,7 +86,7 @@ export class AuthEngine {
   async getExecution(): Promise<string | null> {
     const res = await this.client.request(
       `${URLS.login}?service=${encodeURIComponent(URLS.servicePortal)}`,
-      { isAuthFlow: true, timeout: config.timeout.cas }
+      { timeout: config.timeout.cas }
     );
     assertCasHttpResponse(res, 'CAS_EXECUTION');
     const html = await res.text();
@@ -112,7 +112,6 @@ export class AuthEngine {
 
     // 1. Get public key & encrypt password
     const resKey = await this.client.request(URLS.pubkey, {
-      isAuthFlow: true,
       timeout: config.timeout.cas,
     });
     assertCasHttpResponse(resKey, 'CAS_PUBKEY');
@@ -138,7 +137,6 @@ export class AuthEngine {
     const res = await this.client.request(loginUrl, {
       method: 'POST',
       body: params,
-      isAuthFlow: true,
       timeout: config.timeout.cas,
       headers: { 'Referer': loginUrl },
     });
@@ -152,8 +150,8 @@ export class AuthEngine {
       if (loc?.includes('ticket=')) {
         // Extract portal token from ticket
         const portalToken = CryptoHelper.extractTokenFromUrl(loc);
-        await this.client.followRedirects(loc);
-        steps.push({ label: 'portal', ok: true });
+        // CAS 的明确成功票据已经证明身份；Portal 跳转留给按需能力获取。
+        steps.push({ label: 'cas', ok: true });
 
         // Return TGC state (cookie jar) + portal token
         // Ticket exchange (JW activation) is handled separately by TicketExchanger

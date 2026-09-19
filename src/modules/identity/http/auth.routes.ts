@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Hono、注入式登录应用服务、登录 DTO、登录限流与登录 analytics 观测端口
- * [OUTPUT]: 对外提供 `/login` Hono 路由与其应用服务实例，保持登录请求契约，透传验证码原因与非认证型学校服务失败
+ * [OUTPUT]: 对外提供 `/login` Hono 路由与其应用服务实例，保持登录请求契约，透传验证码原因；学校读取/初始化故障按 503 且不计密码失败
  * [POS]: identity/http 的薄适配器，只解析/校验 HTTP；验证码清理由根周期任务注册器统一调度
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -49,10 +49,10 @@ function respondWithSuccess(c: Context, username: string, rateLimitKey: string, 
   const local = outcome.mode === 'local';
   appendHttpLogDetail(c, local
     ? 'result=local-success'
-    : formatHttpLogDetail({ result: outcome.mode === 'portal-only' ? 'success-portal-only' : 'success', userId: outcome.user.id }));
+    : formatHttpLogDetail({ result: 'success', userId: outcome.user.id }));
   Logger.auth(
     username,
-    local ? '本地登录成功' : outcome.mode === 'portal-only' ? '成功（仅门户）' : '成功',
+    local ? '本地登录成功' : '成功',
     200,
     local ? 0 : outcome.durationMs,
     outcome.user.name,
@@ -74,23 +74,7 @@ function respondWithFailure(c: Context, username: string, rateLimitKey: string, 
 
   switch (outcome.reason) {
     case 'captcha-session-missing':
-    case 'captcha-session-invalid':
       appendHttpLogDetail(c, `result=${outcome.reason}`);
-      return error(c, ErrorCode.CAPTCHA_ERROR, outcome.message, 400);
-    case 'execution-fetch-failed': {
-      appendHttpLogDetail(c, 'result=execution-fetch-failed');
-      Logger.error('Auth', 'execution 获取失败', outcome.cause);
-      const timeout = (outcome.cause as any)?.message === 'REQUEST_TIMEOUT';
-      return timeout
-        ? error(c, ErrorCode.UPSTREAM_TIMEOUT, '学校服务器超时', 504)
-        : error(c, ErrorCode.INTERNAL_ERROR, '登录服务异常', 500);
-    }
-    case 'missing-execution':
-      appendHttpLogDetail(c, 'result=missing-execution');
-      return error(c, ErrorCode.CAS_LOGIN_FAILED, outcome.message, 400);
-    case 'captcha-session-init-failed':
-      appendHttpLogDetail(c, 'result=captcha-session-init-failed');
-      Logger.auth(username, '验证码会话初始化失败', 400, outcome.durationMs, undefined, outcome.steps);
       return error(c, ErrorCode.CAPTCHA_ERROR, outcome.message, 400);
     case 'captcha-required':
       appendHttpLogDetail(c, 'result=captcha-required');
@@ -103,19 +87,10 @@ function respondWithFailure(c: Context, username: string, rateLimitKey: string, 
         sessionId: outcome.challenge!.sessionId,
         captchaImage: outcome.challenge!.captchaImage,
       }, 400);
-    case 'captcha-fetch-failed':
-      appendHttpLogDetail(c, 'result=captcha-fetch-failed');
-      Logger.auth(username, '验证码获取失败', 400, outcome.durationMs, undefined, outcome.steps);
-      return error(c, ErrorCode.CAPTCHA_ERROR, outcome.message, 400);
     case 'cas-failed':
       appendHttpLogDetail(c, 'result=cas-failed');
       Logger.auth(username, outcome.message, 400, outcome.durationMs, undefined, outcome.steps);
       return error(c, ErrorCode.CAS_LOGIN_FAILED, outcome.message, 400);
-    case 'school-activation-failed':
-      appendHttpLogDetail(c, 'result=school-activation-failed');
-      Logger.auth(username, outcome.message, 503, outcome.durationMs, undefined, outcome.steps);
-      resetAuthLoginRateLimit(rateLimitKey);
-      return error(c, ErrorCode.SERVICE_ACCOUNT_UNAVAILABLE, outcome.message, 503);
     case 'upstream-timeout':
     case 'exception':
       appendHttpLogDetail(c, formatHttpLogDetail({
@@ -127,7 +102,7 @@ function respondWithFailure(c: Context, username: string, rateLimitKey: string, 
       }
       return outcome.reason === 'upstream-timeout'
         ? error(c, ErrorCode.UPSTREAM_TIMEOUT, '学校服务器超时', 504)
-        : error(c, ErrorCode.INTERNAL_ERROR, '登录服务异常', 500);
+        : error(c, ErrorCode.SERVICE_ACCOUNT_UNAVAILABLE, '学校认证服务暂不可用', 503);
   }
 }
 

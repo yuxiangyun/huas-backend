@@ -1,17 +1,14 @@
 /**
- * [INPUT]: 依赖 MobileYxtSessionExecutor、electric config/account 端点、Electricity parser 与统一低敏感日志
+ * [INPUT]: 依赖 SchoolAccess electric config/account 具名操作、Electricity parser 与统一低敏感日志
  * [OUTPUT]: 对外提供 MobileYxtElectricityClient.getAccount，先读 config 再以位置 code 查 account，并记录低敏感合同诊断
  * [POS]: mobile-yxt 的电费只读 HTTP 端口；复刻官方 config→account 调用链，不存在 bind、usageDetails、pay 或水费路径
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { URLS } from '../endpoints';
 import { config } from '../../../config';
 import { Logger } from '../../../utils/logger';
-import {
-  mobileYxtSessionExecutor,
-  type MobileYxtSessionExecutor,
-} from './session-executor';
+import { schoolAccess, type SchoolOperationOutput } from '../school-access/school-access';
+type ElectricityResponse = SchoolOperationOutput<'mobileYxt.electricity.config'>;
 import {
   parseElectricityAccount,
   parseElectricityConfig,
@@ -43,7 +40,7 @@ function safeStructuralNames(values: unknown[]): string[] {
     .slice(0, 24);
 }
 
-function responseDiagnostics(result: { response: Response; body: unknown }, includeTemplates: boolean): string {
+function responseDiagnostics(result: ElectricityResponse, includeTemplates: boolean): string {
   const envelope = envelopeRecord(result.body);
   const data = envelope?.resultData;
   const dataRecord = envelopeRecord(data);
@@ -52,8 +49,8 @@ function responseDiagnostics(result: { response: Response; body: unknown }, incl
       .map((item) => envelopeRecord(item)?.code)
     : [];
   return [
-    `status=${result.response.status}`,
-    `contentType=${result.response.headers.get('content-type') || 'missing'}`,
+    `status=${result.status}`,
+    `contentType=${result.contentType || 'missing'}`,
     `topLevelKeys=${safeStructuralNames(envelope ? Object.keys(envelope) : []).join(',') || 'none'}`,
     `resultDataType=${valueType(data)}`,
     `templateCodes=${safeStructuralNames(templates).join(',') || 'none'}`,
@@ -61,28 +58,16 @@ function responseDiagnostics(result: { response: Response; body: unknown }, incl
 }
 
 export class MobileYxtElectricityClient {
-  constructor(private readonly executor: MobileYxtSessionExecutor = mobileYxtSessionExecutor) {}
-
   async getAccount(userId: number): Promise<ElectricityAccount> {
     const deadlineAt = Date.now() + config.timeout.mobileYxtTotalBudget;
-    let configResult: Awaited<ReturnType<MobileYxtSessionExecutor['post']>> | null = null;
-    let accountResult: Awaited<ReturnType<MobileYxtSessionExecutor['post']>> | null = null;
+    let configResult: ElectricityResponse | null = null;
+    let accountResult: ElectricityResponse | null = null;
     try {
-      configResult = await this.executor.post(
-        userId,
-        URLS.mobileYxtElectricityConfig,
-        { utilityType: 'electric' },
-        deadlineAt,
-      );
-      assertMobileYxtHttpSuccess(configResult.response.status, 'ELECTRICITY_CONFIG');
+      configResult = await schoolAccess.execute(userId, { name: 'mobileYxt.electricity.config', input: {} }, { deadlineAt });
+      assertMobileYxtHttpSuccess(configResult.status, 'ELECTRICITY_CONFIG');
       const parsedConfig = parseElectricityConfig(configResult.body);
-      accountResult = await this.executor.post(
-        userId,
-        URLS.mobileYxtElectricityAccount,
-        parsedConfig.accountQuery,
-        deadlineAt,
-      );
-      assertMobileYxtHttpSuccess(accountResult.response.status, 'ELECTRICITY_ACCOUNT');
+      accountResult = await schoolAccess.execute(userId, { name: 'mobileYxt.electricity.account', input: parsedConfig.accountQuery }, { deadlineAt });
+      assertMobileYxtHttpSuccess(accountResult.status, 'ELECTRICITY_ACCOUNT');
       return parseElectricityAccount(parsedConfig, accountResult.body);
     } catch (error) {
       if (error instanceof MobileYxtError) {

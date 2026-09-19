@@ -2,11 +2,10 @@
 > L2 | 父级: /src/modules/identity/AGENTS.md
 
 成员清单
-login.ports.ts: 登录用例外部能力端口，以 commitRealSchoolLogin 明确分离真实 CAS 上下文提交与本服务 JWT 签发，并隔离上游、SQLite、密码、资料与运行时
-login-application.service.ts: 登录应用服务，编排本地快捷、验证码/明确拒绝后强制真实登录、Portal/JW 激活与 JWT；CAS 成功后先提交真实登录上下文，只有至少一个学校系统激活成功才签发服务 JWT；Portal HTTP 5xx 的无 token 结果仍继续 JW 激活，既有网络超时异常保持中止语义；CAS 成功但两个系统均未激活返回非凭据型失败，不累计密码失败次数
+login.ports.ts: SchoolAccess 学校认证、本地身份读取、密码匹配、JWT 和时钟端口，不暴露学校客户端或凭证。
+login-application.service.ts: 本地快捷或学校真实认证后的本服务登录结果，CAS 成功立即签 JWT，学校资料和业务能力按需获取。
 
 架构决策
-应用服务只依赖 ports 与领域类型；验证码状态由用例实例持有，学校会话只能以端口定义的快照跨请求恢复，过期淘汰由生产装配按固定 TTL 周期显式触发。
-用户与本次 CAS/Portal/JW 凭证必须通过 IdentityStorePort 一次提交；提交由 CAS 成功触发，不依赖激活/JWT 结果，资料回填失败被显式降级。
+本地快捷仍受交互标记约束，不推进学校 epoch 或清除冷却。真实学校认证、挑战与身份条件提交归 SchoolAccess；Identity 仅消费已提交身份。姓名与班级缺省不影响成功结果，响应保留 user 对象。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md

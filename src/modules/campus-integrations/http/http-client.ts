@@ -66,7 +66,7 @@ export class HttpClient {
     return JSON.stringify(this.jar.toJSON());
   }
 
-  async request(url: string, options: RequestInit & { isAuthFlow?: boolean; timeout?: number } = {}): Promise<Response> {
+  async request(url: string, options: RequestInit & { timeout?: number } = {}): Promise<Response> {
     const headers = new Headers(options.headers || {});
     headers.set('User-Agent', USER_AGENT);
 
@@ -105,14 +105,6 @@ export class HttpClient {
         }
       }
 
-      // Detect session expiry (skip during auth flow)
-      if (!options.isAuthFlow) {
-        if (res.status === 401 || res.status === 403 ||
-          (res.status === 302 && res.headers.get('location')?.includes('cas/login'))) {
-          throw new Error('SESSION_EXPIRED');
-        }
-      }
-
       // 校园接口均消费完整页面/JSON/验证码；在计时器内读完正文，避免响应头提前结束预算。
       // clone 保留 URL、状态、响应头和未消费的正文，调用方继续使用标准 Response API。
       const buffered = res.clone();
@@ -136,12 +128,7 @@ export class HttpClient {
     let lastStatus = 0;
 
     for (let i = 0; i < max; i++) {
-      let res: Response;
-      try {
-        res = await this.request(current, { isAuthFlow: true });
-      } catch {
-        return { success: false, finalStatus: 0 };
-      }
+      const res = await this.request(current);
 
       lastStatus = res.status;
 

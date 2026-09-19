@@ -2,8 +2,8 @@
 > L2 | 父级: /AGENTS.md
 
 成员清单
-auth/: 本服务 JWT/日历签名与校园认证兼容 Facade，学校凭证实现已迁入 modules/campus-integrations
-core/: 学校 HTTP、重试与端点的兼容 Facade，canonical 实现位于 modules/campus-integrations
+runtime-config.ts: 启动时校验并冻结认证/学校访问规则，统一整数、单位、零值和预算，不保存业务运行事实。
+auth/: 本服务 JWT 与日历签名兼容出口；学校认证只经 SchoolAccess
 db/: SQLite/Drizzle 数据层，定义业务事实表、版本化 migration、显式 repair 与一致性 snapshot
 middleware/: Hono 中间件，处理认证、限流、日志、错误与后台 Cookie 会话
 modules/: 按业务能力组织的纵向切片，承载 Identity、Community、Early Rising、Campus Integrations、Academic、Cache、Calendar 与各社交/运维业务实现
@@ -44,7 +44,7 @@ src 是应用机器相核心；新业务按 modules 纵向切片，旧 routes �
 2026-07-27: 新增 Calendar 纵向切片，签名、周快照与 ICS 统一迁入 modules/calendar。
 2026-07-27: 新增 Academic 纵向切片，课表、成绩、评教与空教室旧服务退化为单向兼容 Facade。
 2026-07-27: 新增 Campus Integrations 纵向切片，旧 auth/core/parsers 与 Portal 资料服务退化为兼容 Facade。
-2026-09-05: Campus Integrations 增加 mobile-jw token-only 派生会话与真实课表解析，Academic 新增移动教务优先策略；共享 Portal reader 与 TGC 条件提交隔离凭证依赖。
+2026-09-05: Campus Integrations 增加 mobile-jw token-only 派生会话与真实课表解析，Academic 新增移动教务优先策略；共享 Portal 目标恢复与 TGC 条件提交隔离凭证依赖。
 2026-08-23: Campus Integrations 新增 epoch 条件写的 mobile-yxt 自有派生会话、独立限流/有界月缓存、严格账单与电费只读能力，保持旧 `/api/ecard` 合同不变。
 2026-08-24: Early Rising 纳入 canonical 模块地图，根组合将其 SQLite 展示设置端口注入 Operations 后台管理面。
 2026-07-27: 新增 modules/identity 登录纵向切片，旧 auth route 退化为单向兼容 Facade。

@@ -1,12 +1,13 @@
 /**
- * [INPUT]: 依赖 AcademicRuntimePorts、共享 AppError/ErrorCode 与 AcademicHttpClient 边界
+ * [INPUT]: 依赖 AcademicRuntimePorts、共享 AppError/ErrorCode 与 具名成绩读取边界
  * [OUTPUT]: 对外提供成绩查询规范化规则、GradeApplicationPorts 与评教发现契约
  * [POS]: academic/domain 的成绩业务契约，限制缓存维度并隔离应用层和具体 hash/校园实现
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
+import type { IGradeList } from '../../../types';
 import { AppError, ErrorCode } from '../../../utils/errors';
-import type { AcademicHttpClient, AcademicRuntimePorts } from './ports';
+import type { AcademicRuntimePorts } from './ports';
 
 const MAX_TERM_LENGTH = 32;
 const MAX_KCXZ_LENGTH = 32;
@@ -31,7 +32,7 @@ export interface EvaluationDiscoveryResult {
 
 export interface GradeApplicationPorts extends AcademicRuntimePorts {
   buildCacheKey(studentId: string, term: string, kcxz: string, kcmc: string): string;
-  discoverEvaluation(client: AcademicHttpClient): Promise<EvaluationDiscoveryResult>;
+  readGrades(userId: number, input: NormalizedGradeQuery & { studentId: string; name?: string }): Promise<IGradeList | null>;
 }
 
 function normalizeQueryValue(raw: string | undefined, maxLength: number, fieldName: string): string {

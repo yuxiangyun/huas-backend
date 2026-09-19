@@ -7,7 +7,7 @@ transport-errors.ts: 共享 Bun/Node cause 链错误事实与瞬态网络分类�
 retry.ts: 无业务状态的有界异步重试原语，保留指数退避、抖动、绝对截止时间与调用方错误选择权
 
 架构决策
-HTTP 层只表达传输事实，不解释 Portal/JW 业务响应；认证流显式关闭通用 session expired 判定，由 CAS 适配器处理重定向。
+HTTP 层只表达传输事实，不解释 Portal/JW 业务响应；各协议适配器自行判定认证失效，CAS 适配器处理重定向。
 HttpClient 可以承载不同学校域会话但不负责 Cookie 权限收缩；mobile-yxt 认证适配器必须从干净 Jar 开始并在持久化前执行 domain/path/name 白名单。
 每次实际 fetch 最终只记录一次 success/failure/timeout；observer 默认 no-op 且异常被隔离，禁止影响重试与错误语义。
 校园调用均消费完整页面、JSON 或验证码；HTTP 层在预算内读完正文并返回保留 URL/状态/头部的未消费 Response，正文超时统一为 REQUEST_TIMEOUT 且只观测一次。具体业务决定总预算与可重试错误。

@@ -2,7 +2,7 @@
 > L2 | 父级: /src/modules/identity/AGENTS.md
 
 成员清单
-login.ts: 登录领域值对象，统一用户、学校步骤、凭证集合与应用结果语义
+login.ts: 登录领域值对象，统一用户、学校步骤与应用结果语义
 community-identity-reader.ts: 面向 Community 的最小身份只读端口，仅批量公开用户主键与班级原始值
 operations-query.ts: 面向 Operations 的用户指标、年级/专业分布、筛选分页与凭证/缓存计数只读契约
 

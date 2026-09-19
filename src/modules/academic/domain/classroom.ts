@@ -1,12 +1,12 @@
 /**
- * [INPUT]: 依赖 AcademicUpstream 与共享 AppError/ErrorCode 表达参数和服务错误契约
+ * [INPUT]: 依赖 SchoolAccess 具名只读结果类型 与共享 AppError/ErrorCode 表达参数和服务错误契约
  * [OUTPUT]: 对外提供空教室查询/actor 契约、纯规范化规则与服务账号查询端口
  * [POS]: academic/domain 的空教室业务边界，区分请求用户审计身份和上游服务账号身份
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { AppError, ErrorCode } from '../../../utils/errors';
-import type { AcademicUpstream } from './ports';
+import type { SchoolOperationOutput } from '../../campus-integrations/school-access/school-access';
 
 export type CampusId = 'A' | 'B';
 
@@ -35,7 +35,8 @@ export interface ClassroomQueryActor {
 }
 
 export interface ClassroomApplicationPorts {
-  upstream: AcademicUpstream;
+  readBuildings(userId: number, input: { campusId: CampusId }): Promise<SchoolOperationOutput<'jw.classrooms.buildings'>>;
+  readFreeRooms(userId: number, input: NormalizedFreeQuery): Promise<SchoolOperationOutput<'jw.classrooms.free'>>;
   resolveServiceAccountUserId(): Promise<number>;
 }
 

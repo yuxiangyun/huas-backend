@@ -1,14 +1,12 @@
 /**
- * [INPUT]: 依赖 OrderedCommit 的并发提交顺序保护，依赖 domain AcademicRuntimePorts、canonical ScheduleParser/JW 端点、配置、CacheMeta 与北京时间
+ * [INPUT]: 依赖 OrderedCommit 的并发提交顺序保护，依赖 domain AcademicRuntimePorts、具名 JW 课表读取端口、配置、CacheMeta 与北京时间
  * [OUTPUT]: 对外提供可注入 AcademicRuntimePorts 的 ScheduleApplicationService，并分离 current 与 stale 读取
  * [POS]: academic/application 的 JW 单源课表用例，负责回源合并与代次提交，条件淘汰历史未公布缓存，并为真实课表保留旧缓存提升与 stale 回退
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { ScheduleParser } from '../../campus-integrations/jw/parsers/schedule-parser';
-import { URLS } from '../../campus-integrations/endpoints';
 import { OrderedCommit } from '../../../utils/ordered-commit';
-import { config, JW_SJMS_VALUE } from '../../../config';
+import { config } from '../../../config';
 import { AppError, ErrorCode } from '../../../utils/errors';
 import type { CacheMeta } from '../../../types';
 import { beijingDate } from '../../../utils/time';
@@ -181,19 +179,7 @@ export class ScheduleApplicationService {
     const data = await this.ports.cache.runSingleflight(
       cacheKey,
       forceRefresh,
-      () => cacheWrites.run(cacheKey, () => this.ports.upstream(userId, 'jw', async ({ client }) => {
-        const params = new URLSearchParams();
-        params.append('rq', queryDate);
-        params.append('sjmsValue', JW_SJMS_VALUE);
-
-        const res = await client.request(URLS.kbApi, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-          body: params,
-          timeout: config.timeout.business,
-        });
-        return ScheduleParser.parse(await res.text(), { studentId, name });
-      }), async (fresh) => {
+      () => cacheWrites.run(cacheKey, () => this.ports.readJwSchedule(userId, { date: queryDate, studentId, name }), async (fresh) => {
         await this.ports.cache.set(cacheKey, fresh, config.cacheTtl.schedule, 'jw');
       }),
     );

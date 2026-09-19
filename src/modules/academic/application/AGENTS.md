@@ -9,7 +9,7 @@ mobile-jw-semester-service.ts: 当前学期完整采集，复用一次当前周�
 schedule-facade.ts: 移动教务/JW/Portal 编排，用户首选只前置 current 并去重，stale 仍按后台原参与范围/固定顺序读取；另提供日历固定移动教务单源入口，固化请求级快照元信息排除来源能力限制参与最终错误仲裁，并保留 legacy 主源未公布短路与错误优先级
 schedule-source-policy-service.ts: 课表来源策略用例边界，统一读取状态快照与持久化热切换命令
 grade-service.ts: fresh-first 成绩读取用例，以 45 秒总预算有限重试凭证恢复、502/503/504 与一次无效页，按回源代次提交缓存，并在新鲜路径穷尽后执行 stale fallback
-evaluation-service.ts: 评教用例，保留 actionable/blocked，固定有界批次目标、只重试读取、一次性提交及批末按身份增量确认；已尝试 POST 无完成增量或回查失败均为 unknown，failed 仅表示提交前准备失败
+evaluation-service.ts: 评教用例，保留 actionable/blocked，固定有界批次目标、通过 SchoolAccess 恢复读取、一次性提交及批末按身份增量确认；已尝试 POST 无完成增量或回查失败均为 unknown，failed 仅表示提交前准备失败
 classroom-free-service.ts: 空教室用例，分离审计 actor 与配置化服务账号上游身份
 
 架构决策

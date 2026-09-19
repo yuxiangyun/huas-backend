@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 ClassroomFreeApplicationService、默认 Academic upstream、服务账号持久化适配器与 config
+ * [INPUT]: 依赖 ClassroomFreeApplicationService、SchoolAccess 具名空教室操作、服务账号持久化适配器与 config
  * [OUTPUT]: 对外提供兼容静态 ClassroomFreeService 与 adminStudentId getter
  * [POS]: academic 的 Classrooms composition root，唯一负责空教室 application 与 infrastructure 装配
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -7,11 +7,12 @@
 
 import { config } from '../../config';
 import { ClassroomFreeApplicationService } from './application/classroom-free-service';
-import { defaultAcademicRuntimePorts } from './infrastructure/runtime';
+import { schoolAccess } from '../campus-integrations/school-access/school-access';
 import { resolveClassroomServiceAccountUserId } from './infrastructure/classroom-service-account';
 
 const classroomApplication = new ClassroomFreeApplicationService({
-  upstream: defaultAcademicRuntimePorts.upstream,
+  readBuildings: (userId, input) => schoolAccess.execute(userId, { name: 'jw.classrooms.buildings', input }),
+  readFreeRooms: (userId, input) => schoolAccess.execute(userId, { name: 'jw.classrooms.free', input }),
   resolveServiceAccountUserId: resolveClassroomServiceAccountUserId,
 });
 

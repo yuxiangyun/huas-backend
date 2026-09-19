@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 mobile-jw 无感会话执行器、统一参数错误与严格成功 envelope 判定
+ * [INPUT]: 依赖 SchoolAccess 具名只读操作与 RuntimeConfig、统一参数错误与严格成功 envelope 判定
  * [OUTPUT]: 对外提供 MobileJwScheduleClient 的学期、节次、当前周与指定学期周只读能力
  * [POS]: mobile-jw 的内部课表协议入口，保留真实上游 data 供后续 Academic DTO 映射，不向客户端透传令牌或任意 URL
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -7,7 +7,9 @@
 
 import { AppError, ErrorCode } from '../../../utils/errors';
 import { assertHttpSuccess, businessFailure, protocolFailure } from './errors';
-import { mobileJwSessionExecutor, type MobileJwSessionExecutor, type MobileJwReadOperation } from './session-executor';
+import { schoolAccess } from '../school-access/school-access';
+import { runtimeConfig } from '../../../runtime-config';
+type MobileJwReadOperation = 'semesters' | 'semesterDictionary' | 'timeModes' | 'nodes' | 'current' | 'selected';
 
 export interface MobileJwReadResult { data: unknown; message: string | null }
 
@@ -26,8 +28,6 @@ function modeParam(mode?: string): string {
 }
 
 export class MobileJwScheduleClient {
-  constructor(private readonly executor: Pick<MobileJwSessionExecutor, 'post'> = mobileJwSessionExecutor) {}
-
   semesters(userId: number, deadlineAt?: number) {
     return this.read(userId, 'semesters', {}, deadlineAt);
   }
@@ -58,7 +58,9 @@ export class MobileJwScheduleClient {
   }
 
   private async read(userId: number, operation: MobileJwReadOperation, params: Record<string, string>, deadlineAt?: number): Promise<MobileJwReadResult> {
-    const { status, body } = await this.executor.post(userId, operation, params, deadlineAt);
+    const { status, body } = await schoolAccess.execute(userId, { name: `mobileJw.${operation}`, input: params }, {
+      deadlineAt: deadlineAt ?? Date.now() + runtimeConfig.timeout.mobileJwTotalBudget,
+    });
     assertHttpSuccess(status);
     if (!body || typeof body !== 'object' || Array.isArray(body)) throw protocolFailure();
     const envelope = body as Record<string, unknown>;

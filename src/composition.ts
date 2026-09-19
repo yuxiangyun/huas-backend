@@ -7,7 +7,7 @@
 
 import type { AppDependencies } from './app';
 import { dirname, join } from 'node:path';
-import { CredentialManager } from './auth/credential-manager';
+import { schoolAccessMaintenance } from './modules/campus-integrations/school-access/school-access';
 import { config } from './config';
 import { getDb } from './db';
 import { CacheService } from './modules/cache/cache-service';
@@ -22,7 +22,6 @@ import { SQLiteCommunityProfileRepository } from './modules/community/infrastruc
 import { createDiscoverModule } from './modules/discover/composition';
 import { createEarlyRisingModule } from './modules/early-rising/composition';
 import { DISCOVER_MEDIA_CACHE_CONTROL } from './modules/discover/infrastructure/discover-media-service';
-import { loginApplicationService } from './modules/identity/http/auth.routes';
 import { SQLiteCommunityIdentityReader } from './modules/identity/infrastructure/sqlite-community-identity-reader';
 import { SQLiteIdentityOperationsQuery } from './modules/identity/infrastructure/sqlite-identity-operations-query';
 import { createMessagingModule } from './modules/messaging/composition';
@@ -178,7 +177,7 @@ export function createApplicationComposition(): ApplicationComposition {
   periodicTasks.register({
     name: 'credential-cleanup',
     intervalMs: config.cleanupInterval,
-    run: () => CredentialManager.cleanupExpired(),
+    run: () => schoolAccessMaintenance.cleanupExpiredCredentials(),
   });
   periodicTasks.register({
     name: 'cache-cleanup',
@@ -188,7 +187,7 @@ export function createApplicationComposition(): ApplicationComposition {
   periodicTasks.register({
     name: 'captcha-session-cleanup',
     intervalMs: config.captchaSessionTtl,
-    run: () => loginApplicationService.cleanupExpiredCaptchaSessions(),
+    run: () => schoolAccessMaintenance.cleanupChallenges(),
   });
   periodicTasks.register({
     name: 'activity-outbox-projection',

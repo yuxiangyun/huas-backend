@@ -7,7 +7,7 @@
 
 import { URLS } from '../endpoints';
 import { HttpClient } from '../http/http-client';
-import { assertHttpSuccess, credentialRejected, normalizeFailure, protocolFailure } from './errors';
+import { assertHttpSuccess, credentialRejected, protocolFailure } from './errors';
 
 export interface MobileJwSessionExchangePort {
   exchange(portalJwt: string, deadlineAt: number): Promise<string>;
@@ -43,34 +43,30 @@ export function readH5LoginToken(url: URL): string | null {
 
 export class MobileJwAuthExchanger implements MobileJwSessionExchangePort {
   async exchange(portalJwt: string, deadlineAt: number): Promise<string> {
-    try {
-      const client = new HttpClient();
-      client.setDeadline(deadlineAt);
-      let url = new URL(URLS.mobileJwSso);
-      url.searchParams.set('token', portalJwt);
+    const client = new HttpClient();
+    client.setDeadline(deadlineAt);
+    let url = new URL(URLS.mobileJwSso);
+    url.searchParams.set('token', portalJwt);
 
-      for (let step = 0; step < MAX_SSO_STEPS; step += 1) {
-        requireSameOrigin(url);
-        const token = readH5LoginToken(url);
-        if (token) return token;
-        const response = await client.request(url.toString(), { isAuthFlow: true });
-        if ([301, 302, 303, 307, 308].includes(response.status)) {
-          const location = response.headers.get('location');
-          if (!location) throw protocolFailure();
-          url = new URL(location, url);
-          const redirectedToken = readH5LoginToken(url);
-          if (redirectedToken) return redirectedToken;
-          continue;
-        }
-        assertHttpSuccess(response.status);
-        const body = (await response.text()).trim();
-        // 已有无用户上下文 fixture 的精确拒绝文本；未知 HTML/JSON 不推断为凭证失效。
-        if (body === '用户获取失败！') throw credentialRejected();
-        throw protocolFailure();
+    for (let step = 0; step < MAX_SSO_STEPS; step += 1) {
+      requireSameOrigin(url);
+      const token = readH5LoginToken(url);
+      if (token) return token;
+      const response = await client.request(url.toString());
+      if ([301, 302, 303, 307, 308].includes(response.status)) {
+        const location = response.headers.get('location');
+        if (!location) throw protocolFailure();
+        url = new URL(location, url);
+        const redirectedToken = readH5LoginToken(url);
+        if (redirectedToken) return redirectedToken;
+        continue;
       }
+      assertHttpSuccess(response.status);
+      const body = (await response.text()).trim();
+      // 已有无用户上下文 fixture 的精确拒绝文本；未知 HTML/JSON 不推断为凭证失效。
+      if (body === '用户获取失败！') throw credentialRejected();
       throw protocolFailure();
-    } catch (error) {
-      throw normalizeFailure(error);
     }
+    throw protocolFailure();
   }
 }

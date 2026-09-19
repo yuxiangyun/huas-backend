@@ -6,7 +6,7 @@ academic/: Academic 兼容 Facade，旧类名与路径单向再导出 modules/ac
 admin/: Operations 管理服务兼容 Facade，旧 Dashboard/analytics/log 类名单向再导出 canonical 实现
 calendar/: Calendar 兼容 Facade，旧订阅函数单向再导出 modules/calendar canonical 实现
 content/: Operations 公告服务兼容 Facade，旧类名/类型单向再导出 canonical 实现
-infra/: 基础设施服务，封装缓存、上游调用与刷新兜底
+infra/: 基础设施服务，封装缓存与刷新兜底
 portal/: Portal 兼容 Facade，一卡通/资料归 Campus Integrations，课表归 Academic
 
 架构决策

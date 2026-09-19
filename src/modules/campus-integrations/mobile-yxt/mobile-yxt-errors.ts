@@ -1,13 +1,11 @@
 /**
- * [INPUT]: 依赖统一 AppError/ErrorCode、共享 HTTP 传输错误判定与 mobile-yxt 认证、业务和协议失败事实
- * [OUTPUT]: 对外提供无敏感正文的类型化错误构造、凭证拒绝判定、低敏感 operation/stage、HTTP 状态校验、跨运行时传输错误归一化与 stale/fatal 判定
- * [POS]: mobile-yxt 的错误语义边界，确保 401、超时、可用性故障与可定位协议漂移不会互相冒充
+ * [INPUT]: 依赖统一 AppError/ErrorCode、mobile-yxt 认证、业务和协议失败事实
+ * [OUTPUT]: 对外提供无敏感正文的类型化错误构造、凭证拒绝判定、低敏感 operation/stage、HTTP 状态校验与 stale/fatal 判定
+ * [POS]: mobile-yxt 的错误语义边界，学校会话拒绝外部按 503，只有 CAS 交互要求才退出；保留超时、可用性与协议漂移分类
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { AppError, ErrorCode } from '../../../utils/errors';
-import { errorFacts, isTransientTransportError as isMobileYxtTransientTransportError } from '../http/transport-errors';
-export { isTransientTransportError as isMobileYxtTransientTransportError } from '../http/transport-errors';
 
 export type MobileYxtFailureKind = 'credential' | 'timeout' | 'unavailable' | 'business' | 'protocol';
 
@@ -37,8 +35,8 @@ export class MobileYxtError extends AppError {
 export function mobileYxtCredentialRejected(): MobileYxtError {
   return new MobileYxtError(
     'credential',
-    ErrorCode.CREDENTIAL_EXPIRED,
-    '学校登录状态已失效，请重新登录',
+    ErrorCode.SERVICE_ACCOUNT_UNAVAILABLE,
+    '学校会话恢复后仍不可用，请稍后重试',
     false,
   );
 }
@@ -82,23 +80,13 @@ export function mobileYxtProtocolFailure(
 ): MobileYxtError {
   return new MobileYxtError(
     'protocol',
-    ErrorCode.INTERNAL_ERROR,
+    ErrorCode.SERVICE_ACCOUNT_UNAVAILABLE,
     'mobile-yxt 上游响应协议无法识别',
     false,
     operation,
     stage,
   );
 }
-
-
-export function normalizeMobileYxtTransportError(error: unknown): MobileYxtError {
-  if (error instanceof MobileYxtError) return error;
-  const facts = errorFacts(error);
-  if (/\bREQUEST_TIMEOUT\b/.test(facts)) return mobileYxtTimeout();
-  if (isMobileYxtTransientTransportError(error)) return mobileYxtUnavailable();
-  return mobileYxtProtocolFailure();
-}
-
 
 export function assertMobileYxtHttpSuccess(status: number, operation?: string): void {
   if (status >= 200 && status < 300) return;
@@ -108,7 +96,9 @@ export function assertMobileYxtHttpSuccess(status: number, operation?: string): 
 }
 
 export function allowsMobileYxtStaleFallback(error: unknown): boolean {
-  return error instanceof MobileYxtError && error.staleAllowed;
+  // 总预算可能在两页交易或 config→account 之间耗尽，统一入口的超时同样允许旧值兜底。
+  return (error instanceof AppError && error.code === ErrorCode.UPSTREAM_TIMEOUT)
+    || (error instanceof MobileYxtError && error.staleAllowed);
 }
 
 export function isFatalMobileYxtSubsourceError(error: unknown): boolean {

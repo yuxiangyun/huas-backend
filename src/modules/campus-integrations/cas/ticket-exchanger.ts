@@ -1,12 +1,12 @@
 /**
- * [INPUT]: 依赖带剩余预算的 HttpClient、CryptoHelper、URLS、config、JW 主框架判定、共享 cause 链传输分类与 LoginStep 类型
- * [OUTPUT]: 对外提供 TicketExchanger，在客户端 deadline 内交换 Portal/JW 凭证；Portal HTTP 5xx 作为结果中的上游故障证据，由调用方决定继续登录激活或中止静默恢复
- * [POS]: campus-integrations/cas 的学校子凭证交换器，被登录流程和有界凭证恢复链消费
+ * [INPUT]: 依赖带剩余预算的 HttpClient、CryptoHelper、URLS、config、JW 主框架判定、统一类型化错误与 LoginStep 类型
+ * [OUTPUT]: 对外提供 TicketExchanger，单次交换 Portal/JW 凭证，区分父 TGC 拒绝与目标故障，不内置重试
+ * [POS]: campus-integrations/cas 的学校子凭证交换器，只被 SchoolAccess 的目标恢复协调器消费
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { HttpClient } from '../http/http-client';
-import { isTransientTransportError } from '../http/transport-errors';
+import { SchoolAccessError, schoolTimeout } from '../school-access/errors';
 import { CryptoHelper } from '../../../utils/crypto';
 import { URLS } from '../endpoints';
 import { config } from '../../../config';
@@ -20,7 +20,6 @@ export class TicketExchanger {
     detail: string;
   }> {
     let response = await client.request(URLS.jwMain, {
-      isAuthFlow: true,
       timeout: config.timeout.cas,
     });
 
@@ -35,8 +34,7 @@ export class TicketExchanger {
         };
       }
       response = await client.request(URLS.jwMain, {
-        isAuthFlow: true,
-        timeout: config.timeout.cas,
+          timeout: config.timeout.cas,
       });
     }
 
@@ -60,119 +58,53 @@ export class TicketExchanger {
     };
   }
 
-  /**
-   * TGC -> Portal JWT
-   * Follow CAS redirect to portal, extract idToken from ticket
-   */
+  /** 单次 TGC 换票，重试只由 SchoolAccess 执行器调度。 */
   static async exchangePortalToken(client: HttpClient): Promise<{
-    token: string | null;
-    steps: LoginStep[];
-    upstreamError?: Error;
+    token: string | null; steps: LoginStep[]; parentRejected?: boolean;
   }> {
-    const steps: LoginStep[] = [];
-    try {
-      const loginUrl = `${URLS.login}?service=${encodeURIComponent(URLS.servicePortal)}`;
-      const res = await client.request(loginUrl, {
-        isAuthFlow: true,
-        timeout: config.timeout.cas,
-      });
-
-      if (res.status >= 500) {
-        const upstreamError = new Error(`PORTAL_TOKEN_HTTP_${res.status}`);
-        steps.push({ label: 'portal', ok: false, detail: upstreamError.message });
-        // 真实登录仍可继续激活 JW；静默恢复必须保留故障，不能升级为密码重认证。
-        return { token: null, steps, upstreamError };
-      }
-      const loc = res.headers.get('location');
-      if (loc?.includes('ticket=')) {
-        const token = CryptoHelper.extractTokenFromUrl(loc);
-        await client.followRedirects(loc);
-        steps.push({ label: 'portal', ok: true });
-        return { token, steps };
-      }
-
-      steps.push({ label: 'portal', ok: false, detail: 'No ticket in redirect' });
-      return { token: null, steps };
-    } catch (e: any) {
-      const detail = String(e?.message || '');
-      steps.push({ label: 'portal', ok: false, detail });
-      if (isTransientTransportError(e) || /_HTTP_5\d\d$/.test(detail)) throw e;
-      return { token: null, steps };
+    const response = await client.request(`${URLS.login}?service=${encodeURIComponent(URLS.servicePortal)}`, {
+      timeout: config.timeout.cas,
+    });
+    if (response.status === 401) return { token: null, steps: [], parentRejected: true };
+    this.assertExchangeStatus(response.status);
+    const location = response.headers.get('location');
+    if (!location?.includes('ticket=')) {
+      const html = await response.text();
+      if (/name=["']execution["']/.test(html)) return { token: null, steps: [], parentRejected: true };
+      throw new SchoolAccessError('protocol', '学校门户换票响应无法识别');
     }
+    const token = CryptoHelper.extractTokenFromUrl(location);
+    if (!token) throw new SchoolAccessError('protocol', '学校门户未提供有效凭证');
+    // 业务使用票据中的 token，不以门户页面跳转完成为获取凭证的前置条件。
+    return { token, steps: [{ label: 'portal', ok: true }] };
   }
 
-  /**
-   * TGC -> JW JSESSIONID
-   * Follow CAS -> SSO -> JW redirect chain with retry
-   */
   static async exchangeJwSession(client: HttpClient): Promise<{
-    success: boolean;
-    steps: LoginStep[];
-    upstreamUnavailable?: boolean;
+    success: boolean; steps: LoginStep[]; parentRejected?: boolean;
   }> {
-    const steps: LoginStep[] = [];
-    let activated = false;
-    let upstreamUnavailable = false;
-
-    for (let attempt = 0; attempt < config.retry.jwActivationMax && !activated; attempt++) {
-      if (client.getRemainingTimeMs() <= 0) {
-        upstreamUnavailable = true;
-        break;
-      }
-      if (attempt > 0) {
-        if (client.getRemainingTimeMs() <= config.retry.jwActivationDelay) {
-          upstreamUnavailable = true;
-          break;
-        }
-        await new Promise(r => setTimeout(r, config.retry.jwActivationDelay));
-      }
-
-      try {
-        const jwUrl = `${URLS.login}?service=${encodeURIComponent(URLS.serviceJw)}`;
-        const jwRes = await client.request(jwUrl, {
-          isAuthFlow: true,
-          timeout: config.timeout.cas,
-        });
-
-        if (jwRes.status >= 500) {
-          upstreamUnavailable = true;
-          steps.push({ label: `jw#${attempt + 1}`, ok: false, detail: `status:${jwRes.status}` });
-          continue;
-        }
-        const jwLoc = jwRes.headers.get('location');
-        if (jwLoc) {
-          const result = await client.followRedirects(jwLoc);
-          if (result.success) {
-            const verification = await this.verifyJwSession(client);
-            if (verification.active) {
-              activated = true;
-              steps.push({ label: `jw${attempt > 0 ? '#' + (attempt + 1) : ''}`, ok: true });
-            } else {
-              upstreamUnavailable ||= verification.upstreamUnavailable;
-              steps.push({
-                label: `jw#${attempt + 1}`,
-                ok: false,
-                detail: verification.detail,
-              });
-            }
-          } else {
-            if (result.finalStatus === 0 || result.finalStatus >= 500) {
-              upstreamUnavailable = true;
-            }
-            steps.push({ label: `jw#${attempt + 1}`, ok: false, detail: `status:${result.finalStatus}` });
-          }
-        } else {
-          steps.push({ label: `jw#${attempt + 1}`, ok: false, detail: 'SSO未重定向' });
-        }
-      } catch (e: any) {
-        const detail = String(e?.message || '');
-        if (isTransientTransportError(e)) {
-          upstreamUnavailable = true;
-        }
-        steps.push({ label: `jw#${attempt + 1}`, ok: false, detail });
-      }
+    const response = await client.request(`${URLS.login}?service=${encodeURIComponent(URLS.serviceJw)}`, {
+      timeout: config.timeout.cas,
+    });
+    if (response.status === 401) return { success: false, steps: [], parentRejected: true };
+    this.assertExchangeStatus(response.status);
+    const location = response.headers.get('location');
+    if (!location) {
+      const html = await response.text();
+      if (/name=["']execution["']/.test(html)) return { success: false, steps: [], parentRejected: true };
+      throw new SchoolAccessError('protocol', '学校教务换票响应无法识别');
     }
+    const followed = await client.followRedirects(new URL(location, URLS.login).toString());
+    if (!followed.success) {
+      if (client.getRemainingTimeMs() <= 0) throw schoolTimeout();
+      throw new SchoolAccessError('unavailable', '学校教务激活暂不可用', followed.finalStatus === 0 || followed.finalStatus >= 500);
+    }
+    const verification = await this.verifyJwSession(client);
+    if (!verification.active) throw new SchoolAccessError('unavailable', '学校教务尚未提供有效会话', verification.upstreamUnavailable);
+    return { success: true, steps: [{ label: 'jw', ok: true }] };
+  }
 
-    return { success: activated, steps, upstreamUnavailable: !activated && upstreamUnavailable };
+  private static assertExchangeStatus(status: number): void {
+    if (status >= 200 && status < 400) return;
+    throw new SchoolAccessError(status >= 500 ? 'unavailable' : 'protocol', '学校换票服务暂不可用', status >= 500);
   }
 }

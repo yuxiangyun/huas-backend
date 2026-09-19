@@ -1,14 +1,14 @@
 /**
  * [INPUT]: 依赖 credentials 表、SchoolLoginEpoch、共享 CookieJar codec 与 Drizzle 条件写入，持久化最小 mobile accessToken/CookieJar
  * [OUTPUT]: 对外提供 MobileYxtSessionRepository/Store、SqliteMobileYxtSessionRepository，支持安全 read、epoch 条件创建与 generation 条件失效
- * [POS]: mobile-yxt 自有会话存储边界；损坏或越权 CookieJar 在读取事务内淘汰为 miss，无 TTL、epoch 和 generation 语义不进入通用 CredentialManager
+ * [POS]: mobile-yxt 自有会话存储边界；损坏或越权 CookieJar 在读取事务内淘汰为 miss，无 TTL、epoch 和 generation 语义由 SchoolAccess 恢复协调器消费
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { getDb, schema } from '../../../db';
-import { readSchoolLoginEpoch } from '../credential-recovery/school-login-context';
+import { readSchoolLoginEpoch } from '../school-access/school-login-context';
 import {
   decodeMobileYxtCookieJar,
   requireMobileYxtCookieJar,

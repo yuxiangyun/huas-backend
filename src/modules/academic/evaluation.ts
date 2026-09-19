@@ -1,23 +1,21 @@
 /**
- * [INPUT]: 依赖 EvaluationApplicationService、默认 Academic upstream 与评教发现适配器
+ * [INPUT]: 依赖 EvaluationApplicationService、SchoolAccess 具名评教操作
  * [OUTPUT]: 对外提供兼容静态 EvaluationService、EvaluationParser 与公开评教类型
  * [POS]: academic 的 Evaluation composition root，唯一负责评教 application 与 infrastructure 装配
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { EvaluationApplicationService } from './application/evaluation-service';
-import { defaultAcademicRuntimePorts } from './infrastructure/runtime';
-import { discoverEvaluationListUrlFromClient } from './infrastructure/evaluation-discovery';
+import { schoolAccess } from '../campus-integrations/school-access/school-access';
 
 const evaluationApplication = new EvaluationApplicationService({
-  upstream: defaultAcademicRuntimePorts.upstream,
-  discoverEvaluation: discoverEvaluationListUrlFromClient,
+  discoverEvaluation: userId => schoolAccess.execute(userId, { name: 'jw.evaluation.discover', input: {} }),
+  readRows: (userId, listUrl, deadlineAt) => schoolAccess.execute(userId, { name: 'jw.evaluation.rows', input: { listUrl } }, deadlineAt === undefined ? undefined : { deadlineAt }),
+  evaluateItem: (userId, input, deadlineAt) => schoolAccess.execute(userId, { name: 'jw.evaluation.item', input }, { deadlineAt }),
 });
 
 export class EvaluationService {
-  static discoverListUrlFromClient(...args: Parameters<EvaluationApplicationService['discoverListUrlFromClient']>) {
-    return evaluationApplication.discoverListUrlFromClient(...args);
-  }
+
 
   static discoverListUrl(...args: Parameters<EvaluationApplicationService['discoverListUrl']>) {
     return evaluationApplication.discoverListUrl(...args);
@@ -27,9 +25,7 @@ export class EvaluationService {
     return evaluationApplication.getStatus(...args);
   }
 
-  static submitFullScoreFromClient(...args: Parameters<EvaluationApplicationService['submitFullScoreFromClient']>) {
-    return evaluationApplication.submitFullScoreFromClient(...args);
-  }
+
 
   static submitFullScore(...args: Parameters<EvaluationApplicationService['submitFullScore']>) {
     return evaluationApplication.submitFullScore(...args);
