@@ -264,7 +264,7 @@ describe('EvaluationParser', () => {
     expect(result.failedCount).toBe(0);
     expect(result.unconfirmedCount).toBe(1);
     expect(result.items[0].status).toBe('unknown');
-    expect(result.items[0].message).toBe('EVALUATION_UPSTREAM_ERROR_PAGE');
+    expect(result.items[0].message).toBe('评教提交前准备失败，请稍后重试');
     expect(result.status.pendingCount).toBe(1);
     expect(result.status.completedCount).toBe(0);
   });
@@ -332,7 +332,7 @@ describe('EvaluationParser', () => {
     expect(result.failedCount).toBe(0);
     expect(result.unconfirmedCount).toBe(1);
     expect(result.items[0].status).toBe('unknown');
-    expect(result.items[0].message).toBe('SUBMIT_NOT_CONFIRMED');
+    expect(result.items[0].message).toBe('学校尚未确认本次评教已提交，请先刷新评教列表查看结果，避免重复提交');
     expect(result.status.pendingCount).toBe(1);
   });
 

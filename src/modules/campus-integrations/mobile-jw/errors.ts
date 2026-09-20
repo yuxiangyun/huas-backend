@@ -16,13 +16,13 @@ export class MobileJwError extends AppError {
 }
 
 export const credentialRejected = () => new MobileJwError(
-  'credential', ErrorCode.SERVICE_ACCOUNT_UNAVAILABLE, '学校会话恢复后仍不可用，请稍后重试',
+  'credential', ErrorCode.SERVICE_ACCOUNT_UNAVAILABLE, '移动教务未能建立查询连接，请先进入学校官方教务系统确认账号已完成初始化，再返回重试',
 );
 export const protocolFailure = () => new MobileJwError(
-  'protocol', ErrorCode.SERVICE_ACCOUNT_UNAVAILABLE, '移动教务响应协议无法识别',
+  'protocol', ErrorCode.SERVICE_ACCOUNT_UNAVAILABLE, '移动教务返回的数据不完整或格式异常，暂时无法读取课表，请稍后重试',
 );
 export const businessFailure = () => new MobileJwError(
-  'business', ErrorCode.SERVICE_ACCOUNT_UNAVAILABLE, '移动教务暂未提供所请求的数据',
+  'business', ErrorCode.SERVICE_ACCOUNT_UNAVAILABLE, '移动教务未能提供本次查询结果，请先进入学校官方教务系统确认账号已完成初始化，再返回重试',
 );
 
 export function isSessionExpired(status: number, body: unknown): boolean {
@@ -34,7 +34,7 @@ export function isSessionExpired(status: number, body: unknown): boolean {
 export function assertHttpSuccess(status: number): void {
   if (status === 401) throw credentialRejected();
   if (status >= 500) throw new MobileJwError(
-    'unavailable', ErrorCode.SERVICE_ACCOUNT_UNAVAILABLE, '移动教务服务暂不可用',
+    'unavailable', ErrorCode.SERVICE_ACCOUNT_UNAVAILABLE, '移动教务服务暂时无法访问，请稍后重试',
   );
   if (status < 200 || status >= 300) throw businessFailure();
 }

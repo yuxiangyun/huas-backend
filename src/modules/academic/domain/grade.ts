@@ -45,8 +45,8 @@ function normalizeQueryValue(raw: string | undefined, maxLength: number, fieldNa
 
 export function normalizeGradeQuery(query: GradeQuery): NormalizedGradeQuery {
   return {
-    term: normalizeQueryValue(query.term, MAX_TERM_LENGTH, 'term'),
-    kcxz: normalizeQueryValue(query.kcxz, MAX_KCXZ_LENGTH, 'kcxz'),
-    kcmc: normalizeQueryValue(query.kcmc, MAX_KCMC_LENGTH, 'kcmc'),
+    term: normalizeQueryValue(query.term, MAX_TERM_LENGTH, '学期'),
+    kcxz: normalizeQueryValue(query.kcxz, MAX_KCXZ_LENGTH, '课程性质'),
+    kcmc: normalizeQueryValue(query.kcmc, MAX_KCMC_LENGTH, '课程名称'),
   };
 }

@@ -6,10 +6,10 @@ schedule-service.ts: JW 单源周课表用例，分离 current/stale reader，�
 portal-schedule-service.ts: Portal 单源日期课表用例，分离 current/stale reader，并保留范围校验、同意图回源合并、按开始代次提交、旧日期/空表缓存按快照淘汰与缓存限额
 mobile-jw-schedule-service.ts: 第三源周课表用例，经窄 client 读取当前周锚点并换算 DTO 教学周，以连续七天目标日期及学期一致性确认响应，兼容指定周响应 week 仍为当前周；独立版本缓存复用 normal/refresh 合流、代次提交和用户 LRU，失败记录受控阶段/类别/目标周/返回周后交给后备来源，范围外与缺少周元信息分别保持能力错误与协议失败
 mobile-jw-semester-service.ts: 当前学期完整采集，复用一次当前周锚点，45 秒共享预算内串行读取其余周，严格核对日期/学期/总周数，失败不返回部分课程；不读写普通周缓存
-schedule-facade.ts: 移动教务/JW/Portal 编排，用户首选只前置 current 并去重，stale 仍按后台原参与范围/固定顺序读取；另提供日历固定移动教务单源入口，固化请求级快照元信息排除来源能力限制参与最终错误仲裁，并保留 legacy 主源未公布短路与错误优先级
+schedule-facade.ts: 移动教务/JW/Portal 编排，用户首选只前置 current 并去重，stale 仍按后台原参与范围/固定顺序读取；另提供日历固定移动教务单源入口，固化请求级快照元信息排除来源能力限制参与最终错误仲裁，并保留 legacy 主源未公布短路与错误优先级；明确无数据在穷尽来源及 stale 后返回中文初始化/发布提示，不作为成功课表缓存
 schedule-source-policy-service.ts: 课表来源策略用例边界，统一读取状态快照与持久化热切换命令
 grade-service.ts: fresh-first 成绩读取用例，以 45 秒总预算有限重试凭证恢复、502/503/504 与一次无效页，按回源代次提交缓存，并在新鲜路径穷尽后执行 stale fallback
-evaluation-service.ts: 评教用例，保留 actionable/blocked，固定有界批次目标、通过 SchoolAccess 恢复读取、一次性提交及批末按身份增量确认；已尝试 POST 无完成增量或回查失败均为 unknown，failed 仅表示提交前准备失败
+evaluation-service.ts: 评教用例，保留 actionable/blocked，固定有界批次目标、通过 SchoolAccess 恢复读取、一次性提交及批末按身份增量确认；已尝试 POST 无完成增量或回查失败均为 unknown，failed 仅表示提交前准备失败；公开结果不透传内部错误码，unknown 提醒先核实结果避免重复提交
 classroom-free-service.ts: 空教室用例，分离审计 actor 与配置化服务账号上游身份
 
 架构决策

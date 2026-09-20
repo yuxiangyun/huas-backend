@@ -14,15 +14,15 @@ const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_RANGE_DAYS = 62;
 const MS_PER_DAY = 86_400_000;
 
-function normalizeDate(rawDate: string, fieldName: 'startDate' | 'endDate'): string {
+function normalizeDate(rawDate: string, fieldName: '开始日期' | '结束日期'): string {
   const trimmed = (rawDate || '').trim();
   if (!DATE_PATTERN.test(trimmed)) {
-    throw new AppError(ErrorCode.PARAM_ERROR, `${fieldName} 参数格式错误，应为 YYYY-MM-DD`);
+    throw new AppError(ErrorCode.PARAM_ERROR, `${fieldName}格式不正确，请使用年-月-日，例如 2026-09-20`);
   }
 
   const parsed = new Date(`${trimmed}T00:00:00Z`);
   if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== trimmed) {
-    throw new AppError(ErrorCode.PARAM_ERROR, `${fieldName} 参数无效`);
+    throw new AppError(ErrorCode.PARAM_ERROR, `${fieldName}无效，请重新选择日期`);
   }
   return trimmed;
 }
@@ -77,13 +77,13 @@ export class PortalScheduleApplicationService {
     forceRefresh = false,
     name?: string
   ) {
-    const normalizedStartDate = normalizeDate(startDate, 'startDate');
-    const normalizedEndDate = normalizeDate(endDate, 'endDate');
+    const normalizedStartDate = normalizeDate(startDate, '开始日期');
+    const normalizedEndDate = normalizeDate(endDate, '结束日期');
 
     const startTime = new Date(`${normalizedStartDate}T00:00:00Z`).getTime();
     const endTime = new Date(`${normalizedEndDate}T00:00:00Z`).getTime();
     if (endTime < startTime) {
-      throw new AppError(ErrorCode.PARAM_ERROR, 'endDate 不能早于 startDate');
+      throw new AppError(ErrorCode.PARAM_ERROR, '结束日期不能早于开始日期');
     }
 
     const rangeDays = Math.floor((endTime - startTime) / MS_PER_DAY) + 1;
@@ -151,8 +151,8 @@ export class PortalScheduleApplicationService {
     error: unknown,
     forceRefresh = false,
   ) {
-    const normalizedStartDate = normalizeDate(startDate, 'startDate');
-    const normalizedEndDate = normalizeDate(endDate, 'endDate');
+    const normalizedStartDate = normalizeDate(startDate, '开始日期');
+    const normalizedEndDate = normalizeDate(endDate, '结束日期');
     const startTime = new Date(`${normalizedStartDate}T00:00:00Z`).getTime();
     const endTime = new Date(`${normalizedEndDate}T00:00:00Z`).getTime();
     const rangeDays = Math.floor((endTime - startTime) / MS_PER_DAY) + 1;

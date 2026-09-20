@@ -99,7 +99,7 @@ export class TicketExchanger {
       throw new SchoolAccessError('unavailable', '学校教务激活暂不可用', followed.finalStatus === 0 || followed.finalStatus >= 500);
     }
     const verification = await this.verifyJwSession(client);
-    if (!verification.active) throw new SchoolAccessError('unavailable', '学校教务尚未提供有效会话', verification.upstreamUnavailable);
+    if (!verification.active) throw new SchoolAccessError('unavailable', '学校教务系统未能建立查询连接，可能尚未完成账号初始化。请先进入学校官方教务系统，按提示完成初始化后再返回重试', verification.upstreamUnavailable);
     return { success: true, steps: [{ label: 'jw', ok: true }] };
   }
 

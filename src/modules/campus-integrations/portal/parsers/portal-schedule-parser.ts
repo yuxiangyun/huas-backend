@@ -1,11 +1,12 @@
 /**
- * [INPUT]: 依赖 Portal 上游 JSON、ICourse 类型、Logger 与 portal-code 的 code 语义判断
- * [OUTPUT]: 对外提供 PortalScheduleParser，按请求日期范围解析 Portal 课表，并区分合法空表与缺失载荷
+ * [INPUT]: 依赖 Portal 上游 JSON、ICourse、Logger、无数据来源信号与 portal-code 的 code 语义判断
+ * [OUTPUT]: 对外提供 PortalScheduleParser，按请求日期范围解析 Portal 课表，区分明确无数据提示、合法空表与未知缺失载荷
  * [POS]: campus-integrations/portal/parsers 的课表纯适配器，严格校验日期映射、列表与课程结构，保留独立 date，拒绝静默漏课并过滤日期范围
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import type { ICourse } from '../../../../types';
+import { ScheduleUnavailableError } from '../../../../utils/errors';
 import { Logger } from '../../../../utils/logger';
 import { isPortalSessionExpiredCode, isPortalSuccessCode } from './portal-code';
 
@@ -32,6 +33,12 @@ export const PortalScheduleParser = {
       throw new Error("SESSION_EXPIRED");
     }
 
+    // 明确无数据是学校业务状态；先保留认证拒绝，再交由 Facade 尝试其他来源。
+    if (!json?.data?.schedule && ['没有相关数据', '课表暂未公布', '暂未公布'].includes(message.trim())) {
+      Logger.parser('PortalScheduleParser', '学校暂未提供课表', user?.studentId);
+      throw new ScheduleUnavailableError();
+    }
+
     if (isPortalSuccessCode(json?.code) && !json?.data?.schedule) {
       Logger.warn('PortalScheduleParser', '课表载荷缺失', json?.message || 'data.schedule 缺失', user?.studentId);
       throw new Error('PORTAL_SCHEDULE_PAYLOAD_MISSING');
@@ -39,9 +46,6 @@ export const PortalScheduleParser = {
 
     if (!isPortalSuccessCode(json?.code) || !json?.data?.schedule) {
       Logger.warn('PortalScheduleParser', '数据获取失败', json?.message || '未知错误');
-      if (message.includes('暂未公布') || message.includes('没有相关数据') || message.includes('获取失败adapter-server')) {
-        throw new Error("SCHEDULE_NOT_AVAILABLE");
-      }
       throw new Error(json?.message || "GET_SCHEDULE_FAILED");
     }
 

@@ -3,6 +3,7 @@
 
 成员清单
 academic-refresh-rate-limit.test.ts: 学业/Portal 强制刷新共享桶、classrooms/evaluation 固定实时回源独立桶与日历 24 小时窗口双向隔离回归测试
+academic-user-messages.test.ts: 当前具名端口下真实 Portal 解析、归一化、三源编排、无数据不缓存及旧课表保护、评教准备失败/未确认中文提示回归
 academic-compat.test.ts: Academic canonical composition 与旧 services Facade 的运行时引用一致性测试
 admin-dashboard-activity.test.ts: 管理后台活跃度、仅 CAS/Portal/JW 基础凭证计数、显式渠道优先级与历史 unknown 隔离口径回归测试
 admin-session.test.ts: 后台 HttpOnly Cookie 会话建立、无自动过期、保护与撤销回归测试
@@ -47,7 +48,7 @@ messaging-admin.test.ts: 管理员 Cookie 会话增量/三态消息/图片只读
 operations-application.test.ts: Operations Dashboard 构造注入与纯端口聚合隔离测试
 operations-compat.test.ts: Operations canonical 与旧 routes/services/runtime/middleware Facade 引用及依赖方向测试
 periodic-tasks.test.ts: Runtime 轻量周期任务注册、幂等启停、失败隔离与同任务防重叠回归测试
-portal-schedule-parser.test.ts: Portal 日期范围、结构完整空表/缺载荷协议错误、数字/字符串 code、非成功错误与一卡通余额边界回归测试
+portal-schedule-parser.test.ts: Portal 日期范围、结构完整空表/明确无数据提示/未知缺载荷协议错误、数字/字符串 code、非成功错误与一卡通余额边界回归测试
 public-announcements.test.ts: 公告公共接口回归测试
 runtime-check-ci.test.ts: Bun 测试临时库默认 preload、本地 check 脚本、单 job CI、触发器、并发取消与 observer 装配静态回归测试
 runtime-health-metrics.test.ts: live/ready 状态矩阵、普通/增量轮询 quiet 日志、轻量指标、校园 HTTP 结果观察与有界 shutdown hooks 回归测试

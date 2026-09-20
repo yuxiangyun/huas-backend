@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 AppError/ErrorCode 与 Logger，对比主备校园上游失败
- * [OUTPUT]: 对外提供 resolveFallbackError，按参数/凭证/超时优先级选择更具体错误
+ * [OUTPUT]: 对外提供 resolveFallbackError，按参数/凭证/超时优先级选择更具体错误，无数据只记录普通提示
  * [POS]: utils 的双源错误仲裁工具，不执行 fallback 请求也不吞掉所选错误
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -59,16 +59,21 @@ export function resolveFallbackError(options: {
   const fallbackPriority = getErrorPriority(options.fallbackError);
   const selectedSource = fallbackPriority > primaryPriority ? options.fallbackSource : options.primarySource;
 
-  Logger.warn(
-    'RouteFallback',
-    `${options.primarySource} 失败，${options.fallbackSource} 兜底也失败`,
-    [
-      `primary=${options.primarySource}:${formatError(options.primaryError)}`,
-      `fallback=${options.fallbackSource}:${formatError(options.fallbackError)}`,
-      `selected=${selectedSource}`,
-    ].join('; '),
-    options.studentId,
-  );
+  const selectedError = selectedSource === options.fallbackSource ? options.fallbackError : options.primaryError;
+  if (selectedError instanceof Error && selectedError.message === 'SCHEDULE_NOT_AVAILABLE') {
+    Logger.parser('RouteFallback', '学校暂未提供课表，将检查可用历史课表后返回提示', options.studentId);
+  } else {
+    Logger.warn(
+      'RouteFallback',
+      `${options.primarySource} 失败，${options.fallbackSource} 兜底也失败`,
+      [
+        `primary=${options.primarySource}:${formatError(options.primaryError)}`,
+        `fallback=${options.fallbackSource}:${formatError(options.fallbackError)}`,
+        `selected=${selectedSource}`,
+      ].join('; '),
+      options.studentId,
+    );
+  }
 
   return selectedSource === options.fallbackSource ? options.fallbackError : options.primaryError;
 }

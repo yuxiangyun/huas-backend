@@ -179,7 +179,7 @@ describe('移动教务真实协议与会话恢复', () => {
     await expect(client.current(userId)).rejects.toMatchObject({ kind: 'protocol' });
     expect((await sessions.read(userId))?.generation).toBe(stored!.generation);
     HttpClient.prototype.request = async () => { throw new Error('sensitive https://host/?token=secret'); };
-    await expect(client.current(userId)).rejects.toThrow('移动教务响应协议无法识别');
+    await expect(client.current(userId)).rejects.toThrow('移动教务返回的数据不完整或格式异常，暂时无法读取课表，请稍后重试');
   });
 
   it('瞬时 500/503 与连接错误有限重试成功，不重置有效凭证', async () => {

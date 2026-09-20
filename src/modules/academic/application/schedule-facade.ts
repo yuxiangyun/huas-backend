@@ -1,13 +1,13 @@
 /**
  * [INPUT]: 依赖移动教务/JW/Portal current/stale readers、后台策略快照与用户首选前置规则、fallback error 与日期/错误工具
  * [OUTPUT]: 对外提供 ScheduleFacadeApplicationService、单源 reader ports、统一有序三源编排与移动教务固定单源入口
- * [POS]: academic/application 的课表编排门面，用户只调整 current 首选；stale 保持后台参与范围与固定顺序，仲裁排除来源能力限制并保留 legacy 未公布短路
+ * [POS]: academic/application 的课表编排门面，用户只调整 current 首选；stale 保持后台参与范围与固定顺序，明确无数据返回中文操作提示且不缓存，仲裁排除来源能力限制并保留 legacy 未公布短路
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import type { CacheMeta } from '../../../types';
 import { ScheduleSourceUnsupportedError } from '../domain/schedule';
-import { AppError, ErrorCode } from '../../../utils/errors';
+import { AppError, ErrorCode, ScheduleUnavailableError } from '../../../utils/errors';
 import { resolveFallbackError } from '../../../utils/fallback-error';
 import { beijingDate } from '../../../utils/time';
 import type {
@@ -101,12 +101,12 @@ type OrchestrationOptions = {
 
 function parseStrictDate(value: string, fieldName: string): Date {
   if (!DATE_PATTERN.test(value)) {
-    throw new AppError(ErrorCode.PARAM_ERROR, `${fieldName} 参数格式错误，应为 YYYY-MM-DD`);
+    throw new AppError(ErrorCode.PARAM_ERROR, `${fieldName}格式不正确，请使用年-月-日，例如 2026-09-20`);
   }
 
   const parsed = new Date(`${value}T00:00:00Z`);
   if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
-    throw new AppError(ErrorCode.PARAM_ERROR, `${fieldName} 参数无效`);
+    throw new AppError(ErrorCode.PARAM_ERROR, `${fieldName}无效，请重新选择日期`);
   }
 
   return parsed;
@@ -114,22 +114,22 @@ function parseStrictDate(value: string, fieldName: string): Date {
 
 function normalizeJwDate(rawDate?: string): string {
   const resolved = (rawDate ?? '').trim() || beijingDate();
-  parseStrictDate(resolved, 'date');
+  parseStrictDate(resolved, '查询日期');
   return resolved;
 }
 
 function normalizePortalRange(startDate?: string, endDate?: string): PortalRange {
   if (!startDate || !endDate) {
-    throw new AppError(ErrorCode.PARAM_ERROR, 'Missing startDate or endDate parameter');
+    throw new AppError(ErrorCode.PARAM_ERROR, '请选择开始日期和结束日期');
   }
 
   const normalizedStartDate = startDate.trim();
   const normalizedEndDate = endDate.trim();
-  const start = parseStrictDate(normalizedStartDate, 'startDate');
-  const end = parseStrictDate(normalizedEndDate, 'endDate');
+  const start = parseStrictDate(normalizedStartDate, '开始日期');
+  const end = parseStrictDate(normalizedEndDate, '结束日期');
   const rangeDays = Math.floor((end.getTime() - start.getTime()) / DAY_MS) + 1;
 
-  if (rangeDays <= 0) throw new AppError(ErrorCode.PARAM_ERROR, 'endDate 不能早于 startDate');
+  if (rangeDays <= 0) throw new AppError(ErrorCode.PARAM_ERROR, '结束日期不能早于开始日期');
   if (rangeDays > MAX_PORTAL_RANGE_DAYS) {
     throw new AppError(ErrorCode.PARAM_ERROR, `日期区间不能超过 ${MAX_PORTAL_RANGE_DAYS} 天`);
   }
@@ -229,9 +229,10 @@ function emptySchedule(
   primarySource: ScheduleSource,
   request: ScheduleRequestMeta,
   policy?: ScheduleSourcePolicySnapshot,
+  unavailable?: unknown,
 ): ScheduleFacadeResult {
   return {
-    data: { week: '暂无', courses: [], message: '课表暂未公布' },
+    data: { week: '暂无', courses: [], message: unavailable instanceof ScheduleUnavailableError ? unavailable.userMessage : '课表暂未公布' },
     _meta: {
       cached: false,
       source,
@@ -248,7 +249,7 @@ function selectFailure(
   studentId: string,
 ): unknown {
   const supportedPlan = plan.filter((source) => !(errors.get(source) instanceof ScheduleSourceUnsupportedError));
-  if (!supportedPlan.length) return new AppError(ErrorCode.SERVICE_ACCOUNT_UNAVAILABLE, '没有支持该日期的课表来源');
+  if (!supportedPlan.length) return new AppError(ErrorCode.SERVICE_ACCOUNT_UNAVAILABLE, '学校暂不支持查询所选日期的课表，请选择当前学期内的日期');
   let selectedSource = supportedPlan[0];
   let selected = errors.get(selectedSource);
   for (const source of supportedPlan.slice(1)) {
@@ -362,7 +363,7 @@ export class ScheduleFacadeApplicationService {
         if (options.stopOnUnavailable && source === primarySource && isScheduleUnavailable(currentError)) {
           const stale = await this.readStale(source, currentError, options);
           if (stale) return completeResult(stale, source, primarySource, 'stale', options.policy);
-          return emptySchedule(source, primarySource, this.requestFor(source, options), options.policy);
+          return emptySchedule(source, primarySource, this.requestFor(source, options), options.policy, currentError);
         }
       }
     }
@@ -378,7 +379,7 @@ export class ScheduleFacadeApplicationService {
 
     if (isScheduleUnavailable(selectedError)) {
       const selectedSource = options.plan.find((source) => Object.is(errors.get(source), selectedError)) ?? primarySource;
-      return emptySchedule(selectedSource, primarySource, this.requestFor(selectedSource, options), options.policy);
+      return emptySchedule(selectedSource, primarySource, this.requestFor(selectedSource, options), options.policy, selectedError);
     }
     throw selectedError;
   }

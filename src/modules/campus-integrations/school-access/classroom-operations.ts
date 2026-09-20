@@ -115,7 +115,7 @@ export function readFreeClassrooms(userId: number, normalized: ClassroomReadQuer
       const buildings = await fetchBuildings(client, normalized.campusId);
       const building = buildings.find((item) => item.buildingId === normalized.buildingId);
       if (!building) {
-        throw new AppError(ErrorCode.PARAM_ERROR, 'buildingId 无效或已隐藏');
+        throw new AppError(ErrorCode.PARAM_ERROR, '所选教学楼暂不可查询，请重新选择教学楼');
       }
 
       const week = normalized.week ?? await resolveDefaultWeek(client);

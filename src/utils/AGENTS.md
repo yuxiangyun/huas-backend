@@ -4,8 +4,8 @@
 成员清单
 crypto.ts: 认证密码学适配器，以 RSA 保护 CAS 提交、解析票据 token，并用 AES-GCM 保护本地静默重认证密码
 discover.ts: Discover 领域常量、类型和纯函数的旧工具路径兼容 Facade
-errors.ts: API 错误码与 AppError 契约源
-fallback-error.ts: 主备上游错误选择工具，用于返回更具体的兜底错误
+errors.ts: API 错误码、AppError 与无数据来源信号 ScheduleUnavailableError；后者携带账号初始化/课表发布的中文操作提示，不表示认证失败
+fallback-error.ts: 主备上游错误选择工具，明确无数据记录普通提示，其他故障保留告警与既有优先级
 http-log.ts: HTTP 日志细节上下文工具，管理 `_httpLog` 约定键
 image.ts: 进程内单槽、sharp 单线程且禁用 libvips cache 的低内存图片边界，执行真实格式识别、像素/页数/动画门禁、受控 HEIC 兜底与严格字节上限 WebP 编码
 ordered-commit.ts: 进程内按资源键协调并发读与串行提交，较新成功代次阻止旧结果覆盖，失败不抹除可用旧结果且空闲释放状态

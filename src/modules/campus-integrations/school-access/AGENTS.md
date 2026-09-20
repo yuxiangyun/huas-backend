@@ -4,7 +4,7 @@
 成员清单
 school-login-context.ts: SQLite 基础凭证统一写入及真实认证提交原语，推进 epoch、写实际基础凭证、清理缺失 Portal 与旧派生会话；保留 Portal-only 不改 JW 的约束。
 recovery-cooldown.ts: epoch 绑定的有界五秒失败窗口，读取不续期，真实登录换代自动淘汰。
-derived-recovery.ts: 两种 Portal 派生会话的恢复协调，按原父快照失效、按 epoch 提交，只共享冻结字符串快照。
+derived-recovery.ts: 两种 Portal 派生会话的恢复协调，按原父快照失效、按 epoch 提交，只共享冻结字符串快照；二次拒绝说明查询连接未建立，并以可能性提示学校账号初始化，不宣称密码错误。
 mobile-operations.ts: 移动课表、月交易分页与 electric config/account 具名读取，保留各系统失效证据与业务 stale 资格。
 portal-operations.ts: Portal 资料、余额与日期课表协议，解析后交原业务层缓存和有序回写。
 schedule-operation.ts: JW 周课表只读 POST，保留未公布与合法空表的区别。

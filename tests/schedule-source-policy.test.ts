@@ -16,6 +16,8 @@ import { FileScheduleSourcePolicyStore } from '../src/modules/academic/infrastru
 import { ScheduleSourcePolicy } from '../src/modules/academic/schedule';
 import type { ScheduleSource } from '../src/modules/academic/domain/schedule';
 import type { ScheduleSourcePolicySnapshot } from '../src/modules/academic/domain/schedule-source-policy';
+import { PortalScheduleParser } from '../src/modules/campus-integrations/portal/parsers/portal-schedule-parser';
+import { normalizeSchoolFailure } from '../src/modules/campus-integrations/school-access/errors';
 import { AppError, ErrorCode } from '../src/utils/errors';
 
 type ReaderBehavior = {
@@ -232,6 +234,20 @@ describe('ScheduleFacade current/stale 状态机', () => {
       expect((error as AppError).code).toBe(ErrorCode.CREDENTIAL_EXPIRED);
     }
     expect(calls).toEqual(['jw:current', 'portal:current']);
+  });
+
+  it('移动教务及 JW 不可用而 Portal 明确无数据时返回中文空态', async () => {
+    const calls: string[] = [];
+    const unavailable = async () => { throw new AppError(ErrorCode.SERVICE_ACCOUNT_UNAVAILABLE, '学校未能建立课表查询连接'); };
+    const portal = async () => {
+      try { return PortalScheduleParser.parse({ code: 0, message: '没有相关数据', data: {} }); }
+      catch (error) { throw normalizeSchoolFailure(error); }
+    };
+    const facade = createFacade({ calls, mode: 'mobile-jw-first', mobile: { current: unavailable }, jw: { current: unavailable }, portal: { current: portal } });
+    const result = await facade.getSchedule(request);
+    expect(result.data).toEqual({ week: '暂无', courses: [], message: '学校暂未提供所选日期的课表，可能尚未完成学校账号初始化或课表尚未发布。请先进入学校官方教务系统查看，按页面提示完成账号初始化后，再返回刷新。' });
+    expect(result._meta.cached).toBe(false);
+    expect(calls).toEqual(['mobile-jw:current', 'jw:current', 'portal:current', 'mobile-jw:stale', 'jw:stale', 'portal:stale']);
   });
 
   it('双 SCHEDULE_NOT_AVAILABLE 穷尽来源后返回合法空课表', async () => {

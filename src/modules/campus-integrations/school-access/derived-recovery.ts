@@ -41,7 +41,7 @@ class DerivedRecovery<S extends object, E> {
         } catch (error) {
           if (!this.protocol.parentRejected(error)) throw error;
           schoolStateStore.invalidate(parent);
-          if (parentRecoveryAttempted) throw schoolUnavailable();
+          if (parentRecoveryAttempted) throw schoolUnavailable('学校未能建立本次查询所需的连接，可能尚未完成学校账号初始化。请先进入学校官方系统，按提示完成初始化后再返回重试。');
           parentRecoveryAttempted = true;
           conflict -= 1;
           continue;

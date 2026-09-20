@@ -17,8 +17,8 @@ export class SchoolAccessError extends AppError {
       : kind === 'timeout' ? ErrorCode.UPSTREAM_TIMEOUT : ErrorCode.SERVICE_ACCOUNT_UNAVAILABLE, message);
   }
 }
-export const schoolUnavailable = () => new SchoolAccessError('unavailable', '学校业务能力暂不可用，请稍后重试');
-export const schoolTimeout = () => new SchoolAccessError('timeout', '学校请求超时，请稍后重试', true);
+export const schoolUnavailable = (message = '学校暂时无法完成查询，请稍后重试') => new SchoolAccessError('unavailable', message);
+export const schoolTimeout = () => new SchoolAccessError('timeout', '学校系统响应超时，请稍后重试', true);
 export const interactionRequired = () => new SchoolAccessError('interaction-required', '学校要求重新认证，请重新登录');
 export const sessionRejected = () => new SchoolAccessError('session-rejected', '学校会话已失效');
 
@@ -35,7 +35,7 @@ export function normalizeSchoolFailure(error: unknown): Error {
   if (isTransientTransportError(error) || /_HTTP_5\d\d\b|CAS_MAINTENANCE|GRADE_PAGE_INVALID/.test(facts)) {
     return new SchoolAccessError('unavailable', '学校服务暂不可用，请稍后重试', true);
   }
-  return new SchoolAccessError('protocol', '学校响应暂时无法识别，请稍后重试');
+  return new SchoolAccessError('protocol', '学校返回的数据不完整或格式异常，暂时无法读取，请稍后重试');
 }
 
 export function canRetrySchoolFailure(error: unknown): boolean {

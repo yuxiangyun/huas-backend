@@ -53,18 +53,18 @@ function stripHtmlComments(html: string) {
 export function assertJwEvaluationListUrl(rawUrl: string) {
   const value = rawUrl.trim();
   if (!value || value.length > MAX_LIST_URL_LENGTH) {
-    throw new AppError(ErrorCode.PARAM_ERROR, '评教列表 URL 无效');
+    throw new AppError(ErrorCode.PARAM_ERROR, '评教入口地址无效，请刷新评教列表后重试');
   }
 
   let url: URL;
   try {
     url = new URL(value);
   } catch {
-    throw new AppError(ErrorCode.PARAM_ERROR, '评教列表 URL 无效');
+    throw new AppError(ErrorCode.PARAM_ERROR, '评教入口地址无效，请刷新评教列表后重试');
   }
 
   if (url.origin !== URLS.jwBase || url.pathname !== EVALUATION_LIST_PATH) {
-    throw new AppError(ErrorCode.PARAM_ERROR, '只支持教务系统评教列表 URL');
+    throw new AppError(ErrorCode.PARAM_ERROR, '评教入口不属于学校教务系统，请从评教列表重新进入');
   }
 
   return url.toString();

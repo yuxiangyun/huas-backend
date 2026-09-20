@@ -34,12 +34,12 @@ function normalizeDate(rawDate?: string): string {
   const trimmed = (rawDate ?? '').trim();
   const resolved = trimmed || beijingDate();
   if (!DATE_PATTERN.test(resolved)) {
-    throw new AppError(ErrorCode.PARAM_ERROR, 'date 参数格式错误，应为 YYYY-MM-DD');
+    throw new AppError(ErrorCode.PARAM_ERROR, '查询日期格式不正确，请使用年-月-日，例如 2026-09-20');
   }
 
   const parsed = new Date(`${resolved}T00:00:00Z`);
   if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== resolved) {
-    throw new AppError(ErrorCode.PARAM_ERROR, 'date 参数无效');
+    throw new AppError(ErrorCode.PARAM_ERROR, '查询日期无效，请重新选择日期');
   }
   return resolved;
 }

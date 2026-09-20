@@ -134,12 +134,12 @@ export const ScheduleParser = {
     const week = extractWeek(rawHtml, $);
 
     if (latestLiShowWeek.includes('当前日期不在教学周历内')) {
-      Logger.warn('ScheduleParser', '非教学周', latestLiShowWeek);
+      Logger.parser('ScheduleParser', '当前日期不在教学周历内');
       return { week: '暂无', courses: [], message: '当前日期不在教学周历内' };
     }
 
     if (rawHtml.includes('课表暂未公布') || latestLiShowWeek.includes('课表暂未公布')) {
-      Logger.warn('ScheduleParser', '课表未公布', '教务系统提示课表暂未公布');
+      Logger.parser('ScheduleParser', '教务系统提示课表暂未公布');
       throw new Error('SCHEDULE_NOT_AVAILABLE');
     }
 

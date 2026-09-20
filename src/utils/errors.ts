@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 无运行时依赖，承载 API 错误码与默认 HTTP 状态映射
- * [OUTPUT]: 对外提供 ErrorCode 枚举与 AppError 类型
+ * [OUTPUT]: 对外提供 ErrorCode、AppError 与携带中文空态提示的 ScheduleUnavailableError
  * [POS]: utils 的错误语义源，被 services、parsers、middleware 与 routes 共同消费
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -46,5 +46,14 @@ export class AppError extends Error {
     this.code = code;
     this.httpStatus = errorHttpStatus[code] || 500;
     this.data = data;
+  }
+}
+
+/** 内部沿用来源编排信号；userMessage 只在穷尽可用来源后展示，不作为成功课表缓存。 */
+export class ScheduleUnavailableError extends Error {
+  readonly userMessage = '学校暂未提供所选日期的课表，可能尚未完成学校账号初始化或课表尚未发布。请先进入学校官方教务系统查看，按页面提示完成账号初始化后，再返回刷新。';
+
+  constructor() {
+    super('SCHEDULE_NOT_AVAILABLE');
   }
 }

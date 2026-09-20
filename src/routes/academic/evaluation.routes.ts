@@ -20,13 +20,13 @@ async function readJsonBody(c: any) {
   try {
     return await c.req.json();
   } catch {
-    throw new AppError(ErrorCode.PARAM_ERROR, '请求体必须是 JSON');
+    throw new AppError(ErrorCode.PARAM_ERROR, '提交内容格式不正确，请刷新页面后重试');
   }
 }
 
 function readListUrl(value: unknown) {
   if (typeof value !== 'string') {
-    throw new AppError(ErrorCode.PARAM_ERROR, 'listUrl 不能为空');
+    throw new AppError(ErrorCode.PARAM_ERROR, '缺少评教入口，请刷新评教列表后重试');
   }
   return value;
 }

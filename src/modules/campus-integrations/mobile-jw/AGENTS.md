@@ -2,7 +2,7 @@
 > L2 | 父级: ../AGENTS.md
 
 成员清单
-errors.ts: HTTP/业务失效与超时、业务拒绝、协议异常的独立低敏感错误语义，固定字符串 code=401 证据。
+errors.ts: HTTP/业务失效与超时、业务拒绝、协议异常的独立低敏感错误语义，固定字符串 code=401 证据；对外以中文区分查询连接、响应结构和服务不可用。
 auth-exchanger.ts: 固定学校 SSO 入口交换 Portal JWT 为独立 H5 token，只解析同源 casLogin/loginSso 路由且不执行响应脚本。
 session-repository.ts: SQLite 的 token-only 派生会话，绑定真实登录 epoch、按 generation 条件失效且坏行读取即淘汰。
 schedule-client.ts: 委托 SchoolAccess 具名操作的学期/字典/节次模式/节次/当前课表/指定学期六类只读 POST 内部入口，固定路径和有界 query 参数，不接受任意 URL。

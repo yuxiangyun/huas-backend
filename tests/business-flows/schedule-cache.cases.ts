@@ -22,13 +22,13 @@ describe('课表缓存与强制刷新防护', () => {
   it('schedule date 参数格式错误时拒绝请求', async () => {
     await expect(
       ScheduleService.getSchedule(1, '2023010001', '2025/03/01', false)
-    ).rejects.toThrow('date 参数格式错误');
+    ).rejects.toThrow('查询日期格式不正确');
   });
 
   it('portal schedule 日期区间和格式校验生效', async () => {
     await expect(
       PortalScheduleService.getSchedule(1, '2023010002', '2025-03-01', '2025-02-28', false)
-    ).rejects.toThrow('endDate 不能早于 startDate');
+    ).rejects.toThrow('结束日期不能早于开始日期');
 
     upstreamState.upstreamExecuteCallback = true;
     upstreamState.upstreamJsonPayload = { code: 0, data: { schedule: {} } };
@@ -53,7 +53,7 @@ describe('课表缓存与强制刷新防护', () => {
 
     await expect(
       PortalScheduleService.getSchedule(1, '2023010002', '2025/03/01', '2025-03-10', false)
-    ).rejects.toThrow('startDate 参数格式错误');
+    ).rejects.toThrow('开始日期格式不正确');
   });
 
   it('schedule 缓存按用户前缀执行 LRU 限额', async () => {

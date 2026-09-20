@@ -4,7 +4,7 @@
 成员清单
 ecard-parser.ts: 一卡通 JSON 解析器，只接受明确成功 code 与有限余额事实，其他业务 code 抛错以进入 stale fallback
 portal-code.ts: 数字/字符串 Portal code 的成功与 session expired 统一判定
-portal-schedule-parser.ts: 日期课表 JSON 解析器，严格校验 data.schedule 日期映射、列表与课程，异常协议触发降级；合法空映射或空列表保留空表，date 承载具体日期、day 承载星期，weekStr 恒为空串
+portal-schedule-parser.ts: 日期课表 JSON 解析器，严格校验 data.schedule 日期映射、列表与课程，明确没有相关数据/未公布先交来源编排且不缓存，未知缺载荷仍为协议错误；合法空映射或空列表保留空表，date 承载具体日期、day 承载星期，weekStr 恒为空串
 user-parser.ts: 用户资料 JSON 解析器，仅接受成功 code 与对象 data，其他响应抛错以进入 stale fallback
 
 架构决策

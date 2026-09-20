@@ -25,7 +25,7 @@ schedule.get('/', async (c) => {
   const forceRefresh = c.req.query('refresh') === 'true';
   const preferredSource = c.req.query('preferred_source');
   if (preferredSource !== undefined && !isPreferredScheduleSource(preferredSource)) {
-    throw new AppError(ErrorCode.PARAM_ERROR, 'preferred_source 仅支持 mobile-jw 或 jw');
+    throw new AppError(ErrorCode.PARAM_ERROR, '课表来源无效，请选择智慧文理移动教务或学校教务网站');
   }
 
   const result = await ScheduleFacade.getSchedule({

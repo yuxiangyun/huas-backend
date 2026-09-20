@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Portal 课表、一卡通、用户资料解析器与共享 code 语义
- * [OUTPUT]: 验证数字/字符串成功码、过期码、缺载荷协议错误与稳定解析结果
+ * [OUTPUT]: 验证数字/字符串成功码、过期码、明确无数据、未知缺载荷协议错误与稳定解析结果
  * [POS]: tests 的 Portal code 契约回归套件，保护各解析器状态码及课表空态语义一致
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -12,14 +12,26 @@ import { UserParser } from '../src/parsers/portal/user-parser';
 
 describe('PortalScheduleParser', () => {
   for (const code of [0, '0']) {
-    it(`code=${String(code)} 但没有 schedule 时归一为可降级协议错误`, () => {
+    it(`code=${String(code)} 明确没有相关数据时作为无数据提示参与来源编排`, () => {
       expect(() => PortalScheduleParser.parse({
         code,
         message: '没有相关数据',
         data: {},
-      }, '2025-02-03')).toThrow('PORTAL_SCHEDULE_PAYLOAD_MISSING');
+      }, '2025-02-03')).toThrow('SCHEDULE_NOT_AVAILABLE');
     });
   }
+
+  it('没有明确无数据说明的缺载荷仍是协议错误', () => {
+    expect(() => PortalScheduleParser.parse({ code: 0, data: {} })).toThrow('PORTAL_SCHEDULE_PAYLOAD_MISSING');
+  });
+
+  it('未公布说明不能覆盖明确的会话失效', () => {
+    expect(() => PortalScheduleParser.parse({ code: 401, message: '没有相关数据' })).toThrow('SESSION_EXPIRED');
+  });
+
+  it('获取失败不能冒充无数据', () => {
+    expect(() => PortalScheduleParser.parse({ code: 500, message: '获取失败adapter-server' })).not.toThrow('SCHEDULE_NOT_AVAILABLE');
+  });
 
   it('结构完整但没有日程时保留为合法空课表', () => {
     expect(PortalScheduleParser.parse({

@@ -56,7 +56,7 @@ function parseIntParam(raw: string | undefined, field: string, min: number, max:
 export function normalizeCampusId(raw: string | undefined): CampusId {
   const campusId = (raw ?? '').trim();
   if (campusId !== 'A' && campusId !== 'B') {
-    throw new AppError(ErrorCode.PARAM_ERROR, 'campusId 参数必须为 A 或 B');
+    throw new AppError(ErrorCode.PARAM_ERROR, '校区选择无效，请重新选择校区');
   }
   return campusId;
 }
@@ -64,7 +64,7 @@ export function normalizeCampusId(raw: string | undefined): CampusId {
 function normalizeBuildingId(raw: string | undefined): string {
   const buildingId = (raw ?? '').trim();
   if (!buildingId) {
-    throw new AppError(ErrorCode.PARAM_ERROR, 'buildingId 参数不能为空');
+    throw new AppError(ErrorCode.PARAM_ERROR, '请选择教学楼');
   }
   return buildingId;
 }
@@ -73,20 +73,20 @@ export function normalizeFreeQuery(query: FreeQuery): NormalizedFreeQuery {
   const hasWeek = (query.week ?? '').trim() !== '';
   const hasWeekday = (query.weekday ?? '').trim() !== '';
   if (hasWeek !== hasWeekday) {
-    throw new AppError(ErrorCode.PARAM_ERROR, 'week 和 weekday 必须同时传入');
+    throw new AppError(ErrorCode.PARAM_ERROR, '请同时选择教学周和星期');
   }
 
-  const startSection = parseIntParam(query.startSection, 'startSection', 1, 30);
-  const endSection = parseIntParam(query.endSection, 'endSection', 1, 30);
+  const startSection = parseIntParam(query.startSection, '开始节次', 1, 30);
+  const endSection = parseIntParam(query.endSection, '结束节次', 1, 30);
   if (endSection < startSection) {
-    throw new AppError(ErrorCode.PARAM_ERROR, 'endSection 必须大于或等于 startSection');
+    throw new AppError(ErrorCode.PARAM_ERROR, '结束节次不能早于开始节次');
   }
 
   return {
     campusId: normalizeCampusId(query.campusId),
     buildingId: normalizeBuildingId(query.buildingId),
-    week: hasWeek ? parseIntParam(query.week, 'week', 1, 30) : undefined,
-    weekday: hasWeekday ? parseIntParam(query.weekday, 'weekday', 1, 7) : undefined,
+    week: hasWeek ? parseIntParam(query.week, '教学周', 1, 30) : undefined,
+    weekday: hasWeekday ? parseIntParam(query.weekday, '星期', 1, 7) : undefined,
     startSection,
     endSection,
   };

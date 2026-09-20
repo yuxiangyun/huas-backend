@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 EvaluationApplicationPorts、既有评教纯规则、具名学校操作与 Logger
  * [OUTPUT]: 对外提供 EvaluationApplicationService、EvaluationParser 与评教公开结果类型
- * [POS]: academic/application 的评教用例编排器，只选择一次有界目标，学校协议通过具名操作隔离，可恢复读取与一次性提交分离；已尝试 POST 仅凭列表增量确认成功，无增量或回查失败均保留 unknown
+ * [POS]: academic/application 的评教用例编排器，只选择一次有界目标，学校协议通过具名操作隔离，可恢复读取与一次性提交分离；已尝试 POST 仅凭列表增量确认成功，无增量或回查失败均保留 unknown，公开失败说明使用中文且不透传上游内部错误码
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -38,7 +38,6 @@ interface PendingVerification {
   item: EvaluationListItem;
   questionCount: number;
   fullScore: number;
-  error?: string;
 }
 
 const DEFAULT_COMMENT = '好';
@@ -112,11 +111,11 @@ export class EvaluationApplicationService {
           continue;
         }
         attemptedCount += 1;
-        outcomes.push({ target: row, item: baseItem, questionCount, fullScore, error: result.error });
+        outcomes.push({ target: row, item: baseItem, questionCount, fullScore });
       } catch (error) {
         // SchoolAccess 返回 attempted 后才可能有写入；准备失败不会被当成已提交或重放整批。
         if (attemptedCount === 0 && error instanceof AppError && error.code === ErrorCode.CREDENTIAL_EXPIRED) throw error;
-        outcomes.push({ ...baseItem, questionCount, fullScore, status: 'failed', message: error instanceof Error ? error.message : 'SUBMIT_FAILED' });
+        outcomes.push({ ...baseItem, questionCount, fullScore, status: 'failed', message: error instanceof AppError ? error.message : '评教提交前准备失败，请稍后重试' });
       }
     }
 
@@ -145,7 +144,7 @@ export class EvaluationApplicationService {
         fullScore: outcome.fullScore,
         // 列表读成功只证明取得快照；缺少增量不能证明已发出的 POST 未执行或不会稍后生效。
         status: submitted ? 'submitted' : 'unknown',
-        ...(!submitted && { message: verificationSucceeded ? outcome.error || 'SUBMIT_NOT_CONFIRMED' : 'SUBMIT_RESULT_UNKNOWN' }),
+        ...(!submitted && { message: verificationSucceeded ? '学校尚未确认本次评教已提交，请先刷新评教列表查看结果，避免重复提交' : '评教请求已发送，但暂时无法核实提交结果，请稍后刷新评教列表查看，避免重复提交' }),
       };
     });
     const status = toStatus(finalRows);

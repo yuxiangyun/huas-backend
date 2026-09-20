@@ -25,7 +25,7 @@ function context(studentId: string, rawDate?: string) {
   const queryDate = rawDate?.trim() || beijingDate();
   const date = new Date(`${queryDate}T00:00:00Z`);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(queryDate) || !Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== queryDate) {
-    throw new AppError(ErrorCode.PARAM_ERROR, 'date 参数无效');
+    throw new AppError(ErrorCode.PARAM_ERROR, '查询日期无效，请重新选择日期');
   }
   date.setUTCDate(date.getUTCDate() - (date.getUTCDay() + 6) % 7);
   const weekStartDate = date.toISOString().slice(0, 10);
