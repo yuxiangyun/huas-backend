@@ -343,7 +343,7 @@ AGENTS.md 是全局导航入口；各模块通过 L2 地图与业务文件 L3 �
 业务能力按 domain、application、infrastructure 与 composition 分层，高层依赖端口而非具体存储或校园上游实现。
 SQLite 是业务事实源；data 下 JSON、媒体与内存态只承载运行策略、会话或资源，不代替业务表。
 认证与学校访问收敛为 Identity、SchoolAccess、RuntimeConfig：Identity 负责本地快捷、JWT 和登录结果；SchoolAccess.authenticate/execute 负责学校身份认证与具名业务操作；RuntimeConfig 启动时校验并冻结整数、毫秒单位、零值语义、超时/重试/TTL/验证码规则。业务动态策略仍归原模块。
-CAS 明确成功立即原子提交身份并签发 JWT，不等待 Portal/JW 激活、资料回填或后台预热。并发认证按开始序号和最近成功提交排序，迟到成功仍可登录但不覆盖新密码、凭证或交互标记；新尝试失败不阻止旧成功。静默认证共用提交规则并额外核对开始 epoch，本地快捷不推进 epoch 或清冷却。
+CAS 明确成功立即原子提交身份并签发 JWT，不等待 Portal/JW 激活或资料回填；成功登录发现姓名或班级缺失时只发出尽力后台资料补全，不阻塞或撤销登录。并发认证按开始序号和最近成功提交排序，迟到成功仍可登录但不覆盖新密码、凭证或交互标记；新尝试失败不阻止旧成功。静默认证共用提交规则并额外核对开始 epoch，本地快捷不推进 epoch 或清冷却。
 SchoolAccess 按 CAS→Portal/JW、Portal→mobile 目标依赖恢复，CAS 按用户合流、目标按用户/能力合流；共享恢复只返回冻结快照并有自身 45 秒预算，每个请求独立等待、创建客户端和使用截止时间。唯一请求执行器管理有界重试与一次业务恢复重放；CAS 登录 POST、评教提交不可重放。HTTP 层只报告传输事实，完整正文也受预算约束。
 只有 CAS 明确拒绝保存凭据或要求验证码时才按 epoch 原子写交互标记并返回 3003/401，阻断本地快捷，真实认证成功清除；普通 403/429、缺 execution、未知认证页、能力故障及二次会话拒绝返回 3005/503，超时 3004/504。验证码十分钟且读取时即判到期，一次消费；学校读取故障不计密码失败。共享恢复失败按 epoch 绑定固定五秒冷却，CAS 按用户、Portal/JW 按目标隔离且命中不续期，等待者超时不写账号故障。
 基础凭证保持正数 TTL；真实 CAS 提交推进 school login epoch，写实际取得的基础凭证，删除缺失 Portal 并清理旧派生会话。Portal-only 恢复保留 JW；TGC 换票提交同时检查 epoch 与原 TGC 快照，业务失败按完整原快照条件删除。mobile 自有无 TTL 会话按 epoch 创建、按 generation 删除，CookieJar 经严格单 JSESSIONID codec 校验，坏行事务淘汰；共享恢复不携带客户端或 CookieJar 对象。

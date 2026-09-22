@@ -1,331 +1,190 @@
 /**
- * [INPUT]: 依赖 Bun Test、LoginApplicationService ports、真实校园 adapter/换票器、SqliteIdentityStore、测试数据库与 Bun SQLite 故障触发器
- * [OUTPUT]: 提供本地/验证码/Portal-JW 分支、Portal HTTP 5xx 后继续 JW、激活全失败仍提交 CAS 但不签 JWT，及用户凭证事务回滚的 Identity/Login 回归测试
- * [POS]: tests 的登录应用边界套件，既验证纯用例决策，也证明 SQLite 失败不会暴露半写入身份事实
+ * [INPUT]: 依赖 Bun Test、LoginApplicationService ports、Portal UserService、CacheService 与隔离测试数据库
+ * [OUTPUT]: 验证本地/学校登录结果、缺失学校资料的异步补全触发，以及资料缓存命中后的用户事实收敛
+ * [POS]: tests 的 Identity/Profile 一致性回归套件，锁定登录不等待 Portal 且缓存不能绕过 users 回写
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { afterEach, beforeAll, beforeEach, describe, expect, it, spyOn } from 'bun:test';
-import { Database } from 'bun:sqlite';
+import { beforeEach, describe, expect, it } from 'bun:test';
 import { eq } from 'drizzle-orm';
 import { LoginApplicationService } from '../src/modules/identity/application/login-application.service';
 import type {
-  CampusLoginPort,
-  CampusSession,
   IdentityStorePort,
-  LoginApplicationConfig,
+  LoginApplicationDependencies,
+  SchoolAuthenticationPort,
 } from '../src/modules/identity/application/login.ports';
-import type { LoginCredentialSet, LoginUser } from '../src/modules/identity/domain/login';
-import { SqliteIdentityStore } from '../src/modules/identity/infrastructure/sqlite-identity.store';
-import { LegacyCampusLoginAdapter } from '../src/modules/identity/infrastructure/legacy-campus-login.adapter';
-import { HttpClient } from '../src/modules/campus-integrations/http/http-client';
-import { config } from '../src/config';
+import type { LoginUser } from '../src/modules/identity/domain/login';
+import { UserService } from '../src/modules/campus-integrations/portal/user-service';
+import { CacheService } from '../src/modules/cache/cache-service';
 import { getDb, schema } from '../src/db';
 import { clearSocialTestData } from './social-database';
 
-const session: CampusSession = { opaque: { id: 'campus-session' } };
-
-class FakeCampus implements CampusLoginPort {
-  loginResult = { success: true, portalToken: 'portal-token' as string | null, steps: [] };
-  portalResult = { token: null as string | null, steps: [] };
-  jwResult = { success: true, steps: [] };
-  execution = 'execution';
-  loginCalls = 0;
-  onStart: (() => void) | null = null;
-  onLogin: (() => void) | null = null;
-
-  async start() { this.onStart?.(); return { session, execution: this.execution }; }
-  restore() { return session; }
-  snapshot() { return '{"cookies":[]}'; }
-  async login() { this.loginCalls += 1; this.onLogin?.(); return this.loginResult; }
-  async getCaptcha() { return new Uint8Array([1, 2, 3]).buffer; }
-  async getExecution() { return this.execution; }
-  async exchangePortalToken(): ReturnType<CampusLoginPort['exchangePortalToken']> { return this.portalResult; }
-  async exchangeJwSession() { return this.jwResult; }
-}
-
 class MemoryIdentityStore implements IdentityStorePort {
   user: LoginUser | null = null;
-  persisted: LoginCredentialSet | null = null;
   touchCount = 0;
 
   async findByStudentId() { return this.user; }
   async touchLocalLogin() { this.touchCount += 1; }
-  async commitRealSchoolLogin(input: Parameters<IdentityStorePort['commitRealSchoolLogin']>[0]) {
-    this.persisted = input.credentials;
-    return this.user || {
-      id: 7,
-      studentId: input.studentId,
-      name: null,
-      className: null,
-      encryptedPassword: input.encryptedPassword,
-    };
+}
+
+class FakeSchool implements SchoolAuthenticationPort {
+  requiresInteractionResult = false;
+  authenticateCalls = 0;
+  result: Awaited<ReturnType<SchoolAuthenticationPort['authenticate']>> = {
+    kind: 'authenticated',
+    user: { id: 7, studentId: '20260002', name: null, className: null },
+    steps: [],
+  };
+
+  requiresInteraction() { return this.requiresInteractionResult; }
+  async authenticate() {
+    this.authenticateCalls += 1;
+    return this.result;
   }
 }
 
 function createService(options: {
-  campus?: FakeCampus;
   store?: MemoryIdentityStore;
-  interactive?: boolean;
-  profileError?: boolean;
+  school?: FakeSchool;
+  onProfileCompletion?: (input: { userId: number; studentId: string }) => void;
 } = {}) {
-  const campus = options.campus || new FakeCampus();
-  const store = options.store || new MemoryIdentityStore();
-  let now = 1_000;
-  let issuedTokenCount = 0;
-  const appConfig: LoginApplicationConfig = { captchaSessionTtlMs: 60_000, maxCaptchaSessions: 10 };
-  const service = new LoginApplicationService({
-    campus,
-    recovery: { requiresInteractiveLogin: async () => Boolean(options.interactive) },
+  const store = options.store ?? new MemoryIdentityStore();
+  const school = options.school ?? new FakeSchool();
+  const profileRequests: Array<{ userId: number; studentId: string }> = [];
+  const dependencies = {
+    school,
     identityStore: store,
-    cipher: {
-      encrypt: (password) => `encrypted:${password}`,
-      matches: (encrypted, candidate) => encrypted === `encrypted:${candidate}`,
-    },
-    token: { issue: async ({ userId }) => {
-      issuedTokenCount += 1;
-      return `token:${userId}`;
-    } },
+    cipher: { matches: (encrypted: string, candidate: string) => encrypted === `encrypted:${candidate}` },
+    token: { issue: async ({ userId }: { userId: number }) => `token:${userId}` },
     profile: {
-      backfill: async () => {
-        if (options.profileError) throw new Error('portal profile failed');
-        return { name: '测试用户', className: '测试班级' };
+      requestCompletion(input: { userId: number; studentId: string }) {
+        profileRequests.push(input);
+        options.onProfileCompletion?.(input);
       },
     },
-    runtime: {
-      now: () => new Date(now),
-      createId: () => 'captcha-session-id',
-      encodeBase64: () => 'AQID',
-    },
-    config: appConfig,
-  });
-  return {
-    service,
-    campus,
-    store,
-    issuedTokenCount: () => issuedTokenCount,
-    advanceTime: (milliseconds: number) => { now += milliseconds; },
-  };
+    runtime: { now: () => new Date(1_000) },
+  } as LoginApplicationDependencies;
+  return { service: new LoginApplicationService(dependencies), store, school, profileRequests };
 }
-
-let triggerDatabase: Database | null = null;
 
 beforeEach(async () => {
   await clearSocialTestData(getDb());
 });
 
-afterEach(() => {
-  if (triggerDatabase) {
-    triggerDatabase.exec('DROP TRIGGER IF EXISTS fail_identity_credentials');
-    triggerDatabase.close();
-    triggerDatabase = null;
-  }
-});
-
-describe('LoginApplicationService', () => {
-  it('密码命中且无交互恢复标记时走本地快捷登录，不访问校园端口', async () => {
+describe('LoginApplicationService 资料补全触发', () => {
+  it('本地快捷登录资料缺失时仍立即成功，并请求后台补全', async () => {
     const store = new MemoryIdentityStore();
     store.user = {
       id: 3,
       studentId: '20260001',
-      name: '本地用户',
-      className: '本地班级',
+      name: null,
+      className: null,
       encryptedPassword: 'encrypted:correct',
     };
-    const { service, campus } = createService({ store });
+    const testCase = createService({ store });
 
-    const outcome = await service.execute({ username: '20260001', password: 'correct' });
+    const outcome = await testCase.service.execute({ username: '20260001', password: 'correct' });
 
     expect(outcome.kind).toBe('success');
     if (outcome.kind === 'success') expect(outcome.mode).toBe('local');
     expect(store.touchCount).toBe(1);
-    expect(campus.loginCalls).toBe(0);
+    expect(testCase.school.authenticateCalls).toBe(0);
+    expect(testCase.profileRequests).toEqual([{ userId: 3, studentId: '20260001' }]);
   });
 
-  it('验证码会话过 TTL 但未周期清理时仍可重试，显式清理后才失效', async () => {
-    const campus = new FakeCampus();
-    campus.loginResult = { success: false, portalToken: null, steps: [], needCaptcha: true } as any;
-    const { service, advanceTime } = createService({ campus });
+  it('学校认证成功且资料缺失时请求后台补全', async () => {
+    const testCase = createService();
 
-    const challenged = await service.execute({ username: '20260002', password: 'wrong' });
-    expect(challenged.kind).toBe('failure');
-    if (challenged.kind !== 'failure') throw new Error('expected challenge');
-    expect(challenged.reason).toBe('captcha-required');
-    expect(challenged.challenge).toEqual({ sessionId: 'captcha-session-id', captchaImage: 'AQID' });
-
-    advanceTime(60_001);
-    campus.loginResult = { success: true, portalToken: 'portal-token', steps: [] };
-    const retried = await service.execute({
-      username: '20260002',
-      password: 'correct',
-      captcha: '1234',
-      sessionId: challenged.challenge!.sessionId,
-    });
-    expect(retried.kind).toBe('success');
-
-    campus.loginResult = { success: false, portalToken: null, steps: [], needCaptcha: true } as any;
-    const secondChallenge = await service.execute({ username: '20260002', password: 'wrong-again' });
-    expect(secondChallenge.kind).toBe('failure');
-    if (secondChallenge.kind !== 'failure') throw new Error('expected second challenge');
-    advanceTime(60_001);
-    service.cleanupExpiredCaptchaSessions();
-
-    const cleaned = await service.execute({
-      username: '20260002',
-      password: 'correct',
-      captcha: '1234',
-      sessionId: secondChallenge.challenge!.sessionId,
-    });
-    expect(cleaned.kind).toBe('failure');
-    if (cleaned.kind === 'failure') expect(cleaned.reason).toBe('captcha-session-missing');
-  });
-
-  it('CAS 日志耗时只统计校园 login 提交，不包含 execution 获取', async () => {
-    const campus = new FakeCampus();
-    const testCase = createService({ campus });
-    campus.onStart = () => testCase.advanceTime(5_000);
-    campus.onLogin = () => testCase.advanceTime(25);
-
-    const outcome = await testCase.service.execute({ username: '20260006', password: 'pass' });
+    const outcome = await testCase.service.execute({ username: '20260002', password: 'correct' });
 
     expect(outcome.kind).toBe('success');
-    expect(outcome.durationMs).toBe(25);
+    if (outcome.kind === 'success') expect(outcome.mode).toBe('school');
+    expect(testCase.profileRequests).toEqual([{ userId: 7, studentId: '20260002' }]);
   });
 
-  it('Portal-only 与 JW-only 均可登录，二者同时失败仍提交 CAS 事实但不签发 JWT', async () => {
-    const portalCampus = new FakeCampus();
-    portalCampus.jwResult = { success: false, steps: [] };
-    const portalCase = createService({ campus: portalCampus, profileError: true });
-    const portalOutcome = await portalCase.service.execute({ username: '20260003', password: 'pass' });
-    expect(portalOutcome.kind).toBe('success');
-    if (portalOutcome.kind === 'success') expect(portalOutcome.mode).toBe('portal-only');
-    expect(portalCase.store.persisted?.portalToken).toBe('portal-token');
-    expect(portalCase.store.persisted?.jwCookieJar).toBeNull();
+  it('姓名和班级齐全时不重复请求资料', async () => {
+    const store = new MemoryIdentityStore();
+    store.user = {
+      id: 4,
+      studentId: '20260003',
+      name: '完整用户',
+      className: '完整班级',
+      encryptedPassword: 'encrypted:correct',
+    };
+    const testCase = createService({ store });
 
-    const jwCampus = new FakeCampus();
-    jwCampus.loginResult = { success: true, portalToken: null, steps: [] };
-    jwCampus.portalResult = { token: null, steps: [] };
-    const jwCase = createService({ campus: jwCampus });
-    const jwOutcome = await jwCase.service.execute({ username: '20260004', password: 'pass' });
-    expect(jwOutcome.kind).toBe('success');
-    expect(jwCase.store.persisted?.portalToken).toBeNull();
-    expect(jwCase.store.persisted?.jwCookieJar).toBeTruthy();
+    const outcome = await testCase.service.execute({ username: '20260003', password: 'correct' });
 
-    const rejectedCampus = new FakeCampus();
-    rejectedCampus.loginResult = { success: true, portalToken: null, steps: [] };
-    rejectedCampus.portalResult = { token: null, steps: [] };
-    rejectedCampus.jwResult = { success: false, steps: [] };
-    const rejectedCase = createService({ campus: rejectedCampus });
-    const rejected = await rejectedCase.service.execute({ username: '20260005', password: 'pass' });
-    expect(rejected.kind).toBe('failure');
-    if (rejected.kind === 'failure') expect(rejected.reason).toBe('school-activation-failed');
-    expect(rejectedCase.store.persisted).toEqual({
-      casCookieJar: '{"cookies":[]}',
-      portalToken: null,
-      jwCookieJar: null,
+    expect(outcome.kind).toBe('success');
+    expect(testCase.profileRequests).toHaveLength(0);
+  });
+
+  it('补全调度器同步失败也不反向破坏登录', async () => {
+    const testCase = createService({
+      onProfileCompletion: () => { throw new Error('profile scheduler failed'); },
     });
-    expect(rejectedCase.issuedTokenCount()).toBe(0);
+
+    const outcome = await testCase.service.execute({ username: '20260002', password: 'correct' });
+
+    expect(outcome.kind).toBe('success');
   });
 });
 
-describe('真实 Portal 换票与登录编排兼容', () => {
-  it('Portal HTTP 5xx 不阻断 JW；JW 成功签 JWT，双源失败仍只提交 CAS', async () => {
-    const adapter = new LegacyCampusLoginAdapter();
-    for (const status of [500, 502, 503, 504]) {
-      for (const jwSuccess of [true, false]) {
-        const request = spyOn(HttpClient.prototype, 'request').mockResolvedValue(new Response('unavailable', { status }));
-        try {
-          const campus = new FakeCampus();
-          campus.loginResult = { success: true, portalToken: null, steps: [] };
-          campus.exchangePortalToken = () => adapter.exchangePortalToken({ opaque: new HttpClient() });
-          let jwCalls = 0;
-          campus.exchangeJwSession = async () => { jwCalls += 1; return { success: jwSuccess, steps: [] }; };
-          const testCase = createService({ campus });
-          const result = await testCase.service.execute({ username: 'portal-5xx-login', password: 'pass' });
-
-          expect(request).toHaveBeenCalledTimes(1);
-          expect(jwCalls).toBe(1);
-          expect(result.kind).toBe(jwSuccess ? 'success' : 'failure');
-          if (result.kind === 'success') expect(result.mode).toBe('school');
-          if (result.kind === 'failure') expect(result.reason).toBe('school-activation-failed');
-          expect(testCase.issuedTokenCount()).toBe(jwSuccess ? 1 : 0);
-          expect(testCase.store.persisted).toEqual({
-            casCookieJar: '{"cookies":[]}', portalToken: null,
-            jwCookieJar: jwSuccess ? '{"cookies":[]}' : null,
-          });
-          expect(result.steps).toContainEqual({ label: 'portal', ok: false, detail: `PORTAL_TOKEN_HTTP_${status}` });
-        } finally { request.mockRestore(); }
-      }
-    }
-  });
-
-  it('原有 Portal 网络超时仍中止激活且保留 CAS 提交，不被兼容分支吞掉', async () => {
-    const failure = new Error('REQUEST_TIMEOUT');
-    const request = spyOn(HttpClient.prototype, 'request').mockRejectedValue(failure);
-    try {
-      const campus = new FakeCampus();
-      campus.loginResult = { success: true, portalToken: null, steps: [] };
-      campus.exchangePortalToken = () => new LegacyCampusLoginAdapter().exchangePortalToken({ opaque: new HttpClient() });
-      let jwCalls = 0;
-      campus.exchangeJwSession = async () => { jwCalls += 1; return { success: true, steps: [] }; };
-      const testCase = createService({ campus });
-      const result = await testCase.service.execute({ username: 'portal-timeout-login', password: 'pass' });
-      expect(result.kind).toBe('failure');
-      if (result.kind === 'failure') expect(result.reason).toBe('upstream-timeout');
-      expect(jwCalls).toBe(0);
-      expect(testCase.issuedTokenCount()).toBe(0);
-      expect(testCase.store.persisted).toEqual({ casCookieJar: '{"cookies":[]}', portalToken: null, jwCookieJar: null });
-    } finally { request.mockRestore(); }
-  });
-});
-
-describe('SqliteIdentityStore 事务', () => {
-  it('凭证写入被 SQLite 中止时回滚同事务内的新用户与已有用户更新', async () => {
-    const existing = await getDb().insert(schema.users).values({
-      studentId: '20268888',
-      encryptedPassword: 'old-encrypted',
+describe('UserService 用户事实收敛', () => {
+  it('资料缓存命中时也补齐 users 中缺失的姓名和班级', async () => {
+    const studentId = '20260004';
+    const [user] = await getDb().insert(schema.users).values({
+      studentId,
+      name: null,
+      className: null,
+      encryptedPassword: 'encrypted',
       createdAt: new Date(),
       lastLoginAt: new Date(),
       lastActiveAt: new Date(),
     }).returning({ id: schema.users.id });
+    await CacheService.set(`user:${studentId}`, {
+      name: '缓存姓名',
+      studentId,
+      className: '缓存班级',
+      identity: '学生',
+      organizationCode: 'test-org',
+    }, 60, 'portal');
 
-    triggerDatabase = new Database(config.dbPath);
-    triggerDatabase.exec(`
-      CREATE TRIGGER fail_identity_credentials
-      BEFORE INSERT ON credentials
-      BEGIN
-        SELECT RAISE(ABORT, 'forced credential failure');
-      END;
-    `);
+    const result = await UserService.getUserInfo(user!.id, studentId);
 
-    const store = new SqliteIdentityStore();
-    await expect(store.commitRealSchoolLogin({
-      studentId: '20269999',
+    expect(result._meta.cached).toBe(true);
+    const [persisted] = await getDb().select({
+      name: schema.users.name,
+      className: schema.users.className,
+    }).from(schema.users).where(eq(schema.users.id, user!.id));
+    expect(persisted).toEqual({ name: '缓存姓名', className: '缓存班级' });
+  });
+
+  it('资料缓存只补空字段，不覆盖 users 已有事实', async () => {
+    const studentId = '20260005';
+    const [user] = await getDb().insert(schema.users).values({
+      studentId,
+      name: '数据库姓名',
+      className: null,
       encryptedPassword: 'encrypted',
-      credentials: {
-        casCookieJar: '{"cookies":[]}',
-        portalToken: 'portal-token',
-        jwCookieJar: '{"cookies":[]}',
-      },
-      at: new Date(),
-    })).rejects.toThrow('forced credential failure');
+      createdAt: new Date(),
+      lastLoginAt: new Date(),
+      lastActiveAt: new Date(),
+    }).returning({ id: schema.users.id });
+    await CacheService.set(`user:${studentId}`, {
+      name: '旧缓存姓名',
+      studentId,
+      className: '缓存班级',
+      identity: '学生',
+      organizationCode: 'test-org',
+    }, 60, 'portal');
 
-    await expect(store.commitRealSchoolLogin({
-      studentId: '20268888',
-      encryptedPassword: 'new-encrypted',
-      credentials: {
-        casCookieJar: '{"cookies":[]}',
-        portalToken: 'portal-token',
-        jwCookieJar: null,
-      },
-      at: new Date(),
-    })).rejects.toThrow('forced credential failure');
+    await UserService.getUserInfo(user!.id, studentId);
 
-    const users = await getDb().select().from(schema.users).where(eq(schema.users.studentId, '20269999'));
-    const unchangedExisting = await getDb().select().from(schema.users).where(eq(schema.users.id, existing[0]!.id));
-    const credentials = await getDb().select().from(schema.credentials);
-    expect(users).toHaveLength(0);
-    expect(unchangedExisting[0]?.encryptedPassword).toBe('old-encrypted');
-    expect(credentials).toHaveLength(0);
+    const [persisted] = await getDb().select({
+      name: schema.users.name,
+      className: schema.users.className,
+    }).from(schema.users).where(eq(schema.users.id, user!.id));
+    expect(persisted).toEqual({ name: '数据库姓名', className: '缓存班级' });
   });
 });

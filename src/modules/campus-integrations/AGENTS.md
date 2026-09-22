@@ -14,7 +14,7 @@ endpoints.ts: CAS、Portal、JW、mobile-yxt、mobile-jw 地址唯一事实源�
 架构决策
 Campus Integrations 是学校上游协议的 canonical 防腐层；保留的旧 parsers/services 路径只能单向再导出本模块，禁止本模块反向依赖旧 Facade、routes 或 Identity。
 解析器保持无网络、无缓存、无持久化的纯转换边界；Portal 用户资料与一卡通适配器保留历史缓存、回写和 stale fallback 语义。
-认证与学校访问对外收敛为 Identity、SchoolAccess、RuntimeConfig。Identity 只做本地快捷、JWT 和登录结果；学校 CAS 成功立即条件提交身份，不等待学校业务能力或资料。SchoolAccess 的状态、恢复与协议只在内部协作，业务消费具名操作，不接收客户端或凭证。
+认证与学校访问对外收敛为 Identity、SchoolAccess、RuntimeConfig。Identity 只做本地快捷、JWT、登录结果及缺失资料补全请求；学校 CAS 成功立即条件提交身份，不等待学校业务能力或资料。SchoolAccess 的状态、恢复与协议只在内部协作，业务消费具名操作，不接收客户端或凭证。
 恢复依赖固定为 CAS→Portal、CAS→JW、Portal→mobile。CAS 按用户合流，目标按用户/能力合流；共享任务只返回冻结快照并使用自身预算，每个等待者独立限时，每个业务调用独立创建客户端。唯一 request-executor 负责临时重试与一次会话恢复重放，CAS POST 和评教提交不可重放。
 真实认证按开始顺序和最近成功提交排序；迟到成功仍可签 JWT，但不能回写较新账号状态。静默恢复附加 epoch 约束；基础换票同时核对 epoch/TGC 原快照，派生会话保留 epoch 条件创建和 generation 条件删除。
 只有 CAS 明确拒绝保存凭据或要求验证码才持久化交互标记并返回 3003/401。学校故障、协议异常和二次会话拒绝不退出；固定五秒冷却按 epoch/目标隔离且不续期。协议失效证据由各适配器判定，HTTP 层只报告传输事实并覆盖完整正文预算。

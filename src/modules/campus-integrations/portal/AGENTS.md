@@ -4,7 +4,7 @@
 成员清单
 parsers/: Portal code、一卡通、用户资料与日期课表的纯 JSON 解析器
 ecard-service.ts: 一卡通资料适配器，保留 cache key、TTL、强制刷新、同意图回源合并、代次提交、错误页拒绝与 stale fallback
-user-service.ts: 用户资料适配器，保留 cache key、TTL、强制刷新、同意图回源合并、stale fallback 与按代次串行提交缓存/姓名班级事实
+user-service.ts: 用户资料适配器，保留 cache key、TTL、强制刷新、同意图回源合并、stale fallback 与按代次串行提交；缓存命中也补齐 users 缺失事实
 
 架构决策
 Portal 服务只通过 SchoolAccess 的资料/余额具名操作读取已解析结果；缓存与数据库副作用停留在服务适配器，不下沉到 parser。

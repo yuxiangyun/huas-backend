@@ -1,12 +1,19 @@
 /**
- * [INPUT]: 依赖 SchoolAuthentication、IdentityStore、密码匹配、JWT 与时钟 ports
- * [OUTPUT]: 对外提供 LoginApplicationService，本地快捷或 CAS 成功后立即签 JWT，统一登录结果
- * [POS]: Identity 的登录用例，只消费学校认证后的身份，不激活学校能力或等待资料回填
+ * [INPUT]: 依赖 SchoolAuthentication、IdentityStore、密码匹配、JWT、资料补全请求与时钟 ports
+ * [OUTPUT]: 对外提供 LoginApplicationService，本地快捷或 CAS 成功后立即签 JWT，并为缺失资料发出后台补全请求
+ * [POS]: Identity 的登录用例，只消费学校认证后的身份；资料补全失败不得反向破坏本服务登录
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 import { AppError, ErrorCode } from '../../../utils/errors';
 import type { LoginOutcome } from '../domain/login';
-import type { IdentityStorePort, SchoolAuthenticationPort, LoginRuntimePort, LoginTokenPort, PasswordCipherPort } from './login.ports';
+import type {
+  IdentityStorePort,
+  SchoolAuthenticationPort,
+  LoginRuntimePort,
+  LoginTokenPort,
+  PasswordCipherPort,
+  UserProfileCompletionPort,
+} from './login.ports';
 
 export interface LoginCommand { username: string; password: string; captcha?: string; sessionId?: string }
 export interface LoginApplicationDependencies {
@@ -14,6 +21,7 @@ export interface LoginApplicationDependencies {
   identityStore: IdentityStorePort;
   cipher: PasswordCipherPort;
   token: LoginTokenPort;
+  profile: UserProfileCompletionPort;
   runtime: LoginRuntimePort;
 }
 export interface LoginApplicationObserver { onLocalShortcutDisabled?(): void }
@@ -34,6 +42,7 @@ export class LoginApplicationService {
             await this.dependencies.identityStore.touchLocalLogin(user.id, this.dependencies.runtime.now());
             const name = user.name?.trim() || undefined;
             const token = await this.dependencies.token.issue({ userId: user.id, studentId: command.username, name });
+            this.requestProfileCompletion(user);
             return { kind: 'success', mode: 'local', token, user: { id: user.id, studentId: user.studentId, name, className: user.className?.trim() || '' }, durationMs: duration(), steps: [{ label: 'local', ok: true }] };
           }
         }
@@ -47,6 +56,7 @@ export class LoginApplicationService {
       }
       const name = result.user.name?.trim() || undefined;
       const token = await this.dependencies.token.issue({ userId: result.user.id, studentId: result.user.studentId, name });
+      this.requestProfileCompletion(result.user);
       return { kind: 'success', mode: 'school', token, user: { ...result.user, name, className: result.user.className?.trim() || '' }, durationMs: duration(), steps: result.steps };
     } catch (cause) {
       const captchaExpired = cause instanceof AppError && cause.code === ErrorCode.CAPTCHA_ERROR;
@@ -56,6 +66,15 @@ export class LoginApplicationService {
         message: captchaExpired ? cause.message : timeout ? '学校服务器超时' : '学校认证服务暂不可用',
         durationMs: duration(), steps: [], countsAsFailure: captchaExpired, cause,
       };
+    }
+  }
+
+  private requestProfileCompletion(user: { id: number; studentId: string; name: string | null; className: string | null }): void {
+    if (user.name?.trim() && user.className?.trim()) return;
+    try {
+      this.dependencies.profile.requestCompletion({ userId: user.id, studentId: user.studentId });
+    } catch {
+      // 资料是登录后的增强事实，补全调度失败不能撤销已经成立的登录。
     }
   }
 }
