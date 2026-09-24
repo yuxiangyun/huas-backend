@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 RuntimeConfig 的冻结认证规则、process.env 与 node:path，读取端口、密钥、数据库、缓存、课表来源策略、四类社交媒体/孤儿宽限期、Treehole 低内存压缩门禁、服务账号、限流、成绩、mobile-yxt 与 mobile-jw 回源总预算及上游超时
+ * [INPUT]: 依赖 RuntimeConfig 的冻结认证规则、process.env 与 node:path，读取端口、密钥、数据库、含 JW 培养方案的缓存、课表来源策略、四类社交媒体/孤儿宽限期、Treehole 低内存压缩门禁、服务账号、限流、成绩、mobile-yxt 与 mobile-jw 回源总预算及上游超时
  * [OUTPUT]: 对外提供 config、USER_AGENT 等运行时配置常量，并强制 TZ 为 Asia/Shanghai
  * [POS]: src 的配置源，所有模块通过它读取运行参数，避免散落读取环境变量
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -65,6 +65,7 @@ export const config = {
   cacheTtl: {
     schedule: 0,               // 周键分段，永久缓存 + 手动刷新
     grades: 0,                 // 学期键分段，永久缓存 + 手动刷新
+    trainingPlan: 0,           // 完整培养方案快照，永久缓存 + 手动刷新
     ecard: 0,                  // 永久缓存 + 手动刷新，客户端刷新页面时显式 refresh
     user: 0,                   // 永久缓存 + 手动刷新，客户端刷新页面时显式 refresh
   },

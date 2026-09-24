@@ -10,6 +10,7 @@ import { readJwSchedule } from './schedule-operation';
 import { readClassroomBuildings, readFreeClassrooms } from './classroom-operations';
 import { discoverEvaluation, readEvaluationRows, evaluateItem } from './evaluation-operations';
 import { readGrades } from './grade-operation';
+import { readTrainingPlan } from './training-plan-operation';
 
 export const schoolOperations = {
   ...mobileJwReads,
@@ -17,6 +18,7 @@ export const schoolOperations = {
   'mobileYxt.electricity.config': readElectricityConfig,
   'mobileYxt.electricity.account': readElectricityAccount,
   'jw.grades': readGrades,
+  'jw.trainingPlan': readTrainingPlan,
   'jw.schedule': readJwSchedule,
   'jw.classrooms.buildings': readClassroomBuildings,
   'jw.classrooms.free': readFreeClassrooms,

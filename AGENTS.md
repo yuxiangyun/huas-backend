@@ -354,6 +354,7 @@ SchoolAccess 按 CAS→Portal/JW、Portal→mobile 目标依赖恢复，CAS 按�
 mobile-jw 自有 token-only、无 TTL 的 H5 会话，与 mobile-yxt 共享 SchoolAccess Portal 目标恢复。真实 HTTP 500 + 字符串 code=401 与 HTTP 401/200 的明确失效触发 generation 条件失效和一次重建重放；普通临时故障在 45 秒预算内有限重试。SSO 拒绝仅按原快照条件失效 Portal JWT，不触碰 JW；TGC 换票提交同时核对 epoch 与 TGC 快照，旧航班不能覆盖新登录或撤销显式清理；同 epoch 普通快照竞争先复用目标凭证或最新有效 TGC 补一次，竞争耗尽按临时超时结束。来源范围不支持独立于未公布且不参与失败仲裁，缺少周元信息仍视为协议错误。课表按响应真实七天日期定位周缓存，指定学期端点的实测假空态不作为正式数据源。
 JW 未公布以来源错误交 Facade 编排且不缓存，历史未公布周/日缓存按快照淘汰，合法无课与非教学周保留空表语义。JW/Portal 课表、成绩与 Portal 资料回源保持 normal/refresh 独立合并，缓存及资料回写按回源开始代次串行提交，较新成功值不被旧航班覆盖；旧 JW 日缓存只按原快照保时无覆盖提升。Portal 明确无数据在尝试其他来源及旧课表后返回正常空态和学校账号初始化/课表发布提示，不缓存为已发布空课表；未知缺载荷仍为协议异常。Portal 课表严格校验完整结构并保留独立 date，旧无版本永久缓存首次访问须重新回源；评教每调用固定一次批次目标，只恢复读取，POST 不重放；已尝试 POST 在批末无完成增量或验证失败时显式返回 unknown，验证失败另标记旧列表快照。
 成绩强制刷新执行 JW fresh-first：45 秒总预算内有限恢复凭证并重试明确临时错误，只有新鲜路径穷尽后才允许 stale fallback。
+JW 培养方案通过 SchoolAccess 同会话读取 `topyfamx` 与 `pyfa_query` 两页，Academic 按课程编号及名称核对合并、按方案学期序号投影课程/完成统计；考核方式只来自执行计划原值，未匹配为 null，空白完成情况不推断未修。两页须完整成功才写永久缓存，强刷沿用 Academic 限流与旧缓存降级；HTTP 200 CAS 跳转脚本按 JW 会话失效恢复，不缓存伪页面。
 课表来源策略文件默认位于 dirname(DB_PATH)，生产蓝绿槽必须共享同一绝对持久路径，运行态 JSON、锁与临时文件不得纳入 Git。
 首页弹窗是 Operations 自有单配置展示能力；设置与有界保留的 WebP 版本跟随 dirname(DB_PATH) 共享，换图或修改 public_account/text/none 三态动作内容生成不可变版本，服务端只向匿名接口投影启用且命中时间窗的内容。
 Early Rising 自有 id=1 的 SQLite 展示设置快照，默认显示排行榜个人资料入口；Bearer 客户端只读布尔投影，Operations 后台经注入端口写入开关、更新时间与操作人，配置随数据库一致性快照备份。
@@ -389,6 +390,7 @@ Git push 始终把当前 HEAD 推到 baidu/main，由远端 hook 执行维护发
 /api/early-rising/settings - Bearer JWT 保护的 Early Rising 客户端展示设置
 /api/schedule、/api/v1/schedule - 策略控制的三源课表与兼容入口
 /api/grades、/api/ecard、/api/user - 既有校园业务接口，其中 `/api/ecard` 余额合同保持兼容
+/api/training-plan - Bearer JWT 保护的 JW 双页培养方案聚合，提供 1～8 学期课程、完成统计及独立考核方式原值
 /api/ecard/overview - Portal 余额与 mobile-yxt 指定北京时间月份交易的聚合，分别投影 unavailable/stale/freshness
 /api/utilities/electricity - 当前绑定房间的电价、剩余电量与账户状态只读投影
 /api/discover/*、/api/treehole/* - 绑定 users.id 并统一投影公共作者的独立 UGC 业务

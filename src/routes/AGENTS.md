@@ -2,7 +2,7 @@
 > L2 | 父级: /src/AGENTS.md
 
 成员清单
-academic/: 教务路由，暴露课表、成绩、评教、空教室 HTTP 接口并调用 academic 服务
+academic/: 教务路由，暴露课表、成绩、培养方案、评教、空教室 HTTP 接口并调用 academic 服务
 admin/: Operations 管理 HTTP factory 的兼容再导出路径，真实路由实例由根组合创建
 auth/: 登录路由，承接 CAS/验证码登录流程并签发本服务 JWT
 calendar/: Calendar HTTP 兼容 Facade，保持认证 API 与公开 ICS 订阅原挂载路径

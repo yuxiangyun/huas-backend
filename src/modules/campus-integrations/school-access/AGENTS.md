@@ -15,8 +15,9 @@ errors.ts: 统一交互、会话拒绝、不可用、超时及传输归一化；
 recovery.ts: CAS 用户级与 Portal/JW 目标级合流，按目标恢复并条件提交，固定 epoch 冷却不续期。
 base-read.ts: 内部 Portal/JW 只读执行组合，独立客户端与按快照失效不暴露给业务。
 grade-operation.ts: 成绩只读 POST 及评教门禁发现，缓存与 fresh-first 策略仍归 Academic。
+training-plan-operation.ts: 两个固定 JW 培养方案 GET 的同会话、同预算只读操作；登录跳转触发统一恢复，分学期合并留在 Academic。
 evaluation-discovery.ts: 保留 JW 导航有限遍历及局部登录页隔离的协议实现，被成绩和评教操作复用。
-operations.ts: 静态具名操作目录及输入输出类型映射，拒绝任意 URL 和客户端回调。
+operations.ts: 静态具名操作目录及输入输出类型映射，包含 JW 培养方案双页读取，拒绝任意 URL 和客户端回调。
 authentication.ts: 学校真实身份认证与验证码挑战，CAS 成功立即条件提交身份，不激活学校业务系统或回填资料。
 authentication-attempts.ts: 单 writer 进程的有界在途认证排序，只有较新成功阻止旧候选提交，最后一个调用结束即回收。
 state-store.ts: 学校认证的 SQLite 短事务与身份快照，统一用户密码、epoch、基础凭证及交互标记的提交边界。

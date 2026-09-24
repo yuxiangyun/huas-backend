@@ -1,13 +1,13 @@
 <!--
-[INPUT]: 依赖后端 HTTP 路由、Academic 来源编排与共享响应/缓存契约
-[OUTPUT]: 提供校园 API 参数、来源首选与后台回退边界、响应元信息和错误语义
+[INPUT]: 依赖后端 HTTP 路由、Academic 来源编排、JW 培养方案双页投影与共享响应/缓存契约
+[OUTPUT]: 提供校园 API 参数、培养方案完整字段与全程课程/学期汇总、来源首选与后台回退边界、响应元信息和错误语义
 [POS]: docs/api 的校园业务契约入口，社交与 Operations 细节委托分册
 [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
 -->
 
 # HUAS Server API 文档
 
-> 基线日期：2026-08-23
+> 基线日期：2026-09-24
 > Base URL：`http://localhost:3000`
 > 时区约定：服务端固定使用 `Asia/Shanghai`，文档中的时间示例均为 `+08:00`
 
@@ -31,6 +31,7 @@
 | `GET /api/v1/schedule` | Bearer JWT | Portal 优先课表；周视图请求失败时可回退 JW |
 | `GET /api/calendar/link` | Bearer JWT | 获取当前用户日历订阅链接 |
 | `GET /api/grades` | Bearer JWT | 成绩 |
+| `GET /api/training-plan` | Bearer JWT | JW 培养方案、执行计划考核方式与分学期完成情况 |
 | `GET/POST /api/evaluations/*` | Bearer JWT | 评教发现、状态、预检与提交 |
 | `GET /api/classrooms/*` | Bearer JWT | 空教室只读查询 |
 | `GET /api/ecard` | Bearer JWT | 一卡通余额 |
@@ -94,7 +95,7 @@ GET /calendar/schedule.ics?studentId=2023001001&sig=<hmac_sha256(studentId, CALE
 
 说明：
 
-- `_meta` 只出现在带缓存语义的业务接口上：`/api/schedule`、`/api/v1/schedule`、`/api/grades`、`/api/ecard`、`/api/utilities/electricity`、`/api/user`
+- `_meta` 只出现在带缓存语义的业务接口上：`/api/schedule`、`/api/v1/schedule`、`/api/grades`、`/api/training-plan`、`/api/ecard`、`/api/utilities/electricity`、`/api/user`
 - 这些接口在回源成功时也会返回 `_meta`，此时通常为 `{ cached: false, source: ... }`
 - 时间字段格式为北京时间 ISO 字符串，后缀是 `+08:00`，不是 UTC `Z`
 
@@ -152,9 +153,9 @@ GET /calendar/schedule.ics?studentId=2023001001&sig=<hmac_sha256(studentId, CALE
 
 ### 3.1 统一规则
 
-- 所有 7 个带缓存语义的校园业务接口都会把成功回源结果写入 `cache` 表
+- 所有带缓存语义的校园业务接口都会把成功回源结果写入 `cache` 表
 - `refresh=false`：先查缓存，命中直接返回
-- `refresh=true`：跳过读缓存，强制回源。JW/Portal 课表、成绩、Portal 余额和资料的 normal/refresh 分别合并并有序提交，较新成功结果不被旧请求覆盖；mobile-yxt 账单和电费保持 miss/refresh 同键合流。
+- `refresh=true`：跳过读缓存，强制回源。JW/Portal 课表、成绩、培养方案、Portal 余额和资料的 normal/refresh 分别合并并有序提交，较新成功结果不被旧请求覆盖；mobile-yxt 账单和电费保持 miss/refresh 同键合流。
 - `/api/schedule` 必须先穷尽本次所有来源的 current，再按后台原参与范围及移动教务、JW、Portal 固定顺序查旧缓存；用户首选只前置 current，不更改 stale 规则
 - 其他单源业务回源失败时：如果同 key 还有旧缓存，会回退旧缓存并返回 `_meta.stale=true`
 
@@ -165,6 +166,7 @@ GET /calendar/schedule.ics?studentId=2023001001&sig=<hmac_sha256(studentId, CALE
 | `GET /api/schedule` | `0` | 写入缓存，但不过期，仅 `refresh=true` 会覆盖 |
 | `GET /api/v1/schedule` | `0` | 写入缓存，但不过期，仅 `refresh=true` 会覆盖 |
 | `GET /api/grades` | `0` | 写入缓存，但不过期，仅 `refresh=true` 会覆盖 |
+| `GET /api/training-plan` | `0` | 两页完整结果一次写入缓存，仅 `refresh=true` 会覆盖 |
 | `GET /api/ecard` | `0` | 写入缓存，但不过期，仅 `refresh=true` 会覆盖 |
 | `GET /api/ecard/overview` | `0` | 余额与用户月份交易分别缓存；返回子源级 freshness，降级缓存不会冒充新鲜回源 |
 | `GET /api/utilities/electricity` | `0` | 成功 DTO 写入缓存；协议错误不写入、不回退旧缓存 |
@@ -174,7 +176,7 @@ GET /calendar/schedule.ics?studentId=2023001001&sig=<hmac_sha256(studentId, CALE
 
 ### 3.3 学业 `refresh` 限流
 
-只有 `GET /api/schedule`、`GET /api/v1/schedule`、`GET /api/grades` 在 `refresh=true` 时会命中限流中间件。
+`GET /api/schedule`、`GET /api/v1/schedule`、`GET /api/grades`、`GET /api/training-plan` 在 `refresh=true` 时会命中限流中间件。
 
 - 维度：按 `userId`
 - 窗口：`5` 秒
@@ -187,6 +189,7 @@ GET /calendar/schedule.ics?studentId=2023001001&sig=<hmac_sha256(studentId, CALE
 | 前缀 | 默认上限 | 说明 |
 |---|---:|---|
 | `grades:{studentId}:*` | 20 | 成绩缓存，按哈希 key |
+| `training-plan:{studentId}` | 1 | 每用户仅一份完整培养方案快照，无需前缀淘汰 |
 | `schedule:{studentId}:*` | 120 | JW 课表 |
 | `portal-schedule:{studentId}:*` | 120 | Portal 课表 |
 
@@ -745,6 +748,115 @@ END:VCALENDAR
 - 缓存 key 不是原始查询串，而是 `grades:{studentId}:{sha256摘要前32位}`
 - 超长参数会直接返回 `4002`
 - 当前实现默认会缓存，且不过期，只有 `refresh=true` 才强制更新
+
+### 6.6a `GET /api/training-plan`
+
+从 JW 的“培养方案及完成情况”（`topyfamx`）和“执行计划”（`pyfa_query`）读取同一用户的完整快照。两次 GET 使用同一次 JW 会话及学校访问预算；服务端按课程编号并核对去空白后的名称合并，不向客户端返回 HTML 或会话信息。
+
+查询参数仅有可选 `refresh=true`：跳过读缓存，强制读取两页。请求沿用 Bearer JWT 与学业强刷限流。正常结果按 `training-plan:{studentId}` 永久缓存；普通请求命中即返回，强刷失败如有可用旧快照，返回 `_meta.stale=true`、`_meta.refresh_failed=true`。学校要求交互认证的 `3003` 不回退旧快照。两页有任意一页是登录跳转、结构缺失或读取失败时，不缓存部分数据；明确的 HTTP 200 CAS 跳转脚本按 JW 会话失效处理，由 SchoolAccess 尝试恢复后重读两页。
+
+响应结构（字段示意，数字不代表任一用户的完整方案）：
+
+```json
+{
+  "success": true,
+  "data": {
+    "title": "2024版某专业人才培养方案及教学计划",
+    "version": "2024版",
+    "objectives": "学校培养目标原文",
+    "description": "学校详细说明原文",
+    "groups": [{
+      "name": "专业必修课",
+      "raw": "专业必修课 (应修 25.5 / 已修 46)",
+      "requiredCredits": 25.5,
+      "requiredCreditsText": "25.5",
+      "earnedCredits": 46,
+      "earnedCreditsText": "46",
+      "subtotalCredits": 94,
+      "subtotalHours": { "theory": 824, "practice": 376, "computer": 0, "extracurricular": 0, "total": 1200 },
+      "courseCount": 33
+    }],
+    "totalCredits": null,
+    "totalHours": { "theory": null, "practice": null, "computer": null, "extracurricular": null, "total": null },
+    "semesters": [{
+      "index": 2,
+      "term": "2024-2025-2",
+      "plannedCourseCount": 1,
+      "completedCourseCount": 1,
+      "plannedCredits": 3.5,
+      "completedCredits": 3.5,
+      "courses": [{
+        "courseCode": "22126001",
+        "courseName": "离散数学",
+        "curriculumGroup": "专业必修课",
+        "selectionGroup": null,
+        "courseNature": "专业必修课",
+        "courseAttribute": "必修",
+        "credits": 3.5,
+        "creditsText": "3.5",
+        "hours": { "theory": 56, "practice": 0, "computer": 0, "extracurricular": 0, "total": 56 },
+        "plannedSemesterText": "2",
+        "plannedSemesterIndexes": [2],
+        "spansAllSemesters": false,
+        "completion": { "raw": "已修(84)", "status": "completed", "scoreText": "84", "score": 84 },
+        "assessmentMethod": "考试",
+        "execution": {
+          "sequence": 1,
+          "term": "2024-2025-2",
+          "courseCode": "22126001",
+          "courseName": "离散数学",
+          "teachingUnit": "某学院",
+          "credits": 3.5,
+          "creditsText": "3.5",
+          "totalHours": 56,
+          "assessmentMethod": "考试",
+          "courseNature": "专业必修课",
+          "courseAttribute": "必修",
+          "isExamText": "是"
+        },
+        "executionRecords": [{
+          "sequence": 1,
+          "term": "2024-2025-2",
+          "courseCode": "22126001",
+          "courseName": "离散数学",
+          "teachingUnit": "某学院",
+          "credits": 3.5,
+          "creditsText": "3.5",
+          "totalHours": 56,
+          "assessmentMethod": "考试",
+          "courseNature": "专业必修课",
+          "courseAttribute": "必修",
+          "isExamText": "是"
+        }]
+      }]
+    }],
+    "unassignedCourses": [],
+    "unmatchedExecutionRecords": []
+  },
+  "_meta": { "cached": false, "source": "jw" }
+}
+```
+
+字段与加工规则：
+
+| 字段 | 说明 |
+|---|---|
+| `groups[]` | 按方案表课程体系 rowspan 分组；`raw`、应修/已修学分原文及数字、学校小计学分/五类学时原样投影。官方“已修”可能大于“应修”，不得据此自行修正或计算百分比。 |
+| `totalCredits`、`totalHours` | 学校“合计”行原值；空白为 `null`，不以分组相加伪造官方值。 |
+| `semesters[]` | 从第 1 学期到方案最大“开设学期”序号连续列出，包括中间没有方案课程的学期。某门课程计划多个学期时，在每个学期展示同一门课程；该课程 `completion` 仍是**整门课程**状态。 |
+| `courses[].spansAllSemesters` | 布尔值；仅当方案最大学期序号至少为 2，且该课程的 `plannedSemesterIndexes` 覆盖从 1 到最大序号的**每一个**学期时为 `true`。例如完整 1～8 为 `true`，`1,6` 等部分跨学期为 `false`；同一课程在各学期展示项中值一致。它只表示计划覆盖范围，不表示每学期都已修或正在修。 |
+| `term` | 只有方案单学期课程与执行计划能一致确定该序号的实际“开课学期”时才返回如 `2024-2025-2`；冲突或执行计划尚未覆盖的未来学期为 `null`，前端可用 `index` 作标题。 |
+| `plannedCourseCount`、`plannedCredits` | 本学期展示的方案课程行数及其可解析学分之和。跨学期课程每个展示学期各计一次，不是全培养方案去重总量。 |
+| `completedCourseCount`、`completedCredits` | 同一展示列表中，`completion.status=completed` 的课程门数及可解析学分之和；明确不及格、空白和未知均不算完成。 |
+| `courses[].completion` | `raw` 保留完成情况原文；`已修(…)` 为 `completed`，括号内原文写入 `scoreText`，只有纯数字才写 `score`；`已修不及格` 为 `failed`；空白为 `unrecorded`，含义是学校未记录完成状态，不能解释为未修；其余为 `unknown`。 |
+| `courses[].hours` | 方案表理论、实践、上机、课外与总学时。不能解析的单元格为 `null`，学分另有原文 `creditsText`。 |
+| `courses[].execution` | 与本学期实际 `term` 对应的一条执行计划记录；无对应记录为 `null`。`executionRecords` 保留该门课全部匹配的开课记录，包含跨学期重复项，前端可查看完整信息。 |
+| `assessmentMethod` | 仅取该学期 `execution.assessmentMethod`，未匹配为 `null`；“考试／考查”只看此字段。`execution.isExamText` 是学校另一个独立原文，可能出现“考核方式=考查”同时“是否考试=是”，不可用于推断考核标签。 |
+| `unassignedCourses`、`unmatchedExecutionRecords` | 分别保留方案学期序号无法解析的课程、找不到课程编号加名称精确匹配的执行计划记录，避免静默丢行。 |
+
+方案学期序号超过 20 视为上游协议异常，避免异常页面触发无界学期列表分配。
+
+本接口**不提供学期绩点或完成率**：两张培养方案页面都没有绩点数据，不能依据成绩或分组学分猜算。需要学期绩点时应另用 `/api/grades` 的实际成绩合同。课程列表排序跟随方案表原顺序；前端可按 `index` 切换学期，用四个统计字段制作顶部统计，用课程原值选择呈现信息。
 
 ### 6.7 `GET /api/ecard`
 

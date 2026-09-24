@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 JW 登录页稳定的标题、表单 action 与失效提示结构
+ * [INPUT]: 依赖 JW 登录页稳定的标题、表单 action、CAS 跳转脚本与失效提示结构
  * [OUTPUT]: 对外提供 looksLikeJwLoginPage 与 looksLikeAuthenticatedJwMainPage，区分 HTTP 200 登录页和已登录主框架
  * [POS]: campus-integrations/jw/parsers 的共享会话页判定，被 JW 业务解析器与换票激活验证复用
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -7,6 +7,7 @@
 
 const JW_LOGIN_FORM_RE = /<form\b[^>]*\baction\s*=\s*["'][^"']*\/jsxsd\/xk\/LoginToXk(?:\?[^"']*)?["'][^>]*>/i;
 const JW_LOGIN_TITLE_RE = /<title[^>]*>\s*登录\s*<\/title>/i;
+const JW_CAS_REDIRECT_RE = /(?:window|top|parent)\.location\.href\s*=\s*["']https?:\/\/cas\.huas\.edu\.cn\/cas\/login(?:\?[^"']*)?["']/i;
 
 export function looksLikeJwLoginPage(html: string): boolean {
   const hasLoginForm = JW_LOGIN_FORM_RE.test(html);
@@ -14,7 +15,7 @@ export function looksLikeJwLoginPage(html: string): boolean {
   const kickedByOtherLogin = html.includes('您的账号在其它地方登录');
   const loginFormText = html.includes('用户登录') && html.includes('验证码');
 
-  return kickedByOtherLogin || hasLoginForm || (loginTitle && loginFormText);
+  return kickedByOtherLogin || hasLoginForm || JW_CAS_REDIRECT_RE.test(html) || (loginTitle && loginFormText);
 }
 
 export function looksLikeAuthenticatedJwMainPage(html: string): boolean {

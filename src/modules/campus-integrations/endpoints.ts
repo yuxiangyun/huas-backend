@@ -17,6 +17,8 @@ export const URLS = {
   jwMainNew: "https://xyjw.huas.edu.cn/jsxsd/framework/xsMain_new.jsp",
   kbApi: "https://xyjw.huas.edu.cn/jsxsd/framework/main_index_loadkb.jsp",
   gradeApi: "https://xyjw.huas.edu.cn/jsxsd/kscj/cjcx_list",
+  trainingPlan: "https://xyjw.huas.edu.cn/jsxsd/pyfa/topyfamx",
+  trainingPlanExecution: "https://xyjw.huas.edu.cn/jsxsd/pyfa/pyfa_query",
   classroomQuery: "https://xyjw.huas.edu.cn/jsxsd/kbxx/jsjy_query",
   classroomQuery2: "https://xyjw.huas.edu.cn/jsxsd/kbxx/jsjy_query2",
   classroomProcessAjax: "https://xyjw.huas.edu.cn/jsxsd/kbxx/jsjy_processAjax",
