@@ -11,7 +11,7 @@ schedule-source-policy-service.ts: 课表来源策略用例边界，统一读取
 grade-service.ts: fresh-first 成绩读取用例，以 45 秒总预算有限重试凭证恢复、502/503/504 与一次无效页，按回源代次提交缓存，并在新鲜路径穷尽后执行 stale fallback
 training-plan-service.ts: JW 培养方案双页合并与学期投影，用课程编号加名称确认关联，按实际完整学期范围标记全程课程，保留未匹配行与官方学分并有序缓存完整快照
 evaluation-service.ts: 评教用例，保留 actionable/blocked，固定有界批次目标、通过 SchoolAccess 恢复读取、一次性提交及批末按身份增量确认；已尝试 POST 无完成增量或回查失败均为 unknown，failed 仅表示提交前准备失败；公开结果不透传内部错误码，unknown 提醒先核实结果避免重复提交
-classroom-free-service.ts: 空教室用例，分离审计 actor 与配置化服务账号上游身份
+classroom-free-service.ts: 空教室用例，分离审计 actor 与配置化服务账号上游身份；仅将服务账号学校读取的认证失效映射为服务不可用，避免清除请求用户登录态
 
 架构决策
 application 只编排用例顺序并消费 canonical 纯解析器，不定义校园协议或数据库查询；服务采用构造注入，composition root 负责暴露旧静态类签名。
