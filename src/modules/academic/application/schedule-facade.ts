@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖移动教务/JW/Portal current/stale readers、后台策略快照与用户首选前置规则、fallback error 与日期/错误工具
  * [OUTPUT]: 对外提供 ScheduleFacadeApplicationService、单源 reader ports、统一有序三源编排与移动教务固定单源入口
- * [POS]: academic/application 的课表编排门面，用户只调整 current 首选；stale 保持后台参与范围与固定顺序，明确无数据返回中文操作提示且不缓存，仲裁排除来源能力限制并保留 legacy 未公布短路
+ * [POS]: academic/application 的课表编排门面，以请求截止时间分配 current 等待额度且不取消共享回源；stale 保持后台参与范围与固定顺序，明确无数据返回中文操作提示且不缓存，仲裁排除来源能力限制并保留 legacy 未公布短路
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -68,6 +68,9 @@ const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const DAY_MS = 86_400_000;
 const MAX_PORTAL_RANGE_DAYS = 62;
 const STALE_SOURCE_PLAN = ['mobile-jw', 'jw', 'portal'] as const;
+// Facade 等待必须早于服务端默认 60 秒和小程序 75 秒超时，缓存仲裁另留尾部预算。
+const REQUEST_BUDGET_MS = 50_000;
+const STALE_RESERVE_MS = 2_000;
 
 type RawRequestMeta = Partial<Omit<ScheduleRequestMeta, 'cache' | 'fallback' | 'lookup'> & {
   cache: string;
@@ -98,6 +101,28 @@ type OrchestrationOptions = {
   stopOnUnavailable: boolean;
   policy?: ScheduleSourcePolicySnapshot;
 };
+
+// 只限制本请求的等待；reader 合流中的回源仍按自身预算完成并提交缓存。
+async function waitForSchedule<T>(read: () => Promise<T>, deadline: number): Promise<T> {
+  const remaining = deadline - performance.now();
+  const timeout = new AppError(ErrorCode.UPSTREAM_TIMEOUT, '课表查询超时，请稍后重试');
+  if (remaining <= 0) throw timeout;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const result = await Promise.race([
+      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(timeout), remaining); }),
+      // race 始终观察迟到的成功/失败；等待者退出不会取消其他请求共享的 reader。
+      Promise.resolve().then(() => {
+        if (performance.now() >= deadline) throw timeout;
+        return read();
+      }),
+    ]);
+    if (performance.now() >= deadline) throw timeout;
+    return result;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
 
 function parseStrictDate(value: string, fieldName: string): Date {
   if (!DATE_PATTERN.test(value)) {
@@ -278,8 +303,10 @@ export class ScheduleFacadeApplicationService {
     name?: string;
     preferredSource?: PreferredScheduleSource;
   }): Promise<ScheduleFacadeResult> {
-    if (!this.policy) throw new Error('SCHEDULE_SOURCE_POLICY_NOT_CONFIGURED');
-    const policy = await this.policy.status();
+    const policyReader = this.policy;
+    if (!policyReader) throw new Error('SCHEDULE_SOURCE_POLICY_NOT_CONFIGURED');
+    const deadline = performance.now() + REQUEST_BUDGET_MS;
+    const policy = await waitForSchedule(() => policyReader.status(), deadline - STALE_RESERVE_MS);
     const policyPlan = getScheduleSourcePlan(policy.mode);
     return this.orchestrate({
       ...options,
@@ -289,7 +316,7 @@ export class ScheduleFacadeApplicationService {
       staleSources: policyPlan,
       stopOnUnavailable: false,
       policy,
-    });
+    }, deadline);
   }
 
   async getMobileJwSchedule(options: {
@@ -343,13 +370,20 @@ export class ScheduleFacadeApplicationService {
     });
   }
 
-  private async orchestrate(options: OrchestrationOptions): Promise<ScheduleFacadeResult> {
+  private async orchestrate(
+    options: OrchestrationOptions,
+    deadline = performance.now() + REQUEST_BUDGET_MS,
+  ): Promise<ScheduleFacadeResult> {
     const primarySource = options.plan[0];
     const errors = new Map<ScheduleSource, unknown>();
 
-    for (const source of options.plan) {
+    const currentDeadline = deadline - STALE_RESERVE_MS;
+    for (const [index, source] of options.plan.entries()) {
       try {
-        const result = await this.readCurrent(source, options);
+        // 未用额度自然留给后续来源；已经耗尽时 waitForSchedule 不会启动新回源。
+        const now = performance.now();
+        const sourceDeadline = now + (currentDeadline - now) / (options.plan.length - index);
+        const result = await waitForSchedule(() => this.readCurrent(source, options), sourceDeadline);
         return completeResult(
           result,
           source,
@@ -361,7 +395,7 @@ export class ScheduleFacadeApplicationService {
         if (isParamError(currentError)) throw currentError;
         errors.set(source, currentError);
         if (options.stopOnUnavailable && source === primarySource && isScheduleUnavailable(currentError)) {
-          const stale = await this.readStale(source, currentError, options);
+          const stale = await waitForSchedule(() => this.readStale(source, currentError, options), deadline);
           if (stale) return completeResult(stale, source, primarySource, 'stale', options.policy);
           return emptySchedule(source, primarySource, this.requestFor(source, options), options.policy, currentError);
         }
@@ -371,9 +405,9 @@ export class ScheduleFacadeApplicationService {
     const selectedError = selectFailure(errors, options.plan, options.studentId);
     if (isCredentialError(selectedError)) throw selectedError;
 
-    for (const source of STALE_SOURCE_PLAN) {
-      if (!errors.has(source) || !(options.staleSources ?? options.plan).includes(source)) continue;
-      const stale = await this.readStale(source, errors.get(source), options);
+    const stalePlan = STALE_SOURCE_PLAN.filter((source) => errors.has(source) && (options.staleSources ?? options.plan).includes(source));
+    for (const source of stalePlan) {
+      const stale = await waitForSchedule(() => this.readStale(source, errors.get(source), options), deadline);
       if (stale) return completeResult(stale, source, primarySource, 'stale', options.policy);
     }
 

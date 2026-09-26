@@ -16,6 +16,6 @@ Academic 是学业领域的 canonical 纵向切片；application 只经 domain p
 旧 services/academic 与 PortalScheduleService 仅单向再导出本模块，Calendar 经公开 getMobileJwSemesterSchedule 读取移动教务当前学期全部周，不读取全局来源策略或普通周缓存；Calendar 自有持久快照和 24 小时门禁，Academic 不限制普通查询。
 mobile-jw 作为独立 reader 装配；新 mobile-jw-first 模式依次移动教务/JW/Portal，旧两种模式保留双源合同。历史端点实测空表与当前有课矛盾，因此第三源只消费当前学期 curriculum 并严格按真实日期缓存；指定周响应 week 可能仍为当前周，目标周以当前周锚点换算并用于 DTO，以完整七天日期和学期一致性验证响应。回源失败先记录低敏感阶段、类别与目标/返回周，再交由 Facade 编排；范围不支持不代表未公布，不参与最终错误优先级仲裁。
 Portal 明确无数据以携带中文操作提示的来源信号交 Facade，穷尽来源及历史课表后返回正常空态，提示可能需要学校账号初始化而不推断已确认原因。JW 未公布通过来源错误交 Facade 继续编排，不作为成功空课表缓存；历史未公布周/日缓存读取时按快照淘汰，真实空表与非教学周保持原合同。
-统一 `/api/schedule` 只读取一次策略快照；可选 preferred_source 仅前置 current 首选并去重，后备相对顺序与后台 stale 范围/固定顺序保留，不写全局策略；Operations 经本 composition 的公开策略门面执行热切换，不直接依赖 Academic infrastructure。
+统一 `/api/schedule` 只读取一次策略快照；Facade 以请求截止时间分配来源等待、预留 stale 仲裁，reader 共享回源仍独立完成缓存提交；可选 preferred_source 仅前置 current 首选并去重，后备相对顺序与后台 stale 范围/固定顺序保留，不写全局策略；Operations 经本 composition 的公开策略门面执行热切换，不直接依赖 Academic infrastructure。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
