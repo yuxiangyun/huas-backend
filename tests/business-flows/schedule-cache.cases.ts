@@ -8,6 +8,8 @@
 import { describe, expect, it } from 'bun:test';
 import {
   eq,
+  createUser,
+  seedCredential,
   upstreamState,
   getDb,
   schema,
@@ -30,8 +32,7 @@ describe('课表缓存与强制刷新防护', () => {
       PortalScheduleService.getSchedule(1, '2023010002', '2025-03-01', '2025-02-28', false)
     ).rejects.toThrow('结束日期不能早于开始日期');
 
-    upstreamState.upstreamExecuteCallback = true;
-    upstreamState.upstreamJsonPayload = { code: 0, data: { schedule: {} } };
+    upstreamState.upstreamResolver = async () => ({ week: '2025-03-01', courses: [], message: '' });
     const exactMaxRange = await PortalScheduleService.getSchedule(
       1,
       '2023010002',
@@ -187,6 +188,8 @@ describe('课表缓存与强制刷新防护', () => {
 
   it('Portal 强刷缺载荷时不会用旧空缓存伪造 stale 成功', async () => {
     const studentId = '2023010010';
+    const userId = await createUser(studentId, 'password');
+    await seedCredential(userId, 'portal_jwt', 'portal-fixture', null);
     const startDate = '2025-03-03';
     const endDate = '2025-03-09';
     const cacheKey = `portal-schedule:${studentId}:${startDate}:${endDate}`;
@@ -199,8 +202,8 @@ describe('课表缓存与强制刷新防护', () => {
     upstreamState.upstreamJsonPayload = { code: 0, data: {} };
 
     await expect(
-      PortalScheduleService.getSchedule(1, studentId, startDate, endDate, true),
-    ).rejects.toThrow('PORTAL_SCHEDULE_PAYLOAD_MISSING');
+      PortalScheduleService.getSchedule(userId, studentId, startDate, endDate, true),
+    ).rejects.toMatchObject({ code: 3005 });
     expect(await CacheService.get(cacheKey)).toBeNull();
   });
 

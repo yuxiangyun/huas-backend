@@ -3,7 +3,7 @@
 What to build: 迁移旧登录、恢复、mobile、评教与缓存测试到现有SchoolAccess合同，不恢复旧架构；将已确认不变量和修复边界固化。
 Repository: server
 Blocked by: 05-captcha-reset
-Status: in_progress
+Status: completed
 
 串行拆分（每段独立 sub agent / commit，同样经过架构复盘和主审）：
 - 06a：upstream-retry、campus-integrations-compat、evaluation-parser、cache-modernization，改用当前公开入口及注入端口。
@@ -44,3 +44,19 @@ Status: in_progress
 架构第二轮：将原955行文件拆为会话测试与业务测试，纯数据fixture只承担准备；共享学校fixture不模拟恢复，也不隐式注册hook，每个套件显式还原spy。CAS提交helper去掉旧credentials包装、无效at和JW写入，JW改由fixture独立播种。所有文件小于800行。主审预反馈要求的真实epoch提交、hook作用域及L3职责均已修正。主审拦下手工挂载子路由削弱限流装配证明的问题，已回到真实registerRoutes并仅注入空社交依赖。无生产代码和Web变化，L1无须更新。
 
 机械检查：strict TypeScript noEmit（含现有heic声明）及Bun静态bundle external bun:test通过；产物仅写/tmp/huas-06b-static-build，从未执行。git diff --check通过。主agent最终代码逻辑review已通过：真实注册器注入、CAS上下文换代时父凭证入参序列、同epoch迟到拒绝、新generation保留、typed错误stale资格及每套显式spy还原均已复查；拆分后职责/地图一致，无恢复算法副本。06b完成；下一项06c迁移business-flows共享支架及能力用例。
+
+## 06c 实现与固定钩子
+
+第一版迁移共享业务流支架及认证/恢复用例，所有旧场景按当前职责保留：
+- 删除的 upstream 回调 → 现有 schoolAccess.execute 具名读取。业务缓存场景只替换读取结果；Portal/JW parser 场景播种真实用户与基础凭证、交回真实 SchoolAccess/恢复/解析，仅替换 HttpClient 网络。移动教务客户端替身仍供真实周解析、学期完整性和日历窗口消费；未改其既有 ICS/24 小时/失败不跨源场景。
+- 旧 CredentialManager → SchoolRecovery.ensure + requestContext、SchoolStateStore 快照和统一 upsertBaseCredential 播种；没有模拟旧凭证管理器或恢复状态机。Portal/JW 目标共用 CAS 后分开取得冻结快照，过期、失败释放、Portal-only 不改 JW、派生清理、交互标记无 TTL、固定五秒和目标隔离全部保留。
+- CAS 失败返回 null/false → typed 3005；明确密码/验证码拒绝 → 3003 且不推进 epoch；网络超时 → 3004，维护/缺 execution/二次会话拒绝 → 3005。TicketExchanger 旧 success=false/upstreamError 返回改成当前单次协议抛错，临时故障次数按统一执行器有界重试断言。
+- 显式登录等待 Portal/JW 且全失败无 JWT → 真实 CAS 成功即返回 JWT，再独立读取目标失败，验证 JWT 仍有效。响应不承诺资料已完成，后台任务排空后验证 users；新增阻塞资料回源时已返回 JWT、后台失败不撤销的直接反例。
+- 旧 Identity commitRealSchoolLogin → SchoolAuthentication 真实认证排序及仓储原子提交；保留迟到静默成功/拒绝/异常/换票不污染新登录，新增旧显式成功与较新成功/失败排序。验证码保留挑战重试与初始化失败，并增加一次消费与读取时到期。
+- 旧短 deadline 取消恢复假设 → 短等待者失败后同一目标长等待者仍完成；deferred 在 finally 放行并 join 收尾，避免后台读取下例全局替身。资料 Promise 同样在 afterEach 排空后才还原 spy，数据库只在下一例重置。
+- 课表测试显式 jw-first 并逐例恢复原模式，保留热切换。legacy /api/v1/schedule 仍保留主源未公布短路；统一 /api/schedule 单独验证 Portal 无数据后穷尽 JW 的中文空态，不能把两个入口合同混为一谈。
+- 四个相邻遗留契约：JW 未公布注入 readJwSchedule/readPortalSchedule 并保留真实 parser→application→Facade；HttpClient 用默认 manual redirect；Identity dependency 类型从实际 application 导出；Classroom Buildings 传入审计 actor。
+
+架构第二轮：替身只覆盖外部响应，认证/恢复/提交/缓存不复制；沿用真实 registerRoutes 注入未测支线空 Hono。去掉过时的 CredentialManager 类型、无用 imports 和不成立的原始错误对象相等断言；默认资料/课表/成绩按具名能力返回各自 DTO，杜绝后台资料意外消费成绩数据。复盘修正了 HTTP 登录 DTO 不含 user.id 的假设，改为验证真实 JWT 后取得 userId；恢复错误也不再用旧 null 结果掩盖。全部业务流文件小于 800 行，L3/L2 已同步，生产与顶层架构未改，L1 无需更新。
+
+机械检查（未执行测试）：五个入口及传递依赖 strict tsc noEmit 通过，Bun 静态 bundle external bun:test 通过，产物只在 /tmp/huas-06c-static-build；git diff --check 通过。非 Web tests 全目录相对 import/mock.module 路径静态扫描无缺失。删除架构名称只剩兼容测试明确断言它们不存在的字符串；Web 不在范围。未修改生产代码，未访问学校，未推送部署。主 agent 最终代码逻辑 review 已通过：JWT userId 来自真实令牌、阻塞资料 finally/drain、共享失败预注册 rejection、策略/spy 生命周期、legacy/统一仲裁及 Portal-only 缺 TGC 经真实 CAS 保留 JW 全行均已逐链路核对。本轮 8 个串行提交任务（01–05、06a–06c）均已完成实现、架构复盘精简与主审固定钩子；本项提交后，总任务下一步仅仓库范围和交付状态核对，无下一修复任务。

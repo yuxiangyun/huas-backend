@@ -1,13 +1,14 @@
 /**
- * [INPUT]: 依赖认证 mock、测试数据库、登录路由、学校登录 epoch、mobile 派生会话仓储与凭证/用户工厂
- * [OUTPUT]: 验证本地/CAS/验证码/Portal-only 登录、真实登录 epoch/派生会话清理、并发 upsert、限流与学校激活失败的 3005/503 映射
+ * [INPUT]: 依赖单次 CAS/TGC 协议替身、真实 SchoolAuthentication/Identity 路由、SQLite 与可观察的后台资料任务
+ * [OUTPUT]: 验证本地快捷、CAS 即时 JWT、验证码一次消费/到期、成功排序、epoch 清理及资料/业务故障不撤销登录
  * [POS]: tests/business-flows 的独立能力用例集，由聚合入口在进程级 mock 隔离内装配
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, spyOn } from 'bun:test';
 import {
   Hono,
+  drainProfiles,
   eq,
   ErrorCode,
   authBehavior,
@@ -17,13 +18,16 @@ import {
   schema,
   config,
   authRoutes,
-  CredentialManager,
+  schoolStateStore, recovery, requestContext, seedCredential, clearBaseCredentials,
   CryptoHelper,
   makeUserPayload,
   createUser,
 } from './harness';
+import { schoolUnavailable } from '../../src/modules/campus-integrations/school-access/errors';
+import { verifyToken } from '../../src/auth/jwt';
+import { SchoolAuthentication } from '../../src/modules/campus-integrations/school-access/authentication';
 import { SqliteMobileYxtSessionRepository } from '../../src/modules/campus-integrations/mobile-yxt/session-repository';
-import { readSchoolLoginEpoch } from '../../src/modules/campus-integrations/credential-recovery/school-login-context';
+import { readSchoolLoginEpoch } from '../../src/modules/campus-integrations/school-access/school-login-context';
 
 const validMobileCookieJar = JSON.stringify({
   cookies: [{
@@ -63,7 +67,7 @@ describe('登录流程', () => {
       .from(schema.credentials)
       .where(eq(schema.credentials.userId, users[0].id));
     const systems = creds.map((c: any) => c.system).sort();
-    expect(systems).toEqual(['cas_tgc', 'jw_session', 'portal_jwt', 'school_login_epoch']);
+    expect(systems).toEqual(['cas_tgc', 'school_login_epoch']);
   });
 
   it('数据库已有用户且无任何学校凭证时仍可本地登录，不访问 CAS', async () => {
@@ -120,9 +124,9 @@ describe('登录流程', () => {
     app.route('/auth', authRoutes);
 
     const userId = await createUser('2023001445', 'pass-local-portal-only');
-    await CredentialManager.storeCredential(userId, 'cas_tgc', null, '{"cookies":[]}', 60_000);
-    await CredentialManager.storeCredential(userId, 'portal_jwt', 'portal-token-local', null, 60_000);
-    await CredentialManager.storeCredential(userId, 'jw_session', null, '{"cookies":[]}', 60_000);
+    await seedCredential(userId, 'cas_tgc', null, '{"cookies":[]}');
+    await seedCredential(userId, 'portal_jwt', 'portal-token-local', null);
+    await seedCredential(userId, 'jw_session', null, '{"cookies":[]}');
 
     const res = await app.request('http://localhost/auth/login', {
       method: 'POST',
@@ -141,9 +145,9 @@ describe('登录流程', () => {
     app.route('/auth', authRoutes);
 
     const userId = await createUser('2023001446', 'pass-local-captcha');
-    await CredentialManager.storeCredential(userId, 'cas_tgc', null, '{"cookies":[]}', 60_000);
-    await CredentialManager.storeCredential(userId, 'portal_jwt', 'portal-token-stale', null, 60_000);
-    await CredentialManager.storeCredential(userId, 'jw_session', null, '{"cookies":[]}', 60_000);
+    await seedCredential(userId, 'cas_tgc', null, '{"cookies":[]}');
+    await seedCredential(userId, 'portal_jwt', 'portal-token-stale', null);
+    await seedCredential(userId, 'jw_session', null, '{"cookies":[]}');
 
     authBehavior.login = async () => ({
       success: false,
@@ -152,9 +156,9 @@ describe('登录流程', () => {
       steps: [],
     });
 
-    const silentOk = await CredentialManager.silentReAuth(userId);
-    expect(silentOk).toBe(false);
-    expect(await CredentialManager.requiresInteractiveLogin(userId)).toBe(true);
+    clearBaseCredentials(userId);
+    await expect(recovery.ensure(userId, 'cas_tgc', requestContext())).rejects.toMatchObject({ code: 3003 });
+    expect(await schoolStateStore.requiresInteraction(userId)).toBe(true);
 
     const db = getDb();
     const staleCreds = await db.select()
@@ -191,7 +195,7 @@ describe('登录流程', () => {
     app.route('/auth', authRoutes);
 
     const userId = await createUser('2023001447', 'pass-force-cas');
-    await CredentialManager.markInteractiveLoginRequired(userId);
+    await schoolStateStore.markInteraction(userId, schoolStateStore.epoch(userId), 'captcha_required');
     const mobileSessions = new SqliteMobileYxtSessionRepository();
     await mobileSessions.createIfLoginEpochMatches({
       userId,
@@ -214,11 +218,11 @@ describe('登录流程', () => {
 
     expect(res.status).toBe(200);
     expect(loginCallCount).toBe(1);
-    expect(await CredentialManager.requiresInteractiveLogin(userId)).toBe(false);
+    expect(await schoolStateStore.requiresInteraction(userId)).toBe(false);
     expect(await mobileSessions.read(userId)).toBeNull();
   });
 
-  it('显式 CAS 成功但 Portal/JW 都失败时提交新 epoch、清理派生会话且不签发服务 JWT', async () => {
+  it('显式 CAS 成功但 Portal/JW 都失败时提交新 epoch、清理派生会话并立即签发服务 JWT', async () => {
     const app = new Hono();
     app.route('/auth', authRoutes);
     const userId = await createUser('2023001448', 'old-password');
@@ -229,11 +233,11 @@ describe('登录流程', () => {
       accessToken: 'stale-mobile-access',
       cookieJar: validMobileCookieJar,
     });
-    await CredentialManager.storeCredential(userId, 'portal_jwt', 'stale-portal', null, 60_000);
+    await seedCredential(userId, 'portal_jwt', 'stale-portal', null);
 
     authBehavior.login = async () => ({ success: true, portalToken: null, steps: [] });
-    ticketBehavior.exchangePortalToken = async () => ({ token: null, steps: [] });
-    ticketBehavior.exchangeJwSession = async () => ({ success: false, steps: [] });
+    ticketBehavior.exchangePortalToken = async () => { throw schoolUnavailable(); };
+    ticketBehavior.exchangeJwSession = async () => { throw schoolUnavailable(); };
 
     const response = await app.request('http://localhost/auth/login', {
       method: 'POST',
@@ -242,14 +246,13 @@ describe('登录流程', () => {
     });
     const body = await response.json() as any;
 
-    expect(response.status).toBe(503);
-    expect(body.error_code).toBe(3005);
-    expect(body.success).toBe(false);
-    expect(body.data?.token).toBeUndefined();
+    expect(response.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(body.data?.token).toBeString();
     expect(readSchoolLoginEpoch(getDb(), userId)).toBe(1);
     expect(await mobileSessions.read(userId)).toBeNull();
-    expect(await CredentialManager.getCredential(userId, 'cas_tgc')).not.toBeNull();
-    expect(await CredentialManager.getCredential(userId, 'portal_jwt')).toBeNull();
+    expect(await schoolStateStore.read(userId, 'cas_tgc')).not.toBeNull();
+    expect(await schoolStateStore.read(userId, 'portal_jwt')).toBeNull();
   });
 
   it('显式 CAS 要求验证码时不推进 epoch，也不清理旧派生会话', async () => {
@@ -417,10 +420,10 @@ describe('登录流程', () => {
       body: JSON.stringify({ username: '2023001888', password: 'pass-captcha' }),
     });
 
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(503);
     const body = await res.json() as any;
     expect(body.success).toBe(false);
-    expect(body.error_code).toBe(3002);
+    expect(body.error_code).toBe(3005);
     expect(body.sessionId).toBeUndefined();
     expect(body.needCaptcha).toBeUndefined();
   });
@@ -432,7 +435,7 @@ describe('登录流程', () => {
     let loginCallCount = 0;
     authBehavior.login = async () => {
       loginCallCount += 1;
-      return { success: false, needCaptcha: false, message: '密码错误', steps: [] };
+      return { success: false, credentialsRejected: true, needCaptcha: false, message: '密码错误', steps: [] };
     };
 
     for (let index = 0; index < config.authLoginRateLimit.maxFailures; index += 1) {
@@ -484,8 +487,9 @@ describe('登录流程', () => {
     expect(res.status).toBe(200);
     const body = await res.json() as any;
     expect(body.success).toBe(true);
-    expect(body.data.user.name).toBe('张三');
-    expect(body.data.user.className).toBe('机自25101班');
+    expect(body.data.user.name).toBeUndefined();
+    expect(body.data.user.className).toBe('');
+    await drainProfiles();
     expect(upstreamState.upstreamCallCount).toBe(1);
 
     const db = getDb();
@@ -505,11 +509,7 @@ describe('登录流程', () => {
       portalToken: 'portal-token-partial-login',
       steps: [{ label: 'portal', ok: true }],
     });
-    ticketBehavior.exchangeJwSession = async () => ({
-      success: false,
-      steps: [{ label: 'jw#1', ok: false, detail: 'status:500' }],
-      upstreamUnavailable: false,
-    });
+    ticketBehavior.exchangeJwSession = async () => { throw schoolUnavailable(); };
     upstreamState.upstreamResolver = async () => makeUserPayload('李四', '2023001667', '机自25102班');
 
     const res = await app.request('http://localhost/auth/login', {
@@ -521,14 +521,16 @@ describe('登录流程', () => {
     expect(res.status).toBe(200);
     const body = await res.json() as any;
     expect(body.success).toBe(true);
-    expect(body.data.user.name).toBe('李四');
-    expect(body.data.user.className).toBe('机自25102班');
+    expect(body.data.user.name).toBeUndefined();
+    await drainProfiles();
 
     const db = getDb();
     const users = await db.select()
       .from(schema.users)
       .where(eq(schema.users.studentId, '2023001667'));
     expect(users.length).toBe(1);
+    expect(users[0].name).toBe('李四');
+    expect(users[0].className).toBe('机自25102班');
 
     const creds = await db.select()
       .from(schema.credentials)
@@ -537,7 +539,7 @@ describe('登录流程', () => {
     expect(systems).toEqual(['cas_tgc', 'portal_jwt', 'school_login_epoch']);
   });
 
-  it('登录阶段未直接拿到 portal token 时，会再走 TGC 换取门户凭证后放行 portal-only 登录', async () => {
+  it('CAS 未给 Portal 时仍立即登录，后续按需换取门户凭证', async () => {
     const app = new Hono();
     app.route('/auth', authRoutes);
 
@@ -550,11 +552,7 @@ describe('登录流程', () => {
       token: 'portal-token-recovered',
       steps: [{ label: 'portal', ok: true }],
     });
-    ticketBehavior.exchangeJwSession = async () => ({
-      success: false,
-      steps: [{ label: 'jw#1', ok: false, detail: 'status:500' }],
-      upstreamUnavailable: false,
-    });
+    ticketBehavior.exchangeJwSession = async () => { throw schoolUnavailable(); };
     upstreamState.upstreamResolver = async () => makeUserPayload('王五', '2023001668', '机自25103班');
 
     const res = await app.request('http://localhost/auth/login', {
@@ -566,7 +564,8 @@ describe('登录流程', () => {
     expect(res.status).toBe(200);
     const body = await res.json() as any;
     expect(body.success).toBe(true);
-    expect(body.data.user.name).toBe('王五');
+    expect(body.data.user.name).toBeUndefined();
+    await drainProfiles();
 
     const db = getDb();
     const users = await db.select()
@@ -577,12 +576,12 @@ describe('登录流程', () => {
     const creds = await db.select()
       .from(schema.credentials)
       .where(eq(schema.credentials.userId, users[0].id));
-    const portalCred = creds.find((cred: any) => cred.system === 'portal_jwt');
-    expect(portalCred?.value).toBe('portal-token-recovered');
+    expect(creds.some((cred: any) => cred.system === 'portal_jwt')).toBe(false);
+    expect((await recovery.ensure(users[0].id, 'portal_jwt', requestContext())).value).toBe('portal-token-recovered');
     expect(creds.some((cred: any) => cred.system === 'jw_session')).toBe(false);
   });
 
-  it('首次登录 Portal 与 JW 都失败时拒绝签发 token', async () => {
+  it('首次 CAS 成功不等待 Portal 与 JW，后续能力失败不撤销 token', async () => {
     const app = new Hono();
     app.route('/auth', authRoutes);
 
@@ -591,15 +590,8 @@ describe('登录流程', () => {
       portalToken: null,
       steps: [{ label: 'cas', ok: true }],
     });
-    ticketBehavior.exchangePortalToken = async () => ({
-      token: null,
-      steps: [{ label: 'portal', ok: false }],
-    });
-    ticketBehavior.exchangeJwSession = async () => ({
-      success: false,
-      steps: [{ label: 'jw#1', ok: false, detail: 'status:500' }],
-      upstreamUnavailable: false,
-    });
+    ticketBehavior.exchangePortalToken = async () => { throw schoolUnavailable(); };
+    ticketBehavior.exchangeJwSession = async () => { throw schoolUnavailable(); };
 
     const res = await app.request('http://localhost/auth/login', {
       method: 'POST',
@@ -607,15 +599,18 @@ describe('登录流程', () => {
       body: JSON.stringify({ username: '2023001669', password: 'pass-all-failed' }),
     });
 
-    expect(res.status).toBe(503);
+    expect(res.status).toBe(200);
     const body = await res.json() as any;
-    expect(body.success).toBe(false);
-    expect(body.error_code).toBe(3005);
-    expect(body.data?.token).toBeUndefined();
-    expect(body.error_message).toBe('学校账号验证成功，但学校服务暂时不可用，请稍后重试');
+    expect(body.data.token).toBeString();
+    const identity = await verifyToken(body.data.token);
+    if (!identity) throw new Error('EXPECTED_VALID_JWT');
+    await expect(recovery.ensure(identity.userId, 'portal_jwt', requestContext())).rejects.toMatchObject({ code: 3005 });
+    await expect(recovery.ensure(identity.userId, 'jw_session', requestContext())).rejects.toMatchObject({ code: 3005 });
+    expect(schoolStateStore.epoch(identity.userId)).toBe(1);
+    expect(await verifyToken(body.data.token)).toEqual(identity);
   });
 
-  it('Portal 换票超时返回 3004，不误报凭证或密码错误', async () => {
+  it('登录后的 Portal 换票超时返回 3004，已签发 JWT 仍然存在', async () => {
     const app = new Hono();
     app.route('/auth', authRoutes);
     authBehavior.login = async () => ({ success: true, portalToken: null, steps: [] });
@@ -628,7 +623,79 @@ describe('登录流程', () => {
     });
     const body = await res.json() as any;
 
-    expect(res.status).toBe(504);
-    expect(body.error_code).toBe(ErrorCode.UPSTREAM_TIMEOUT);
+    expect(res.status).toBe(200);
+    expect(body.data.token).toBeString();
+    const identity = await verifyToken(body.data.token);
+    if (!identity) throw new Error('EXPECTED_VALID_JWT');
+    await expect(recovery.ensure(identity.userId, 'portal_jwt', requestContext())).rejects.toMatchObject({ code: 3004 });
   });
+});
+
+describe('登录后台资料隔离', () => {
+  it('资料回源被阻塞时已经返回 JWT，后台失败也不撤销登录', async () => {
+    let release!: () => void;
+    let began!: () => void;
+    const started = new Promise<void>(resolve => { began = resolve; });
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    upstreamState.upstreamResolver = async () => { began(); await gate; throw schoolUnavailable(); };
+    const app = new Hono().route('/auth', authRoutes);
+    const request = app.request('http://localhost/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'profile-does-not-block', password: 'password' }),
+    });
+    try {
+      await started;
+      const response = await request;
+      expect(response.status).toBe(200);
+      const body = await response.json() as any;
+      expect(await verifyToken(body.data.token)).not.toBeNull();
+      release();
+      await drainProfiles();
+      expect(await verifyToken(body.data.token)).not.toBeNull();
+    } finally { release(); await request; await drainProfiles(); }
+  });
+});
+
+// 挑战与排序直接经过真实认证用例；HTTP 登录、JWT 和限流由上方路由场景覆盖。
+describe('认证挑战与提交顺序', () => {
+  it('验证码会话读取即判过期，消费后不能重放登录 POST', async () => {
+    const authentication = new SchoolAuthentication();
+    authBehavior.login = async () => ({ success: false, needCaptcha: true, steps: [] });
+    const command = { username: 'captcha-once', password: 'password' };
+    const first = await authentication.authenticate(command);
+    if (first.kind !== 'challenge') throw new Error('EXPECTED_CHALLENGE');
+    let posts = 0;
+    authBehavior.login = async () => { posts++; return { success: true, steps: [] }; };
+    await authentication.authenticate({ ...command, sessionId: first.sessionId, captcha: '1234' });
+    await expect(authentication.authenticate({ ...command, sessionId: first.sessionId })).rejects.toMatchObject({ code: 3002 });
+    expect(posts).toBe(1);
+    authBehavior.login = async () => ({ success: false, needCaptcha: true, steps: [] });
+    const next = await authentication.authenticate(command);
+    if (next.kind !== 'challenge') throw new Error('EXPECTED_CHALLENGE');
+    const clock = spyOn(Date, 'now').mockReturnValue(Date.now() + config.captchaSessionTtl);
+    try { await expect(authentication.authenticate({ ...command, sessionId: next.sessionId })).rejects.toMatchObject({ code: 3002 }); }
+    finally { clock.mockRestore(); }
+  });
+
+  for (const newerSucceeds of [true, false]) {
+    it(`较新认证${newerSucceeds ? '成功保护新密码' : '失败不阻挡旧成功'}，迟到响应不能逆序提交`, async () => {
+      const authentication = new SchoolAuthentication();
+      const studentId = `ordered-login-${newerSucceeds}`;
+      let release!: () => void;
+      let started!: () => void;
+      const began = new Promise<void>(resolve => { started = resolve; });
+      const gate = new Promise<void>(resolve => { release = resolve; });
+      authBehavior.login = async (_username, password) => {
+        if (password === 'older') { started(); await gate; return { success: true, portalToken: 'older' }; }
+        return { success: newerSucceeds, credentialsRejected: !newerSucceeds, portalToken: 'newer' };
+      };
+      const old = authentication.authenticate({ username: studentId, password: 'older' });
+      await began;
+      try { await authentication.authenticate({ username: studentId, password: 'newer' }); }
+      finally { release(); await old; }
+      const row = getDb().select().from(schema.users).where(eq(schema.users.studentId, studentId)).get();
+      expect(CryptoHelper.decryptAES(row.encryptedPassword, config.jwtSecret)).toBe(newerSucceeds ? 'newer' : 'older');
+      expect(schoolStateStore.read(row.id, 'portal_jwt')?.value).toBe(newerSucceeds ? 'newer' : 'older');
+    });
+  }
 });

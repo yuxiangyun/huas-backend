@@ -5,6 +5,7 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
+import { AppError, ScheduleUnavailableError } from '../../src/utils/errors';
 import { describe, expect, it } from 'bun:test';
 import {
   Hono,
@@ -81,7 +82,7 @@ describe('默认课表路由兜底', () => {
       0,
       'portal'
     );
-    upstreamState.upstreamInjectedError = new Error('SESSION_EXPIRED');
+    upstreamState.upstreamInjectedError = new AppError(ErrorCode.CREDENTIAL_EXPIRED, '学校要求重新认证');
 
     const { generateToken } = await import('../../src/auth/jwt.ts');
     const token = await generateToken({ userId, studentId, name: `name-${studentId}` });
@@ -146,7 +147,7 @@ describe('默认课表路由兜底', () => {
     expect(body.error_code).toBe(ErrorCode.UPSTREAM_TIMEOUT);
   });
 
-  it('Portal 周课表无数据时，/api/v1/schedule 直接返回空课表而不回退 JW', async () => {
+  it('legacy Portal 周课表未公布时，/api/v1/schedule 保留主源空态短路', async () => {
     const userId = await createUser('2023001783', 'pass-portal-empty-week');
     const app = new Hono();
     registerRoutes(app);
@@ -159,7 +160,7 @@ describe('默认课表路由兜底', () => {
         jwCalled = true;
         throw new Error('REQUEST_TIMEOUT');
       }
-      throw new Error('SCHEDULE_NOT_AVAILABLE');
+      throw new ScheduleUnavailableError();
     };
 
     const res = await app.request('http://localhost/api/v1/schedule?startDate=2025-02-03&endDate=2025-02-09', {
@@ -172,9 +173,30 @@ describe('默认课表路由兜底', () => {
     expect(body.data).toEqual({
       week: '暂无',
       courses: [],
-      message: '课表暂未公布',
+      message: new ScheduleUnavailableError().userMessage,
     });
     expect(jwCalled).toBe(false);
+  });
+
+  it('统一 /api/schedule 在 Portal 无数据后仍穷尽 JW，最后保留中文提示', async () => {
+    const studentId = 'unified-portal-unavailable';
+    const userId = await createUser(studentId, 'password');
+    const { ScheduleSourcePolicy } = await import('../../src/modules/academic/schedule');
+    await ScheduleSourcePolicy.configure('portal-first', 'business-flow-fixture');
+    const calls: string[] = [];
+    upstreamState.upstreamResolver = async (_userId: number, mode: string) => {
+      calls.push(mode);
+      if (mode === 'portal') throw new ScheduleUnavailableError();
+      throw new Error('REQUEST_TIMEOUT');
+    };
+    const app = new Hono();
+    registerRoutes(app);
+    const { generateToken } = await import('../../src/auth/jwt');
+    const token = await generateToken({ userId, studentId });
+    const response = await app.request('http://localhost/api/schedule?date=2025-03-05', { headers: { Authorization: `Bearer ${token}` } });
+    expect(response.status).toBe(200);
+    expect(calls).toEqual(['portal', 'jw']);
+    expect((await response.json() as any).data.message).toBe(new ScheduleUnavailableError().userMessage);
   });
 
   it('Portal 非周视图请求失败时，不会错误回退到 JW 周课表', async () => {

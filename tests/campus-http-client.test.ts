@@ -84,7 +84,7 @@ describe('校园 HTTP 正文预算', () => {
     const empty = await client.request(`${origin}/empty`);
     expect(empty.status).toBe(204);
     expect(await empty.text()).toBe('');
-    const redirect = await client.request(`${origin}/redirect`, { isAuthFlow: true });
+    const redirect = await client.request(`${origin}/redirect`);
     expect(redirect.status).toBe(302);
     expect(redirect.headers.get('location')).toBe('/ok');
   });

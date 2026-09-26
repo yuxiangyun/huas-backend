@@ -10,6 +10,7 @@ import { ScheduleApplicationService } from '../src/modules/academic/application/
 import { ScheduleFacadeApplicationService } from '../src/modules/academic/application/schedule-facade';
 import type { AcademicRuntimePorts } from '../src/modules/academic/domain/ports';
 import type { ScheduleSourceMode } from '../src/modules/academic/domain/schedule-source-policy';
+import { ScheduleParser } from '../src/modules/campus-integrations/jw/parsers/schedule-parser';
 import { CacheService } from '../src/modules/cache/cache-service';
 import { fallbackOnRefreshFailure } from '../src/services/infra/refresh-fallback';
 
@@ -35,9 +36,10 @@ function setup(mode: ScheduleSourceMode = 'jw-first', html = '<html><body>课表
   const ports: AcademicRuntimePorts = {
     cache: CacheService,
     refreshFallback: fallbackOnRefreshFailure,
-    upstream: async (_id, _mode, operation) => {
+    readPortalSchedule: async () => { throw new Error('UNEXPECTED_PORTAL_PORT'); },
+    readJwSchedule: async () => {
       calls.push('jw');
-      return operation({ client: { request: async () => new Response(html) } });
+      return ScheduleParser.parse(html);
     },
   };
   const jw = new ScheduleApplicationService(ports);

@@ -5,9 +5,11 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
+import { AppError, ErrorCode } from '../../src/utils/errors';
 import { describe, expect, it } from 'bun:test';
 import {
   eq,
+  seedCredential,
   upstreamState,
   getDb,
   schema,
@@ -52,13 +54,14 @@ describe('用户资料回填', () => {
   it('UserService 不在 parser 前吞掉 Portal 过期 code', async () => {
     const userId = await createUser('2023001776', 'pass-userinfo-expired');
 
+    await seedCredential(userId, 'portal_jwt', 'portal-fixture', null);
     upstreamState.upstreamExecuteCallback = true;
     upstreamState.upstreamJsonPayload = {
       code: '-1',
       message: 'token 已过期',
     };
 
-    await expect(UserService.getUserInfo(userId, '2023001776', true)).rejects.toThrow('SESSION_EXPIRED');
+    await expect(UserService.getUserInfo(userId, '2023001776', true)).rejects.toMatchObject({ code: 3005 });
   });
 
   it('UserService 强刷遇到 Portal 非会话错误时回退已有缓存', async () => {
@@ -71,6 +74,7 @@ describe('用户资料回填', () => {
       identity: '学生',
       organizationCode: 'old-org',
     }, 0, 'portal');
+    await seedCredential(userId, 'portal_jwt', 'portal-fixture', null);
     upstreamState.upstreamExecuteCallback = true;
     upstreamState.upstreamJsonPayload = { code: 500, message: '系统维护' };
 
@@ -82,10 +86,12 @@ describe('用户资料回填', () => {
 
 describe('缓存与强制刷新流程', () => {
   it('成绩 HTTP 5xx 不解析也不写入空成绩缓存', async () => {
+    const userId = await createUser('2023001550', 'password');
+    await seedCredential(userId, 'jw_session', null, '{"cookies":[]}');
     upstreamState.upstreamExecuteCallback = true;
     upstreamState.upstreamRequestHandler = async () => new Response(`<html><body>${'服务异常'.repeat(80)}</body></html>`, { status: 503 });
 
-    await expect(GradeService.getGrades(1, '2023001550', {}, false)).rejects.toThrow('GRADE_HTTP_503');
+    await expect(GradeService.getGrades(userId, '2023001550', {}, false)).rejects.toMatchObject({ code: 3005 });
     const rows = await getDb().select().from(schema.cache);
     expect(rows.some((row: any) => row.key.startsWith('grades:2023001550:'))).toBe(false);
   });
@@ -127,11 +133,11 @@ describe('缓存与强制刷新流程', () => {
     upstreamState.upstreamResolver = async () => makeSchedulePayload('credential-stale');
     await ScheduleService.getSchedule(1, studentId, '2025-03-05', false);
 
-    upstreamState.upstreamInjectedError = new Error('SESSION_EXPIRED');
+    upstreamState.upstreamInjectedError = new AppError(ErrorCode.CREDENTIAL_EXPIRED, '学校要求重新认证');
 
     await expect(
       ScheduleService.getSchedule(1, studentId, '2025-03-05', true)
-    ).rejects.toThrow('SESSION_EXPIRED');
+    ).rejects.toMatchObject({ code: 3003 });
   });
 
   it('refresh=true 且上游返回课表未公布时，若有旧缓存仍回退 stale', async () => {

@@ -7,10 +7,9 @@
 
 import { beforeEach, describe, expect, it } from 'bun:test';
 import { eq } from 'drizzle-orm';
-import { LoginApplicationService } from '../src/modules/identity/application/login-application.service';
+import { LoginApplicationService, type LoginApplicationDependencies } from '../src/modules/identity/application/login-application.service';
 import type {
   IdentityStorePort,
-  LoginApplicationDependencies,
   SchoolAuthenticationPort,
 } from '../src/modules/identity/application/login.ports';
 import type { LoginUser } from '../src/modules/identity/domain/login';

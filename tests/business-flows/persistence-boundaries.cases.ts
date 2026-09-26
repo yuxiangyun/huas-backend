@@ -16,7 +16,7 @@ import {
   GradeService,
   ECardParser,
   ECardService,
-  CredentialManager,
+  seedCredential,
   CacheService,
   createUser,
 } from './harness';
@@ -24,8 +24,8 @@ import {
 describe('数据库约束与 upsert', () => {
   it('credentials(user_id, system) 唯一键通过 upsert 保持单行', async () => {
     const userId = await createUser('2023001005', 'pass-upsert');
-    await CredentialManager.storeCredential(userId, 'portal_jwt', 'v1', null, 60_000);
-    await CredentialManager.storeCredential(userId, 'portal_jwt', 'v2', null, 60_000);
+    await seedCredential(userId, 'portal_jwt', 'v1', null);
+    await seedCredential(userId, 'portal_jwt', 'v2', null);
 
     const db = getDb();
     const rows = await db.select()
@@ -139,19 +139,23 @@ describe('Portal 解析器边界', () => {
   });
 
   it('ecard 余额缺失时服务不写缓存', async () => {
+    const userId = await createUser('2023001551', 'password');
+    await seedCredential(userId, 'portal_jwt', 'portal-fixture', null);
     upstreamState.upstreamExecuteCallback = true;
     upstreamState.upstreamRequestHandler = async () => new Response(JSON.stringify({ code: 0, data: {} }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
 
-    await expect(ECardService.getECard(1, '2023001551', false)).rejects.toThrow('一卡通余额字段缺失');
+    await expect(ECardService.getECard(userId, '2023001551', false)).rejects.toThrow('一卡通余额字段缺失');
     const rows = await getDb().select().from(schema.cache);
     expect(rows.some((row: any) => row.key === 'ecard:2023001551')).toBe(false);
   });
 
   it('ecard 强刷遇到 Portal 非会话错误时回退已有缓存', async () => {
     const studentId = '2023001552';
+    const userId = await createUser(studentId, 'password');
+    await seedCredential(userId, 'portal_jwt', 'portal-fixture', null);
     await CacheService.set(`ecard:${studentId}`, {
       balance: 88.5,
       status: '正常',
@@ -163,7 +167,7 @@ describe('Portal 解析器边界', () => {
       message: '系统维护',
     }), { status: 200, headers: { 'Content-Type': 'application/json' } });
 
-    const result = await ECardService.getECard(1, studentId, true);
+    const result = await ECardService.getECard(userId, studentId, true);
     expect(result.data.balance).toBe(88.5);
     expect(result._meta).toMatchObject({ stale: true, refresh_failed: true });
   });

@@ -12,11 +12,11 @@ auth-login-rate-limit.test.ts: 登录失败限流策略回归测试
 app-factory.test.ts: 注入式 Hono 应用工厂、Web 分层缓存、私有 API no-store、媒体端口与启动入口无隐式 migration 回归测试
 activity-outbox-integration.test.ts: Discover 点赞与 Treehole 评论的事实/计数/Outbox 同事务失败回滚，以及提交后投影失败重试门禁
 business-flows.test.ts: 核心业务流薄聚合入口，在独立 Bun 进程内装配 business-flows/ 能力用例并维持模块 mock 隔离
-business-flows/: 登录、凭证及五秒恢复冷却、课表/日历、缓存与持久化边界的共享支架和细分能力用例
+business-flows/: 真实 SchoolAccess 认证/恢复、CAS 即时 JWT、五秒冷却及课表/日历/缓存用例；共享支架等待后台资料收尾并逐例恢复策略
 cache-modernization.test.ts: Cache 永久/限时新鲜度、数据时间/LRU 访问时间分离、版本 envelope、快照条件失效、singleflight 与 observer 隔离回归测试
 calendar-semester.test.ts: 当前学期逐周完整性、独立 24 小时订阅窗口、并发合流、跨实例持久化、其他行为隔离与失败保留旧 ICS 回归
 calendar-compat.test.ts: Calendar canonical 实现与 routes/services/auth 旧 Facade 的引用、token 别名与 HMAC 语义兼容测试
-campus-http-client.test.ts: 本地真实流式 HTTP 响应验证正文迟到的单次/总预算、超时重试与 Response 元数据/二进制/重定向合同
+campus-http-client.test.ts: 本地真实流式 HTTP 响应验证正文迟到的单次/总预算、超时重试与 Response 元数据/二进制/默认 manual 重定向合同
 campus-integrations-compat.test.ts: 保留 parsers/services Facade 引用一致性与已移除认证、任意上游回调入口不复生的边界测试
 database-migrations.test.ts: SQLite destructive 授权、0003 核心守恒/旧事实丢弃、0004 Treehole 媒体列与唯一索引、schema fail-ready、repair 与快照测试
 early-rising.test.ts: Early Rising 时间窗、幂等打卡、未来趋势拒绝、有界连续积分、展示设置与本地/远程 mock seed 清理回归测试
@@ -38,7 +38,7 @@ notifications.test.ts: Notifications 差异回复事件、Outbox 幂等/撤销/�
 messaging.test.ts: Messaging 延迟会话/目标定位、会话高水位、严格 UUID 图文幂等、三态消息、未读与私有媒体测试
 messaging-timestamps.test.ts: Messaging 慢图片/快文本并发提交时间与 repository 会话时间单调回归测试
 messaging-upload.test.ts: Messaging HTTP 上传边界，锁定混合字段图片线序、解析前 413 与坏 multipart 的稳定 400
-jw-schedule-unavailable.test.ts: 真实 JW parser→service→Facade 的未公布跨源编排、历史周/日缓存条件淘汰、并发替代值复用及真实空表/stale 保留回归
+jw-schedule-unavailable.test.ts: 具名读取端口下真实 JW parser→service→Facade 的未公布跨源编排、历史周/日缓存条件淘汰、并发替代值复用及真实空表/stale 保留回归
 mobile-jw.test.ts: 真实 SchoolAccess/SchoolRecovery 的500+401、SSO/Portal快照、单飞/epoch/generation、TGC清理竞态、CAS冷却及日期/缓存合同
 mobile-yxt.test.ts: 真实 SchoolAccess 分页/电费协议、24月/6条LRU、业务缓存合流、nullable/协议诊断、独立配额与旧余额 HTTP 合同
 mobile-yxt-session.test.ts: 真实派生恢复、epoch/父快照/generation竞态、Cookie/HTML拒绝、3005与3003区分及stale资格

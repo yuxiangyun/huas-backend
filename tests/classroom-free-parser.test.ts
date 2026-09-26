@@ -104,7 +104,7 @@ describe('ClassroomFreeParser', () => {
 
 describe('ClassroomFreeService validation', () => {
   it('严格校验 API 参数', async () => {
-    await expect(ClassroomFreeService.getBuildings('C')).rejects.toMatchObject({
+    await expect(ClassroomFreeService.getBuildings('C', { userId: 1, studentId: 'test' })).rejects.toMatchObject({
       code: ErrorCode.PARAM_ERROR,
     });
 

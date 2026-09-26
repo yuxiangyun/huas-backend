@@ -1,11 +1,12 @@
 /**
- * [INPUT]: 依赖凭证管理器能力感知 singleflight、正 TTL 写入、学校登录 epoch、CAS/TGC 交换 mock 与持久化凭证状态
- * [OUTPUT]: 验证 Portal-only/JW 并发串行补足与隔离、失败释放、真实 CAS epoch 边界、验证码阻断、超时穿透和激活失败非 401 语义
+ * [INPUT]: 依赖真实 SchoolRecovery/SchoolStateStore、正 TTL 播种、学校登录 epoch 与单次 CAS/TGC 协议替身
+ * [OUTPUT]: 验证 Portal/JW 目标共享 CAS 后分别恢复与隔离、失败释放、真实 CAS epoch 边界、验证码阻断、超时穿透和激活失败非 401 语义
  * [POS]: tests/business-flows 的独立能力用例集，由聚合入口在进程级 mock 隔离内装配
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { describe, expect, it, spyOn } from 'bun:test';
+import { schoolUnavailable, schoolTimeout } from '../../src/modules/campus-integrations/school-access/errors';
 import { and } from 'drizzle-orm';
 import {
   eq,
@@ -13,10 +14,10 @@ import {
   ticketBehavior,
   getDb,
   schema,
-  CredentialManager,
+  schoolStateStore, recovery, requestContext, seedCredential,
   createUser,
 } from './harness';
-import { readSchoolLoginEpoch } from '../../src/modules/campus-integrations/credential-recovery/school-login-context';
+import { readSchoolLoginEpoch } from '../../src/modules/campus-integrations/school-access/school-login-context';
 
 async function insertDerivedSession(userId: number, system = 'derived_session:mobile_yxt') {
   const now = new Date();
@@ -37,7 +38,7 @@ async function storeExpiredCredential(
   value: string | null,
   cookieJar: string | null,
 ) {
-  await CredentialManager.storeCredential(userId, system, value, cookieJar, 60_000);
+  await seedCredential(userId, system, value, cookieJar);
   await getDb().update(schema.credentials)
     .set({ expiresAt: new Date(Date.now() - 1_000) })
     .where(and(
@@ -47,7 +48,7 @@ async function storeExpiredCredential(
 }
 
 describe('静默凭证链路', () => {
-  it('portal_only 航班先启动且 JW 后加入时，joiner 复用新 TGC 串行补足 JW 且只登录一次 CAS', async () => {
+  it('Portal 目标先启动且 JW 后加入时，共享一次 CAS 后分别取得冻结凭证快照', async () => {
     const userId = await createUser('2023001010', 'pass-capability-join');
     let casLoginCount = 0;
     let releaseCas!: () => void;
@@ -66,21 +67,24 @@ describe('静默凭证链路', () => {
       return { success: true, steps: [] };
     };
 
-    const portalPromise = CredentialManager.getOrRefreshPortalCredentialWithoutJw(userId);
+    const portalPromise = recovery.ensure(userId, 'portal_jwt', requestContext());
     await casStartedPromise;
-    const jwPromise = CredentialManager.getOrRefreshCredential(userId, 'jw_session');
+    const jwPromise = recovery.ensure(userId, 'jw_session', requestContext());
     releaseCas();
 
-    expect((await portalPromise)?.value).toBe('portal-from-cas');
-    expect((await jwPromise)?.cookieJar).toBeTruthy();
-    expect(await CredentialManager.getCredential(userId, 'jw_session')).not.toBeNull();
+    const [portal, jw] = await Promise.all([portalPromise, jwPromise]);
+    expect(portal.value).toBe('portal-from-cas');
+    expect(jw.cookieJar).toBeTruthy();
+    expect(Object.isFrozen(portal)).toBe(true);
+    expect(Object.isFrozen(jw)).toBe(true);
+    expect(await schoolStateStore.read(userId, 'jw_session')).not.toBeNull();
     expect(casLoginCount).toBe(1);
     expect(jwExchangeCount).toBe(1);
   });
 
-  it('单独 portal_only 恢复不读取激活或改写已有 JW 行', async () => {
+  it('Portal-only 缺 TGC 时真实 CAS 提交仍不激活或改写已有 JW 行', async () => {
     const userId = await createUser('2023001011', 'pass-portal-only-isolation');
-    await CredentialManager.storeCredential(userId, 'jw_session', null, '{"cookies":[{"key":"JW","value":"stable"}]}', 60_000);
+    await seedCredential(userId, 'jw_session', null, '{"cookies":[{"key":"JW","value":"stable"}]}');
     const before = await getDb().select().from(schema.credentials).where(and(
       eq(schema.credentials.userId, userId),
       eq(schema.credentials.system, 'jw_session'),
@@ -88,7 +92,7 @@ describe('静默凭证链路', () => {
     authBehavior.login = async () => ({ success: true, portalToken: 'portal-only-token', steps: [] });
     ticketBehavior.exchangeJwSession = async () => { throw new Error('JW_MUST_NOT_RUN'); };
 
-    expect((await CredentialManager.getOrRefreshPortalCredentialWithoutJw(userId))?.value)
+    expect((await recovery.ensure(userId, 'portal_jwt', requestContext()))?.value)
       .toBe('portal-only-token');
     const after = await getDb().select().from(schema.credentials).where(and(
       eq(schema.credentials.userId, userId),
@@ -114,22 +118,22 @@ describe('静默凭证链路', () => {
       return { success: true, portalToken: 'portal-after-failure', steps: [] };
     };
 
-    const first = CredentialManager.getOrRefreshPortalCredentialWithoutJw(userId);
-    const joined = CredentialManager.getOrRefreshPortalCredentialWithoutJw(userId);
-    await firstStartedPromise;
-    await Promise.resolve();
-    await Promise.resolve();
-    releaseFirst();
-    expect(await first).toBeNull();
-    expect(await joined).toBeNull();
+    const first = recovery.ensure(userId, 'portal_jwt', requestContext());
+    const joined = recovery.ensure(userId, 'portal_jwt', requestContext());
+    const failures = Promise.all([
+      expect(first).rejects.toMatchObject({ code: 3005 }),
+      expect(joined).rejects.toMatchObject({ code: 3005 }),
+    ]);
+    try { await firstStartedPromise; }
+    finally { releaseFirst(); await failures; }
     expect(loginCount).toBe(1);
 
-    expect(await CredentialManager.getOrRefreshPortalCredentialWithoutJw(userId)).toBeNull();
+    await expect(recovery.ensure(userId, 'portal_jwt', requestContext())).rejects.toMatchObject({ code: 3005 });
     expect(loginCount).toBe(1);
     const now = Date.now() + 5_000;
     const clock = spyOn(Date, 'now').mockReturnValue(now);
     try {
-      expect((await CredentialManager.getOrRefreshPortalCredentialWithoutJw(userId))?.value)
+      expect((await recovery.ensure(userId, 'portal_jwt', requestContext()))?.value)
         .toBe('portal-after-failure');
       expect(loginCount).toBe(2);
     } finally { clock.mockRestore(); }
@@ -139,9 +143,9 @@ describe('静默凭证链路', () => {
     const userId = await createUser('2023001013', 'pass-portal-failed');
     await insertDerivedSession(userId);
     authBehavior.login = async () => ({ success: true, portalToken: null, steps: [] });
-    ticketBehavior.exchangePortalToken = async () => ({ token: null, steps: [] });
+    ticketBehavior.exchangePortalToken = async () => { throw schoolUnavailable(); };
 
-    await expect(CredentialManager.getOrRefreshPortalCredentialWithoutJw(userId))
+    await expect(recovery.ensure(userId, 'portal_jwt', requestContext()))
       .rejects.toMatchObject({ code: 3005, httpStatus: 503 });
     expect(readSchoolLoginEpoch(getDb(), userId)).toBe(1);
     expect(await getDb().select().from(schema.credentials).where(and(
@@ -150,17 +154,17 @@ describe('静默凭证链路', () => {
     ))).toHaveLength(0);
   });
 
-  it('完整静默恢复中 CAS 成功但 Portal/JW 都失败仍提交新登录上下文', async () => {
+  it('JW 目标恢复中 CAS 成功但激活失败仍提交新登录上下文', async () => {
     const userId = await createUser('2023001014', 'pass-full-failed');
     await insertDerivedSession(userId);
     authBehavior.login = async () => ({ success: true, portalToken: null, steps: [] });
-    ticketBehavior.exchangePortalToken = async () => ({ token: null, steps: [] });
-    ticketBehavior.exchangeJwSession = async () => ({ success: false, steps: [], upstreamUnavailable: false });
+    ticketBehavior.exchangePortalToken = async () => { throw schoolUnavailable(); };
+    ticketBehavior.exchangeJwSession = async () => { throw schoolUnavailable(); };
 
-    await expect(CredentialManager.getOrRefreshCredential(userId, 'jw_session'))
+    await expect(recovery.ensure(userId, 'jw_session', requestContext()))
       .rejects.toMatchObject({ code: 3005, httpStatus: 503 });
     expect(readSchoolLoginEpoch(getDb(), userId)).toBe(1);
-    expect(await CredentialManager.getCredential(userId, 'cas_tgc')).not.toBeNull();
+    expect(await schoolStateStore.read(userId, 'cas_tgc')).not.toBeNull();
     expect(await getDb().select().from(schema.credentials).where(and(
       eq(schema.credentials.userId, userId),
       eq(schema.credentials.system, 'derived_session:mobile_yxt'),
@@ -171,9 +175,9 @@ describe('静默凭证链路', () => {
     for (const [suffix, needCaptcha] of [['failed', false], ['captcha', true]] as const) {
       const userId = await createUser(`2023001015-${suffix}`, 'pass-cas-rejected');
       await insertDerivedSession(userId);
-      authBehavior.login = async () => ({ success: false, needCaptcha, steps: [] });
+      authBehavior.login = async () => ({ success: false, needCaptcha, credentialsRejected: !needCaptcha, steps: [] });
 
-      expect(await CredentialManager.silentReAuth(userId, undefined, 'jw_session')).toBe(false);
+      await expect(recovery.ensure(userId, 'cas_tgc', requestContext())).rejects.toMatchObject({ code: 3003 });
       expect(readSchoolLoginEpoch(getDb(), userId)).toBe(0);
       expect(await getDb().select().from(schema.credentials).where(and(
         eq(schema.credentials.userId, userId),
@@ -184,7 +188,7 @@ describe('静默凭证链路', () => {
 
   it('jw_session 过期后在 TGC 有效时可刷新，不触发静默重认证', async () => {
     const userId = await createUser('2023001009', 'pass-jw-refresh');
-    await CredentialManager.storeCredential(userId, 'cas_tgc', null, '{"cookies":[]}', 60_000);
+    await seedCredential(userId, 'cas_tgc', null, '{"cookies":[]}');
     await storeExpiredCredential(userId, 'jw_session', null, '{"cookies":[]}');
 
     let silentLoginCalled = false;
@@ -197,7 +201,7 @@ describe('静默凭证链路', () => {
       steps: [{ label: 'jw', ok: true }],
     });
 
-    const cred = await CredentialManager.getOrRefreshCredential(userId, 'jw_session');
+    const cred = await recovery.ensure(userId, 'jw_session', requestContext());
     expect(cred).not.toBeNull();
     expect(cred?.cookieJar).toBeTruthy();
     expect(silentLoginCalled).toBe(false);
@@ -205,7 +209,7 @@ describe('静默凭证链路', () => {
 
   it('JW 上游不可达时应透传超时，不触发静默重认证', async () => {
     const userId = await createUser('2023001999', 'pass-jw-timeout');
-    await CredentialManager.storeCredential(userId, 'cas_tgc', null, '{"cookies":[]}', 60_000);
+    await seedCredential(userId, 'cas_tgc', null, '{"cookies":[]}');
     await storeExpiredCredential(userId, 'jw_session', null, '{"cookies":[]}');
 
     let silentLoginCalled = false;
@@ -214,19 +218,15 @@ describe('静默凭证链路', () => {
       return { success: false, steps: [] };
     };
 
-    ticketBehavior.exchangeJwSession = async () => ({
-      success: false,
-      steps: [{ label: 'jw#1', ok: false, detail: 'status:0' }],
-      upstreamUnavailable: true,
-    });
+    ticketBehavior.exchangeJwSession = async () => { throw schoolTimeout(); };
 
-    await expect(CredentialManager.getOrRefreshCredential(userId, 'jw_session')).rejects.toThrow('REQUEST_TIMEOUT');
+    await expect(recovery.ensure(userId, 'jw_session', requestContext())).rejects.toMatchObject({ code: 3004 });
     expect(silentLoginCalled).toBe(false);
   });
 
   it('portal_jwt 过期后优先走 TGC 刷新', async () => {
     const userId = await createUser('2023001002', 'pass-refresh');
-    await CredentialManager.storeCredential(userId, 'cas_tgc', null, '{"cookies":[]}', 60_000);
+    await seedCredential(userId, 'cas_tgc', null, '{"cookies":[]}');
     await storeExpiredCredential(userId, 'portal_jwt', 'stale-token', null);
 
     ticketBehavior.exchangePortalToken = async () => ({
@@ -234,23 +234,23 @@ describe('静默凭证链路', () => {
       steps: [{ label: 'portal', ok: true }],
     });
 
-    const cred = await CredentialManager.getOrRefreshCredential(userId, 'portal_jwt');
+    const cred = await recovery.ensure(userId, 'portal_jwt', requestContext());
     expect(cred?.value).toBe('portal-token-new');
   });
 
-  it('Portal TGC 刷新超时保持 REQUEST_TIMEOUT，不进入静默重登并退化为 3003', async () => {
+  it('Portal TGC 刷新超时保持 3004，不进入静默重登并退化为 3003', async () => {
     const userId = await createUser('2023001008', 'pass-portal-timeout');
-    await CredentialManager.storeCredential(userId, 'cas_tgc', null, '{"cookies":[]}', 60_000);
+    await seedCredential(userId, 'cas_tgc', null, '{"cookies":[]}');
     await storeExpiredCredential(userId, 'portal_jwt', 'stale', null);
     ticketBehavior.exchangePortalToken = async () => { throw new Error('REQUEST_TIMEOUT'); };
 
-    await expect(CredentialManager.getOrRefreshCredential(userId, 'portal_jwt'))
-      .rejects.toThrow('REQUEST_TIMEOUT');
+    await expect(recovery.ensure(userId, 'portal_jwt', requestContext()))
+      .rejects.toMatchObject({ code: 3004 });
   });
 
   it('等待验证码登录期间跳过静默恢复', async () => {
     const userId = await createUser('2023001006', 'pass-interactive-required');
-    await CredentialManager.markInteractiveLoginRequired(userId);
+    await schoolStateStore.markInteraction(userId, schoolStateStore.epoch(userId), 'captcha_required');
 
     let loginCallCount = 0;
     authBehavior.login = async () => {
@@ -258,18 +258,17 @@ describe('静默凭证链路', () => {
       return { success: true, portalToken: 'should-not-run', steps: [] };
     };
 
-    const cred = await CredentialManager.getOrRefreshCredential(userId, 'portal_jwt');
-    expect(cred).toBeNull();
+    await expect(recovery.ensure(userId, 'portal_jwt', requestContext())).rejects.toMatchObject({ code: 3003 });
     expect(loginCallCount).toBe(0);
   });
 
   it('持久化验证码标记没有 TTL，凭证过期清理不会删除它', async () => {
     const userId = await createUser('2023001007', 'pass-persistent-marker');
-    await CredentialManager.markInteractiveLoginRequired(userId);
+    await schoolStateStore.markInteraction(userId, schoolStateStore.epoch(userId), 'captcha_required');
 
-    await CredentialManager.cleanupExpired();
+    await schoolStateStore.cleanupExpired();
 
-    expect(await CredentialManager.requiresInteractiveLogin(userId)).toBe(true);
+    expect(await schoolStateStore.requiresInteraction(userId)).toBe(true);
     const credentials = await getDb().select()
       .from(schema.credentials)
       .where(eq(schema.credentials.userId, userId));
@@ -278,7 +277,7 @@ describe('静默凭证链路', () => {
     expect(credentials[0].expiresAt).toBeNull();
   });
 
-  it('TGC 不可用时触发静默重认证并补齐凭证', async () => {
+  it('TGC 不可用时静默认证，只补齐请求所需的 Portal 凭证', async () => {
     const userId = await createUser('2023001003', 'pass-silent');
     await storeExpiredCredential(userId, 'portal_jwt', 'expired-token', null);
 
@@ -289,7 +288,7 @@ describe('静默凭证链路', () => {
     });
     ticketBehavior.exchangeJwSession = async () => ({ success: true, steps: [] });
 
-    const cred = await CredentialManager.getOrRefreshCredential(userId, 'portal_jwt');
+    const cred = await recovery.ensure(userId, 'portal_jwt', requestContext());
     expect(cred?.value).toBe('portal-token-silent');
 
     const db = getDb();
@@ -298,7 +297,7 @@ describe('静默凭证链路', () => {
       .where(eq(schema.credentials.userId, userId));
     const systems = creds.map((c: any) => c.system);
     expect(systems.includes('cas_tgc')).toBe(true);
-    expect(systems.includes('jw_session')).toBe(true);
+    expect(systems.includes('jw_session')).toBe(false);
     expect(systems.includes('portal_jwt')).toBe(true);
   });
 
@@ -311,13 +310,9 @@ describe('静默凭证链路', () => {
       portalToken: password === 'pass-partial' ? 'portal-token-partial' : null,
       steps: [],
     });
-    ticketBehavior.exchangeJwSession = async () => ({
-      success: false,
-      steps: [{ label: 'jw#1', ok: false, detail: 'status:500' }],
-      upstreamUnavailable: false,
-    });
+    ticketBehavior.exchangeJwSession = async () => { throw schoolUnavailable(); };
 
-    const cred = await CredentialManager.getOrRefreshCredential(userId, 'portal_jwt');
+    const cred = await recovery.ensure(userId, 'portal_jwt', requestContext());
     expect(cred?.value).toBe('portal-token-partial');
 
     const db = getDb();
@@ -343,13 +338,9 @@ describe('静默凭证链路', () => {
       token: 'portal-token-recovered-silent',
       steps: [{ label: 'portal', ok: true }],
     });
-    ticketBehavior.exchangeJwSession = async () => ({
-      success: false,
-      steps: [{ label: 'jw#1', ok: false, detail: 'status:500' }],
-      upstreamUnavailable: false,
-    });
+    ticketBehavior.exchangeJwSession = async () => { throw schoolUnavailable(); };
 
-    const cred = await CredentialManager.getOrRefreshCredential(userId, 'portal_jwt');
+    const cred = await recovery.ensure(userId, 'portal_jwt', requestContext());
     expect(cred?.value).toBe('portal-token-recovered-silent');
 
     const db = getDb();
