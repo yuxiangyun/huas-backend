@@ -6,22 +6,25 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { getDb, schema } from '../src/db';
-import { clearSocialTestData } from './social-database';
-import { HttpClient } from '../src/modules/campus-integrations/http/http-client';
-import { MobileJwAuthExchanger, readH5LoginToken } from '../src/modules/campus-integrations/mobile-jw/auth-exchanger';
-import { MobileJwSessionExecutor } from '../src/modules/campus-integrations/mobile-jw/session-executor';
-import { SqliteMobileJwSessionRepository } from '../src/modules/campus-integrations/mobile-jw/session-repository';
-import { MobileJwScheduleClient } from '../src/modules/campus-integrations/mobile-jw/schedule-client';
-import { parseMobileJwWeek } from '../src/modules/campus-integrations/mobile-jw/schedule-parser';
-import { credentialRejected, isSessionExpired, protocolFailure } from '../src/modules/campus-integrations/mobile-jw/errors';
-import { advanceSchoolLoginEpoch } from '../src/modules/campus-integrations/credential-recovery/school-login-context';
-import { CredentialManager } from '../src/modules/campus-integrations/credential-recovery/credential-manager';
-import { CredentialManagerPortalCredentialReader } from '../src/modules/campus-integrations/credential-recovery/portal-credential-reader';
-import { TicketExchanger } from '../src/modules/campus-integrations/cas/ticket-exchanger';
 import { MobileJwScheduleApplicationService } from '../src/modules/academic/application/mobile-jw-schedule-service';
 import { academicCache, academicRefreshFallback } from '../src/modules/academic/infrastructure/cache-store';
+import { TicketExchanger } from '../src/modules/campus-integrations/cas/ticket-exchanger';
+import { HttpClient } from '../src/modules/campus-integrations/http/http-client';
+import { MobileJwAuthExchanger, readH5LoginToken } from '../src/modules/campus-integrations/mobile-jw/auth-exchanger';
+import { credentialRejected, isSessionExpired, protocolFailure } from '../src/modules/campus-integrations/mobile-jw/errors';
+import { MobileJwScheduleClient } from '../src/modules/campus-integrations/mobile-jw/schedule-client';
+import { parseMobileJwWeek } from '../src/modules/campus-integrations/mobile-jw/schedule-parser';
+import { SqliteMobileJwSessionRepository } from '../src/modules/campus-integrations/mobile-jw/session-repository';
+import { interactionRequired } from '../src/modules/campus-integrations/school-access/errors';
+import { SchoolRecovery, schoolRecovery } from '../src/modules/campus-integrations/school-access/recovery';
+import { requestContext } from '../src/modules/campus-integrations/school-access/request-executor';
+import { schoolAccess } from '../src/modules/campus-integrations/school-access/school-access';
+import { commitRealSchoolLoginContext } from '../src/modules/campus-integrations/school-access/school-login-context';
+import { schoolStateStore } from '../src/modules/campus-integrations/school-access/state-store';
+import { installJwExchange, restoreMobileSpies, seedCredential } from './mobile-school-fixtures';
+import { clearSocialTestData } from './social-database';
 
 let userId: number;
 const originalRequest = HttpClient.prototype.request;
@@ -29,13 +32,17 @@ const sessions = new SqliteMobileJwSessionRepository();
 const deadline = () => Date.now() + 10_000;
 const ok = () => Response.json({ code: '1', data: [] });
 const rejected = () => Response.json({ code: '401', Msg: '非法访问：/semesterList' }, { status: 500 });
-const portal = { readOrRestore: async () => ({ portalJwt: 'portal-fixture', loginEpoch: 0 }), rejectIfCurrent: async () => {} };
+const read = (userId: number, name: 'current' | 'semesters') => schoolAccess.execute(userId, { name: `mobileJw.${name}`, input: {} });
 
 beforeEach(async () => {
   await clearSocialTestData(getDb());
   userId = getDb().insert(schema.users).values({ studentId: 'mobile-jw-test', createdAt: new Date(), lastLoginAt: new Date() }).returning().get()!.id;
+  seedCredential(userId, 'portal_jwt', 'portal-fixture', null);
 });
-afterEach(() => { HttpClient.prototype.request = originalRequest; });
+afterEach(() => {
+  restoreMobileSpies();
+  HttpClient.prototype.request = originalRequest;
+});
 
 function fixture(week = 1, empty = false) {
   const course = { courseName: '测试课程', teacherName: '测试教师', location: '测试教室', classTime: '10102', classWeek: '1-8(周)' };
@@ -65,7 +72,7 @@ describe('移动教务真实协议与会话恢复', () => {
     HttpClient.prototype.request = async function(url, options) {
       calls += 1;
       expect(new URL(url).searchParams.get('token')).toBe('portal-fixture');
-      expect(options?.isAuthFlow).toBe(true);
+      expect(options?.body).toBeUndefined();
       expect(this.serializeJar()).not.toContain('portal-fixture');
       return new Response(null, { status: 302, headers: { location: '/#/casLogin?token=h5-fixture&userType=2' } });
     };
@@ -83,24 +90,24 @@ describe('移动教务真实协议与会话恢复', () => {
     let exchanges = 0;
     let requests = 0;
     await sessions.createIfLoginEpochMatches(userId, 0, 'old-h5');
-    const executor = new MobileJwSessionExecutor({ exchange: async () => { exchanges += 1; return 'new-h5'; } }, sessions, portal);
+    installJwExchange(async () => { exchanges += 1; return 'new-h5'; });
     HttpClient.prototype.request = async (_url, options) => {
       requests += 1;
       return new Headers(options?.headers).get('token') === 'old-h5' ? rejected() : ok();
     };
-    expect((await executor.post(userId, 'semesters', {})).status).toBe(200);
+    expect((await read(userId, 'semesters')).status).toBe(200);
     expect(exchanges).toBe(1);
     expect(requests).toBe(2);
-    await executor.post(userId, 'semesters', {});
+    await read(userId, 'semesters');
     expect(exchanges).toBe(1);
     expect((await sessions.read(userId))?.token).toBe('new-h5');
   });
 
-  it('第二次仍 401 时删除新坏会话并返回 3003，禁止无限重建', async () => {
+  it('第二次仍 401 时删除新坏会话并返回 3005，禁止无限重建', async () => {
     let exchanges = 0;
-    const executor = new MobileJwSessionExecutor({ exchange: async () => `h5-${++exchanges}` }, sessions, portal);
+    installJwExchange(async () => `h5-${++exchanges}`);
     HttpClient.prototype.request = async () => rejected();
-    await expect(executor.post(userId, 'current', {})).rejects.toMatchObject({ code: 3003 });
+    await expect(read(userId, 'current')).rejects.toMatchObject({ code: 3005 });
     expect(exchanges).toBe(2);
     expect(await sessions.read(userId)).toBeNull();
   });
@@ -108,35 +115,41 @@ describe('移动教务真实协议与会话恢复', () => {
   it('同用户并发失效只重建一次，迟到的旧 generation 不删除新会话', async () => {
     let exchanges = 0;
     const old = await sessions.createIfLoginEpochMatches(userId, 0, 'old-h5');
-    const executor = new MobileJwSessionExecutor({ exchange: async () => { exchanges += 1; return 'new-h5'; } }, sessions, portal);
+    installJwExchange(async () => { exchanges += 1; return 'new-h5'; });
     HttpClient.prototype.request = async (_url, options) => new Headers(options?.headers).get('token') === 'old-h5' ? rejected() : ok();
-    await Promise.all(Array.from({ length: 8 }, () => executor.post(userId, 'current', {})));
+    await Promise.all(Array.from({ length: 8 }, () => read(userId, 'current')));
     expect(exchanges).toBe(1);
     await sessions.invalidateGeneration(userId, old!.generation);
     expect((await sessions.read(userId))?.token).toBe('new-h5');
   });
 
   it('Portal 交换拒绝仅条件失效并窄恢复一次，第二次拒绝也清理坏 Portal', async () => {
-    let rejects = 0;
     let exchanges = 0;
-    const executor = new MobileJwSessionExecutor({ exchange: async () => { exchanges += 1; throw credentialRejected(); } }, sessions, {
-      ...portal, rejectIfCurrent: async () => { rejects += 1; },
-    });
-    await expect(executor.post(userId, 'current', {})).rejects.toMatchObject({ code: 3003 });
-    expect(exchanges).toBe(2);
-    expect(rejects).toBe(2);
+    seedCredential(userId, 'cas_tgc', null, '{"cookies":[]}');
+    const ticket = spyOn(TicketExchanger, 'exchangePortalToken').mockResolvedValue({ token: 'restored-portal', steps: [] });
+    installJwExchange(async () => { exchanges += 1; throw credentialRejected(); });
+    try {
+      await expect(read(userId, 'current')).rejects.toMatchObject({ code: 3005 });
+      expect(exchanges).toBe(2);
+      expect(ticket).toHaveBeenCalledTimes(1);
+      expect(schoolStateStore.read(userId, 'portal_jwt')).toBeNull();
+    } finally { ticket.mockRestore(); }
   });
 
   it('交换期间真实登录 epoch 变化，丢弃旧 token 并依据新 epoch 重建', async () => {
-    let epoch = 0;
     let exchanges = 0;
-    const executor = new MobileJwSessionExecutor({ exchange: async () => {
-      if (++exchanges === 1) epoch = getDb().transaction((tx) => advanceSchoolLoginEpoch(tx, userId, new Date()));
+    const seenParents: string[] = [];
+    installJwExchange(async portalJwt => {
+      seenParents.push(portalJwt);
+      if (++exchanges === 1) getDb().transaction(tx => commitRealSchoolLoginContext(tx, {
+        userId, casCookieJar: '{"cookies":[]}', portalToken: 'new-login-portal', at: new Date(),
+      }));
       return `h5-${exchanges}`;
-    } }, sessions, { ...portal, readOrRestore: async () => ({ portalJwt: 'portal-fixture', loginEpoch: epoch }) });
+    });
     HttpClient.prototype.request = async () => ok();
-    await executor.post(userId, 'current', {});
+    await read(userId, 'current');
     expect(exchanges).toBe(2);
+    expect(seenParents).toEqual(['portal-fixture', 'new-login-portal']);
     expect(await sessions.read(userId)).toMatchObject({ token: 'h5-2', loginEpoch: 1 });
     expect(await sessions.createIfLoginEpochMatches(userId, 0, 'late-h5')).toBeNull();
   });
@@ -145,22 +158,24 @@ describe('移动教务真实协议与会话恢复', () => {
     await sessions.createIfLoginEpochMatches(userId, 0, 'h5');
     getDb().update(schema.credentials).set({ cookieJar: 'unexpected' }).where(eq(schema.credentials.system, 'derived_session:mobile_jw')).run();
     expect(await sessions.read(userId)).toBeNull();
-    await CredentialManager.storeCredential(userId, 'portal_jwt', 'new-portal', null, 60000);
-    await CredentialManager.storeCredential(userId, 'jw_session', null, '{"cookies":[]}', 60000);
-    await new CredentialManagerPortalCredentialReader().rejectIfCurrent(userId, 'old-portal');
-    expect((await CredentialManager.getCredential(userId, 'portal_jwt'))?.value).toBe('new-portal');
-    expect(await CredentialManager.getCredential(userId, 'jw_session')).not.toBeNull();
+    const previous = schoolStateStore.read(userId, 'portal_jwt')!;
+    seedCredential(userId, 'portal_jwt', 'new-portal', null);
+    seedCredential(userId, 'jw_session', null, '{"cookies":[]}');
+    expect(schoolStateStore.invalidate(previous)).toBe(false);
+    expect((await schoolStateStore.read(userId, 'portal_jwt'))?.value).toBe('new-portal');
+    expect(await schoolStateStore.read(userId, 'jw_session')).not.toBeNull();
   });
 
   it('Portal-only 并发缺口将 TGC 换票一起合流，不调用 JW', async () => {
-    await CredentialManager.storeCredential(userId, 'cas_tgc', null, '{"cookies":[]}', 60000);
+    schoolStateStore.invalidate(schoolStateStore.read(userId, 'portal_jwt')!);
+    seedCredential(userId, 'cas_tgc', null, '{"cookies":[]}');
     const originalPortal = TicketExchanger.exchangePortalToken;
     const originalJw = TicketExchanger.exchangeJwSession;
     let exchanges = 0;
     TicketExchanger.exchangePortalToken = async () => { exchanges += 1; return { token: 'portal-refreshed', steps: [] }; };
     TicketExchanger.exchangeJwSession = async () => { throw new Error('JW_MUST_NOT_BE_CALLED'); };
     try {
-      const values = await Promise.all(Array.from({ length: 8 }, () => CredentialManager.getOrRefreshPortalCredentialWithoutJw(userId, deadline())));
+      const values = await Promise.all(Array.from({ length: 8 }, () => schoolRecovery.ensure(userId, 'portal_jwt', requestContext(deadline()))));
       expect(exchanges).toBe(1);
       expect(values.every((value) => value?.value === 'portal-refreshed')).toBe(true);
     } finally {
@@ -171,22 +186,22 @@ describe('移动教务真实协议与会话恢复', () => {
 
   it('503、未知 JSON 不清会话；传输错误不泄露 token URL', async () => {
     const stored = await sessions.createIfLoginEpochMatches(userId, 0, 'h5');
-    const executor = new MobileJwSessionExecutor({ exchange: async () => { throw new Error('NO_EXCHANGE'); } }, sessions, portal);
-    const client = new MobileJwScheduleClient(executor);
+    installJwExchange(async () => { throw new Error('NO_EXCHANGE'); });
+    const client = new MobileJwScheduleClient();
     HttpClient.prototype.request = async () => Response.json({ code: '0' }, { status: 503 });
     await expect(client.current(userId)).rejects.toMatchObject({ kind: 'unavailable' });
     HttpClient.prototype.request = async () => Response.json({ wrong: true });
     await expect(client.current(userId)).rejects.toMatchObject({ kind: 'protocol' });
     expect((await sessions.read(userId))?.generation).toBe(stored!.generation);
     HttpClient.prototype.request = async () => { throw new Error('sensitive https://host/?token=secret'); };
-    await expect(client.current(userId)).rejects.toThrow('移动教务返回的数据不完整或格式异常，暂时无法读取课表，请稍后重试');
+    await expect(client.current(userId)).rejects.toMatchObject({ kind: 'protocol', code: 3005 });
   });
 
   it('瞬时 500/503 与连接错误有限重试成功，不重置有效凭证', async () => {
     for (const failure of [500, 503, 'network'] as const) {
       const stored = await sessions.createIfLoginEpochMatches(userId, 0, 'stable-h5');
       let calls = 0;
-      const executor = new MobileJwSessionExecutor({ exchange: async () => { throw new Error('MUST_NOT_REBUILD'); } }, sessions, portal);
+      installJwExchange(async () => { throw new Error('MUST_NOT_REBUILD'); });
       HttpClient.prototype.request = async () => {
         if (++calls === 1) {
           if (failure === 'network') throw new Error('ECONNRESET');
@@ -194,7 +209,7 @@ describe('移动教务真实协议与会话恢复', () => {
         }
         return ok();
       };
-      expect((await executor.post(userId, 'current', {})).status).toBe(200);
+      expect((await read(userId, 'current')).status).toBe(200);
       expect(calls).toBe(2);
       expect((await sessions.read(userId))?.generation).toBe(stored!.generation);
     }
@@ -202,7 +217,6 @@ describe('移动教务真实协议与会话恢复', () => {
 
   it('SSO 瞬时 503 在同一预算内恢复，不误删 Portal', async () => {
     let requests = 0;
-    let rejects = 0;
     HttpClient.prototype.request = async (url) => {
       if (new URL(url).pathname.endsWith('loginSso_hnwlxy')) {
         if (++requests === 1) return new Response(null, { status: 503 });
@@ -210,40 +224,42 @@ describe('移动教务真实协议与会话恢复', () => {
       }
       return ok();
     };
-    const executor = new MobileJwSessionExecutor(new MobileJwAuthExchanger(), sessions, { ...portal, rejectIfCurrent: async () => { rejects += 1; } });
-    await executor.post(userId, 'current', {});
+    const parent = schoolStateStore.read(userId, 'portal_jwt');
+    await read(userId, 'current');
     expect(requests).toBe(2);
-    expect(rejects).toBe(0);
+    expect(schoolStateStore.read(userId, 'portal_jwt')).toEqual(parent);
   });
 
   it('迟到 TGC 换票结果不能覆盖真实 CAS 新 epoch 的 Portal', async () => {
-    await CredentialManager.storeCredential(userId, 'cas_tgc', null, '{"cookies":[]}', 60000);
+    schoolStateStore.invalidate(schoolStateStore.read(userId, 'portal_jwt')!);
+    seedCredential(userId, 'cas_tgc', null, '{"cookies":[]}');
     const original = TicketExchanger.exchangePortalToken;
     TicketExchanger.exchangePortalToken = async () => {
-      getDb().transaction((tx) => advanceSchoolLoginEpoch(tx, userId, new Date()));
-      await CredentialManager.storeCredential(userId, 'portal_jwt', 'new-login-portal', null, 60000);
+      getDb().transaction(tx => commitRealSchoolLoginContext(tx, {
+        userId, casCookieJar: '{"cookies":[]}', portalToken: 'new-login-portal', at: new Date(),
+      }));
       return { token: 'late-old-portal', steps: [] };
     };
     try {
-      const value = await CredentialManager.getOrRefreshPortalCredentialWithoutJw(userId, deadline());
+      const value = await schoolRecovery.ensure(userId, 'portal_jwt', requestContext(deadline()));
       expect(value?.value).toBe('new-login-portal');
-      expect((await CredentialManager.getCredential(userId, 'portal_jwt'))?.value).toBe('new-login-portal');
+      expect((await schoolStateStore.read(userId, 'portal_jwt'))?.value).toBe('new-login-portal');
     } finally { TicketExchanger.exchangePortalToken = original; }
   });
 
   it('TGC 换票期间凭证被清理，迟到成功不得复活旧学校上下文', async () => {
-    await CredentialManager.storeCredential(userId, 'cas_tgc', null, '{"cookies":[]}', 60000);
+    schoolStateStore.invalidate(schoolStateStore.read(userId, 'portal_jwt')!);
+    seedCredential(userId, 'cas_tgc', null, '{"cookies":[]}');
     const original = TicketExchanger.exchangePortalToken;
     TicketExchanger.exchangePortalToken = async () => {
-      await CredentialManager.invalidateSchoolCredentials(userId);
-      await CredentialManager.markInteractiveLoginRequired(userId);
+      schoolStateStore.markInteraction(userId, schoolStateStore.epoch(userId), 'captcha_required');
       return { token: 'late-old-portal', steps: [] };
     };
     try {
-      expect(await CredentialManager.getOrRefreshPortalCredentialWithoutJw(userId, deadline())).toBeNull();
-      expect(await CredentialManager.getCredential(userId, 'cas_tgc')).toBeNull();
-      expect(await CredentialManager.getCredential(userId, 'portal_jwt')).toBeNull();
-      expect(await CredentialManager.requiresInteractiveLogin(userId)).toBe(true);
+      await expect(schoolRecovery.ensure(userId, 'portal_jwt', requestContext(deadline()))).rejects.toMatchObject({ code: 3005 });
+      expect(await schoolStateStore.read(userId, 'cas_tgc')).toBeNull();
+      expect(await schoolStateStore.read(userId, 'portal_jwt')).toBeNull();
+      expect(await schoolStateStore.requiresInteraction(userId)).toBe(true);
     } finally { TicketExchanger.exchangePortalToken = original; }
   });
 
@@ -254,6 +270,7 @@ describe('移动教务真实协议与会话恢复', () => {
     await getDb().update(schema.users).set({ encryptedPassword: CryptoHelper.encryptAES('fixture-password', config.jwtSecret) })
       .where(eq(schema.users.id, userId));
     const original = AuthEngine.prototype.getCaptcha;
+    const recovery = new SchoolRecovery();
     let now = Date.now();
     const clock = spyOn(Date, 'now').mockImplementation(() => now);
     try {
@@ -261,22 +278,21 @@ describe('移动教务真实协议与会话恢复', () => {
         let attempts = 0;
         AuthEngine.prototype.getCaptcha = async () => { attempts += 1; throw failure; };
         for (let attempt = 0; attempt < 4; attempt += 1) {
-          await expect(CredentialManager.silentReAuth(userId, deadline(), 'portal_jwt')).rejects.toBe(failure);
+          await expect(recovery.ensure(userId, 'cas_tgc', requestContext(deadline()))).rejects.toMatchObject({ code: 3005, retryable: true });
         }
         expect(attempts).toBe(config.retry.businessMaxAttempts);
         now += 5_000;
-        await expect(CredentialManager.silentReAuth(userId, deadline(), 'portal_jwt')).rejects.toBe(failure);
+        await expect(recovery.ensure(userId, 'cas_tgc', requestContext(deadline()))).rejects.toMatchObject({ code: 3005, retryable: true });
         expect(attempts).toBe(config.retry.businessMaxAttempts * 2);
         now += 5_000;
-        expect(await CredentialManager.requiresInteractiveLogin(userId)).toBe(false);
+        expect(await schoolStateStore.requiresInteraction(userId)).toBe(false);
       }
     } finally { AuthEngine.prototype.getCaptcha = original; clock.mockRestore(); }
   });
 
   it('只读 POST 参数位于 query，学校 token 只在请求头；过期 deadline 不发请求', async () => {
     await sessions.createIfLoginEpochMatches(userId, 0, 'h5');
-    const executor = new MobileJwSessionExecutor(undefined, sessions, portal);
-    const client = new MobileJwScheduleClient(executor);
+    const client = new MobileJwScheduleClient();
     let calls = 0;
     HttpClient.prototype.request = async (url, options) => {
       calls += 1;
@@ -323,7 +339,8 @@ describe('移动教务解析与 Academic 缓存', () => {
     expect(calls).toEqual([1, 3, 1, 3]);
     await expect(service.getCurrentSchedule(userId, 'mobile-jw-test', '2026-08-31')).rejects.toThrow('SCHEDULE_SOURCE_UNSUPPORTED');
     expect(await service.getStaleSchedule('mobile-jw-test', '2026-09-23', protocolFailure(), true)).toBeNull();
-    expect(await service.getStaleSchedule('mobile-jw-test', '2026-09-23', credentialRejected(), true)).toBeNull();
+    expect(await service.getStaleSchedule('mobile-jw-test', '2026-09-23', interactionRequired(), true)).toBeNull();
+    expect((await service.getStaleSchedule('mobile-jw-test', '2026-09-23', credentialRejected(), true))?._meta.stale).toBe(true);
   });
 
   it('上游忽略 week 返回另一周时拒绝写入目标周缓存', async () => {

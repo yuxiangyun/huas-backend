@@ -39,8 +39,11 @@ messaging.test.ts: Messaging 延迟会话/目标定位、会话高水位、严�
 messaging-timestamps.test.ts: Messaging 慢图片/快文本并发提交时间与 repository 会话时间单调回归测试
 messaging-upload.test.ts: Messaging HTTP 上传边界，锁定混合字段图片线序、解析前 413 与坏 multipart 的稳定 400
 jw-schedule-unavailable.test.ts: 真实 JW parser→service→Facade 的未公布跨源编排、历史周/日缓存条件淘汰、并发替代值复用及真实空表/stale 保留回归
-mobile-jw.test.ts: 真实 500+401、SSO 同源/Portal 条件失效、会话单飞/epoch/generation、TGC 清理竞态、基础 CAS 安全读取有界重试后保持原错误且五秒后恢复、临时错误预算及真实日期/缓存/解析合同回归
-mobile-yxt.test.ts: 登录 epoch/Portal 401/200 HTML 恢复、generation 条件失效、Cookie 白名单、Bun/Node 传输错误归一化、账单 freshness/有符号 totals、真实电费合同、同键回源合流、Portal/JW/限流隔离、24 月/6 键 LRU 与旧 `/api/ecard` 合同专项回归
+mobile-jw.test.ts: 真实 SchoolAccess/SchoolRecovery 的500+401、SSO/Portal快照、单飞/epoch/generation、TGC清理竞态、CAS冷却及日期/缓存合同
+mobile-yxt.test.ts: 真实 SchoolAccess 分页/电费协议、24月/6条LRU、业务缓存合流、nullable/协议诊断、独立配额与旧余额 HTTP 合同
+mobile-yxt-session.test.ts: 真实派生恢复、epoch/父快照/generation竞态、Cookie/HTML拒绝、3005与3003区分及stale资格
+mobile-yxt-fixtures.ts: mobile-yxt用户、独立JW种子、最小Cookie和电费响应的纯数据准备，无隐式生命周期
+mobile-school-fixtures.ts: 真实学校状态播种、认证提交、具名读取与单次交换/网络spy，套件显式还原，不复制恢复算法
 mobile-yxt-auth-state.test.ts: 严格派生命名空间、损坏/越权 CookieJar 事务淘汰、自动重建、合法会话读取及 Cookie/accessToken 低敏感错误日志专项反例
 social-upload-limits.test.ts: Discover/Community HTTP 上传边界，锁定声明长度、流式及无关字段请求在 formData 前统一返回 413
 social-summary-routes.test.ts: Social 私信/互动未读单请求并行聚合与稳定响应字段回归测试

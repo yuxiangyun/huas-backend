@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖隔离 SQLite、学校登录上下文、mobile-yxt Cookie codec/repository/executor 与可控 fetch
+ * [INPUT]: 依赖隔离 SQLite、学校登录上下文、mobile-yxt Cookie codec/repository 、真实 SchoolAccess 与可控 fetch
  * [OUTPUT]: 验证严格派生命名空间清理、损坏 CookieJar 事务淘汰、最小权限读取/写入、自动重建与低敏感失败语义
- * [POS]: tests 的 mobile-yxt 认证状态专项反例套件，把凭证状态机安全边界从账单/电费大套件中独立出来
+ * [POS]: tests 的 mobile-yxt 认证状态专项反例套件，把凭证状态边界从账单/电费大套件中独立出来
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -9,16 +9,12 @@ import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { and, eq } from 'drizzle-orm';
 import { CookieJar } from 'tough-cookie';
 import { getDb, schema } from '../src/db';
-import {
-  advanceSchoolLoginEpoch,
-  readSchoolLoginEpoch,
-} from '../src/modules/campus-integrations/credential-recovery/school-login-context';
 import { URLS } from '../src/modules/campus-integrations/endpoints';
-import { HttpClient } from '../src/modules/campus-integrations/http/http-client';
 import { type MobileYxtSessionExchangePort } from '../src/modules/campus-integrations/mobile-yxt/auth-exchanger';
-import { MobileYxtSessionExecutor } from '../src/modules/campus-integrations/mobile-yxt/session-executor';
 import { SqliteMobileYxtSessionRepository } from '../src/modules/campus-integrations/mobile-yxt/session-repository';
+import { advanceSchoolLoginEpoch, readSchoolLoginEpoch } from '../src/modules/campus-integrations/school-access/school-login-context';
 import { Logger } from '../src/utils/logger';
+import { installYxtExchange, mockFetch, readTrades, restoreMobileSpies, seedCredential } from './mobile-school-fixtures';
 
 const sessions = new SqliteMobileYxtSessionRepository();
 let fetchSpy: ReturnType<typeof spyOn> | null = null;
@@ -86,6 +82,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  restoreMobileSpies();
   fetchSpy?.mockRestore();
   fetchSpy = null;
 });
@@ -136,19 +133,16 @@ describe('CookieJar 读取与持久化合同', () => {
         return { accessToken: 'rebuilt-access', cookieJar: await validCookieJar('rebuilt') };
       },
     };
-    const portalReader = {
-      async readOrRestore() { return { portalJwt: 'portal-for-rebuild', loginEpoch: 0 }; },
-      async rejectIfCurrent() {},
-    };
-    fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(
+    seedCredential(userId, 'portal_jwt', 'portal-for-rebuild', null);
+    installYxtExchange(exchanger);
+    fetchSpy = mockFetch(async () => new Response(
       JSON.stringify({ success: true, resultData: [] }),
       { status: 200 },
-    )) as any;
+    ));
 
-    const result = await new MobileYxtSessionExecutor(exchanger, sessions, portalReader)
-      .post(userId, URLS.mobileYxtTradeList, {});
+    const result = await readTrades(userId);
 
-    expect(result.response.status).toBe(200);
+    expect(result.status).toBe(200);
     expect(exchangeCount).toBe(1);
     expect(await sessions.read(userId)).toMatchObject({ accessToken: 'rebuilt-access' });
     expect(await sessionRowCount(userId)).toBe(1);
@@ -214,27 +208,24 @@ describe('CookieJar 读取与持久化合同', () => {
         };
       },
     };
-    const portalReader = {
-      async readOrRestore() { return { portalJwt: 'redacted-portal', loginEpoch: 0 }; },
-      async rejectIfCurrent() {},
-    };
+    seedCredential(userId, 'portal_jwt', 'redacted-portal', null);
+    installYxtExchange(exchanger);
 
-    let caught: unknown;
     try {
-      await new MobileYxtSessionExecutor(exchanger, sessions, portalReader)
-        .post(userId, URLS.mobileYxtTradeList, {});
-    } catch (error) {
-      caught = error;
+      let caught: unknown;
+      try { await readTrades(userId); } catch (error) { caught = error; }
+      expect(caught).toMatchObject({ kind: 'protocol', code: 3005 });
+      const observable = JSON.stringify({
+        error: caught instanceof Error ? { name: caught.name, message: caught.message } : caught,
+        warn: warnSpy.mock.calls,
+        errorLogs: errorSpy.mock.calls,
+      });
+      expect(observable).not.toContain(cookieSecret);
+      expect(observable).not.toContain(accessSecret);
+      expect(await sessionRowCount(userId)).toBe(0);
+    } finally {
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
     }
-    const observable = JSON.stringify({
-      error: caught instanceof Error ? { name: caught.name, message: caught.message } : caught,
-      warn: warnSpy.mock.calls,
-      errorLogs: errorSpy.mock.calls,
-    });
-    expect(observable).not.toContain(cookieSecret);
-    expect(observable).not.toContain(accessSecret);
-    expect(await sessionRowCount(userId)).toBe(0);
-    warnSpy.mockRestore();
-    errorSpy.mockRestore();
   });
 });
