@@ -1,6 +1,5 @@
 # HUAS Server Operations API 契约
 
-> 基线：2026-08-01 当前后端实现
 > Base URL：`http://localhost:3000`
 > 通用响应包、错误码与时间格式见 [API.md](./API.md)；社交用户 DTO 见 [SOCIAL_API.md](./SOCIAL_API.md)
 
@@ -415,3 +414,9 @@ interface AdminIndexPopupSettings {
 | `image` | 可选图片；启用且此前没有图片时必填 |
 
 上传图片经共享安全门禁读取并按原比例缩小为静态 WebP，不裁切；输入最大 10 MiB、24MP，最长边最多 2560，成品最大 2 MiB。提交新 `image`、修改 `actionType` 或修改有效 `actionText` 都生成新的 UUID `version`，使本机频控把它识别为新内容；只修改开关、时间或频率不会换版本。仅修改动作内容时服务端以新版本复制当前不可变 WebP，设置 JSON 仍使用同目录临时文件与原子 rename；配置切换失败会清理候选图片并保留旧有效配置。
+
+## 10. 早起展示设置
+
+`GET /api/admin/early-rising/settings` 读取 `{profileEntryVisible,updatedAt,updatedBy}`；`PUT` 接受 JSON `{profileEntryVisible:boolean}`。两者使用后台 Cookie。写入记录管理员与更新时间；普通用户 `/api/early-rising/settings` 只得到布尔投影，默认显示资料入口。非布尔值或无效 JSON 返回 400/4002。
+
+[PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md

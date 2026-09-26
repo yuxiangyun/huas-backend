@@ -1,4 +1,6 @@
-# Runtime 健康、指标与质量门
+# 健康与运行观测
+
+发布、数据备份和失败恢复见 [DEPLOY.md](DEPLOY.md)。
 
 ## 健康端点
 
@@ -27,16 +29,10 @@ ready 不探测 CAS、Portal 或 JW。学校上游故障不会让实例退出负
 
 计数仅存在于当前进程内，重启归零；它们是运行观测，不是业务事实。HTTP method 只保留常用固定集合，其他值统一为 `OTHER`，避免外部输入制造高基数标签。
 
-## 本地与 CI 质量门
-
-```bash
-bun run check
-```
-
-该命令按固定顺序执行 TypeScript 类型检查、稳定隔离的全量测试入口和内存 SQLite migration 验证。GitHub Actions 仅有一个 job：冻结安装依赖后执行同一条命令；同分支新运行会取消旧运行。
-
 ## 正常关闭
 
-入口收到 `SIGINT` 或 `SIGTERM` 后停止接收流量，再执行已注册的有界 shutdown flush hooks。单个 hook 超时或失败不会阻止其他 hook，失败会累计到 `huas_analytics_flush_failure_total` 并写入日志。
+入口收到 `SIGINT` 或 `SIGTERM` 后先标记关闭（readiness变为503），等待周期任务停止，再停止HTTP服务、并行执行有界flush hooks，最后释放组合根并关闭数据库。重复信号共用同一次关闭流程。
+
+单个flush hook默认最多等待5秒，失败不阻止其他hook并写日志；只有名为analytics的hook失败才累计 `huas_analytics_flush_failure_total`。周期任务停止和HTTP停止不属于这5秒hook预算。
 
 Analytics 缓冲实现应通过 `registerShutdownFlushHook('analytics', flush)` 注册，不得自行安装第二套进程信号监听。

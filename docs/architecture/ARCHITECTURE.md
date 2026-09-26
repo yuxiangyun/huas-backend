@@ -1,245 +1,80 @@
-# HUAS Server 后端架构与维护地图
+# 架构与关键约束
 
-> 事实基线：2026-07-31
->
-> 本文只描述后端机器相。Web 结构由 `WEB_ARCHITECTURE.md` 单独维护，接口字段由 `docs/api/` 维护，发布操作由 `docs/ops/DEPLOY.md` 维护。
+本文保留跨模块必须共同遵守的规则。接口字段见 [校园](../api/API.md)、[社交](../api/SOCIAL_API.md)、[管理](../api/OPERATIONS_API.md) API；操作步骤见 [部署手册](../ops/DEPLOY.md)。具体成员、阈值和字段以对应源码为准。
 
-## 1. 系统定位
+## 运行骨架
 
-HUAS Server 是一个 Bun 模块化单体，同时承载：
+HUAS 是 Bun 模块化单体，SQLite 是业务事实源。`src/index.ts` 负责 schema 校验、监听和关闭；`src/composition.ts` 连接模块端口；`src/app.ts` 组装 Hono 中间件与路由。业务模块不反向依赖组合根。
 
-- 校园身份登录、学校凭证恢复与本服务 JWT；
-- 课表、成绩、一卡通、评教、空教室和日历订阅；
-- Community 公共资料、Discover、Treehole、Notifications 与 Messaging；
-- 独立 Cookie 认证的 Operations 管理面；
-- `/m` 静态应用、公共媒体、健康检查与 Prometheus 指标。
+旧 services、parsers 等兼容 Facade 只向 canonical 模块单向委托，不扩展第二份业务实现，canonical 模块不反向依赖旧入口。
 
-技术栈为 Bun、TypeScript、Hono、Drizzle ORM、SQLite、Sharp 与 Winston。SQLite 是业务事实源；本地文件只保存公告、媒体、日志与可重建的运行策略。
+业务规则归 domain/application；HTTP、学校协议、SQLite 和文件适配归各自基础设施。跨模块只依赖公开端口，外部 HTTP、图片转换和文件操作不进入 SQLite 写事务。
 
-## 2. 运行时入口与依赖方向
+## 身份、学校会话和资料
 
-```text
-src/index.ts
-  ├─ assertConfiguredDatabaseSchemaCurrent() 只读校验
-  ├─ createApplicationComposition()
-  │    ├─ Community ── Identity reader
-  │    ├─ Notifications
-  │    ├─ Discover ─── Community reader + Notifications ports
-  │    ├─ Treehole ─── Community reader + Notifications ports
-  │    ├─ Messaging ── Community reader
-  │    └─ Operations ─ Identity/Discover/Treehole/Messaging public ports
-  ├─ createApp(dependencies)
-  ├─ PeriodicTaskRegistry.start()
-  └─ Bun.serve()
-```
-
-三个顶层文件各只有一个变化理由：
-
-| 文件 | 职责 | 禁止事项 |
-|---|---|---|
-| `src/index.ts` | schema 校验、监听、信号、周期任务和优雅关闭 | 不构造业务模块，不迁移数据库 |
-| `src/composition.ts` | 唯一跨模块组合根，连接构造器和公开 ports | 不承载业务规则，不被领域模块反向导入 |
-| `src/app.ts` | 构造可测试 Hono 应用，挂载中间件、路由、静态资源和公共媒体 | 不打开端口，不持有数据库 singleton |
-
-社交模块只导出构造器、route factory 与 ports。Discover、Treehole、Messaging、Notifications 不得导入具体 Community adapter，也不得直接 JOIN `users` 或 `community_profiles`。
-
-## 3. HTTP 与认证边界
-
-| 路径 | 认证 | 责任域 |
-|---|---|---|
-| `/auth/login` | 无 | Identity/Campus 登录并签发本服务 JWT |
-| `/health`、`/health/live`、`/health/ready` | 无 | 本地进程、SQLite 与 schema readiness |
-| `/metrics` | 无 | 进程内低基数 Prometheus 指标 |
-| `/api/public/*` | 无 | 公告等公共读取 |
-| `/api/admin/session` | 登录凭据或后台 Cookie | Operations 独立管理会话 |
-| `/api/admin/*` | HttpOnly Cookie | 管理查询与受控内容命令 |
-| `/api/community/*` | Bearer JWT | 当前资料和公共用户详情 |
-| `/api/discover/*` | Bearer JWT | 好饭内容、点赞、评论与推荐 |
-| `/api/treehole/*` | Bearer JWT | 脱匿名树洞内容、点赞与评论 |
-| `/api/notifications/*` | Bearer JWT | 活动通知列表、未读与逐条已读 |
-| `/api/messaging/*` | Bearer JWT | 一对一私信、游标、未读与私有媒体 |
-| `/media/discover/*` | 无 | 未删除 Discover 帖子媒体 |
-| `/media/treehole-avatar/*` | 无 | Community 当前头像媒体；URL 名称仅是历史路径 |
-
-普通用户 JWT 与后台 Cookie 完全独立。私信图片不进入公共 `/media/*`，参与者和管理员分别通过 Messaging/Operations 鉴权路由读取。
-
-## 4. 校园业务纵向切片
-
-### 4.1 Identity 与 Campus Integrations
-
-Identity 负责本地快捷登录、本服务 JWT 和 HTTP 登录结果。SchoolAccess 位于 Campus Integrations 内部，提供 `authenticate` 和具名 `execute`；学校协议、凭证条件状态、目标恢复和请求执行在该边界内闭环。RuntimeConfig 启动时一次解析并冻结认证及学校访问规则。
-
-CAS 明确成功即建立本服务登录，不等待 Portal/JW 或姓名班级；姓名或班级缺失时发出尽力后台资料补全，业务能力继续按需获取。并发真实登录按开始顺序及最近成功提交控制账号状态，迟到成功仍返回 JWT；静默恢复附加 epoch 约束。验证码读取时检查十分钟有效期并一次消费。
-
-凭证依赖固定为 CAS→Portal/JW、Portal→mobile。CAS 和各目标分别合流，共享快照不含客户端或可变 CookieJar；共享任务使用自己的有界预算，等待者与业务请求各自限时。唯一执行器调度有限重试与一次会话恢复重放，CAS POST 与评教写入只尝试一次。只有 CAS 明确拒绝保存凭据或要求验证码时，才持久化 `interactive_login_required` 并返回 `3003/401`；普通故障及恢复后二次拒绝为 `3005/503`，超时为 `3004/504`。
-
-### 4.2 Academic、Calendar 与 Cache
-
-Academic 承载课表、成绩、评教和空教室用例。`/api/schedule` 在一次请求内固定读取课表来源策略：依次尝试两源 current，均失败后才按 JW、Portal 固定顺序选择 stale。成绩强刷执行 JW fresh-first，只有新鲜路径穷尽后才允许 stale fallback。
-
-Calendar 负责订阅签名、周快照与 ICS 输出。Cache 拥有版本 envelope、TTL、容量限制和同意图 singleflight；`TTL=0` 表示永久缓存，不等于立即过期。
-
-## 5. 社交领域边界
-
-社交能力保持五个独立纵向切片，不建立巨型 `social` 模块。
-
-### 5.1 Community
-
-Community 独立拥有 `community_profiles` 的昵称和头像元数据，通过 Identity 的只读端口取得 `id/className`。公开资料固定为：
-
-```ts
-type CommunityProfile = {
-  id: number;
-  displayName: string;
-  avatarUrl: string | null;
-};
-```
-
-昵称允许重复；空昵称先取 `className` 第一个数字之前的前缀，生成 `{前缀}同学{id}`，没有有效前缀时回退 `文理er {id}`。当前用户 `/api/community/profile` 在公共三字段之外额外返回可空 `nickname` 供编辑回填；公共详情和所有社交作者投影始终只有三字段。非空昵称由领域层按 2–12 Unicode code point、无控制字符/换行、非保留名校验，缺省 displayName 不写回 nickname。公共接口不暴露学号、真实姓名、完整班级、评论历史或点赞历史，也不提供用户搜索。
-
-头像由 Community 自有 adapter 管理。新文件使用不可变 UUID 名称，SQLite 更新失败时补偿删除；公开读取会验证路径仍绑定当前资料。
-
-### 5.2 Discover
-
-Discover 只拥有帖子、图片元数据、点赞和评论事实。所有帖子与评论响应统一携带 Community `author`。
-
-- 点赞/取消点赞幂等，作者也可以点赞自己的帖子，但自我互动不生成通知；
-- `latest` 按发布时间倒序；
-- `popular` 先按 `likeCount`，再按发布时间和 ID；
-- `recommended` 从当前用户点赞过的分类和标签推断偏好，无有效数据时回退 `latest`；
-- 推荐和列表先查询 Discover 自有事实，再批量调用 `CommunityProfileReader.getMany()`；
-- 删除为领域软删除，旧 Activity Notification 可保留并在点击时得到内容不存在。
-
-Discover 不再存在评分表、评分字段、评分路由或兼容 DTO。
-
-### 5.3 Treehole
-
-“树洞”只保留产品名称，不再匿名。帖子和评论都绑定 `users.id` 并返回统一 `author`。资料、头像和活动通知已从 Treehole 模块移出；Treehole 只拥有帖子、点赞与评论事实。
-
-公共用户内容通过独立用户帖子接口读取；用户主页由调用方分别组合 Community detail、Discover user posts 和 Treehole user posts，后端不建立跨领域超级聚合。
-
-### 5.4 Notifications 与 Transactional Outbox
-
-活动通知只有六类：
-
-| type | resourceType | 触发事实 |
-|---|---|---|
-| `discover_like` | `discover_post` | Discover 有效点赞 |
-| `discover_comment` | `discover_post` | Discover 普通评论 |
-| `discover_comment_reply` | `discover_post` | Discover 回复 |
-| `treehole_like` | `treehole_post` | Treehole 有效点赞 |
-| `treehole_comment` | `treehole_post` | Treehole 普通评论 |
-| `treehole_comment_reply` | `treehole_post` | Treehole 回复 |
-
-Discover/Treehole 在自己的 SQLite 短事务中同时写互动事实、派生计数和 `activity_outbox`。提交后立即 best-effort 投影；失败不会把已经提交的互动伪装成失败，而由周期任务按退避时间重试。
-
-`event_id` 包含互动类型、资源、子资源、actor 和 recipient，保证逐接收者幂等。自我互动不生成事件；回复同时面向父评论作者和不同的帖子作者，并自动去重。取消点赞在原互动事务内删除对应 Outbox/Notification，使再次点赞可以重新投影。
-
-Notifications 不保存正文，不与内容表建立跨领域外键，也不承载私信未读。只支持逐条已读，第一版永久保留且没有清理/归档任务。普通列表的 offset 只服务人工翻页，轮询通过通知 ID 高水位增量入口避免并发插入造成重复或漏项。
-
-### 5.5 Messaging
-
-Messaging 是一对一专用结构，不为群聊预留 participants：
-
-- 有序用户对 `user_low_id < user_high_id` 且唯一；
-- 禁止给自己发送；
-- 会话只在第一条消息成功事务内延迟创建；
-- `UNIQUE(sender_user_id, client_message_id)` 保证 UUID 幂等；
-- 从用户入口只定位 CommunityProfile 与已有 conversationId，不创建空会话；
-- 会话变化轮询使用全局单调 `last_message_id` 高水位，普通 offset 只用于人工翻页；
-- 消息无游标取最新页，before 向旧、after 向新增，用户面与管理面共享同一 hasMore 方向语义；
-- 每用户按 `messages` 事实复验 30 条/分钟，不依赖进程内计数；
-- 服务端游标只单调前进，未读数由消息事实与当前用户游标实时计算；
-- 私信不写入活动通知，也不公开已读回执。
-
-消息文字最多 1000 Unicode code point；每条最多 9 张图，单张原图最多 32MB，合计最多 64MB，且至少有文字或图片。HTTP adapter 在 formData 前以 Content-Length 和流式 body-limit 统一执行 413 请求上限；图片转换前按持久发送事实预限流。图片在 SQLite 事务外识别真实格式、自动旋转、缩放至最长边 1280 并以质量 78 转为 WebP；短事务只写会话、消息、图片元数据和 `last_message_id`。任一步失败都会回滚数据库并补偿候选媒体。
-
-Operations 只通过 `MessagingOperationsQueryPort` 读取全部会话、正文、历史和媒体，不接触 Messaging 表或磁盘路径，不暴露修改/删除命令。
-
-## 6. SQLite 事实与迁移
-
-`src/db/schema.ts` 当前声明 17 张业务表：
-
-| 所有者 | 表 |
+| 概念 | 所有者与边界 |
 |---|---|
-| Identity/Cache | `users`、`credentials`、`cache` |
-| Community | `community_profiles` |
-| Discover | `discover_posts`、`discover_post_likes`、`discover_comments` |
-| Treehole | `treehole_posts`、`treehole_post_likes`、`treehole_comments` |
-| Notifications | `activity_outbox`、`notifications` |
-| Messaging | `conversations`、`messages`、`message_images` |
-| Operations Analytics | `analytics_daily_metrics`、`analytics_daily_users` |
+| 本服务登录态 | Identity 签发的 JWT，支撑本地业务，不代表学校服务可用 |
+| 学校身份认证 | CAS 确认账号身份；成功不等于 Portal/JW/mobile 已激活 |
+| 学校能力与会话 | SchoolAccess 通过具名操作按需恢复目标系统，目标之间独立 |
+| 交互认证要求 | CAS 明确拒绝保存凭据或要求验证码；普通故障不属于此类 |
+| 学校资料 | 学校姓名与班级；与 Community 自有昵称、头像分开 |
 
-`schema.ts` 是 Drizzle 类型相，`src/db/migrations/` 是结构演进事实源。`0001/0002` 不可变；`0003_social_rearchitecture` 是破坏性 contract migration：
+CAS 成功即原子提交身份并签发 JWT，不等待学校业务激活或姓名班级。缺失资料只触发尽力后台补全，失败不能阻断或撤销登录；本地字段为空不能推断学校账号未初始化。本地快捷登录不推进学校 epoch，也不清恢复冷却。
 
-- 动态保存并验证用户、凭证、缓存、Discover 与 Treehole 核心表行数；
-- 将旧用户昵称/头像迁入 `community_profiles` 后从 `users` 删除旧列；
-- 按产品决策直接删除旧评分表/字段与旧 Treehole 通知表，即使其中已有数据也不阻断且不转换成新事实；
-- 建立 Discover 点赞、Outbox、Notifications 和 Messaging 最终结构；
-- 任一断言或 DDL/DML 失败时，整个版本事务回滚且不写版本记录。
+产品选择仍是：学校明确要求交互时，客户端退出整个服务会话并重新登录，而非另建学校登录入口。只有该证据返回 `3003/401`；超时为 `3004/504`，维护、协议异常和恢复后二次拒绝为 `3005/503`。空教室使用服务账号，其认证失败只能表示该能力不可用，不得清除请求用户的 JWT。
 
-应用启动没有 migration 权限。`src/index.ts` 在监听前只读校验版本序列、name/checksum 与最终 schema fingerprint；文件缺失、版本落后、元数据改写或结构漂移都会 fail closed。结构变更只能在部署停流、停 writer 和快照之后显式执行：
+并发认证以尝试开始序号和最近成功提交排序。若较新 B 已成功，迟到 A 仍可完成登录，但不能覆盖 B 的密码、凭证或交互标记；B 失败不阻止 A 成功。静默恢复额外核对开始 epoch。验证码十分钟、读取即判过期且一次消费，不能自动重放 CAS POST。
 
-```bash
-bun run db:migrate -- --db <sqlite-path> --allow-destructive
-```
+小程序请求与上传绑定 token 和会话代次，旧鉴权失败不能清除同 token 的新会话。验证码只有完整新挑战才可展示；完成、异常或取消后的已消费挑战不复用。
 
-## 7. 文件与媒体边界
+## 学校访问与缓存
 
-默认持久路径均相对 `dirname(DB_PATH)` 或显式配置：
+- 依赖方向为 CAS → Portal/JW、Portal → mobile。CAS 按用户合流，目标按用户/能力合流；只共享冻结凭证快照，不共享客户端或 CookieJar。
+- SchoolAccess 请求与共享恢复默认各有 45 秒预算，等待者独立限时；统一执行器负责有限重试和一次业务恢复重放。CAS 登录和评教写入不重放。
+- 真实 CAS 提交推进 epoch，写实际所得基础凭证，删除缺失 Portal 和旧派生会话；CAS-only 保留 JW。换票提交核对 epoch 与原 TGC，失败按完整快照删除；派生会话按 epoch 创建、generation 删除。
+- 基础凭证使用正 TTL；mobile 会话无 TTL，以协议失效证据恢复。恢复失败使用绑定 epoch 的固定五秒冷却，命中不续期，等待者超时不写账号故障。
+- HTTP 截止时间覆盖完整正文，响应头到达不等于完成；HTTP 层只报告传输事实，由协议层判定会话失效。日志、metrics 与缓存 observer 的失败隔离，不能改变业务返回。
+- 业务缓存与学校凭证分属不同边界。`TTL=0` 表示业务永久缓存；JW/Portal 课表、成绩及资料回源按 normal/refresh 分别合流，以开始代次限制提交，旧请求不能覆盖较新成功值。mobile-yxt 账单和电费则让同键 miss/refresh 共用在途回源。
 
-| 数据 | 默认路径 | 访问边界 |
-|---|---|---|
-| SQLite | `data/huas.db` | 业务事实源 |
-| Discover 媒体 | `data/discover/` | 公共路径，读取时验证帖子仍存在 |
-| Community 头像 | `data/treehole-avatars/` | 公共路径，读取时验证当前资料绑定；目录名为历史兼容 |
-| Messaging 媒体 | `data/message-media/` | 仅参与者 Bearer 或管理员 Cookie 路由 |
-| 公告 | `data/announcements.json` | Operations 自有文件 adapter |
-| 课表策略 | `data/schedule-source-policy.json` | 原子替换的运行策略 |
+### 课表、成绩和培养方案
 
-私信数据库只保存媒体元数据和 `storage_key`。无主目录清理只处理超过 grace period 且数据库无引用的候选目录，不能删除新鲜上传或已引用文件。
+默认课表策略 `mobile-jw-first` 按 mobile-jw → JW → Portal 查询 current，再考虑相应旧缓存。旧双源策略仍有效；用户首选只前置本次 current，stale 范围和顺序仍受后台策略约束。Facade 总等待 50 秒，current 预留 2 秒给旧缓存仲裁；停止本请求等待不取消共享回源。
 
-## 8. 周期任务、日志与关闭
+来源不支持、课表未公布与合法无课互不等价。明确无数据在其他来源及旧缓存仲裁后才给空态；未知载荷缺失仍报协议错误，旧缓存不能把未公布伪装成已发布空表。legacy 入口保留自己的主源未公布短路。
 
-`PeriodicTaskRegistry` 统一注册：
+成绩强刷先穷尽 JW 新鲜路径，再允许 stale。培养方案在同会话内读取执行计划与完成情况，两页完整成功后才写缓存；未匹配考核方式为 null，空白完成情况不推断未修。
 
-- credential、cache 与 captcha session 清理；
-- Activity Outbox 投影重试；
-- 无主私信媒体清理。
+### 评教、日历和校园卡
 
-每个任务具名、可停止、错误隔离且同任务不重叠。优雅关闭顺序为：停止周期任务 → 停止 HTTP server → flush shutdown hooks → dispose composition → 关闭 SQLite。
+评教每批固定一次目标，只恢复读取，POST 一次。成功必须由批末列表增量确认；已尝试写入却无增量或核验失败返回 unknown，不能自动续批或计作成功。核验失败不能覆盖客户端此前确认的列表快照。
 
-Notifications/Messaging 的成功只读轮询采用 quiet access log；4xx/5xx、写操作和 HTTP metrics 始终保留。管理员私信会话列表、增量、消息和媒体读取分别写最小审计，只记录管理员、操作类型、必要 conversationId/稳定媒体键；所有日志禁止记录私信正文、原始文件名、二进制或身份隐私内容。
+日历订阅只通过移动教务采集当前学期全部周，验证真实日期与完整性后保存独立 SQLite ICS 快照。仅有效订阅请求按采集开始时间每用户 24 小时触发一次，失败也占窗口并保留完整旧快照；不拼接周缓存，不跨源，不由普通课表或登录触发。
 
-## 9. Operations 边界
+校园卡余额与月账单分别表达 availability/freshness，交易覆盖当前月及此前 23 个自然月，按用户月键保留六项 LRU。余额、交易、电费使用各自缓存/配额；电费只读已绑定位置的 config/account，未提供电价/电量为 null。退款标记和有符号金额如实投影，不推断未经证据确认的退款会计语义。
 
-Operations 聚合管理会话、Dashboard、Analytics、公告、日志、课表来源策略和社交管理入口。跨领域数据必须来自公开 ports：
+小程序学校读取通常留 55 秒等待，课表与评教提交保留 75 秒，登录 60 秒；电费为 30 秒。代理模板与 Bun 默认等待为 60 秒，部署时须核验实际代理上下文，仓库模板不自动同步线上。
 
-- Identity 提供用户/凭证/缓存统计；
-- Discover 提供点赞口径的帖子快照和删除命令；
-- Treehole 提供帖子/评论只读查询与受控删除命令；
-- Messaging 只提供会话、消息和媒体只读查询。
+## 社交事实与事务
 
-Operations 不得直接 SQL 查询其他模块事实表。管理员虽然可以读取全部私信，但不能修改或删除消息、图片或会话。
+Community 独立拥有公共资料，其他模块经批量 reader 投影统一作者。Discover 与 Treehole 拥有各自内容和互动；Treehole 名称不代表匿名。Operations 经公开端口管理，不直接查询其他模块事实表。
 
-## 10. 质量门禁与演进规则
+Discover/Treehole 的六类有效互动与 activity_outbox 在同一短事务提交，Notifications 幂等投影。自我互动不产生通知；取消点赞、删除帖子/评论在相同事务撤回相应通知。通知只逐条已读且永久保留；新增用 ID 高水位，撤销用摘要 total 校准。
 
-后端完整门禁：
+媒体补偿只处理数据库提交前失败；内容已提交后，通知投影失败只能重试投影，不能删除已引用图片。软删后的文件清理失败交孤儿回收兜底。
 
-```bash
-bun run typecheck
-bun run test
-bun run db:verify
-git diff --check
-```
+Messaging 只建一对一唯一会话，首条消息成功时事务内延迟创建；UUID 与图文内容共同约束幂等。消息按最新/before/after 分页，会话轮询按 lastMessageId 高水位，阅读游标只前进。私信与活动通知的事实及未读独立，`/api/social/unread-summary` 只聚合读取。
 
-高风险变更还必须运行相应定向套件。数据库迁移测试必须只使用内存或临时数据库，禁止对真实 `data/huas.db` 演练破坏性版本。
+## 持久化与运行态
 
-新增或修改能力时遵循：
+数据库、业务媒体、公告、首页弹窗及课表来源策略跨 release 共享；路径跟随 `dirname(DB_PATH)` 或显式配置。课表策略、首页弹窗动作和不可变海报版本是运行状态，不能当作可随意删除的缓存。Early Rising 设置是 SQLite 事实，随数据库备份。
 
-1. 先确定领域所有者和最窄 port，不建立跨领域 JOIN 或 concrete singleton 依赖；
-2. 业务规则放 domain/application，HTTP 只解析协议，SQLite/file adapter 只实现基础设施；
-3. 互动事实与 Outbox、消息事实与媒体元数据等强一致边界必须在同一短事务；
-4. Sharp、文件系统、学校上游和 Community 投影不得进入 SQLite 写事务；
-5. 新表同时更新 migration、schema、测试和运维手册；
-6. 修改业务文件后依次核对 L3、模块 L2 与根 L1，保持 GEB 文档和代码同构。
+Discover 图片和 Community 头像为公开媒体；Treehole 与私信图片走鉴权 API。四类媒体按有效数据库引用及默认一小时宽限独立回收，不能删除新鲜上传或已引用文件。Treehole 图片解码采用有界入口与全局单槽，避免小内存进程并行解码失控。
+
+应用启动只有 schema metadata/fingerprint 校验权。迁移由维护发布显式执行；停流、停 writer、快照后迁移，新服务冒烟后开放流量。迁移后失败保持停流并 forward-fix，不能恢复旧二进制连接已变化数据库。
+
+PeriodicTaskRegistry 统一启动与停止周期任务；关闭依次停止任务、HTTP、flush hooks、释放组合根并关闭 SQLite。日志、数据库、媒体及活动构建产物不属于普通项目清理对象。
+
+## Web 边界
+
+Web 由同一服务托管于 `/m`，普通用户使用 Bearer，管理端使用独立 HttpOnly Cookie，权限不互通。Web 入口为 `web/src/main.tsx`，路由与 Provider 位于 `web/src/app/`。HTML/固定资源重验证，哈希静态资源可持久缓存，鉴权 API/私有媒体 no-store；JWT 变化同步清空查询与私有 Blob 内存缓存。蓝绿切槽可能使旧页面未加载的 chunk 失效；`vite:preloadError` 只在 sessionStorage 闸门可用时一分钟内刷新一次，重复失败或闸门不可用时保留错误，防止刷新循环。

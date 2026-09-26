@@ -1,13 +1,13 @@
 <!--
 [INPUT]: 依赖后端 HTTP 路由、Academic 来源编排、JW 培养方案双页投影与共享响应/缓存契约
-[OUTPUT]: 提供校园 API 参数、培养方案完整字段与全程课程/学期汇总、来源首选与后台回退边界、响应元信息和错误语义
+[OUTPUT]: 提供校园接口调用规则、响应语义与权威 DTO 导航，保留学校适配的关键限制
 [POS]: docs/api 的校园业务契约入口，社交与 Operations 细节委托分册
 [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
 -->
 
 # HUAS Server API 文档
 
-> 基线日期：2026-09-24
+> 接口以当前路由与 DTO 为准；本文记录调用规则和无法从字段名推断的业务边界。
 > Base URL：`http://localhost:3000`
 > 时区约定：服务端固定使用 `Asia/Shanghai`，文档中的时间示例均为 `+08:00`
 
@@ -38,7 +38,8 @@
 | `GET /api/ecard/overview` | Bearer JWT | Portal 余额与 mobile-yxt 单月三类账单聚合，分别投影子源新鲜度 |
 | `GET /api/utilities/electricity` | Bearer JWT | 当前绑定房间电费只读信息；电价/电量允许为 `null` |
 | `GET /api/user` | Bearer JWT | 用户资料 |
-| `GET/PUT/DELETE /api/community/*` | Bearer JWT | Community 公共资料、昵称与头像接口 |
+| `GET/POST /api/early-rising/*` | Bearer JWT | 打卡、统计、趋势、排行榜与展示设置 |
+| `GET/POST/PUT/DELETE /api/community/*` | Bearer JWT | Community 公共资料、昵称与头像接口 |
 | `GET/POST/PUT/DELETE /api/discover/*` | Bearer JWT | Discover 帖子、幂等点赞、评论与用户帖子接口 |
 | `GET/POST/PUT/DELETE /api/treehole/*` | Bearer JWT | 实名绑定的“树洞”帖子、点赞、评论与用户帖子接口 |
 | `GET/PUT /api/notifications/*` | Bearer JWT | 六类活动通知列表、未读计数与逐条已读 |
@@ -79,23 +80,12 @@ GET /calendar/schedule.ics?studentId=2023001001&sig=<hmac_sha256(studentId, CALE
 ### 2.1 成功响应
 
 ```json
-{
-  "success": true,
-  "data": {},
-  "_meta": {
-    "cached": true,
-    "cache_time": "2026-03-08T10:00:00.000+08:00",
-    "updated_at": "2026-03-08T10:00:00.000+08:00",
-    "expires_at": "2026-03-09T10:00:00.000+08:00",
-    "source": "jw",
-    "stale": false
-  }
-}
+{"success":true,"data":{},"_meta":{"cached":true,"cache_time":"2026-03-08T10:00:00.000+08:00","updated_at":"2026-03-08T10:00:00.000+08:00","expires_at":"2026-03-09T10:00:00.000+08:00","source":"jw","stale":false}}
 ```
 
 说明：
 
-- `_meta` 只出现在带缓存语义的业务接口上：`/api/schedule`、`/api/v1/schedule`、`/api/grades`、`/api/training-plan`、`/api/ecard`、`/api/utilities/electricity`、`/api/user`
+- 以下校园接口提供缓存语义 `_meta`；评教和空教室也可带来源信息：`/api/schedule`、`/api/v1/schedule`、`/api/grades`、`/api/training-plan`、`/api/ecard`、`/api/utilities/electricity`、`/api/user`
 - 这些接口在回源成功时也会返回 `_meta`，此时通常为 `{ cached: false, source: ... }`
 - 时间字段格式为北京时间 ISO 字符串，后缀是 `+08:00`，不是 UTC `Z`
 
@@ -118,11 +108,7 @@ GET /calendar/schedule.ics?studentId=2023001001&sig=<hmac_sha256(studentId, CALE
 ### 2.3 失败响应
 
 ```json
-{
-  "success": false,
-  "error_code": 3004,
-  "error_message": "学校服务器超时"
-}
+{"success":false,"error_code":3004,"error_message":"学校服务器超时"}
 ```
 
 ### 2.4 错误码
@@ -157,7 +143,7 @@ GET /calendar/schedule.ics?studentId=2023001001&sig=<hmac_sha256(studentId, CALE
 - `refresh=false`：先查缓存，命中直接返回
 - `refresh=true`：跳过读缓存，强制回源。JW/Portal 课表、成绩、培养方案、Portal 余额和资料的 normal/refresh 分别合并并有序提交，较新成功结果不被旧请求覆盖；mobile-yxt 账单和电费保持 miss/refresh 同键合流。
 - `/api/schedule` 必须先穷尽本次所有来源的 current，再按后台原参与范围及移动教务、JW、Portal 固定顺序查旧缓存；用户首选只前置 current，不更改 stale 规则
-- 其他单源业务回源失败时：如果同 key 还有旧缓存，会回退旧缓存并返回 `_meta.stale=true`
+- 单源业务仅在其允许降级的错误类别内返回旧缓存；3003 不由同来源旧值掩盖。mobile-yxt 仅对超时/可用性错误降级，协议、业务或参数错误直接返回。
 
 ### 3.2 当前 TTL
 
@@ -172,7 +158,7 @@ GET /calendar/schedule.ics?studentId=2023001001&sig=<hmac_sha256(studentId, CALE
 | `GET /api/utilities/electricity` | `0` | 成功 DTO 写入缓存；协议错误不写入、不回退旧缓存 |
 | `GET /api/user` | `0` | 写入缓存，但不过期，仅 `refresh=true` 会覆盖 |
 
-这意味着文档里如果看到“默认不缓存”或“课表 24 小时 TTL”的说法，都不是当前实现。
+TTL=0 表示永久快照，不代表学校数据不会变化；部署覆盖值以 RuntimeConfig 为准。
 
 ### 3.3 学业 `refresh` 限流
 
@@ -216,39 +202,19 @@ GET /calendar/schedule.ics?studentId=2023001001&sig=<hmac_sha256(studentId, CALE
 首次登录请求：
 
 ```json
-{
-  "username": "2023001001",
-  "password": "your_password"
-}
+{"username":"2023001001","password":"your_password"}
 ```
 
 成功响应：
 
 ```json
-{
-  "success": true,
-  "data": {
-    "token": "eyJhbGciOiJIUzI1NiIs...",
-    "user": {
-      "name": "张三",
-      "studentId": "2023001001",
-      "className": "计科2301"
-    }
-  }
-}
+{"success":true,"data":{"token":"eyJhbGciOiJIUzI1NiIs...","user":{"name":"张三","studentId":"2023001001","className":"计科2301"}}}
 ```
 
 如果 CAS 要求验证码，会返回：
 
 ```json
-{
-  "success": false,
-  "error_code": 3002,
-  "error_message": "需要验证码",
-  "needCaptcha": true,
-  "sessionId": "550e8400-e29b-41d4-a716-446655440000",
-  "captchaImage": "iVBORw0KGgoAAAANSUhEUg..."
-}
+{"success":false,"error_code":3002,"error_message":"需要验证码","needCaptcha":true,"sessionId":"550e8400-e29b-41d4-a716-446655440000","captchaImage":"iVBORw0KGgoAAAANSUhEUg..."}
 ```
 
 前端应：
@@ -262,17 +228,12 @@ GET /calendar/schedule.ics?studentId=2023001001&sig=<hmac_sha256(studentId, CALE
 验证码二次提交示例：
 
 ```json
-{
-  "username": "2023001001",
-  "password": "your_password",
-  "captcha": "AB12",
-  "sessionId": "550e8400-e29b-41d4-a716-446655440000"
-}
+{"username":"2023001001","password":"your_password","captcha":"AB12","sessionId":"550e8400-e29b-41d4-a716-446655440000"}
 ```
 
 约束：
 
-- `sessionId` 是一次性的，服务端读取后会删除
+- `sessionId` 是一次性的，服务端读取后会删除；客户端完成一次提交后清除旧挑战，仅用响应中完整的新挑战替换。超时/取消不能证明未消费，禁止自动重放登录 POST
 - 验证码会话保存在内存里，服务重启后全部失效
 - 验证码会话 TTL 为 10 分钟，消费时检查到期点，后台清理只负责内存回收
 - 后台静默认证被学校明确拒绝或要求验证码后，后端持久化交互认证标记。后续 `/auth/login` 自动跳过本地快捷登录，直到真实 CAS 成功提交；不依赖客户端新增参数，不因五秒冷却结束或服务重启失效
@@ -281,8 +242,8 @@ GET /calendar/schedule.ics?studentId=2023001001&sig=<hmac_sha256(studentId, CALE
 
 - 只持久化本服务 JWT
 - 不要在前端保存学号密码用于“自动重登”
-- 收到 `4001`：JWT 无效或过期，清空本地登录态并跳登录页
-- 收到 `3003`：学校明确拒绝保存凭据或要求验证码，需要清除客户端登录态并引导用户重新登录；明确 CAS 拒绝已在后端阻断本地快捷登录，不会再次用保存的旧密码直接放行。
+- 收到 `4001`：JWT 无效或过期，仅当请求携带的 token 与会话代次仍匹配当前会话时清理登录态；旧请求不能清除已重新登录的会话
+- 收到 `3003`：学校明确拒绝保存凭据或要求验证码，按同一 token/代次检查后清除客户端登录态并引导用户重新登录；明确 CAS 拒绝已在后端阻断本地快捷登录，不会再次用保存的旧密码直接放行。
 - 收到 `3005/503`：学校服务不可用或认证响应异常，保留本服务登录态并展示错误；已验证 CAS 但 JW/Portal 不可用、恢复后业务会话仍失效均不再次要求登录。
 
 ### 4.3 `refresh` 的用法
@@ -291,30 +252,6 @@ GET /calendar/schedule.ics?studentId=2023001001&sig=<hmac_sha256(studentId, CALE
 - 用户主动下拉刷新、点击“刷新”按钮：用 `refresh=true`
 - 当前实现里 TTL 全是 `0`，因此不主动刷新的话，客户端可能长期看到旧数据
 
-### 4.4 推荐请求封装
-
-```ts
-type ApiSuccess<T> = { success: true; data: T; _meta?: Record<string, unknown> };
-type ApiFailure = { success: false; error_code: number; error_message: string };
-type ApiResponse<T> = ApiSuccess<T> | ApiFailure;
-
-async function apiRequest<T>(path: string, token?: string): Promise<ApiResponse<T>> {
-  const res = await fetch(path, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-
-  const body = await res.json() as ApiResponse<T>;
-
-  if (!body.success) {
-    if (body.error_code === 4001 || body.error_code === 3003) {
-      // 清空登录态并跳转登录页
-    }
-  }
-
-  return body;
-}
-```
-
 ## 5. 数据模型
 
 ### 5.1 `ICourse`
@@ -322,19 +259,7 @@ async function apiRequest<T>(path: string, token?: string): Promise<ApiResponse<
 `/api/schedule` 与 `/api/v1/schedule` 都返回：
 
 ```json
-{
-  "week": "第3周",
-  "courses": [
-    {
-      "name": "高等数学",
-      "teacher": "李教授",
-      "location": "教A301",
-      "day": 1,
-      "section": "1-2",
-      "weekStr": "1-16周"
-    }
-  ]
-}
+{"week":"第3周","courses":[{"name":"高等数学","teacher":"李教授","location":"教A301","day":1,"section":"1-2","weekStr":"1-16周"}]}
 ```
 
 字段说明：
@@ -348,7 +273,7 @@ async function apiRequest<T>(path: string, token?: string): Promise<ApiResponse<
 | `courses[].location` | string | 上课地点 |
 | `courses[].day` | number | 周几，1-7 |
 | `courses[].section` | string | 节次，如 `1-2` |
-| `courses[].date` | string，可选 | Portal 的具体上课日期 `YYYY-MM-DD`，跨周查询必须保留；JW 周课表可以缺省 |
+| `courses[].date` | string，可选 | Portal/mobile-jw 的具体上课日期 `YYYY-MM-DD`，跨周查询必须保留；JW 周课表可以缺省 |
 | `courses[].weekStr` | string | 周次文本；Portal 为空串 |
 
 注意：
@@ -361,58 +286,18 @@ async function apiRequest<T>(path: string, token?: string): Promise<ApiResponse<
 
 ### 5.2 `IGradeList`
 
-```json
-{
-  "summary": {
-    "totalCourses": 8,
-    "totalCredits": 24.0,
-    "averageGpa": 3.5,
-    "averageScore": 85.2
-  },
-  "items": [
-    {
-      "term": "2025-2026-1",
-      "courseCode": "CS101",
-      "courseName": "数据结构",
-      "groupName": "计科2301",
-      "score": 92,
-      "scoreText": "92",
-      "pass": true,
-      "flag": "",
-      "credit": 4.0,
-      "totalHours": 64,
-      "gpa": 4.0,
-      "retakeTerm": "",
-      "examMethod": "考试",
-      "examNature": "正常考试",
-      "courseAttribute": "必修",
-      "courseNature": "专业核心",
-      "courseCategory": "专业课"
-    }
-  ]
-}
-```
+返回 `summary` 与 `items`，完整字段以 [共享 DTO](../../src/types/index.ts) 为准。成绩 `credit/gpa` 允许 null，表示未知，不能按 0 参与统计；成绩文本和数值分别保留。
 
 ### 5.3 `IECard`
 
 ```json
-{
-  "balance": 128.5,
-  "status": "正常",
-  "lastTime": "2026-03-08 12:30:00"
-}
+{"balance":128.5,"status":"正常","lastTime":"2026-03-08 12:30:00"}
 ```
 
 ### 5.4 `IUserInfo`
 
 ```json
-{
-  "name": "张三",
-  "studentId": "2023001001",
-  "className": "计科2301",
-  "identity": "学生",
-  "organizationCode": "12345"
-}
+{"name":"张三","studentId":"2023001001","className":"计科2301","identity":"学生","organizationCode":"12345"}
 ```
 
 ### 5.5 Operations 领域模型
@@ -477,32 +362,20 @@ CAS 统一认证登录。
 成功响应：
 
 ```json
-{
-  "success": true,
-  "data": {
-    "status": "ok",
-    "timestamp": "2026-03-08T12:00:00.000+08:00",
-    "uptime": 1234.56
-  }
-}
+{"success":true,"data":{"status":"ok","timestamp":"2026-03-08T12:00:00.000+08:00","uptime":1234.56}}
 ```
 
 当数据库不可用时返回 `503`：
 
 ```json
-{
-  "success": false,
-  "data": {
-    "status": "error"
-  }
-}
+{"success":false,"data":{"status":"error"}}
 ```
 
 ### 6.4 `GET /api/schedule`
 
 统一周课表接口，每次请求开始时读取一次后台策略快照。可选 `preferred_source` 只决定本次 current 首先尝试哪个来源，不写入或替换后台持久化策略；未传时保持旧客户端行为。
 
-移动教务第三源只读取当前学期；历史日期交由 JW/Portal。完整真实上游合同、500+401 恢复规则及验证证据见 [移动教务接入报告](2026-09-05_mobile-jw-contract-report.md)。
+移动教务第三源只读取当前学期；历史日期交由 JW/Portal。上游限制见本文末尾“学校协议维护边界”。
 三种状态机：
 
 ```text
@@ -511,7 +384,7 @@ jw-first:     JW current → Portal current → JW stale → Portal stale → �
 portal-first: Portal current → JW current → JW stale → Portal stale → 错误/合法空课表
 ```
 
-`current` 保留既有缓存语义：`refresh=false` 可以命中该来源未过期/永久缓存，`refresh=true` 强制访问校园上游。单源内部凭证恢复和有界重试结束后才尝试下一来源，不能先返回自身 stale。合法无课仍是成功结果，不触发跨源回退。
+`current` 保留既有缓存语义：`refresh=false` 可以命中该来源未过期/永久缓存，`refresh=true` 强制访问校园上游。单源在所分配等待预算内完成恢复/重试；超出等待预算后尝试下一来源，不能先返回自身 stale。总请求预算 50 秒，其中为 stale 仲裁预留 2 秒；单个等待超时不取消共享 reader 回源。合法无课仍是成功结果，不触发跨源回退。
 
 用户首选前置后，按后台原队列继续尝试，跳过本次已尝试的来源；不直接替换首项，避免丢掉原后台首选。全部 current 失败后仍使用原后台策略的旧缓存参与范围与固定顺序，凭证错误继续按原仲裁规则阻止 stale：
 
@@ -534,60 +407,24 @@ portal-first: Portal current → JW current → JW stale → Portal stale → �
 | `preferred_source` | string | 否 | 仅 `mobile-jw`（智慧文理）或 `jw`（教务系统）；空串/其它值返回 4002。客户端可本机保存，每次请求透传，后台不持久化个人偏好 |
 | `refresh` | string | 否 | `true` 表示跳过读缓存并强制回源 |
 
-正常响应：
-
-```json
-{
-  "success": true,
-  "data": {
-    "week": "第3周",
-    "courses": [
-      {
-        "name": "高等数学",
-        "teacher": "李教授",
-        "location": "教A301",
-        "day": 1,
-        "section": "1-2",
-        "weekStr": "1-16周"
-      }
-    ]
-  },
-  "_meta": {
-    "cached": true,
-    "cache_time": "2026-03-08T08:00:00.000+08:00",
-    "updated_at": "2026-03-08T08:00:00.000+08:00",
-    "source": "jw",
-    "policy_mode": "jw-first",
-    "primary_source": "jw"
-  }
-}
-```
-
 特殊分支：课表未公布时返回 `200`：
 
 ```json
-{
-  "success": true,
-  "data": {
-    "week": "暂无",
-    "courses": [],
-    "message": "课表暂未公布"
-  }
-}
+{"success":true,"data":{"week":"暂无","courses":[],"message":"课表暂未公布"}}
 ```
 
 常见错误：
 
 - `4002`：`date` 格式错误或日期非法
-- `3003`：JW 与回退 Portal 都无法恢复凭证
-- `3004`：JW 与回退 Portal 都超时且没有旧缓存可回退
+- `3003`：学校明确拒绝保存凭据或要求验证码，经多来源仲裁后仍需交互认证
+- `3004`：来源读取或请求预算超时，且没有可用后备结果
 
 补充说明：
 
 - JW 会话被其他登录挤掉时，上游可能返回 HTTP 200 登录页，而不是 401/302；服务端会将其识别为 `SESSION_EXPIRED`，刷新凭证后重试
-- 如果自动恢复仍失败且没有 Portal/旧缓存可回退，接口返回 `3003`
+- 恢复后的会话仍拒绝、普通认证页异常等服务故障返回 `3005`；超时返回 `3004`，不会因恢复失败笼统要求用户重登
 - 非凭证型故障且有旧缓存可回退时，接口返回 `200`，并用 `_meta.stale=true`、`refresh_failed=true`、`fallback=stale` 与 `last_error` 暴露降级
-- 两个来源的凭证错误经优先级仲裁后必须返回 `3003/401`，旧缓存不能掩盖重新登录要求
+- 来源明确要求交互认证时，不使用该来源 stale 掩盖要求；其他可用来源仍可成功返回
 
 ### 6.5 `GET /api/v1/schedule`
 
@@ -607,31 +444,7 @@ Portal 优先课表接口。虽然路径名带 `v1`，但当前语义是“统�
 - 日期区间不能超过 62 天
 - 只有当请求范围正好是“周一到周日”的 7 天整周时，Portal 失败才会回退 JW；其他区间不会回退
 
-返回结构与 `/api/schedule` 相同，也是 `{ week, courses }`，不是按日期分组的对象：
-
-```json
-{
-  "success": true,
-  "data": {
-    "week": "2026-03-01",
-    "courses": [
-      {
-        "name": "大学英语",
-        "teacher": "王老师",
-        "location": "教B201",
-        "day": 2,
-        "section": "3-4",
-        "date": "2026-03-03",
-        "weekStr": ""
-      }
-    ]
-  },
-  "_meta": {
-    "cached": false,
-    "source": "portal"
-  }
-}
-```
+返回结构与 `/api/schedule` 相同，为 `{ week, courses }`，每门 Portal 课程保留独立 `date`。
 
 “课表暂未公布”时同样返回 `200 + success=true` 的空课表对象。
 
@@ -648,14 +461,7 @@ Portal 优先课表接口。虽然路径名带 `v1`，但当前语义是“统�
 成功响应：
 
 ```json
-{
-  "success": true,
-  "data": {
-    "url": "https://example.com/calendar/schedule.ics?studentId=2023001001&sig=abcdef...",
-    "studentId": "2023001001",
-    "sig": "abcdef..."
-  }
-}
+{"success":true,"data":{"url":"https://example.com/calendar/schedule.ics?studentId=2023001001&sig=abcdef...","studentId":"2023001001","sig":"abcdef..."}}
 ```
 
 说明：
@@ -722,26 +528,7 @@ END:VCALENDAR
 | `kcmc` | string | 否 | 课程名搜索，最长 64 字符 |
 | `refresh` | string | 否 | `true` 表示跳过读缓存并强制回源 |
 
-响应示例：
-
-```json
-{
-  "success": true,
-  "data": {
-    "summary": {
-      "totalCourses": 8,
-      "totalCredits": 24,
-      "averageGpa": 3.5,
-      "averageScore": 85.2
-    },
-    "items": []
-  },
-  "_meta": {
-    "cached": false,
-    "source": "jw"
-  }
-}
-```
+返回 `IGradeList`，见 5.2；学校要求先评教时返回 4004/409 与 `data.evaluationRequired/listUrl`，进入第 8 节流程。
 
 补充说明：
 
@@ -755,87 +542,7 @@ END:VCALENDAR
 
 查询参数仅有可选 `refresh=true`：跳过读缓存，强制读取两页。请求沿用 Bearer JWT 与学业强刷限流。正常结果按 `training-plan:{studentId}` 永久缓存；普通请求命中即返回，强刷失败如有可用旧快照，返回 `_meta.stale=true`、`_meta.refresh_failed=true`。学校要求交互认证的 `3003` 不回退旧快照。两页有任意一页是登录跳转、结构缺失或读取失败时，不缓存部分数据；明确的 HTTP 200 CAS 跳转脚本按 JW 会话失效处理，由 SchoolAccess 尝试恢复后重读两页。
 
-响应结构（字段示意，数字不代表任一用户的完整方案）：
-
-```json
-{
-  "success": true,
-  "data": {
-    "title": "2024版某专业人才培养方案及教学计划",
-    "version": "2024版",
-    "objectives": "学校培养目标原文",
-    "description": "学校详细说明原文",
-    "groups": [{
-      "name": "专业必修课",
-      "raw": "专业必修课 (应修 25.5 / 已修 46)",
-      "requiredCredits": 25.5,
-      "requiredCreditsText": "25.5",
-      "earnedCredits": 46,
-      "earnedCreditsText": "46",
-      "subtotalCredits": 94,
-      "subtotalHours": { "theory": 824, "practice": 376, "computer": 0, "extracurricular": 0, "total": 1200 },
-      "courseCount": 33
-    }],
-    "totalCredits": null,
-    "totalHours": { "theory": null, "practice": null, "computer": null, "extracurricular": null, "total": null },
-    "semesters": [{
-      "index": 2,
-      "term": "2024-2025-2",
-      "plannedCourseCount": 1,
-      "completedCourseCount": 1,
-      "plannedCredits": 3.5,
-      "completedCredits": 3.5,
-      "courses": [{
-        "courseCode": "22126001",
-        "courseName": "离散数学",
-        "curriculumGroup": "专业必修课",
-        "selectionGroup": null,
-        "courseNature": "专业必修课",
-        "courseAttribute": "必修",
-        "credits": 3.5,
-        "creditsText": "3.5",
-        "hours": { "theory": 56, "practice": 0, "computer": 0, "extracurricular": 0, "total": 56 },
-        "plannedSemesterText": "2",
-        "plannedSemesterIndexes": [2],
-        "spansAllSemesters": false,
-        "completion": { "raw": "已修(84)", "status": "completed", "scoreText": "84", "score": 84 },
-        "assessmentMethod": "考试",
-        "execution": {
-          "sequence": 1,
-          "term": "2024-2025-2",
-          "courseCode": "22126001",
-          "courseName": "离散数学",
-          "teachingUnit": "某学院",
-          "credits": 3.5,
-          "creditsText": "3.5",
-          "totalHours": 56,
-          "assessmentMethod": "考试",
-          "courseNature": "专业必修课",
-          "courseAttribute": "必修",
-          "isExamText": "是"
-        },
-        "executionRecords": [{
-          "sequence": 1,
-          "term": "2024-2025-2",
-          "courseCode": "22126001",
-          "courseName": "离散数学",
-          "teachingUnit": "某学院",
-          "credits": 3.5,
-          "creditsText": "3.5",
-          "totalHours": 56,
-          "assessmentMethod": "考试",
-          "courseNature": "专业必修课",
-          "courseAttribute": "必修",
-          "isExamText": "是"
-        }]
-      }]
-    }],
-    "unassignedCourses": [],
-    "unmatchedExecutionRecords": []
-  },
-  "_meta": { "cached": false, "source": "jw" }
-}
-```
+完整类型见 [training-plan.ts](../../src/modules/academic/domain/training-plan.ts)；顶层含 `title/version/objectives/description/groups/totalCredits/totalHours/semesters/unassignedCourses/unmatchedExecutionRecords`。
 
 字段与加工规则：
 
@@ -871,25 +578,12 @@ END:VCALENDAR
 成功响应：
 
 ```json
-{
-  "success": true,
-  "data": {
-    "balance": 128.5,
-    "status": "正常",
-    "lastTime": "2026-03-08 12:30:00"
-  },
-  "_meta": {
-    "cached": true,
-    "cache_time": "2026-03-08T12:00:00.000+08:00",
-    "updated_at": "2026-03-08T12:00:00.000+08:00",
-    "source": "portal"
-  }
-}
+{"success":true,"data":{"balance":128.5,"status":"正常","lastTime":"2026-03-08 12:30:00"},"_meta":{"cached":true,"cache_time":"2026-03-08T12:00:00.000+08:00","updated_at":"2026-03-08T12:00:00.000+08:00","source":"portal"}}
 ```
 
 失败分支：
 
-- 若上游鉴权失效并恢复失败，返回 `3003`
+- 只有 CAS 明确拒绝保存凭据/要求验证码时返回 `3003`；恢复或学校可用性失败返回 `3005`，超时为 `3004`
 - 若上游返回非鉴权类错误且没有可用数据，返回 `502 + error_code=5000`
 
 ### 6.8 `GET /api/ecard/overview`
@@ -903,33 +597,9 @@ END:VCALENDAR
 | `month` | string | 否 | 严格 `YYYY-MM`；默认当前北京时间月份 |
 | `refresh` | string | 否 | `true` 表示余额与交易都跳过读缓存并强制回源 |
 
-成功响应（假设的合法空月示例，并非实际采样）：
+返回 `{ balance, month, totals, transactions, partial, unavailableParts, staleParts, degraded, freshness, truncated }`。`balance` 为 `{amountCents,status?}` 或 null；totals 含 `consumptionCents/rechargeCents/subsidyCents/electricityCents`。
 
-```json
-{
-  "success": true,
-  "data": {
-    "balance": { "amountCents": 12850, "status": "正常" },
-    "month": "2026-08",
-    "totals": {
-      "consumptionCents": 0,
-      "rechargeCents": 0,
-      "subsidyCents": 0,
-      "electricityCents": 0
-    },
-    "transactions": [],
-    "partial": false,
-    "unavailableParts": [],
-    "staleParts": [],
-    "degraded": false,
-    "freshness": {
-      "balance": { "cached": false, "source": "portal" },
-      "transactions": { "cached": false, "source": "mobile-yxt" }
-    },
-    "truncated": false
-  }
-}
-```
+交易完整字段见 [trade-parser.ts](../../src/modules/campus-integrations/mobile-yxt/trade-parser.ts)。
 
 字段语义：
 
@@ -943,6 +613,8 @@ END:VCALENDAR
 - `refundFlag` 原样保留学校 `isRefund`（`string | number | boolean | null`），无 `refunded` 字段。官方 H5 对字符串 `"0"` 展示普通交易、`"1"` 展示退款；其他类型/值暂不归一化，不使用布尔强转或自行冲正金额
 - 月份先 trim，缺省/空白取当前北京时间月份，再严格校验 `YYYY-MM` 和含首尾的 24 月窗口。2026-09 的下界为 2024-10；越界为 HTTP 400、4002，当前源码文案为 `month 仅允许当前月及此前 23 个自然月`（含空格）
 - `truncated=true` 表示至少一个交易分类达到服务端分页硬上限，不能把 totals 当作完整月度总额
+- 交易侧凭证、协议、业务、参数及限流错误使聚合整体失败；两子源都失败也整体报错。余额失败但交易成功可部分返回；可用性以 unavailableParts/balance 为准，不以 freshness 是否存在推断
+- 当前小程序余额与 overview 等待 55 秒；交易每用户保留 6 个月 LRU，同月 miss/refresh 合流并使用独立回源配额
 
 ### 6.9 `GET /api/utilities/electricity`
 
@@ -957,22 +629,7 @@ END:VCALENDAR
 成功响应：
 
 ```json
-{
-  "success": true,
-  "data": {
-    "roomDisplayName": "西校区 九舍 418",
-    "cardBalanceCents": 1234,
-    "priceCentsPerKwh": 62,
-    "remainingKwh": "-11.10",
-    "accountStatus": "正常",
-    "detailsAvailable": false,
-    "officialPaymentAvailable": false
-  },
-  "_meta": {
-    "cached": false,
-    "source": "mobile-yxt"
-  }
-}
+{"success":true,"data":{"roomDisplayName":"西校区 九舍 418","cardBalanceCents":1234,"priceCentsPerKwh":62,"remainingKwh":"-11.10","accountStatus":"正常","detailsAvailable":false,"officialPaymentAvailable":false},"_meta":{"cached":false,"source":"mobile-yxt"}}
 ```
 
 字段语义：
@@ -1000,20 +657,7 @@ END:VCALENDAR
 成功响应：
 
 ```json
-{
-  "success": true,
-  "data": {
-    "name": "张三",
-    "studentId": "2023001001",
-    "className": "计科2301",
-    "identity": "学生",
-    "organizationCode": "12345"
-  },
-  "_meta": {
-    "cached": false,
-    "source": "portal"
-  }
-}
+{"success":true,"data":{"name":"张三","studentId":"2023001001","className":"计科2301","identity":"学生","organizationCode":"12345"},"_meta":{"cached":false,"source":"portal"}}
 ```
 
 补充说明：
@@ -1029,6 +673,76 @@ END:VCALENDAR
 
 Community、Discover、Treehole、Notifications 与 Messaging 的用户契约见 [SOCIAL_API.md](./SOCIAL_API.md)。
 
-联动契约与证据边界补充：[2026-09-05 小程序后端契约核对](2026-09-05_miniprogram-backend-contract-report.md)。
+## 7. 空教室
+
+接口均需用户 Bearer JWT，学校查询实际使用后端服务账号。只读当前学期完全空闲教室，保持上游顺序并过滤特殊场地；不缓存、不降级、不提供借用提交。`_meta` 为 `{cached:false, source:"jw", upstreamAccount:"admin"}`。
+
+| 接口 | 参数 | data |
+|---|---|---|
+| `GET /api/classrooms/buildings` | 必填 `campusId=A/B`，A=西院、B=东院 | `{term,campusId,campusName,sectionModeId,buildings}`；每栋含 `campusId/campusName/buildingId/buildingName` |
+| `GET /api/classrooms/free` | 必填 `campusId/buildingId/startSection/endSection`；可选 `week/weekday` | `{term,campusId,campusName,buildingId,buildingName,week,weekday,startSection,endSection,rooms,queriedAt,sourceNote}` |
+
+`buildingId` 从楼栋列表选择。`week`（1–30）与 `weekday`（1–7）同时提供或同时省略；省略时按上游当前周与北京时间当天查询。节次均为 1–30 整数，结束不早于开始，并接受上游节次上限校验。`rooms[]` 为 `{id,name,capacity,examCapacity}`，空数组只表示当前条件无完全空闲教室。
+
+服务账号需要重新认证时返回 `3005/503`，保留用户登录态；用户 JWT 失效才是 `4001/401`。参数错误 4002，超时 3004。当前小程序楼栋/空教室读取等待 55 秒，覆盖学校访问 45 秒恢复预算。
+
+## 8. 评教
+
+所有接口使用 Bearer JWT，完整返回类型见 [evaluation.ts](../../src/modules/academic/domain/evaluation.ts)。楼栋、空教室和评教接口共享实时回源限流，超限返回 4003/429 与 Retry-After。
+
+| 接口 | 输入 | data |
+|---|---|---|
+| `GET /api/evaluations/discover` | 无 | `{evaluationRequired,listUrl}`，无可用批次时 false/null |
+| `GET /api/evaluations/status` | query `listUrl`，URL 编码 | `{total,pendingCount,actionableCount,blockedCount,completedCount,items}` |
+| `POST /api/evaluations/submit-full-score` | JSON `listUrl`；可选 `comment/dryRun/confirm/batchSize` | 批次结果，下表说明 |
+
+`listUrl` 使用发现接口或成绩错误 `4004` 的 `data.listUrl`，不自行拼接学校批次参数。服务端归一化 `/xspj/...` 为 `/jsxsd/xspj/...`。学校 HTML/JSON 混合响应以正文判断，HTTP 200 不代表成功。
+
+只有 `dryRun:false` 且 `confirm:true` 才实际提交，其余请求为预检。用户应先确认满分评教；默认评语“好”。batchSize 默认 2，范围 1–3；一次调用只选择初始列表中的一批，不在恢复或回查后重新挑选目标。
+
+| 结果字段 | 语义 |
+|---|---|
+| `items[].status=dry_run` | 表单预检成功，未提交 |
+| `items[].status=submitted` | 批末列表观察到稳定任务身份的完成增量；一个增量只确认一项 |
+| `items[].status=failed` | POST 前读取表单或准备参数失败 |
+| `items[].status=unknown` | 已尝试 POST，但回查失败或无可分配完成增量；不能断言学校未执行 |
+| `targetCount / batch.selectedCount` | 本批选中目标数 |
+| `attemptedCount` | 实际尝试 POST 数 |
+| `previewedCount/submittedCount/failedCount` | 本批预检成功、确认提交、准备失败数 |
+| `unconfirmedCount` | unknown 数，为 0 时可省略 |
+| `batch.limit/availableCount/remainingCount/hasMore` | 批次上限、初始可操作数、剩余可操作数、是否仍有下一批 |
+| `batch.verificationRequests` | 逻辑批末回查次数 0/1，不计内部读取重试 |
+| `batch.verificationSucceeded=false` | 回查失败；`status/remainingCount/hasMore` 仍是初始快照。成功不显式返回 true |
+| `status.items` | 全量列表快照；本批 `items[]` 的原始任务字段来自初始列表，以其 status 判断本批结果 |
+
+读取可有限恢复/重试，每项学校提交 POST 最多一次；提交超时后仍尝试只读回查。客户端不能自动重放提交 POST，也不能并行发起批次。请求断线、超时或取消只表示停止等待，不表示学校撤销了提交。
+
+流程：发现 → 状态 → 用户确认 → 预检 → 提交。出现 unknown、unconfirmedCount>0、verificationSucceeded=false 或 failedCount>0 时停止自动续批；先只读回查，由用户决定后续操作。即使本批全部成功，也要检查 hasMore、pendingCount 和 blockedCount；阻塞任务仍可能阻止成绩查询。全部完成后再强刷成绩。发现/状态读取当前小程序等待 55 秒。
+
+## 9. 早起打卡
+
+Bearer JWT 保护，全部裁决采用服务端北京时间，打卡窗口为 [05:30,09:30)，不接受客户端指定打卡时间。完整字段和规则见 [early-rising.ts](../../src/modules/early-rising/domain/early-rising.ts)。
+
+| 接口 | 输入/用途 |
+|---|---|
+| `POST /api/early-rising/check-ins` | 服务端时间打卡，每日一条 |
+| `GET /api/early-rising/me` | 当日状态与连续统计 |
+| `GET /api/early-rising/trend` | `month` 或 `from/to` 查询趋势，最大 366 天 |
+| `GET /api/early-rising/leaderboard` | `period=today/week/month`，最多 100 人 |
+| `GET /api/early-rising/settings` | 只读 `{profileEntryVisible}`，决定公共资料入口展示 |
+
+## 10. 学校协议维护边界
+
+这里只保留影响适配器选择的长期事实；字段、路径和解析实现分别以 [mobile-jw 模块](../../src/modules/campus-integrations/mobile-jw/)、[JW 模块](../../src/modules/campus-integrations/jw/) 与 [mobile-yxt 模块](../../src/modules/campus-integrations/mobile-yxt/) 为准。
+
+- 移动教务 H5 token 与 Portal JWT 不同；Portal 仅用于 SSO 换取独立 H5 token，不能直接作为课表请求凭据。该能力只需 Portal，不激活 JW。
+- 正式课表采用 `/student/curriculum`；`getSycurriculum` 指定学期接口曾在真实有课的同一学期返回假空表，因此不能作为正式来源。范围不支持不等于未公布。
+- 默认 curriculum 可能返回下一教学周，必须用响应七天真实日期及学期元信息定位周缓存；三层 item 与 date 配对，非连续节次不能补齐中间空档。完整空周有效，缺少元信息无效。
+- 移动教务明确失效包括 HTTP 401，以及 HTTP 200/500 配合字符串 code="401"；普通 500 是临时故障。JW 的 HTTP 200 登录页/CAS 跳转脚本也可能表示会话失效，不能缓存为业务结果。
+- JW “课表暂未公布”进入来源仲裁而不缓存；普通周课表应先尝试后备源与允许的旧缓存。legacy Portal 入口保留主源明确未公布的空态行为。
+- JW 级联接口可能以 `text/html` 返回 JSON；评教菜单可能使用短路径。适配器按正文而非仅状态码/Content-Type 解析，向外只返回领域 DTO。
+- 退款字符串 "0"/"1" 的普通/退款展示来自官方 H5；归档真实交易只有 "0"，数字/布尔标记及真实退款金额冲正规则未确认。totals 只是有符号金额机械求和，不是已经核验的净支出。
+- 电费仅使用 config/account，按位置 code 和 templateList code 投影；未提供值保留 null。支付、绑定、用电明细、水费及官方跳转均未启用。
+- 历史只读观察或离线 fixture 不构成实时可用性、真实写入或部署验收。学校改版需重新核验对应适配器，不能把旧样本的日期、数量或 ID 固化为业务常量。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md

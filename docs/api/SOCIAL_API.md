@@ -1,6 +1,5 @@
 # HUAS Server 社交后端 API 契约
 
-> 基线：2026-08-01 当前后端实现
 > Base URL：`http://localhost:3000`
 > 响应包、Bearer JWT、后台 Cookie、错误码与时间格式见 [API.md](./API.md)
 
@@ -446,7 +445,7 @@ interface Notification {
 | `GET /api/notifications/unread-count` | `{ unreadCount, total }`；total 是当前 recipient 的通知快照总量 |
 | `PUT /api/notifications/:id/read` | `{ id, read: true }` |
 
-普通列表按 `createdAt DESC, id DESC`，offset 分页只用于人工翻页，不用于轮询。增量入口接收非负 `afterNotificationId`，按 `id ASC` 返回严格大于高水位的新通知；响应中的 `afterNotificationId` 是本页最后一个 ID（空页保持请求值），`hasMore=true` 表示本次 limit 之后仍有新通知。前端继续传回新高水位以发现新增；当轮询摘要的 `total` 与当前列表快照不同，再重取一次普通列表完成 unlike 删除校准，不在客户端复制服务端排序或永久追加模型。
+普通列表按 `createdAt DESC, id DESC`，offset 分页只用于人工翻页，不用于轮询。增量入口接收非负 `afterNotificationId`，按 `id ASC` 返回严格大于高水位的新通知；响应中的 `afterNotificationId` 是本页最后一个 ID（空页保持请求值），`hasMore=true` 表示本次 limit 之后仍有新通知。前端继续传回新高水位以发现新增；当轮询摘要的 `total` 与当前列表快照不同，再重取一次普通列表完成 取消点赞或内容删除后的快照校准，不在客户端复制服务端排序或永久追加模型。
 
 ```json
 {
@@ -478,8 +477,8 @@ interface Notification {
 - 一次有效互动面向每个 recipient 生成一个稳定 `eventId`，重复投影不会重复通知。
 - 点赞/评论事实与 `activity_outbox` 在同一 SQLite 事务提交；请求提交后立即尝试投影，后台每 5 秒重试失败事件。
 - 有效取消点赞同时删除未投影 Outbox 和已投影通知，后续重试不会复活。
-- 通知只保存稳定内容引用，不保存互动正文；内容删除不会级联删除旧通知，访问目标时可得到 404。
-- 第一版通知永久保留，已读仅改变当前 recipient 的角标/视觉状态；没有清理、归档或合并任务。
+- 通知只保存稳定内容引用，不保存互动正文；删帖在同一事务撤回该帖全部互动事件和通知，删评论撤回该评论产生的 comment/reply 事件和通知，不影响同帖其他互动。
+- 未因源互动撤回的通知不按年龄清理；已读仅改变当前 recipient 的角标/视觉状态，没有归档或合并任务。
 - Messaging 不写活动通知，私信未读直接由消息事实和会话阅读游标计算。
 
 ## 7. Messaging
@@ -662,7 +661,7 @@ X-Content-Type-Options: nosniff
 
 ### 7.6 独立未读入口与错误矩阵
 
-私信和活动通知仍是两套事实与写入入口，但导航角标只轮询 `GET /api/social/unread-summary`。响应为 `{ messagingUnreadCount, notificationUnreadCount, notificationTotal }`：前两项相加生成“消息”Tab 总红点，`notificationTotal` 继续用于 unlike 撤销后的通知快照校准。聚合器并行调用两个领域的窄读端口；读取一侧不会清除另一侧。原 `/api/messaging/unread-count` 与 `/api/notifications/unread-count` 保留为领域兼容入口，不再由 Social Web 常规轮询。
+私信和活动通知仍是两套事实与写入入口，但导航角标只轮询 `GET /api/social/unread-summary`。响应为 `{ messagingUnreadCount, notificationUnreadCount, notificationTotal }`：前两项相加生成“消息”Tab 总红点，`notificationTotal` 继续用于 取消点赞或内容删除后的通知快照校准。聚合器并行调用两个领域的窄读端口；读取一侧不会清除另一侧。原 `/api/messaging/unread-count` 与 `/api/notifications/unread-count` 保留为领域兼容入口，不再由 Social Web 常规轮询。
 
 | HTTP | 社交接口真实语义 |
 |---:|---|
