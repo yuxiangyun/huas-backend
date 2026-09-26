@@ -1,14 +1,35 @@
 /**
- * [INPUT]: 依赖独立 EvaluationParser、EvaluationService、HttpClient 测试替身与教务评教 HTML 边界样本
+ * [INPUT]: 依赖独立 EvaluationParser、EvaluationApplicationService、SchoolAccess 与 HttpClient 测试替身与教务评教 HTML 边界样本
  * [OUTPUT]: 验证延后登录页拒绝、入口发现、列表/表单解析、有界续批、重排安全回查、已提交但未确认的 unknown 语义与结果 DTO 口径
  * [POS]: tests 的评教业务回归套件，保护 HTML 适配与提交事实不可伪造
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { describe, expect, it } from 'bun:test';
-import type { HttpClient } from '../src/core/http-client';
+import { describe, expect, it, spyOn } from 'bun:test';
+import { HttpClient } from '../src/modules/campus-integrations/http/http-client';
 import { EvaluationParser } from '../src/parsers/academic/evaluation-parser';
-import { EvaluationService } from '../src/services/academic/evaluation-service';
+import { EvaluationApplicationService } from '../src/modules/academic/application/evaluation-service';
+import { schoolRecovery } from '../src/modules/campus-integrations/school-access/recovery';
+import { schoolAccess } from '../src/modules/campus-integrations/school-access/school-access';
+import { discoverEvaluationListUrlFromClient } from '../src/modules/campus-integrations/school-access/evaluation-discovery';
+import { interactionRequired } from '../src/modules/campus-integrations/school-access/errors';
+
+// 只替换网络与凭证读取；列表解析、读取恢复、单次 POST 和批末确认均走生产实现。
+async function submitWithClient(client: Pick<HttpClient, 'request'>, listUrl: string,
+  options: Parameters<EvaluationApplicationService['submitFullScore']>[2] = {}) {
+  const request = spyOn(HttpClient.prototype, 'request').mockImplementation((url, init) => client.request(url, init));
+  const ensure = spyOn(schoolRecovery, 'ensure').mockResolvedValue({
+    userId: 0, system: 'jw_session', epoch: 0, id: 0, value: null, cookieJar: new HttpClient().serializeJar(),
+    updatedAt: 0, expiresAt: Date.now() + 60_000,
+  });
+  const service = new EvaluationApplicationService({
+    discoverEvaluation: userId => schoolAccess.execute(userId, { name: 'jw.evaluation.discover', input: {} }),
+    readRows: (userId, url, deadlineAt) => schoolAccess.execute(userId, { name: 'jw.evaluation.rows', input: { listUrl: url } }, deadlineAt ? { deadlineAt } : undefined),
+    evaluateItem: (userId, input, deadlineAt) => schoolAccess.execute(userId, { name: 'jw.evaluation.item', input }, { deadlineAt }),
+  });
+  try { return await service.submitFullScore(0, listUrl, options); }
+  finally { request.mockRestore(); ensure.mockRestore(); }
+}
 
 const LIST_URL = 'https://xyjw.huas.edu.cn/jsxsd/xspj/xspj_list.do?pj0502id=batch';
 
@@ -254,7 +275,7 @@ describe('EvaluationParser', () => {
       submittedAfterPost: false,
     });
 
-    const result = await EvaluationService.submitFullScoreFromClient(fake.client, LIST_URL, {
+    const result = await submitWithClient(fake.client, LIST_URL, {
       dryRun: false,
     });
 
@@ -264,18 +285,18 @@ describe('EvaluationParser', () => {
     expect(result.failedCount).toBe(0);
     expect(result.unconfirmedCount).toBe(1);
     expect(result.items[0].status).toBe('unknown');
-    expect(result.items[0].message).toBe('评教提交前准备失败，请稍后重试');
+    expect(result.items[0].message).toBe('学校尚未确认本次评教已提交，请先刷新评教列表查看结果，避免重复提交');
     expect(result.status.pendingCount).toBe(1);
     expect(result.status.completedCount).toBe(0);
   });
 
-  it('只有响应有效且回查列表已提交才计入本次 submittedCount', async () => {
+  it('以回查列表的已提交增量计入本次 submittedCount', async () => {
     const fake = makeEvaluationClient({
       submitHtml: '<html><body>提交成功</body></html>',
       submittedAfterPost: true,
     });
 
-    const result = await EvaluationService.submitFullScoreFromClient(fake.client, LIST_URL, {
+    const result = await submitWithClient(fake.client, LIST_URL, {
       dryRun: false,
       comment: '好',
     });
@@ -295,6 +316,24 @@ describe('EvaluationParser', () => {
     expect((result as any).successCount).toBeUndefined();
   });
 
+  it('提交响应错误但列表出现完成增量时仍以学校事实确认', async () => {
+    const fake = makeEvaluationClient({ submitHtml: '<html><body>系统异常：保存失败</body></html>', submittedAfterPost: true });
+    const result = await submitWithClient(fake.client, LIST_URL, { dryRun: false });
+    expect(fake.getPostCount()).toBe(1);
+    expect(result.submittedCount).toBe(1);
+    expect(result.items[0].status).toBe('submitted');
+  });
+
+  it('默认预检只读取表单，不发送 POST 或触发批末回查', async () => {
+    const fake = makeEvaluationClient({ submitHtml: '', submittedAfterPost: false });
+    const result = await submitWithClient(fake.client, LIST_URL);
+    expect(fake.getPostCount()).toBe(0);
+    expect(fake.getListGetCount()).toBe(1);
+    expect(result.previewedCount).toBe(1);
+    expect(result.attemptedCount).toBe(0);
+    expect(result.items[0].status).toBe('dry_run');
+  });
+
   it('批末列表重排时按稳定业务字段的已提交增量确认结果', async () => {
     let submitted = false;
     const client = {
@@ -312,7 +351,7 @@ describe('EvaluationParser', () => {
       },
     } as HttpClient;
 
-    const result = await EvaluationService.submitFullScoreFromClient(client, LIST_URL, { dryRun: false });
+    const result = await submitWithClient(client, LIST_URL, { dryRun: false });
 
     expect(result.submittedCount).toBe(1);
     expect(result.items[0].status).toBe('submitted');
@@ -324,7 +363,7 @@ describe('EvaluationParser', () => {
       submittedAfterPost: false,
     });
 
-    const result = await EvaluationService.submitFullScoreFromClient(fake.client, LIST_URL, {
+    const result = await submitWithClient(fake.client, LIST_URL, {
       dryRun: false,
     });
 
@@ -341,8 +380,8 @@ describe('EvaluationParser', () => {
       request: async () => new Response('<html><body>错误页</body></html>', { status: 503 }),
     } as unknown as HttpClient;
 
-    await expect(EvaluationService.submitFullScoreFromClient(client, LIST_URL)).rejects.toThrow('EVALUATION_LIST_HTTP_503');
-    await expect(EvaluationService.discoverListUrlFromClient(client)).rejects.toThrow('EVALUATION_DISCOVERY_HTTP_503');
+    await expect(submitWithClient(client, LIST_URL)).rejects.toMatchObject({ code: 3005, kind: 'unavailable' });
+    await expect(discoverEvaluationListUrlFromClient(client)).rejects.toThrow('EVALUATION_DISCOVERY_HTTP_503');
   });
 
   it('已确认主框架有效后忽略次级候选登录页，不把有效 JW 会话升级为 3003', async () => {
@@ -361,7 +400,7 @@ describe('EvaluationParser', () => {
       },
     } as unknown as HttpClient;
 
-    await expect(EvaluationService.discoverListUrlFromClient(client)).resolves.toEqual({
+    await expect(discoverEvaluationListUrlFromClient(client)).resolves.toEqual({
       evaluationRequired: false,
       listUrl: null,
     });
@@ -372,10 +411,10 @@ describe('EvaluationParser', () => {
       request: async () => new Response('<html><body>用户登录，验证码</body></html>'),
     } as unknown as HttpClient;
 
-    await expect(EvaluationService.discoverListUrlFromClient(client)).rejects.toThrow('SESSION_EXPIRED');
+    await expect(discoverEvaluationListUrlFromClient(client)).rejects.toThrow('SESSION_EXPIRED');
   });
 
-  it('表单读取 SESSION_EXPIRED 不会被逐项 failed 吞掉', async () => {
+  it('表单读取二次会话拒绝作为准备失败，不误报用户登录失效', async () => {
     const client = {
       async request(url: string) {
         if (url.includes('xspj_list.do')) return new Response(evaluationListHtml(false));
@@ -383,8 +422,20 @@ describe('EvaluationParser', () => {
       },
     } as unknown as HttpClient;
 
-    await expect(EvaluationService.submitFullScoreFromClient(client, LIST_URL, { dryRun: false }))
-      .rejects.toThrow('SESSION_EXPIRED');
+    const result = await submitWithClient(client, LIST_URL, { dryRun: false });
+    expect(result.attemptedCount).toBe(0);
+    expect(result.failedCount).toBe(1);
+    expect(result.items[0].status).toBe('failed');
+    expect(result.batch.verificationRequests).toBe(0);
+  });
+
+  it('真正要求交互登录的准备失败仍穿透业务批次', async () => {
+    const service = new EvaluationApplicationService({
+      discoverEvaluation: async () => ({ evaluationRequired: true, listUrl: LIST_URL }),
+      readRows: async () => EvaluationParser.extractListRows(evaluationListHtml(false)),
+      evaluateItem: async () => { throw interactionRequired(); },
+    });
+    await expect(service.submitFullScore(0, LIST_URL, { dryRun: false })).rejects.toMatchObject({ code: 3003 });
   });
 
   it('默认批次最多处理两项且只做一次最终列表回查', async () => {
@@ -410,7 +461,7 @@ describe('EvaluationParser', () => {
       },
     } as unknown as HttpClient;
 
-    const result = await EvaluationService.submitFullScoreFromClient(client, LIST_URL, { dryRun: false });
+    const result = await submitWithClient(client, LIST_URL, { dryRun: false });
 
     expect(posts).toBe(2);
     expect(listReads).toBe(2);
@@ -425,7 +476,7 @@ describe('EvaluationParser', () => {
       verificationRequests: 1,
     });
 
-    const next = await EvaluationService.submitFullScoreFromClient(client, LIST_URL, { dryRun: false });
+    const next = await submitWithClient(client, LIST_URL, { dryRun: false });
     expect(next.submittedCount).toBe(1);
     expect(next.batch).toEqual({
       limit: 2,

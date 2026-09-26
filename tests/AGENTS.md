@@ -17,7 +17,7 @@ cache-modernization.test.ts: Cache 永久/限时新鲜度、数据时间/LRU 访
 calendar-semester.test.ts: 当前学期逐周完整性、独立 24 小时订阅窗口、并发合流、跨实例持久化、其他行为隔离与失败保留旧 ICS 回归
 calendar-compat.test.ts: Calendar canonical 实现与 routes/services/auth 旧 Facade 的引用、token 别名与 HMAC 语义兼容测试
 campus-http-client.test.ts: 本地真实流式 HTTP 响应验证正文迟到的单次/总预算、超时重试与 Response 元数据/二进制/重定向合同
-campus-integrations-compat.test.ts: Campus Integrations canonical 实现与 auth/core/parsers/services 旧 Facade 的引用一致性测试
+campus-integrations-compat.test.ts: 保留 parsers/services Facade 引用一致性与已移除认证、任意上游回调入口不复生的边界测试
 database-migrations.test.ts: SQLite destructive 授权、0003 核心守恒/旧事实丢弃、0004 Treehole 媒体列与唯一索引、schema fail-ready、repair 与快照测试
 early-rising.test.ts: Early Rising 时间窗、幂等打卡、未来趋势拒绝、有界连续积分、展示设置与本地/远程 mock seed 清理回归测试
 deployment-scripts.test.ts: 维护发布脚本的 Bash 语法、首页弹窗成组备份白名单、release 保留、停流前磁盘门禁、PM2 直接 Bun 启动、destructive migration、本机冒烟与 forward-fix 回归测试
@@ -28,7 +28,7 @@ discover/: Discover HTTP/媒体共享支架及按业务能力细分的回归用�
 discover-application.test.ts: Discover application 媒体补偿、删除清理失败语义与孤儿清理委托回归测试
 e2e.live.test.ts: 真实上游端到端验证入口，支持单独运行移动教务课表/缓存/坏令牌恢复，并覆盖登录/JW 恢复与 mobile-yxt 账单、电费只读 DTO 及 epoch 绑定无 TTL 派生会话
 e2e.setup.ts: 真实上游测试隔离环境与临时 SQLite 显式迁移入口
-evaluation-parser.test.ts: 教评解析、延后 JW 登录表单、actionable/blocked 状态、有界续批、提交响应、未确认 unknown 与抗重排批末回查测试
+evaluation-parser.test.ts: 纯评教解析与真实 EvaluationApplicationService→SchoolAccess 具名操作链路；仅替换网络/凭证读取，验证有界续批、单次 POST、二次会话拒绝、交互要求及增量确认 unknown
 fixtures/: 测试二进制样本目录，包含 HEIC 图片
 grade-parser.test.ts: 成绩表结构、HTTP 200 登录页会话失效、合法空表、错误页拒绝与评教门禁回归测试
 identity-login-application.test.ts: Identity 登录成功后的非阻塞资料补全触发、完整资料去重、调度失败隔离及 Portal 资料缓存命中回写测试
@@ -60,7 +60,7 @@ treehole.test.ts: Treehole 薄聚合入口，在单进程内装配 treehole/ 公
 treehole/: Treehole HTTP/事务/Community 作者投影与私有图片共享支架，按帖子、媒体、交互和管理能力细分回归用例
 web-social-state.test.ts: 无 DOM 验证私信单一目标/历史合并、资料/详情 URL 互斥、basename 归一化、上传格式、Discover 排序/分页失效与通知 total 校准规则
 web-cache-policy.test.ts: Web 标准/引用/后台/强刷 Query 时间层级及高水位键有界回收策略测试
-upstream-retry.test.ts: Portal/JW 迟到失效保护新登录/轮换凭证、同值登录 epoch 隔离，以及上游请求/凭证恢复次数与 deadline、成绩临时错误、JW 主框架激活验证、CAS 结构化拒绝及 credentialsRejected 标记、HTTP 维护页及 Portal 换票瞬态网络语义回归测试
+upstream-retry.test.ts: SchoolRequestExecutor/SchoolRecovery/SchoolStateStore 的有限重试、独立等待、一次恢复重放及快照条件失效；单次 CAS 换票、主框架验证、结构化凭据拒绝与故障分类测试
 
 架构决策
 测试默认隔离学校真实网络，以 mock 边界验证业务编排；e2e.live.test.ts 是唯一真实上游入口。

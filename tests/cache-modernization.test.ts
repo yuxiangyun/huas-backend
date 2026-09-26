@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 Bun Test、隔离 SQLite、canonical CacheService、Academic 课表用例与 PerKeySingleflight
+ * [INPUT]: 依赖 Bun Test、隔离 SQLite、canonical CacheService、Academic 具名课表读取端口与 PerKeySingleflight
  * [OUTPUT]: 验证 FreshnessPolicy、数据时间/LRU 访问时间分离、envelope 兼容、条件失效与同键同刷新意图回源合并
  * [POS]: tests 的 Cache 专属定向套件，覆盖 Phase 4 缓存语义而不启动 HTTP 或真实校园网络
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -164,12 +164,13 @@ function createScheduleHarness() {
   const releases: Array<() => void> = [];
 
   const service = new ScheduleApplicationService({
-    upstream: async () => {
+    readJwSchedule: async () => {
       upstreamCalls += 1;
       if (shouldFail) throw new Error('UPSTREAM_FAILED');
       await new Promise<void>((resolve) => { releases.push(resolve); });
       return { week: `week-${upstreamCalls}`, courses: [], message: '' };
     },
+    readPortalSchedule: async () => { throw new Error('UNEXPECTED_PORTAL_READ'); },
     cache: {
       get: async <T>(key: string) => values.has(key)
         ? { data: values.get(key) as T, meta: { cached: true } }
@@ -203,13 +204,13 @@ describe('业务回源 singleflight', () => {
     harness.values.set(cacheKey, { week: 'cached', courses: [], message: '' });
 
     const hit = await harness.service.getSchedule(1, '2023001001', '2025-03-05', false);
-    expect(hit.data.week).toBe('cached');
+    expect(hit.data).toMatchObject({ week: 'cached' });
     expect(harness.upstreamCalls).toBe(0);
 
     const refresh = harness.service.getSchedule(1, '2023001001', '2025-03-05', true);
     await waitFor(() => harness.upstreamCalls === 1);
     harness.releaseAll();
-    expect((await refresh).data.week).toBe('week-1');
+    expect((await refresh).data).toMatchObject({ week: 'week-1' });
   });
 
   it('同 key 并发 miss 只触发一次上游', async () => {
