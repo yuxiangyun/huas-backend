@@ -415,7 +415,9 @@ npm run build
 
 ## 7. Nginx 反向代理
 
-如果你使用 Nginx 做反向代理，可以继续保留根目录的 `nginx.conf` 作为参考模板。
+如果你使用 Nginx 做反向代理，可以继续保留根目录的 `nginx.conf` 作为参考模板。模板的 `proxy_read_timeout 60s` 覆盖学校访问 45 秒、课表仲裁 50 秒预算，并为响应留出余量；Bun 的 `SERVER_IDLE_TIMEOUT_SECONDS` 默认同为 60 秒。读超时表示两次上游读取之间的等待，不是业务总截止时间，业务仍由应用自己的预算结束。
+
+维护发布脚本只向活动 include 写入 `proxy_pass` 或 maintenance 的 `return 503`，不会安装根目录模板，也不会重写既有站点的超时。使用宝塔或其他现有站点时，应通过 `nginx -T` 核对实际承接 `/api`、`/auth` 的 location 及其继承配置，保证有效 `proxy_read_timeout` 至少为 60 秒；如需调整，在拥有该配置的上下文修改并以 `nginx -t` 校验，避免在同一 location 重复声明。模板变更须另行应用到实际站点并核验有效配置。
 
 当前 `huas` 线上是宝塔 Nginx，维护发布在 maintenance 503 与目标槽之间切换的是：
 

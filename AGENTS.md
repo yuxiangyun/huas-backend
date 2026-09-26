@@ -333,7 +333,7 @@ bun.lock - 服务端依赖解析锁
 tsconfig.json - TypeScript 编译边界与路径别名
 drizzle.config.ts - Drizzle 迁移与 SQLite 连接配置
 ecosystem.config.cjs - PM2 直接执行 Bun ESM 入口的单实例运行参数，绕开 require wrapper
-nginx.conf - 反向代理样板
+nginx.conf - 独立部署反向代理模板，60秒读等待覆盖学校业务预算；现有站点由部署手册约束
 .env / .env.example - 运行时配置与无密钥模板，包含数据库、缓存、上游与课表来源策略
 .gitignore - 排除依赖、构建缓存、数据库、日志、业务媒体、首页弹窗持久状态与可变运行策略状态
 </config>

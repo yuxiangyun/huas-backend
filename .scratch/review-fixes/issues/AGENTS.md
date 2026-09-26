@@ -8,4 +8,6 @@ L2 | 父级: /.scratch/review-fixes/AGENTS.md
 05-captcha-reset.md: 3002且未返回新挑战时清除已消费的旧验证码session/image，保留可继续登录入口。
 06-regression-contracts.md: 迁移旧登录、恢复、mobile、评教与缓存测试到现有SchoolAccess合同，不恢复旧架构；将已确认不变量和修复边界固化。
 
+07-proxy-budget.md: 代理模板读等待覆盖应用50秒课表预算，明确既有站点配置与部署脚本边界，记录整体及架构审查。
+
 [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md

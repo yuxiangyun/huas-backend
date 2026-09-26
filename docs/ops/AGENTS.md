@@ -2,7 +2,7 @@
 > L2 | 父级: docs/AGENTS.md
 
 成员清单
-DEPLOY.md: 部署与运维手册，覆盖 release 保留/四媒体存量磁盘门禁、SQLite migration/repair/snapshot、首页弹窗共享状态及成组恢复、数据库与白名单资源备份、孤儿回收、私有媒体灾备与停流 forward-fix 门禁。
+DEPLOY.md: 部署与运维手册，区分代理模板与既有站点有效超时，覆盖 release 保留/四媒体存量磁盘门禁、SQLite migration/repair/snapshot、首页弹窗共享状态及成组恢复、数据库与白名单资源备份、孤儿回收、私有媒体灾备与停流 forward-fix 门禁。
 RUNTIME.md: Runtime 健康探针、Prometheus 轻量指标、本地/CI 质量门与正常关闭 flush 接线说明
 
 架构决策
