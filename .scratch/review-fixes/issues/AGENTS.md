@@ -10,4 +10,6 @@ L2 | 父级: /.scratch/review-fixes/AGENTS.md
 
 07-proxy-budget.md: 代理模板读等待覆盖应用50秒课表预算，明确既有站点配置与部署脚本边界，记录整体及架构审查。
 
+09-async-cleanup.md: 迁移测试阻塞竞态的失败退出释放与收尾，保留原断言错误；承接已独立完成的客户端08。
+
 [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md

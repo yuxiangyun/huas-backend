@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖隔离 SQLite、真实 SchoolAccess/SchoolRecovery、单次交换 spy 与可控网络
  * [OUTPUT]: 锁定 epoch/generation/父快照竞态、Portal 窄恢复、二次拒绝 3005、明确交互 3003 及 stale 资格
- * [POS]: tests 的 mobile-yxt 会话恢复套件，业务缓存/电费合同另由 mobile-yxt.test.ts 覆盖
+ * [POS]: tests 的 mobile-yxt 会话恢复套件，阻塞请求在退出前释放并收尾，业务缓存/电费合同另由 mobile-yxt.test.ts 覆盖
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -91,21 +91,29 @@ describe('学校登录 epoch 与模块会话仓储', () => {
 
     installYxtExchange(exchanger);
     const request = readTrades(user.id);
-    await oldStartedPromise;
-    await persistSchoolLogin(studentId, 'portal-new');
-    releaseOld();
-    expect((await request).status).toBe(200);
+    const settled = Promise.allSettled([request]);
+    try {
+      await Promise.race([oldStartedPromise, request.then(() => {
+        throw new Error('请求未进入预期阻塞点便已完成');
+      })]);
+      await persistSchoolLogin(studentId, 'portal-new');
+      releaseOld();
+      expect((await request).status).toBe(200);
 
-    const epoch = readSchoolLoginEpoch(getDb(), user.id);
-    const stored = await sessions.read(user.id);
-    const rows = await getDb().select().from(schema.credentials).where(and(
-      eq(schema.credentials.userId, user.id),
-      like(schema.credentials.system, 'derived_session:%'),
-    ));
-    expect(seenPortalTokens).toEqual(['portal-old', 'portal-new']);
-    expect(stored).toMatchObject({ accessToken: 'mobile-from-portal-new', loginEpoch: epoch });
-    expect(rows).toHaveLength(1);
-    expect(rows[0].value).not.toContain('mobile-from-portal-old');
+      const epoch = readSchoolLoginEpoch(getDb(), user.id);
+      const stored = await sessions.read(user.id);
+      const rows = await getDb().select().from(schema.credentials).where(and(
+        eq(schema.credentials.userId, user.id),
+        like(schema.credentials.system, 'derived_session:%'),
+      ));
+      expect(seenPortalTokens).toEqual(['portal-old', 'portal-new']);
+      expect(stored).toMatchObject({ accessToken: 'mobile-from-portal-new', loginEpoch: epoch });
+      expect(rows).toHaveLength(1);
+      expect(rows[0].value).not.toContain('mobile-from-portal-old');
+    } finally {
+      releaseOld();
+      await settled;
+    }
   });
 
   it('普通 Portal JWT 轮换和本地快捷登录不推进 epoch，也不使仍工作的 mobile 会话失效', async () => {
@@ -390,16 +398,24 @@ describe('401 generation 并发语义', () => {
       return new Response(JSON.stringify({ success: true, resultData: [] }), { status: 200 });
     });
     const request = readTrades(user.id);
-    await startedPromise;
-    expect(await sessions.invalidateGeneration(user.id, old!.generation)).toBe(true);
-    const fresh = await sessions.createIfLoginEpochMatches({
-      userId: user.id,
-      expectedLoginEpoch: epoch,
-      accessToken: 'new-mobile',
-      cookieJar: await sessionJar('new'),
-    });
-    release();
-    expect((await request).status).toBe(200);
-    expect(await sessions.read(user.id)).toEqual(fresh);
+    const settled = Promise.allSettled([request]);
+    try {
+      await Promise.race([startedPromise, request.then(() => {
+        throw new Error('请求未进入预期阻塞点便已完成');
+      })]);
+      expect(await sessions.invalidateGeneration(user.id, old!.generation)).toBe(true);
+      const fresh = await sessions.createIfLoginEpochMatches({
+        userId: user.id,
+        expectedLoginEpoch: epoch,
+        accessToken: 'new-mobile',
+        cookieJar: await sessionJar('new'),
+      });
+      release();
+      expect((await request).status).toBe(200);
+      expect(await sessions.read(user.id)).toEqual(fresh);
+    } finally {
+      release();
+      await settled;
+    }
   });
 });

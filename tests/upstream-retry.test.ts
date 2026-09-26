@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 SchoolRequestExecutor、SchoolRecovery、SchoolStateStore、单次 CAS 协议与隔离 SQLite
  * [OUTPUT]: 验证有限重试、独立等待、快照条件失效、单次换票及明确认证拒绝语义
- * [POS]: tests 的 SchoolAccess 调度和基础凭证护栏；不重建已删除的任意上游回调接口
+ * [POS]: tests 的 SchoolAccess 调度和基础凭证护栏；阻塞请求在退出前释放并收尾，不重建已删除的任意上游回调接口
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 import { beforeEach, describe, expect, it, spyOn } from 'bun:test';
@@ -59,20 +59,27 @@ describe('SchoolAccess 调度与快照失效', () => {
           }, replayable: true,
         });
         const result = pending.then(value => ({ value }), error => ({ error }));
-        await started;
-        getDb().transaction(tx => {
-          if (change === 'login') commitRealSchoolLoginContext(tx, {
-            userId, casCookieJar: EMPTY_JAR_JSON, portalToken: 'fresh', at: new Date(),
+        try {
+          await Promise.race([started, pending.then(() => {
+            throw new Error('请求未进入预期阻塞点便已完成');
+          })]);
+          getDb().transaction(tx => {
+            if (change === 'login') commitRealSchoolLoginContext(tx, {
+              userId, casCookieJar: EMPTY_JAR_JSON, portalToken: 'fresh', at: new Date(),
+            });
+            upsertBaseCredential(tx, { userId, system, value: system === 'portal_jwt' ? 'fresh' : null,
+              cookieJar: system === 'jw_session' ? EMPTY_JAR_JSON : null, at: new Date(Date.now() + 1_000) });
           });
-          upsertBaseCredential(tx, { userId, system, value: system === 'portal_jwt' ? 'fresh' : null,
-            cookieJar: system === 'jw_session' ? EMPTY_JAR_JSON : null, at: new Date(Date.now() + 1_000) });
-        });
-        release();
-        const resolved = await result;
-        expect('error' in resolved).toBe(false);
-        if ('value' in resolved) expect(resolved.value).toEqual(schoolStateStore.read(userId, system)!);
-        expect(calls).toBe(2);
-        expect(invalidations).toEqual([false]);
+          release();
+          const resolved = await result;
+          expect('error' in resolved).toBe(false);
+          if ('value' in resolved) expect(resolved.value).toEqual(schoolStateStore.read(userId, system)!);
+          expect(calls).toBe(2);
+          expect(invalidations).toEqual([false]);
+        } finally {
+          release();
+          await result;
+        }
       });
     }
   }
@@ -166,19 +173,26 @@ describe('SchoolAccess 调度与快照失效', () => {
   it('共享恢复独立等待：短等待超时不取消长等待或共享结果', async () => {
     const flights = new SharedSchoolFlights();
     let release!: (value: string) => void;
+    const blocked = new Promise<string>(resolve => { release = resolve; });
     let calls = 0;
     const work = async (shared: SchoolRequestContext) => {
       calls++;
       expect(shared.deadlineAt).toBeGreaterThan(Date.now() + 1_000);
-      return new Promise<string>(resolve => { release = resolve; });
+      return blocked;
     };
     const short = flights.run('same', context(20), work);
     const rejected = expect(short).rejects.toMatchObject({ code: 3004 });
     const long = flights.run('same', context(), work);
-    await rejected;
-    release('done');
-    expect(await long).toBe('done');
-    expect(calls).toBe(1);
+    const settled = Promise.allSettled([short, long, rejected]);
+    try {
+      await rejected;
+      release('done');
+      expect(await long).toBe('done');
+      expect(calls).toBe(1);
+    } finally {
+      release('done');
+      await settled;
+    }
   });
 });
 

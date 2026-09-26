@@ -41,7 +41,7 @@ messaging-upload.test.ts: Messaging HTTP 上传边界，锁定混合字段图片
 jw-schedule-unavailable.test.ts: 具名读取端口下真实 JW parser→service→Facade 的未公布跨源编排、历史周/日缓存条件淘汰、并发替代值复用及真实空表/stale 保留回归
 mobile-jw.test.ts: 真实 SchoolAccess/SchoolRecovery 的500+401、SSO/Portal快照、单飞/epoch/generation、TGC清理竞态、CAS冷却及日期/缓存合同
 mobile-yxt.test.ts: 真实 SchoolAccess 分页/电费协议、24月/6条LRU、业务缓存合流、nullable/协议诊断、独立配额与旧余额 HTTP 合同
-mobile-yxt-session.test.ts: 真实派生恢复、epoch/父快照/generation竞态、Cookie/HTML拒绝、3005与3003区分及stale资格
+mobile-yxt-session.test.ts: 真实派生恢复、epoch/父快照/generation竞态、Cookie/HTML拒绝、3005与3003区分及stale资格；阻塞竞态退出先释放并收尾请求
 mobile-yxt-fixtures.ts: mobile-yxt用户、独立JW种子、最小Cookie和电费响应的纯数据准备，无隐式生命周期
 mobile-school-fixtures.ts: 真实学校状态播种、认证提交、具名读取与单次交换/网络spy，套件显式还原，不复制恢复算法
 mobile-yxt-auth-state.test.ts: 严格派生命名空间、损坏/越权 CookieJar 事务淘汰、自动重建、合法会话读取及 Cookie/accessToken 低敏感错误日志专项反例
@@ -63,7 +63,7 @@ treehole.test.ts: Treehole 薄聚合入口，在单进程内装配 treehole/ 公
 treehole/: Treehole HTTP/事务/Community 作者投影与私有图片共享支架，按帖子、媒体、交互和管理能力细分回归用例
 web-social-state.test.ts: 无 DOM 验证私信单一目标/历史合并、资料/详情 URL 互斥、basename 归一化、上传格式、Discover 排序/分页失效与通知 total 校准规则
 web-cache-policy.test.ts: Web 标准/引用/后台/强刷 Query 时间层级及高水位键有界回收策略测试
-upstream-retry.test.ts: SchoolRequestExecutor/SchoolRecovery/SchoolStateStore 的有限重试、独立等待、一次恢复重放及快照条件失效；单次 CAS 换票、主框架验证、结构化凭据拒绝与故障分类测试
+upstream-retry.test.ts: SchoolRequestExecutor/SchoolRecovery/SchoolStateStore 的有限重试、独立等待、一次恢复重放及快照条件失效；单次 CAS 换票、主框架验证、结构化凭据拒绝与故障分类测试；阻塞竞态退出先释放并收尾请求
 
 架构决策
 测试默认隔离学校真实网络，以 mock 边界验证业务编排；e2e.live.test.ts 是唯一真实上游入口。
