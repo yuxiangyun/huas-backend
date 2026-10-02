@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖构造注入的 Drizzle db、Notifications schema 与 NotificationRepository 端口
+ * [INPUT]: 依赖构造注入的 Drizzle db、Notifications schema、领域安全分页 offset 与 NotificationRepository 端口
  * [OUTPUT]: 对外提供 SQLiteNotificationRepository，完成 recipient 隔离的排序列表、ID 增量、未读摘要与逐条已读
  * [POS]: modules/notifications/infrastructure 的通知事实 adapter，ID 高水位发现新增、总量摘要暴露撤销后的快照版本差异
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -7,7 +7,7 @@
 
 import { and, asc, desc, eq, gt, sql } from 'drizzle-orm';
 import { schema } from '../../../db';
-import type { NotificationFact } from '../domain/notification';
+import { notificationPageOffset, type NotificationFact } from '../domain/notification';
 import type { NotificationRepository } from '../domain/ports';
 import type { NotificationsDatabase } from './sqlite-activity-outbox';
 
@@ -23,6 +23,7 @@ export class SQLiteNotificationRepository implements NotificationRepository {
   constructor(private readonly db: NotificationsDatabase) {}
 
   async list(recipientUserId: number, page: number, pageSize: number) {
+    const offset = notificationPageOffset(page, pageSize);
     const filter = eq(schema.notifications.recipientUserId, recipientUserId);
     const [countRows, rows] = await Promise.all([
       this.db.select({ count: sql<number>`count(*)` })
@@ -33,7 +34,7 @@ export class SQLiteNotificationRepository implements NotificationRepository {
         .where(filter)
         .orderBy(desc(schema.notifications.createdAt), desc(schema.notifications.id))
         .limit(pageSize)
-        .offset((page - 1) * pageSize),
+        .offset(offset),
     ]);
     return {
       items: rows.map(toNotificationFact),

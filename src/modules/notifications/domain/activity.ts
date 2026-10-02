@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 无运行时基础设施依赖，只接收互动事实的稳定 ID、参与用户与发生时间
+ * [INPUT]: 无运行时基础设施依赖，只接收互动事实的安全整数 ID、参与用户与发生时间
  * [OUTPUT]: 对外提供六类 ActivityEvent、逐 recipient 稳定 eventId，以及评论/回复的统一接收者与类型规则
  * [POS]: modules/notifications/domain 的事件契约源，供 Discover/Treehole 在自身事务中生成无正文 Outbox 事实
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -58,7 +58,7 @@ const typeResources: Record<ActivityNotificationType, ActivityResourceType> = {
 };
 
 function requirePositiveId(value: number, label: string): void {
-  if (!Number.isInteger(value) || value <= 0) {
+  if (!Number.isSafeInteger(value) || value <= 0) {
     throw new Error(`${label} must be a positive integer.`);
   }
 }

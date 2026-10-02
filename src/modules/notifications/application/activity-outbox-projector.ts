@@ -1,11 +1,12 @@
 /**
- * [INPUT]: 依赖 ActivityOutboxStore、Notifications 重试/批量策略与统一 Logger，不依赖具体 SQLite 或周期调度器
- * [OUTPUT]: 对外提供 ActivityOutboxProjector.runOnce()，分别隔离事件投影与失败状态写回异常
- * [POS]: modules/notifications/application 的 Outbox 消费用例，可被请求后即时尝试和 periodic task 共同调用
+ * [INPUT]: 依赖 ActivityOutboxStore、Notifications 重试/批量策略、PerKeySingleflight 与统一 Logger，不依赖具体 SQLite 或周期调度器
+ * [OUTPUT]: 对外提供 ActivityOutboxProjector.runOnce()，合流完整轮次并分别隔离事件投影与失败状态写回异常
+ * [POS]: modules/notifications/application 的 Outbox 消费用例，统一持有请求后即时尝试和 periodic task 的在途轮次
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { Logger } from '../../../utils/logger';
+import { PerKeySingleflight } from '../../cache/application/singleflight';
 import type { NotificationsPolicy } from '../domain/notification';
 import type { ActivityOutboxStore, PendingActivityEvent } from '../domain/ports';
 
@@ -20,12 +21,18 @@ function errorMessage(error: unknown): string {
 }
 
 export class ActivityOutboxProjector {
+  private readonly flight = new PerKeySingleflight();
+
   constructor(
     private readonly store: ActivityOutboxStore,
     private readonly policy: NotificationsPolicy,
   ) {}
 
-  async runOnce(now: Date = new Date()): Promise<ActivityProjectionResult> {
+  runOnce(now: Date = new Date()): Promise<ActivityProjectionResult> {
+    return this.flight.run('activity-outbox-projection', 'normal', () => this.projectOnce(now));
+  }
+
+  private async projectOnce(now: Date): Promise<ActivityProjectionResult> {
     const pending = await this.store.listPending(now, this.policy.projectionBatchSize);
     let projected = 0;
     let failed = 0;

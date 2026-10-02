@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 NotificationRepository、CommunityProfileReader 与 Notifications 纯映射/分页规则
- * [OUTPUT]: 对外提供 NotificationApplicationService 的普通列表、增量轮询、未读摘要和逐条已读用例
+ * [OUTPUT]: 对外提供 NotificationApplicationService 的安全分页/增量/逐条已读用例与未读摘要
  * [POS]: modules/notifications/application 的用户读模型编排器，以 ID 高水位发现新增并以摘要总量支持撤销校准
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -10,7 +10,9 @@ import type { CommunityProfileReader } from '../../community/domain/ports';
 import {
   clampNotificationPage,
   clampNotificationPageSize,
+  notificationPageOffset,
   normalizeNotificationAfterId,
+  normalizeNotificationId,
   toNotificationResponse,
   type NotificationChangesOptions,
   type NotificationChangesResponse,
@@ -39,6 +41,7 @@ export class NotificationApplicationService {
   ): Promise<NotificationListResponse> {
     const page = clampNotificationPage(options.page);
     const pageSize = clampNotificationPageSize(options.pageSize, this.policy);
+    const offset = notificationPageOffset(page, pageSize);
     const result = await this.repository.list(recipientUserId, page, pageSize);
     const profiles = await this.profiles.getMany(result.items.map((item) => item.actorUserId));
     return {
@@ -49,7 +52,7 @@ export class NotificationApplicationService {
       page,
       pageSize,
       total: result.total,
-      hasMore: page * pageSize < result.total,
+      hasMore: result.total - offset > pageSize,
     };
   }
 
@@ -85,6 +88,10 @@ export class NotificationApplicationService {
   }
 
   markRead(recipientUserId: number, notificationId: number): Promise<boolean> {
-    return this.repository.markRead(recipientUserId, notificationId, new Date());
+    return this.repository.markRead(
+      recipientUserId,
+      normalizeNotificationId(notificationId),
+      new Date(),
+    );
   }
 }

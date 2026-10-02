@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Hono、注入的 NotificationApplicationService 与统一响应工具
- * [OUTPUT]: 对外提供 createNotificationRoutes(service)，暴露普通列表、ID 增量轮询、未读/总量摘要和单条幂等已读协议
+ * [OUTPUT]: 对外提供 createNotificationRoutes(service)，校验安全整数分页/游标/ID 后暴露列表、增量、摘要和单条幂等已读协议
  * [POS]: modules/notifications/http 的认证后协议 adapter，以摘要总量补足删除感知且不把 offset 翻页降格为轮询
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -18,7 +18,7 @@ type NotificationHttpService = Pick<
 function parseOptionalPositiveInt(value: string | undefined): number | null | undefined {
   if (value === undefined) return undefined;
   const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 export function createNotificationRoutes(service: NotificationHttpService) {
@@ -41,7 +41,7 @@ export function createNotificationRoutes(service: NotificationHttpService) {
     const afterValue = c.req.query('afterNotificationId');
     const limit = parseOptionalPositiveInt(c.req.query('limit'));
     const afterNotificationId = afterValue === undefined ? 0 : Number(afterValue);
-    if (!Number.isInteger(afterNotificationId) || afterNotificationId < 0 || limit === null) {
+    if (!Number.isSafeInteger(afterNotificationId) || afterNotificationId < 0 || limit === null) {
       return error(c, ErrorCode.PARAM_ERROR, '通知增量参数不合法', 400);
     }
     return success(c, await service.listChanges(c.get('userId'), {
