@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 RuntimeConfig、有限 retry、singleflight 与统一学校错误语义
- * [OUTPUT]: 对外提供内部请求上下文、唯一重试执行器与共享任务独立等待，最多恢复重放一次
+ * [OUTPUT]: 对外提供内部请求上下文、唯一重试执行器、共享任务独立等待及实际任务收尾，最多恢复重放一次
  * [POS]: SchoolAccess 的调度边界；协议执行单次交互，共享任务返回快照而非调用方客户端
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -25,10 +25,22 @@ function waitWithin<T>(work: Promise<T>, deadlineAt: number): Promise<T> {
 
 export class SharedSchoolFlights {
   private readonly flights = new PerKeySingleflight();
+  private readonly pending = new Set<Promise<unknown>>();
+
   run<T>(key: string, waiter: SchoolRequestContext, work: (context: SchoolRequestContext) => Promise<T>): Promise<T> {
     if (Date.now() >= waiter.deadlineAt) return Promise.reject(schoolTimeout());
     const shared = this.flights.run(key, 'normal', () => work(requestContext(Date.now() + waiter.config.school.recoveryBudgetMs)));
+    if (!this.pending.has(shared)) {
+      this.pending.add(shared);
+      const release = () => { this.pending.delete(shared); };
+      void shared.then(release, release);
+    }
     return waitWithin(shared, waiter.deadlineAt);
+  }
+
+  async drain(): Promise<void> {
+    // 等待者预算结束不代表共享恢复结束；收尾只等待实际工作，包含等待期间加入的任务。
+    while (this.pending.size > 0) await Promise.allSettled([...this.pending]);
   }
 }
 

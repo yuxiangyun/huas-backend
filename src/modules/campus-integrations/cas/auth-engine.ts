@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 HttpClient、CryptoHelper、URLS、config、统一 AppError 与 LoginStep 类型
- * [OUTPUT]: 对外提供 AuthEngine，封装 CAS 验证码、execution 与登录提交，仅明确拒绝标记 credentialsRejected，未知响应保留非认证错误，成功票据不再等待 Portal 跳转
+ * [OUTPUT]: 对外提供 AuthEngine，封装 CAS 验证码、execution 与登录提交，拒绝空或明确非图片挑战，仅明确拒绝标记 credentialsRejected，未知响应保留非认证错误
  * [POS]: campus-integrations/cas 的原始登录执行器，区分验证码错误、登录凭证拒绝与真实上游故障
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -80,7 +80,12 @@ export class AuthEngine {
       { timeout: config.timeout.cas }
     );
     assertCasHttpResponse(res, 'CAS_CAPTCHA');
-    return res.arrayBuffer();
+    const image = await res.arrayBuffer();
+    const contentType = res.headers.get('content-type')?.toLowerCase() || '';
+    if (!image.byteLength || contentType.includes('text/html') || contentType.includes('application/json')) {
+      throw new AppError(ErrorCode.SERVICE_ACCOUNT_UNAVAILABLE, '学校验证码初始化失败，请稍后重试');
+    }
+    return image;
   }
 
   async getExecution(): Promise<string | null> {

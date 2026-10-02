@@ -33,7 +33,7 @@ function parseRuntimeConfig(env: NodeJS.ProcessEnv) {
       windowMs: integer(env, 'AUTH_LOGIN_RATE_LIMIT_WINDOW_MS', 5 * 60_000),
       blockMs: integer(env, 'AUTH_LOGIN_RATE_LIMIT_BLOCK_MS', 10 * 60_000),
     }),
-    school: Object.freeze({ totalBudgetMs: 45_000, recoveryBudgetMs: 45_000, cooldownMs: 5_000, maxCooldownEntries: 4_096 }),
+    school: Object.freeze({ totalBudgetMs: 45_000, recoveryBudgetMs: 45_000, cooldownMs: 2_000, maxCooldownEntries: 4_096 }),
     captcha: Object.freeze({ ttlMs: 10 * 60_000, maxChallenges: 1_000 }),
   });
 }

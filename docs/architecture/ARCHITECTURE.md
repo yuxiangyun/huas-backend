@@ -33,7 +33,7 @@ CAS 成功即原子提交身份并签发 JWT，不等待学校业务激活或姓
 - 依赖方向为 CAS → Portal/JW、Portal → mobile。CAS 按用户合流，目标按用户/能力合流；只共享冻结凭证快照，不共享客户端或 CookieJar。
 - SchoolAccess 请求与共享恢复默认各有 45 秒预算，等待者独立限时；统一执行器负责有限重试和一次业务恢复重放。CAS 登录和评教写入不重放。
 - 真实 CAS 提交推进 epoch，写实际所得基础凭证，删除缺失 Portal 和旧派生会话；CAS-only 保留 JW。换票提交核对 epoch 与原 TGC，失败按完整快照删除；派生会话按 epoch 创建、generation 删除。
-- 基础凭证使用正 TTL；mobile 会话无 TTL，以协议失效证据恢复。恢复失败使用绑定 epoch 的固定五秒冷却，命中不续期，等待者超时不写账号故障。
+- 基础凭证使用正 TTL；mobile 会话无 TTL，以协议失效证据恢复。CAS、Portal、JW、mobile-jw 和 mobile-yxt 的实际恢复失败按用户、能力及 epoch 使用固定两秒冷却，命中不续期；父能力失败不扩散为派生能力故障，等待者超时不写账号故障。
 - HTTP 截止时间覆盖完整正文，响应头到达不等于完成；HTTP 层只报告传输事实，由协议层判定会话失效。日志、metrics 与缓存 observer 的失败隔离，不能改变业务返回。
 - 业务缓存与学校凭证分属不同边界。`TTL=0` 表示业务永久缓存；JW/Portal 课表、成绩及资料回源按 normal/refresh 分别合流，以开始代次限制提交，旧请求不能覆盖较新成功值。mobile-yxt 账单和电费则让同键 miss/refresh 共用在途回源。
 

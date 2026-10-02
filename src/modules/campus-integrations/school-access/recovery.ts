@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖单次 CAS/TGC 协议、条件状态仓储、用户级 CAS 合流、目标合流及固定 epoch 冷却
- * [OUTPUT]: 对外提供内部 SchoolRecovery.ensure，按 CAS→JW/Portal 目标依赖返回不可变凭证快照
+ * [OUTPUT]: 对外提供内部 SchoolRecovery.ensure/drain，按 CAS→JW/Portal 目标依赖返回不可变凭证快照并等待实际恢复收尾
  * [POS]: SchoolAccess 唯一恢复协调器，父认证与目标能力分别合流；调用方预算只限制等待
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -11,13 +11,15 @@ import { TicketExchanger } from '../cas/ticket-exchanger';
 import { RecoveryCooldown } from './recovery-cooldown';
 import { HttpClient } from '../http/http-client';
 import { authenticationAttempts } from './authentication-attempts';
-import { interactionRequired, normalizeSchoolFailure, schoolTimeout, schoolUnavailable } from './errors';
+import { interactionRequired, normalizeSchoolFailure, schoolUnavailable } from './errors';
 import { SharedSchoolFlights, schoolRequestExecutor, type SchoolRequestContext } from './request-executor';
 import { schoolStateStore, type BaseSchoolTarget, type SchoolCredentialSnapshot } from './state-store';
 
 export class SchoolRecovery {
   private readonly flights = new SharedSchoolFlights();
   private readonly cooldown = new RecoveryCooldown(userId => schoolStateStore.epoch(userId));
+
+  drain(): Promise<void> { return this.flights.drain(); }
 
   async ensure(userId: number, target: BaseSchoolTarget, waiter: SchoolRequestContext): Promise<SchoolCredentialSnapshot> {
     const cached = schoolStateStore.read(userId, target);
@@ -29,22 +31,25 @@ export class SchoolRecovery {
       const cooling = this.cooldown.read(userId, target);
       if (cooling) throw cooling.error ?? schoolUnavailable();
       let epoch = schoolStateStore.epoch(userId);
+      let targetWorkStarted = target === 'cas_tgc';
       try {
         if (target === 'cas_tgc') return await this.authenticateStored(userId, epoch, context);
-        const result = await this.acquireTarget(userId, target, context, updated => { epoch = updated; });
+        const result = await this.acquireTarget(userId, target, context,
+          updated => { epoch = updated; }, started => { targetWorkStarted = started; });
         return result;
       } catch (error) {
         const fresh = schoolStateStore.read(userId, target);
         if (fresh) return fresh;
         const failure = normalizeSchoolFailure(error);
-        // 父 CAS 已记录自己的故障；目标不能把父故障或旧 epoch 等待超时扩散为新账号状态。
-        if (target === 'cas_tgc' || !this.cooldown.read(userId, 'cas_tgc')) this.cooldown.record(userId, target, epoch, failure);
+        // 失败归属由实际步骤决定；父冷却过期也不能把父失败扩散为目标账号故障。
+        if (targetWorkStarted) this.cooldown.record(userId, target, epoch, failure);
         throw failure;
       }
     });
   }
 
-  private async acquireTarget(userId: number, target: 'portal_jwt' | 'jw_session', context: SchoolRequestContext, observeEpoch: (epoch: number) => void): Promise<SchoolCredentialSnapshot> {
+  private async acquireTarget(userId: number, target: 'portal_jwt' | 'jw_session', context: SchoolRequestContext, observeEpoch: (epoch: number) => void, observeTargetWork: (started: boolean) => void): Promise<SchoolCredentialSnapshot> {
+    observeTargetWork(false);
     let parent = await this.ensure(userId, 'cas_tgc', context);
     observeEpoch(parent.epoch);
     let authenticatedAgain = false;
@@ -53,6 +58,7 @@ export class SchoolRecovery {
       const existing = schoolStateStore.read(userId, target);
       if (existing) return existing;
       const exchanged = await schoolRequestExecutor.step(context, async () => {
+        observeTargetWork(true);
         const client = HttpClient.fromSerializedJar(parent.cookieJar!, context.deadlineAt);
         if (target === 'portal_jwt') {
           const result = await TicketExchanger.exchangePortalToken(client);
@@ -65,6 +71,7 @@ export class SchoolRecovery {
         schoolStateStore.invalidate(parent);
         if (authenticatedAgain) throw schoolUnavailable();
         authenticatedAgain = true;
+        observeTargetWork(false);
         parent = await this.ensure(userId, 'cas_tgc', context);
         observeEpoch(parent.epoch);
         conflict -= 1;
@@ -78,7 +85,7 @@ export class SchoolRecovery {
       if (!nextParent || nextParent.epoch !== parent.epoch) throw schoolUnavailable();
       parent = nextParent;
     }
-    throw schoolTimeout();
+    throw schoolUnavailable();
   }
 
   private async authenticateStored(userId: number, epoch: number, context: SchoolRequestContext): Promise<SchoolCredentialSnapshot> {

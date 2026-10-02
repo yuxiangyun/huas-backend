@@ -1,13 +1,14 @@
 /**
  * [INPUT]: 依赖 RuntimeConfig 固定窗口及调用方提供的学校登录 epoch reader 与当前时间，不访问学校或持久化凭证
- * [OUTPUT]: 对外提供 RecoveryCooldown/RecoveryScope，按用户、能力和登录代次保存固定五秒失败窗口
+ * [OUTPUT]: 对外提供 RecoveryCooldown/RecoveryScope，按用户、全部学校能力和登录代次保存固定两秒失败窗口
  * [POS]: SchoolAccess 的进程内失败节流；重放原有错误语义，真实登录换代自动淘汰旧窗口，读取不续期
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { runtimeConfig } from '../../../runtime-config';
 
-export type RecoveryScope = 'cas_tgc' | 'portal_jwt' | 'jw_session';
+const RECOVERY_SCOPES = ['cas_tgc', 'portal_jwt', 'jw_session', 'mobile_jw', 'mobile_yxt'] as const;
+export type RecoveryScope = typeof RECOVERY_SCOPES[number];
 const RECOVERY_COOLDOWN_MS = runtimeConfig.school.cooldownMs;
 const MAX_COOLDOWN_ENTRIES = runtimeConfig.school.maxCooldownEntries;
 
@@ -49,7 +50,7 @@ export class RecoveryCooldown {
   }
 
   clear(userId: number): void {
-    for (const scope of ['cas_tgc', 'portal_jwt', 'jw_session'] as const) {
+    for (const scope of RECOVERY_SCOPES) {
       this.entries.delete(`${userId}:${scope}`);
     }
   }

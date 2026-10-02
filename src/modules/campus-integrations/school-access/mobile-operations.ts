@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖两个派生会话恢复器/仓储、固定学校端点、最小 Cookie codec 与协议失效证据
- * [OUTPUT]: 对外提供内部移动教务六类读取、三类交易分页及电费配置/账户具名操作
+ * [OUTPUT]: 对外提供内部移动教务六类读取、三类交易分页及电费配置/账户具名操作，保留 mobile-yxt 协议失败分类
  * [POS]: SchoolAccess 的 mobile 单次只读协议；共享快照后为每个调用独立建客户端，由统一执行器恢复重放
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -11,7 +11,7 @@ import { assertHttpSuccess, isSessionExpired } from '../mobile-jw/errors';
 import { mobileJwSessionRepository } from '../mobile-jw/session-repository';
 import { mobileYxtSessionRepository } from '../mobile-yxt/session-repository';
 import { requireMobileYxtCookieJar } from '../mobile-yxt/session-cookie-codec';
-import { assertMobileYxtHttpSuccess, mobileYxtCredentialRejected, mobileYxtTimeout, mobileYxtUnavailable } from '../mobile-yxt/mobile-yxt-errors';
+import { assertMobileYxtHttpSuccess, mobileYxtCredentialRejected, mobileYxtProtocolFailure, mobileYxtTimeout, mobileYxtUnavailable } from '../mobile-yxt/mobile-yxt-errors';
 import { mobileJwRecovery, mobileYxtRecovery } from './derived-recovery';
 import { SchoolAccessError, sessionRejected } from './errors';
 import { schoolRequestExecutor, type SchoolRequestContext } from './request-executor';
@@ -78,6 +78,7 @@ async function yxtRead(userId: number, url: string, payload: object, context: Sc
     if (error instanceof SchoolAccessError) {
       if (error.kind === 'timeout') throw mobileYxtTimeout();
       if (error.kind === 'unavailable') throw error.retryable ? mobileYxtUnavailable() : mobileYxtCredentialRejected();
+      if (error.kind === 'protocol') throw mobileYxtProtocolFailure();
     }
     throw error;
   }
