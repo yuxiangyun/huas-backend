@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 winston、DailyRotateFile 与北京时区时间工具
- * [OUTPUT]: 对外提供初始化失败时保留控制台、隔离同步输出失败及异步文件流/transport 错误的 Logger 日志门面与 LoginStep 类型
+ * [INPUT]: 依赖 winston、DailyRotateFile 的队列/轮转生命周期与北京时区时间工具
+ * [OUTPUT]: 对外提供隔离初始化/输出错误、按依赖结束文件并有界等待全部轮转流完成的 Logger 门面与 LoginStep 类型
  * [POS]: utils 的日志契约源，统一控制台彩色输出、文件轮转和业务/认证/HTTP/解析日志格式
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -175,9 +175,52 @@ export interface LoginStep {
   detail?: string;
 }
 
-function createFileLogger(): ReturnType<typeof winston.createLogger> | undefined {
+interface FileLoggerResources {
+  logger: ReturnType<typeof winston.createLogger>;
+  fileStreams: FileStreamWaiter[];
+}
+
+type FileStreamWaiter = (cleanups: Array<() => void>) => Promise<void>;
+
+export interface LoggerFlushResult {
+  ok: boolean;
+  error?: string;
+}
+
+function observeFileStreams(stream: NodeJS.WritableStream): FileStreamWaiter {
+  // 当前配置只由 write 触发 rotate；watchLog=false，不会走 createLog 换流。
+  // 初始流已在构造时创建；不用会重复通知初始文件的 new 事件计数。
+  let pending = 1;
+  let failed = false;
+  let failure: unknown;
+  const waiters = new Set<{ resolve(): void; reject(error: unknown): void }>();
+  const settle = () => {
+    if (!failed && pending !== 0) return;
+    for (const waiter of waiters) {
+      if (failed) waiter.reject(failure);
+      else waiter.resolve();
+    }
+    waiters.clear();
+  };
+  stream.on('rotate', () => { pending += 1; });
+  stream.on('finish', () => { pending -= 1; settle(); });
+  stream.on('error', (error: unknown) => {
+    failed = true;
+    failure = error;
+    settle();
+  });
+  return (cleanups) => new Promise<void>((resolve, reject) => {
+    const waiter = { resolve, reject };
+    waiters.add(waiter);
+    cleanups.push(() => { waiters.delete(waiter); });
+    settle();
+  });
+}
+
+function createFileLogger(): FileLoggerResources | undefined {
   let logger: ReturnType<typeof winston.createLogger> | undefined;
   let pendingTransport: DailyRotateFile | undefined;
+  const fileStreams: FileStreamWaiter[] = [];
   try {
     logger = winston.createLogger({
       level: process.env.LOG_LEVEL || 'info',
@@ -204,13 +247,15 @@ function createFileLogger(): ReturnType<typeof winston.createLogger> | undefined
       pendingTransport = new DailyRotateFile(option);
       // 当前 DailyRotateFile 不转发底层 logStream 的 error，必须直接消费文件流失败。
       pendingTransport.logStream.on('error', reportLogFailure);
+      const waitForStreams = observeFileStreams(pendingTransport.logStream);
       pendingTransport.on('error', reportLogFailure);
       logger.add(pendingTransport);
       // add 后由 Winston 转发 transport error，避免同一事件重复报告。
       pendingTransport.off('error', reportLogFailure);
+      fileStreams.push(waitForStreams);
       pendingTransport = undefined;
     }
-    return logger;
+    return { logger, fileStreams };
   } catch (error) {
     try {
       pendingTransport?.close?.();
@@ -227,9 +272,76 @@ function createFileLogger(): ReturnType<typeof winston.createLogger> | undefined
   }
 }
 
-const fileLogger = createFileLogger();
+let fileLogger = createFileLogger();
+let loggerFlushPromise: Promise<LoggerFlushResult> | undefined;
+
+function waitForFinish(
+  emitter: Pick<NodeJS.EventEmitter, 'once' | 'removeListener'>,
+  name: string,
+  cleanups: Array<() => void>,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const release = () => {
+      emitter.removeListener('finish', onFinish);
+      emitter.removeListener('error', onError);
+      emitter.removeListener('close', onClose);
+    };
+    const onFinish = () => { release(); resolve(); };
+    const onError = (error: unknown) => { release(); reject(error); };
+    const onClose = () => { release(); reject(new Error(`${name} closed before finish`)); };
+    cleanups.push(release);
+    emitter.once('finish', onFinish);
+    emitter.once('error', onError);
+    emitter.once('close', onClose);
+  });
+}
+
+function flushFileLogger(timeoutMs = 5_000): Promise<LoggerFlushResult> {
+  if (loggerFlushPromise) return loggerFlushPromise;
+  const resources = fileLogger;
+  // 所有业务与关闭阶段日志已完成；后续失败报告只走控制台，不能写入已结束的文件流。
+  fileLogger = undefined;
+  loggerFlushPromise = (async () => {
+    if (!resources) return { ok: true };
+    const cleanups: Array<() => void> = [];
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      // Winston finish 只保证 transport 的消息队列结束；文件流仍可能持有待写字节。
+      // transport finish 已自动 unpipe/close 并 end 当前文件；不能重复 end 已结束的流。
+      // 先等消息队列，再等包含当前文件的全部轮转流计数归零，不采用任意一次 proxy.finish。
+      const loggerFinished = waitForFinish(resources.logger, 'logger', cleanups);
+      const drain = Promise.all([
+        Promise.resolve().then(() => { resources.logger.end(); }),
+        loggerFinished,
+      ]).then(() => Promise.all(resources.fileStreams.map((waitForStreams) => (
+        waitForStreams(cleanups)
+      ))));
+      const budget = Number.isSafeInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 2_147_483_647
+        ? timeoutMs : 5_000;
+      await Promise.race([
+        drain,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`logger flush timeout after ${budget}ms`)), budget);
+        }),
+      ]);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+      for (const cleanup of cleanups) cleanup();
+      try {
+        resources.logger.close();
+      } catch (error) {
+        reportLogFailure(error);
+      }
+    }
+  })();
+  return loggerFlushPromise;
+}
 
 export const Logger = {
+  flush: flushFileLogger,
   http: bestEffortLog((
     method: string,
     path: string,
@@ -269,7 +381,7 @@ export const Logger = {
 
     printDetailLines('stdout', consoleDetail);
 
-    fileLogger?.info('http', {
+    fileLogger?.logger.info('http', {
       method,
       path,
       status,
@@ -304,12 +416,12 @@ export const Logger = {
 
     printDetailLines('stdout', formatStepSummary(steps));
 
-    fileLogger?.info('auth', { studentId, result, status, ms, name, steps });
+    fileLogger?.logger.info('auth', { studentId, result, status, ms, name, steps });
   }),
 
   server: bestEffortLog((msg: string) => {
     printMainLine('stdout', 'info', 'SRV', [msg]);
-    fileLogger?.info('server', { msg });
+    fileLogger?.logger.info('server', { msg });
   }),
 
   serverBanner: bestEffortLog((port: number, env: string) => {
@@ -333,7 +445,7 @@ export const Logger = {
       ...formatIdentity(studentId, name),
     ]);
     printDetailLines('stdout', [detail]);
-    fileLogger?.warn(msg, { tag, detail, studentId, name });
+    fileLogger?.logger.warn(msg, { tag, detail, studentId, name });
   }),
 
   error: bestEffortLog((tag: string, msg: string, err?: unknown, studentId?: string, name?: string) => {
@@ -343,7 +455,7 @@ export const Logger = {
       ...formatIdentity(studentId, name),
     ]);
     printDetailLines('stderr', [errInfo ? String(errInfo) : undefined], c.red);
-    fileLogger?.error(msg, { tag, error: errInfo, studentId, name });
+    fileLogger?.logger.error(msg, { tag, error: errInfo, studentId, name });
   }),
 
   parser: bestEffortLog((name: string, action: string, studentId?: string, userName?: string) => {
@@ -353,7 +465,7 @@ export const Logger = {
         ...formatIdentity(studentId, userName),
       ]);
     }
-    fileLogger?.info('parser', { name, action, studentId, userName });
+    fileLogger?.logger.info('parser', { name, action, studentId, userName });
   }),
 
   operation: bestEffortLog((scope: string, action: string, actorId?: string, actorName?: string, detail?: string) => {
@@ -362,7 +474,7 @@ export const Logger = {
       ...formatIdentity(actorId, actorName),
     ]);
     printDetailLines('stdout', [detail]);
-    fileLogger?.info('operation', { scope, action, actorId, actorName, detail });
+    fileLogger?.logger.info('operation', { scope, action, actorId, actorName, detail });
   }),
 
   detail: bestEffortLog((text: string) => {

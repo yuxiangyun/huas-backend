@@ -73,7 +73,7 @@ Discover 图片和 Community 头像为公开媒体；Treehole 与私信图片走
 
 应用启动只有 schema metadata/fingerprint 校验权。迁移由维护发布显式执行；停流、停 writer、快照后迁移，新服务冒烟后开放流量。迁移后失败保持停流并 forward-fix，不能恢复旧二进制连接已变化数据库。
 
-PeriodicTaskRegistry 统一启动与停止周期任务；关闭依次停止任务、HTTP、flush hooks、释放组合根并关闭 SQLite。日志、数据库、媒体及活动构建产物不属于普通项目清理对象。
+PeriodicTaskRegistry 统一启动与停止周期任务。关闭开始撤销 ready 并立即停止 HTTP 新接入，等待启动资源归属确定、周期与 HTTP 在途、已登记的完整后台业务和学校共享恢复，再执行 flush hooks、释放组合根、有界收尾日志，最后关闭 SQLite。启动失败与重复信号共用幂等清理，各阶段失败仍继续收尾。日志、数据库、媒体及活动构建产物不属于普通项目清理对象。
 
 ## Web 边界
 
