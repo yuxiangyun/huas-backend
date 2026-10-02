@@ -1,12 +1,12 @@
 /**
  * [INPUT]: 依赖 React、d3/motion 与 dither-kit 同目录绘制原语
- * [OUTPUT]: 提供 chart-context.tsx 对应的图表组合或底层绘制能力
+ * [OUTPUT]: 提供图表共享控制状态与引用稳定的系列注册/注销能力
  * [POS]: components/dither-kit 的第三方源码组件，由公开 chart 入口间接消费
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import type { ScaleLinear } from "d3-scale"
-import { createContext, use, useState } from "react"
+import { createContext, use, useCallback, useState } from "react"
 import type { CommonChart } from "./common-context"
 import type { BloomInput } from "./dither-paint"
 import type { DitherColor, Seed } from "./palette"
@@ -213,8 +213,8 @@ export function useChartController({
   defaultSelectedDataKey?: string | null
   onSelectionChange?: (key: string | null) => void
 }): ChartContextValue {
-  // React Compiler memoizes every render-scope value below — no manual
-  // useMemo/useCallback wrappers needed.
+  // Series effects depend on the registration callbacks; keep their references
+  // stable so context state updates do not unregister and re-register series.
   const configKeys = Object.keys(config)
   const revision = useRevision(data, replayToken)
 
@@ -227,7 +227,7 @@ export function useChartController({
   const [isMouseInChart, setMouseInChart] = useState(false)
   const [seriesSpecs, setSeriesSpecs] = useState<Record<string, SeriesSpec>>({})
 
-  const registerSeries = (spec: SeriesSpec) => {
+  const registerSeries = useCallback((spec: SeriesSpec) => {
     setSeriesSpecs((prev) => {
       const cur = prev[spec.dataKey]
       return cur &&
@@ -237,15 +237,15 @@ export function useChartController({
         ? prev
         : { ...prev, [spec.dataKey]: spec }
     })
-  }
-  const unregisterSeries = (dataKey: string) => {
+  }, [])
+  const unregisterSeries = useCallback((dataKey: string) => {
     setSeriesSpecs((prev) => {
       if (!(dataKey in prev)) return prev
       const next = { ...prev }
       delete next[dataKey]
       return next
     })
-  }
+  }, [])
 
   const selectDataKey = (key: string | null) => {
     setSelectedDataKey(key)
