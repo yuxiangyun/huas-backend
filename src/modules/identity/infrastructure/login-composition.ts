@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 LoginApplicationService、SchoolAccess、Portal UserService、SqliteIdentityStore、Logger、CryptoHelper、JWT、config 与 Node crypto
- * [OUTPUT]: 对外提供纯装配 createLoginApplicationService，并把缺失学校资料调度为不阻塞登录的后台补全
- * [POS]: identity/infrastructure 的 composition root，把学校协议与后台任务策略隔离在应用端口之外
+ * [INPUT]: 依赖 LoginApplicationService、SchoolAccess、Portal UserService、后台任务登记器、SqliteIdentityStore、Logger、CryptoHelper、JWT、config 与 Node crypto
+ * [OUTPUT]: 对外提供 createLoginApplicationService，把本地和原始学校资料补全检查调度为不阻塞登录且完整登记收尾的后台工作
+ * [POS]: identity/infrastructure 的 composition root，把学校协议与后台任务归属隔离在应用端口之外
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -14,6 +14,7 @@ import { schoolAccess } from '../../campus-integrations/school-access/school-acc
 import { UserService } from '../../campus-integrations/portal/user-service';
 import { Logger } from '../../../utils/logger';
 import { SqliteIdentityStore } from './sqlite-identity.store';
+import { trackBackgroundTask } from '../../../runtime/background-tasks';
 
 function safeEqual(left: string, right: string): boolean {
   const leftBuffer = Buffer.from(left, 'utf8');
@@ -33,11 +34,11 @@ export function createLoginApplicationService(): LoginApplicationService {
     },
     token: { issue: generateToken },
     profile: {
-      requestCompletion: ({ userId, studentId }) => {
-        void UserService.getUserInfo(userId, studentId).catch((error) => {
+      requestCompletion: ({ userId, studentId, hasCompleteLocalProfile }) => {
+        void trackBackgroundTask(UserService.completeMissingUserInfo(userId, studentId, hasCompleteLocalProfile).catch((error) => {
           const detail = error instanceof Error ? error.message : String(error);
           Logger.warn('Identity', '用户资料后台补全失败', detail, studentId);
-        });
+        }));
       },
     },
     runtime: {
