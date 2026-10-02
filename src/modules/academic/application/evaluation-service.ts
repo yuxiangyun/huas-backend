@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 EvaluationApplicationPorts、既有评教纯规则、具名学校操作与 Logger
  * [OUTPUT]: 对外提供 EvaluationApplicationService、EvaluationParser 与评教公开结果类型
- * [POS]: academic/application 的评教用例编排器，只选择一次有界目标，学校协议通过具名操作隔离，可恢复读取与一次性提交分离；已尝试 POST 仅凭列表增量确认成功，无增量或回查失败均保留 unknown，公开失败说明使用中文且不透传上游内部错误码
+ * [POS]: academic/application 的评教用例编排器，同用户批次同步独占且只选择一次有界目标；可恢复读取与一次性提交分离，已尝试 POST 仅凭列表增量确认成功，无增量或回查失败均保留 unknown
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -62,8 +62,8 @@ function toStatus(rows: EvaluationListRow[]): EvaluationStatusResult {
 }
 
 function normalizeBatchSize(rawBatchSize: number | undefined) {
-  if (!Number.isFinite(rawBatchSize)) return DEFAULT_BATCH_SIZE;
-  return Math.min(MAX_BATCH_SIZE, Math.max(1, Math.floor(rawBatchSize!)));
+  if (typeof rawBatchSize !== 'number' || !Number.isFinite(rawBatchSize)) return DEFAULT_BATCH_SIZE;
+  return Math.min(MAX_BATCH_SIZE, Math.max(1, Math.floor(rawBatchSize)));
 }
 
 function evaluationIdentity(row: EvaluationListRow) {
@@ -78,6 +78,8 @@ function submittedCountForIdentity(rows: EvaluationListRow[], target: Evaluation
 type SubmitOptions = { dryRun?: boolean; comment?: string; batchSize?: number };
 
 export class EvaluationApplicationService {
+  private readonly submittingUsers = new Set<number>();
+
   constructor(private readonly ports: EvaluationApplicationPorts) {}
 
   async discoverListUrl(userId: number) { return this.ports.discoverEvaluation(userId); }
@@ -188,6 +190,15 @@ export class EvaluationApplicationService {
     listUrl: string,
     options: { dryRun?: boolean; comment?: string; batchSize?: number } = {},
   ) {
-    return this.submitBatch(userId, listUrl, options);
+    // 首个 await 之前抢占；不排队重放，也不把后到请求合流成先到请求的写入结果。
+    if (this.submittingUsers.has(userId)) {
+      throw new AppError(ErrorCode.TOO_MANY_REQUESTS, '评教批次正在处理中，请等待完成后再检查学校状态');
+    }
+    this.submittingUsers.add(userId);
+    try {
+      return await this.submitBatch(userId, listUrl, options);
+    } finally {
+      this.submittingUsers.delete(userId);
+    }
   }
 }

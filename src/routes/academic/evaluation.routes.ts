@@ -1,11 +1,11 @@
 /**
  * [INPUT]: 依赖 EvaluationService、校园实时限流、AppError/ErrorCode、HTTP 日志与统一响应工具
  * [OUTPUT]: 对外提供评教发现、blocked/actionable 状态读取与经批末回查确认的满分提交路由
- * [POS]: routes/academic 的评教 HTTP 适配器，只解析请求并记录最终业务事实
+ * [POS]: routes/academic 的评教 HTTP 适配器，验证 JSON 对象后投影请求，只解析请求并记录最终业务事实
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { EvaluationService } from '../../services/academic/evaluation-service';
 import { AppError, ErrorCode } from '../../utils/errors';
 import { appendHttpLogDetail, formatHttpLogDetail } from '../../utils/http-log';
@@ -16,9 +16,11 @@ const evaluations = new Hono();
 
 evaluations.use('*', academicRealtimeRateLimitMiddleware);
 
-async function readJsonBody(c: any) {
+async function readJsonBody(c: Context): Promise<Record<string, unknown>> {
   try {
-    return await c.req.json();
+    const body: unknown = await c.req.json();
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) throw new Error('INVALID_JSON_OBJECT');
+    return body as Record<string, unknown>;
   } catch {
     throw new AppError(ErrorCode.PARAM_ERROR, '提交内容格式不正确，请刷新页面后重试');
   }

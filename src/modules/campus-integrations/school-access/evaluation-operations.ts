@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖既有评教纯解析器、JW 导航发现及统一 JW 读取/单次执行
  * [OUTPUT]: 对外提供内部评教发现、列表读取、同会话准备并单次提交操作与提交尝试结果
- * [POS]: SchoolAccess 的评教协议；一次提交的会话不外泄，批次选择和回查增量确认留在 Academic
+ * [POS]: SchoolAccess 的评教协议；一次提交的会话不外泄，POST 后会话清理失败不改变已尝试事实，批次选择和回查增量确认留在 Academic
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 import { assertJwEvaluationListUrl, assertSuccessfulEvaluationSubmitHtml, EvaluationParser, safeJwUrl, type EvaluationListRow } from '../jw/parsers/evaluation-parser';
@@ -11,6 +11,7 @@ import { discoverEvaluationListUrlFromClient } from './evaluation-discovery';
 import { schoolRequestExecutor, type SchoolRequestContext } from './request-executor';
 import { SchoolAccessError } from './errors';
 import { schoolStateStore } from './state-store';
+import { Logger } from '../../../utils/logger';
 
 export type SchoolEvaluationRow = EvaluationListRow;
 export interface EvaluationItemAttempt { questionCount: number; fullScore: number; attempted: boolean; error?: string }
@@ -56,7 +57,13 @@ export async function evaluateItem(userId: number, input: { target: EvaluationLi
     return { ...summary, attempted: true };
   } catch (error) {
     if (!attempted) throw error;
-    if (error instanceof SchoolAccessError && error.kind === 'session-rejected') schoolStateStore.invalidate(session.snapshot);
+    if (error instanceof SchoolAccessError && error.kind === 'session-rejected') {
+      try {
+        schoolStateStore.invalidate(session.snapshot);
+      } catch (cleanupError) {
+        Logger.error('Evaluation', '评教提交后失效会话清理失败，保留待核验结果', cleanupError);
+      }
+    }
     return { ...summary, attempted: true, error: error instanceof Error ? error.message : 'SUBMIT_RESULT_UNKNOWN' };
   }
 }

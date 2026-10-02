@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 Pick<HttpClient, 'request'>、canonical 评教/会话页解析器、端点与 config timeout
  * [OUTPUT]: 对外提供 discoverEvaluationListUrlFromClient，有限遍历评教入口并隔离已认证会话中的局部登录页
- * [POS]: SchoolAccess 的评教发现协议适配器，被成绩门禁与评教用例共同复用
+ * [POS]: SchoolAccess 的评教发现协议适配器，被成绩门禁与评教用例共同复用；已确认主框架后，候选请求或正文的局部会话拒绝不撤销共享 JW 状态
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -15,13 +15,15 @@ import {
 } from '../jw/parsers/evaluation-parser';
 import { looksLikeAuthenticatedJwMainPage } from '../jw/parsers/session-page';
 import type { HttpClient } from '../http/http-client';
+import { SchoolAccessError } from './errors';
 export interface EvaluationDiscoveryResult { evaluationRequired: boolean; listUrl: string | null }
 
 const MAX_DISCOVERY_PAGES = 8;
 const DISCOVERY_ENTRY_URLS = [URLS.jwMain, URLS.jwIndex, `${URLS.jwBase}/`];
 
 function isSessionExpired(error: unknown): boolean {
-  return error instanceof Error && error.message === 'SESSION_EXPIRED';
+  return error instanceof SchoolAccessError && error.kind === 'session-rejected'
+    || error instanceof Error && error.message === 'SESSION_EXPIRED';
 }
 
 function assertDiscoveryResponse(response: Response, allowRedirect = false) {
@@ -43,25 +45,24 @@ export async function discoverEvaluationListUrlFromClient(
     if (!pageUrl || visited.has(pageUrl)) continue;
     visited.add(pageUrl);
 
-    const response = await client.request(pageUrl, { timeout: config.timeout.business });
-    assertDiscoveryResponse(response, true);
-    const location = response.headers.get('location');
-    if (location) {
-      const nextUrl = safeJwUrl(location, pageUrl);
-      if (nextUrl) {
-        const listUrl = new URL(nextUrl).pathname === EVALUATION_LIST_PATH
-          ? assertJwEvaluationListUrl(nextUrl)
-          : null;
-        if (listUrl) return { evaluationRequired: true, listUrl };
-        if (!visited.has(nextUrl)) queue.unshift(nextUrl);
-      }
-      continue;
-    }
-
-    const html = await response.text();
-    authenticatedSessionObserved ||= looksLikeAuthenticatedJwMainPage(html);
-
     try {
+      const response = await client.request(pageUrl, { timeout: config.timeout.business });
+      assertDiscoveryResponse(response, true);
+      const location = response.headers.get('location');
+      if (location) {
+        const nextUrl = safeJwUrl(location, pageUrl);
+        if (nextUrl) {
+          const listUrl = new URL(nextUrl).pathname === EVALUATION_LIST_PATH
+            ? assertJwEvaluationListUrl(nextUrl)
+            : null;
+          if (listUrl) return { evaluationRequired: true, listUrl };
+          if (!visited.has(nextUrl)) queue.unshift(nextUrl);
+        }
+        continue;
+      }
+
+      const html = await response.text();
+      authenticatedSessionObserved ||= looksLikeAuthenticatedJwMainPage(html);
       const listUrl = EvaluationParser.extractEvaluationListUrl(html, pageUrl);
       if (listUrl) return { evaluationRequired: true, listUrl };
 

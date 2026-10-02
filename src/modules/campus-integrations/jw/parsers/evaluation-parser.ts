@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 cheerio、教务 URL 配置、共享 JW 登录页判定与统一 AppError/ErrorCode
  * [OUTPUT]: 对外提供 EvaluationParser、评教列表/表单类型及 URL、会话、提交页解析规则
- * [POS]: campus-integrations/jw/parsers 的评教纯解析核心，把不稳定教务 HTML 转换为稳定任务与满分表单
+ * [POS]: campus-integrations/jw/parsers 的评教纯解析核心，明确登录页才判会话失效；任务状态与可用评分验证后生成列表和满分表单，空正文或未知协议字段不伪装为成功
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -138,6 +138,16 @@ function selectedFormValue($: cheerio.CheerioAPI, control: any) {
   return $(control).attr('value') ?? '';
 }
 
+function isDisabledFormControl($: cheerio.CheerioAPI, control: any) {
+  const node = $(control);
+  if (node.is('[disabled]')) return true;
+  return node.parents('fieldset[disabled]').toArray().some(fieldset => {
+    // HTML 允许 disabled fieldset 的首个 legend 内控件保持可用。
+    const firstLegend = $(fieldset).children('legend').first();
+    return !firstLegend.length || !cheerio.contains(firstLegend[0], control);
+  });
+}
+
 function appendFormListUrl(candidates: Set<string>, $: cheerio.CheerioAPI, form: any, pageUrl: string) {
   const node = $(form);
   const actionUrl = safeJwUrl(node.attr('action') || pageUrl, pageUrl);
@@ -150,7 +160,7 @@ function appendFormListUrl(candidates: Set<string>, $: cheerio.CheerioAPI, form:
     node.find('input,select,textarea').each((_, control) => {
       const field = $(control);
       const name = field.attr('name') || '';
-      if (!name || field.is('[disabled]')) return;
+      if (!name || isDisabledFormControl($, control)) return;
 
       const type = (field.attr('type') || '').toLowerCase();
       if (['button', 'submit', 'reset', 'image', 'file'].includes(type)) return;
@@ -181,9 +191,8 @@ function pickBestListUrl(candidates: Set<string>) {
 }
 
 function ensureActiveSession(html: string) {
-  const htmlStart = (html || '').slice(0, 800);
-  if (!html.trim() || /cas\/login/i.test(htmlStart) || /LoginToXk/i.test(htmlStart) ||
-    /用户登录/.test(htmlStart) || looksLikeJwLoginPage(html)) {
+  if (!html.trim()) throw new Error('EVALUATION_PAGE_EMPTY');
+  if (looksLikeJwLoginPage(html)) {
     throw new Error('SESSION_EXPIRED');
   }
 
@@ -266,19 +275,30 @@ function extractJwNavigationUrls(html: string, pageUrl: string) {
 }
 
 export function isEvaluationSubmitted(value: string) {
-  return value.includes('是') || /^yes$/i.test(value);
+  const submitted = normalizeEvaluationText(value);
+  return submitted === '是' || /^yes$/i.test(submitted);
 }
 
 function extractListRows(html: string): EvaluationListRow[] {
   ensureActiveSession(html);
 
   const $ = cheerio.load(html);
-  if (!$('#dataList').length) throw new Error('EVALUATION_LIST_INVALID');
+  if (!$('table#dataList').length) throw new Error('EVALUATION_LIST_INVALID');
   const rows: EvaluationListRow[] = [];
 
-  $('#dataList tr').slice(1).each((_, tr) => {
-    const cells = $(tr).find('td');
-    if (cells.length < 8) return;
+  $('#dataList tr').each((_, tr) => {
+    const row = $(tr);
+    if (row.closest('thead').length || row.children('th').length) return;
+    const cells = row.children('td');
+    if (cells.length < 8) {
+      if (cells.length > 1 || row.find('a[href*="xspj_edit.do"]').length) throw new Error('EVALUATION_LIST_ROW_INVALID');
+      return;
+    }
+    const index = normalizeEvaluationText($(cells[0]).text());
+    const submitted = normalizeEvaluationText($(cells[7]).text());
+    // 兼容旧表的 td 表头；只跳过序号、教师和提交列同时有明确标签的行。
+    if (index === '序号' && /教师/.test($(cells[1]).text()) && /提交/.test(submitted)) return;
+    if (!/^(?:是|否|yes|no)$/i.test(submitted)) throw new Error('EVALUATION_SUBMITTED_INVALID');
 
     let editUrl = '';
     $(tr).find('a[href*="xspj_edit.do"]').each((_, link) => {
@@ -286,12 +306,11 @@ function extractListRows(html: string): EvaluationListRow[] {
       if (!editUrl && !href.includes('type=view')) editUrl = new URL(href, URLS.jwBase).toString();
     });
 
-    const submitted = normalizeEvaluationText($(cells[7]).text());
     const submittedFlag = isEvaluationSubmitted(submitted);
     const actionable = Boolean(editUrl) && !submittedFlag;
     const pending = !submittedFlag;
     rows.push({
-      index: normalizeEvaluationText($(cells[0]).text()),
+      index,
       teacherId: normalizeEvaluationText($(cells[1]).text()),
       teacherName: normalizeEvaluationText($(cells[2]).text()),
       college: normalizeEvaluationText($(cells[3]).text()),
@@ -327,37 +346,41 @@ function extractMaxScore($: cheerio.CheerioAPI, input: cheerio.Cheerio<any>) {
 function parseScoreText(value: string | undefined) {
   const text = normalizeEvaluationText(value || '');
   if (!text) return null;
-  if (/^\d+(?:\.\d+)?$/.test(text)) return Number(text);
-
   const score = Number(text.match(/(\d+(?:\.\d+)?)/)?.[1]);
   return Number.isFinite(score) ? score : null;
 }
 
 function extractRadioScore($: cheerio.CheerioAPI, radio: cheerio.Cheerio<any>) {
   const next = radio.next();
+  const label = radio.closest('label');
+  const parent = radio.parent();
+  const radioSelector = 'input[type="radio" i]';
+  const nextIsOption = next.is(radioSelector) || next.find(radioSelector).length > 0;
+  const adjacentText = radio[0]?.nextSibling;
   const candidates = [
     radio.attr('data-score'),
     radio.attr('score'),
-    next.attr('value'),
-    next.text(),
-    radio.closest('label').text(),
-    radio.parent().text(),
+    adjacentText?.type === 'text' ? adjacentText.data : undefined,
+    !nextIsOption ? next.attr('value') : undefined,
+    !nextIsOption ? next.text() : undefined,
+    label.find(radioSelector).length === 1 ? label.text() : undefined,
+    parent.find(radioSelector).length === 1 ? parent.text() : undefined,
   ];
   for (const candidate of candidates) {
     const score = parseScoreText(candidate);
     if (score !== null) return score;
   }
-  return 0;
+  throw new Error('EVALUATION_RADIO_SCORE_MISSING');
 }
 
 type ScoreRadio = { input: any; score: number };
 
-function collectBestScoreRadios($: cheerio.CheerioAPI, form: cheerio.Cheerio<any>) {
+function collectBestScoreRadios($: cheerio.CheerioAPI, controls: cheerio.Cheerio<any>) {
   const groups = new Map<string, ScoreRadio[]>();
-  form.find('input').each((_, input) => {
+  controls.each((_, input) => {
     const node = $(input);
     const name = node.attr('name') || '';
-    if ((node.attr('type') || '').toLowerCase() !== 'radio' || !name.startsWith(SCORE_RADIO_PREFIX)) return;
+    if (input.tagName !== 'input' || (node.attr('type') || '').toLowerCase() !== 'radio' || !name.startsWith(SCORE_RADIO_PREFIX)) return;
     groups.set(name, [...(groups.get(name) || []), { input, score: extractRadioScore($, node) }]);
   });
 
@@ -402,7 +425,7 @@ function appendInput(
   }
   if (name.startsWith(SCORE_INPUT_PREFIX)) {
     const maxScore = extractMaxScore($, node);
-    if (!maxScore) throw new AppError(ErrorCode.PARAM_ERROR, '评教评分项缺少最高分');
+    if (!maxScore || !Number.isFinite(Number(maxScore))) throw new Error('EVALUATION_MAX_SCORE_MISSING');
     params.append(name, maxScore);
     return;
   }
@@ -414,14 +437,21 @@ function buildFullScoreForm(html: string, pageUrl: string, comment: string): Eva
 
   const $ = cheerio.load(html);
   const form = $('form#Form1').length ? $('form#Form1').first() : $('form').first();
-  if (!form.length) throw new AppError(ErrorCode.PARAM_ERROR, '未找到评教表单');
+  if (!form.length) throw new Error('EVALUATION_FORM_MISSING');
 
   const body = new URLSearchParams();
-  const selectedScoreRadios = collectBestScoreRadios($, form);
+  // 分组、统计与组参共享同一组可提交控件，禁用项不进入任何一条路径。
+  const controls = form.find('input,select,textarea').filter((_, control) => {
+    const node = $(control);
+    const type = (node.attr('type') || '').toLowerCase();
+    return Boolean(node.attr('name')) && !isDisabledFormControl($, control)
+      && (control.tagName !== 'input' || !['button', 'submit', 'reset', 'image', 'file'].includes(type));
+  });
+  const selectedScoreRadios = collectBestScoreRadios($, controls);
   let questionCount = selectedScoreRadios.size;
   let fullScore = [...selectedScoreRadios.values()].reduce((sum, item) => sum + item.score, 0);
 
-  form.find('input,select,textarea').each((_, control) => {
+  controls.each((_, control) => {
     const name = $(control).attr('name') || '';
     if (!name) return;
 
@@ -441,7 +471,7 @@ function buildFullScoreForm(html: string, pageUrl: string, comment: string): Eva
     if (control.tagName === 'select') body.append(name, selectedSelectValue($, control));
   });
 
-  if (questionCount === 0) throw new AppError(ErrorCode.PARAM_ERROR, '未找到评教评分项');
+  if (questionCount === 0 || !Number.isFinite(fullScore)) throw new Error('EVALUATION_SCORE_INVALID');
   return {
     actionUrl: new URL(form.attr('action') || '', pageUrl).toString(),
     body,
