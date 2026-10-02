@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 winston、DailyRotateFile 与北京时区时间工具
- * [OUTPUT]: 对外提供 Logger 日志门面与 LoginStep 类型
+ * [OUTPUT]: 对外提供初始化失败时保留控制台、隔离同步输出失败及异步文件流/transport 错误的 Logger 日志门面与 LoginStep 类型
  * [POS]: utils 的日志契约源，统一控制台彩色输出、文件轮转和业务/认证/HTTP/解析日志格式
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -58,11 +58,33 @@ function colorize(value: string, color: string): string {
 }
 
 function writeLine(stream: OutputStream, line: string): void {
-  if (stream === 'stderr') {
-    console.error(line);
-    return;
+  try {
+    if (stream === 'stderr') {
+      console.error(line);
+      return;
+    }
+    console.log(line);
+  } catch {
+    // 控制台失败也不能阻止同一次日志继续尝试文件输出。
   }
-  console.log(line);
+}
+
+function reportLogFailure(error: unknown): void {
+  try {
+    console.error('[Logger] 日志输出失败', error);
+  } catch {
+    // 失败报告本身也是旁路，不能递归使用 Logger 或向业务调用方抛错。
+  }
+}
+
+function bestEffortLog<Args extends unknown[]>(write: (...args: Args) => void): (...args: Args) => void {
+  return (...args) => {
+    try {
+      write(...args);
+    } catch (error) {
+      reportLogFailure(error);
+    }
+  };
 }
 
 function levelStyle(level: LogLevel) {
@@ -153,32 +175,62 @@ export interface LoginStep {
   detail?: string;
 }
 
-// Winston file logger
-const fileLogger = winston.createLogger({
-  level: process.env.LOG_LEVEL || 'info',
-  format: winston.format.combine(
-    winston.format.timestamp({ format: () => beijingIsoString() }),
-    winston.format.json()
-  ),
-  transports: [
-    new DailyRotateFile({
+function createFileLogger(): ReturnType<typeof winston.createLogger> | undefined {
+  let logger: ReturnType<typeof winston.createLogger> | undefined;
+  let pendingTransport: DailyRotateFile | undefined;
+  try {
+    logger = winston.createLogger({
+      level: process.env.LOG_LEVEL || 'info',
+      format: winston.format.combine(
+        winston.format.timestamp({ format: () => beijingIsoString() }),
+        winston.format.json()
+      ),
+    });
+    logger.on('error', reportLogFailure);
+    const options: DailyRotateFile.DailyRotateFileTransportOptions[] = [{
       filename: 'logs/huas-%DATE%.log',
       datePattern: 'YYYY-MM-DD',
       maxSize: '20m',
       maxFiles: '14d',
-    }),
-    new DailyRotateFile({
+    }, {
       filename: 'logs/error-%DATE%.log',
       datePattern: 'YYYY-MM-DD',
       level: 'error',
       maxSize: '20m',
       maxFiles: '30d',
-    }),
-  ],
-});
+    }];
+
+    for (const option of options) {
+      pendingTransport = new DailyRotateFile(option);
+      // 当前 DailyRotateFile 不转发底层 logStream 的 error，必须直接消费文件流失败。
+      pendingTransport.logStream.on('error', reportLogFailure);
+      pendingTransport.on('error', reportLogFailure);
+      logger.add(pendingTransport);
+      // add 后由 Winston 转发 transport error，避免同一事件重复报告。
+      pendingTransport.off('error', reportLogFailure);
+      pendingTransport = undefined;
+    }
+    return logger;
+  } catch (error) {
+    try {
+      pendingTransport?.close?.();
+    } catch (cleanupError) {
+      reportLogFailure(cleanupError);
+    }
+    try {
+      logger?.close();
+    } catch (cleanupError) {
+      reportLogFailure(cleanupError);
+    }
+    reportLogFailure(error);
+    return undefined;
+  }
+}
+
+const fileLogger = createFileLogger();
 
 export const Logger = {
-  http(
+  http: bestEffortLog((
     method: string,
     path: string,
     status: number,
@@ -187,7 +239,7 @@ export const Logger = {
     name?: string,
     meta?: { cached?: boolean; source?: string },
     detail?: string[]
-  ) {
+  ) => {
     const methodColor = method === 'POST' ? c.magenta : c.cyan;
     const normalizedDetail = detailLines(detail ?? []);
     const mainParts = [
@@ -217,7 +269,7 @@ export const Logger = {
 
     printDetailLines('stdout', consoleDetail);
 
-    fileLogger.info('http', {
+    fileLogger?.info('http', {
       method,
       path,
       status,
@@ -228,16 +280,16 @@ export const Logger = {
       source: meta?.source,
       detail: normalizedDetail.length > 0 ? normalizedDetail : undefined,
     });
-  },
+  }),
 
-  auth(
+  auth: bestEffortLog((
     studentId: string,
     result: string,
     status: number,
     ms: number,
     name?: string,
     steps?: LoginStep[]
-  ) {
+  ) => {
     const isWarn = result.includes('需要验证码')
       || result.includes('失败')
       || result.includes('异常')
@@ -252,68 +304,68 @@ export const Logger = {
 
     printDetailLines('stdout', formatStepSummary(steps));
 
-    fileLogger.info('auth', { studentId, result, status, ms, name, steps });
-  },
+    fileLogger?.info('auth', { studentId, result, status, ms, name, steps });
+  }),
 
-  server(msg: string) {
+  server: bestEffortLog((msg: string) => {
     printMainLine('stdout', 'info', 'SRV', [msg]);
-    fileLogger.info('server', { msg });
-  },
+    fileLogger?.info('server', { msg });
+  }),
 
-  serverBanner(port: number, env: string) {
+  serverBanner: bestEffortLog((port: number, env: string) => {
     printMainLine('stdout', 'info', 'SRV', [
       fit('server starting', SUMMARY_WIDTH),
       colorize(`port=${port}`, c.cyan),
       colorize(`env=${env}`, c.gray),
     ]);
-  },
+  }),
 
-  serverReady(port: number) {
+  serverReady: bestEffortLog((port: number) => {
     printMainLine('stdout', 'info', 'SRV', [
       fit('server ready', SUMMARY_WIDTH),
       colorize(`port=${port}`, c.cyan),
     ]);
-  },
+  }),
 
-  warn(tag: string, msg: string, detail?: string, studentId?: string, name?: string) {
+  warn: bestEffortLog((tag: string, msg: string, detail?: string, studentId?: string, name?: string) => {
     printMainLine('stdout', 'warn', 'APP', [
       fit(`${tag} ${msg}`, SUMMARY_WIDTH),
       ...formatIdentity(studentId, name),
     ]);
     printDetailLines('stdout', [detail]);
-    fileLogger.warn(msg, { tag, detail, studentId, name });
-  },
+    fileLogger?.warn(msg, { tag, detail, studentId, name });
+  }),
 
-  error(tag: string, msg: string, err?: any, studentId?: string, name?: string) {
+  error: bestEffortLog((tag: string, msg: string, err?: unknown, studentId?: string, name?: string) => {
     const errInfo = err instanceof Error ? err.message : (err || '');
     printMainLine('stderr', 'error', 'APP', [
       fit(`${tag} ${msg}`, SUMMARY_WIDTH),
       ...formatIdentity(studentId, name),
     ]);
     printDetailLines('stderr', [errInfo ? String(errInfo) : undefined], c.red);
-    fileLogger.error(msg, { tag, error: errInfo, studentId, name });
-  },
+    fileLogger?.error(msg, { tag, error: errInfo, studentId, name });
+  }),
 
-  parser(name: string, action: string, studentId?: string, userName?: string) {
+  parser: bestEffortLog((name: string, action: string, studentId?: string, userName?: string) => {
     if (SHOW_PARSER_SUCCESS) {
       printMainLine('stdout', 'info', 'PARSE', [
         fit(`${name} ${action}`, SUMMARY_WIDTH),
         ...formatIdentity(studentId, userName),
       ]);
     }
-    fileLogger.info('parser', { name, action, studentId, userName });
-  },
+    fileLogger?.info('parser', { name, action, studentId, userName });
+  }),
 
-  operation(scope: string, action: string, actorId?: string, actorName?: string, detail?: string) {
+  operation: bestEffortLog((scope: string, action: string, actorId?: string, actorName?: string, detail?: string) => {
     printMainLine('stdout', 'info', 'OPS', [
       fit(`${scope} ${action}`, SUMMARY_WIDTH),
       ...formatIdentity(actorId, actorName),
     ]);
     printDetailLines('stdout', [detail]);
-    fileLogger.info('operation', { scope, action, actorId, actorName, detail });
-  },
+    fileLogger?.info('operation', { scope, action, actorId, actorName, detail });
+  }),
 
-  detail(text: string) {
+  detail: bestEffortLog((text: string) => {
     printDetailLines('stdout', [text]);
-  },
+  }),
 };

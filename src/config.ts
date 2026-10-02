@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 RuntimeConfig 的冻结认证规则、process.env 与 node:path，读取端口、密钥、数据库、含 JW 培养方案的缓存、课表来源策略、四类社交媒体/孤儿宽限期、Treehole 低内存压缩门禁、服务账号、限流、成绩、mobile-yxt 与 mobile-jw 回源总预算及上游超时
- * [OUTPUT]: 对外提供 config、USER_AGENT 等运行时配置常量，并强制 TZ 为 Asia/Shanghai
+ * [OUTPUT]: 对外提供 config、USER_AGENT 等运行时配置常量，整数限制始终保留合法下界，并强制 TZ 为 Asia/Shanghai
  * [POS]: src 的配置源，所有模块通过它读取运行参数，避免散落读取环境变量
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -25,15 +25,15 @@ const DEFAULT_TREEHOLE_IMAGE_MAX_DIMENSION = 1_280;
 process.env.TZ = BEIJING_TIME_ZONE;
 
 function parsePositiveInt(value: string | undefined, fallback: number): number {
-  const n = Number(value);
-  if (!Number.isFinite(n) || n <= 0) return fallback;
-  return Math.floor(n);
+  const n = Math.floor(Number(value));
+  if (!Number.isSafeInteger(n) || n <= 0) return fallback;
+  return n;
 }
 
 function parseNonNegativeInt(value: string | undefined, fallback: number): number {
-  const n = Number(value);
-  if (!Number.isFinite(n) || n < 0) return fallback;
-  return Math.floor(n);
+  const n = Math.floor(Number(value));
+  if (!Number.isSafeInteger(n) || n < 0) return fallback;
+  return n;
 }
 
 export const config = {
