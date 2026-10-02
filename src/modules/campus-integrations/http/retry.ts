@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖调用方传入的异步任务、重试次数、退避、抖动、绝对截止时间和 shouldRetry/onRetry 回调
- * [OUTPUT]: 对外提供 RetryOptions 与 retryAsync()，在次数或时间预算耗尽时停止启动新尝试
+ * [OUTPUT]: 对外提供 RetryOptions 与 retryAsync()，在次数或时间预算耗尽时停止启动新尝试，隔离重试观察回调的异常
  * [POS]: campus-integrations/http 的通用有界重试工具，被校园上游访问层用于瞬时故障恢复
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -49,7 +49,11 @@ export async function retryAsync<T>(
       if (options.deadlineAt !== undefined && Date.now() + delayMs >= options.deadlineAt) {
         throw options.createDeadlineError?.() ?? error;
       }
-      options.onRetry?.(error, attempt, delayMs);
+      try {
+        options.onRetry?.(error, attempt, delayMs);
+      } catch {
+        // 观测失败不得替换原错误或阻止既定的有限重试。
+      }
       await sleep(delayMs);
     }
   }

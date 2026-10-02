@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 tough-cookie CookieJar、config.timeout、USER_AGENT、可选绝对截止时间与外层注入的低基数请求结果 observer
- * [OUTPUT]: 对外提供 HttpClient 与 configureHttpClientObservers，在单次超时和总预算内读完正文，返回仍可消费的完整 Response 并观测最终结果
+ * [INPUT]: 依赖 tough-cookie CookieJar、config.timeout、USER_AGENT、外部 AbortSignal、可选绝对截止时间与外层注入的低基数请求结果 observer
+ * [OUTPUT]: 对外提供 HttpClient 与 configureHttpClientObservers，在单次超时和总预算内读完正文，保留外部取消原因，返回仍可消费的完整 Response 并观测最终结果
  * [POS]: campus-integrations/http 的共享传输实现；CAS/Portal/JW 可持完整各自会话，mobile-yxt 由认证适配器提供仅含目标域 `/server` Cookie 的独立实例
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -39,7 +39,7 @@ export class HttpClient {
 
   constructor(jar?: CookieJar, timeout?: number) {
     this.jar = jar || new CookieJar();
-    this.defaultTimeout = timeout || config.timeout.business;
+    this.defaultTimeout = timeout ?? config.timeout.business;
   }
 
   setTimeout(ms: number): void {
@@ -74,14 +74,26 @@ export class HttpClient {
     if (cookieStr) headers.set('Cookie', cookieStr);
 
     const controller = new AbortController();
-    const timeout = Math.min(options.timeout || this.defaultTimeout, this.getRemainingTimeMs());
+    const timeoutAt = Math.min(Date.now() + (options.timeout ?? this.defaultTimeout), this.deadlineAt ?? Number.POSITIVE_INFINITY);
+    const timeout = timeoutAt - Date.now();
     if (!Number.isFinite(timeout) || timeout <= 0) {
       recordOutcome('timeout');
       throw new Error('REQUEST_TIMEOUT');
     }
-    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    let timedOut = false;
+    const abortForTimeout = () => {
+      if (controller.signal.aborted) return;
+      timedOut = true;
+      controller.abort();
+    };
+    const externalSignal = options.signal;
+    const abortFromCaller = () => controller.abort(externalSignal?.reason);
+    externalSignal?.addEventListener('abort', abortFromCaller, { once: true });
+    if (externalSignal?.aborted) abortFromCaller();
+    const timeoutId = setTimeout(abortForTimeout, timeout);
 
     try {
+      controller.signal.throwIfAborted();
       const res = await fetch(url, {
         ...options,
         headers,
@@ -109,17 +121,22 @@ export class HttpClient {
       // clone 保留 URL、状态、响应头和未消费的正文，调用方继续使用标准 Response API。
       const buffered = res.clone();
       await res.arrayBuffer();
+      // 定时器可能被事件循环延后；正文结束仍须核对实际截止时间。
+      if (Date.now() >= timeoutAt) abortForTimeout();
+      controller.signal.throwIfAborted();
       recordOutcome(res.status < 400 ? 'success' : 'failure');
       return buffered;
-    } catch (e: any) {
-      if (e.name === 'AbortError' || e.name === 'TimeoutError') {
+    } catch (e: unknown) {
+      if (timedOut || (!externalSignal?.aborted && e instanceof Error && (e.name === 'AbortError' || e.name === 'TimeoutError'))) {
         recordOutcome('timeout');
         throw new Error('REQUEST_TIMEOUT');
       }
       recordOutcome('failure');
+      if (controller.signal.aborted) throw controller.signal.reason;
       throw e;
     } finally {
       clearTimeout(timeoutId);
+      externalSignal?.removeEventListener('abort', abortFromCaller);
     }
   }
 
@@ -132,7 +149,7 @@ export class HttpClient {
 
       lastStatus = res.status;
 
-      if ([301, 302, 303, 307].includes(res.status)) {
+      if ([301, 302, 303, 307, 308].includes(res.status)) {
         const loc = res.headers.get('location');
         if (!loc) break;
         current = new URL(loc, current).toString();
