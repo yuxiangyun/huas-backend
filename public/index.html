@@ -526,11 +526,12 @@
         try {
           const res = await fetch(url, init);
           const ms = Math.round(performance.now() - start);
+          const raw = await res.text();
           let body = null;
           try {
-            body = await res.json();
+            body = JSON.parse(raw);
           } catch {
-            body = { raw: await res.text() };
+            body = { raw };
           }
 
           appendLog(`← ${res.status} ${res.statusText} (${ms}ms) ${path}`);
