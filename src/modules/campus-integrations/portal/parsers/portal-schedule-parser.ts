@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 Portal 上游 JSON、ICourse、Logger、无数据来源信号与 portal-code 的 code 语义判断
  * [OUTPUT]: 对外提供 PortalScheduleParser，按请求日期范围解析 Portal 课表，区分明确无数据提示、合法空表与未知缺失载荷
- * [POS]: campus-integrations/portal/parsers 的课表纯适配器，严格校验日期映射、列表与课程结构，保留独立 date，拒绝静默漏课并过滤日期范围
+ * [POS]: campus-integrations/portal/parsers 的课表纯适配器，仅明确过期 code 判定会话失效，普通失败 message 不承载内部错误信号；严格校验日期映射、列表与课程结构，保留独立 date 并过滤日期范围
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -28,7 +28,7 @@ export const PortalScheduleParser = {
 
     const message = typeof json?.message === 'string' ? json.message : '';
 
-    if (isPortalSessionExpiredCode(json?.code) || message.includes('token') || message.includes('失效') || message.includes('过期')) {
+    if (isPortalSessionExpiredCode(json?.code)) {
       Logger.warn('PortalScheduleParser', 'Session 过期', json?.message);
       throw new Error("SESSION_EXPIRED");
     }
@@ -46,7 +46,7 @@ export const PortalScheduleParser = {
 
     if (!isPortalSuccessCode(json?.code) || !json?.data?.schedule) {
       Logger.warn('PortalScheduleParser', '数据获取失败', json?.message || '未知错误');
-      throw new Error(json?.message || "GET_SCHEDULE_FAILED");
+      throw new Error('GET_SCHEDULE_FAILED');
     }
 
     const courses: ICourse[] = [];
