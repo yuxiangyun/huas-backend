@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 Identity 只读端口、Community 资料仓储/头像端口与纯领域规则
- * [OUTPUT]: 对外提供 CommunityApplicationService，分别完成三字段作者/含 Bio 详细资料投影、字段级资料更新与头像生命周期
- * [POS]: modules/community/application 的唯一用例服务，以窄 reader 隔离消费者并用资料 patch 保持并发字段安全
+ * [OUTPUT]: 对外提供 CommunityApplicationService，完成作者/详细资料投影、按开始代次仲裁的字段 patch 与候选头像生命周期
+ * [POS]: modules/community/application 的唯一用例服务，以同用户提交尾链保护各字段最新成功事实，候选保护保持到发布/补偿收尾
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -18,6 +18,7 @@ import {
   type DetailedCommunityProfile,
 } from '../domain/community';
 import type {
+  CommunityAvatarCandidate,
   CommunityAvatarStorage,
   CommunityDetailedProfileReader,
   CommunityProfilePatch,
@@ -30,6 +31,16 @@ function normalizeUserIds(userIds: readonly number[]) {
   return Array.from(new Set(userIds.filter((userId) => Number.isInteger(userId) && userId > 0)));
 }
 
+const PROFILE_FIELDS = ['nickname', 'bio', 'avatarUrl'] as const;
+type ProfileField = typeof PROFILE_FIELDS[number];
+
+interface ProfileUpdateState {
+  sequence: number;
+  active: number;
+  committed: Record<ProfileField, number>;
+  tail: Promise<void>;
+}
+
 export interface UpdateCommunityProfileInput {
   nickname?: unknown;
   bio?: unknown;
@@ -38,6 +49,8 @@ export interface UpdateCommunityProfileInput {
 }
 
 export class CommunityApplicationService implements CommunityProfileReader, CommunityDetailedProfileReader {
+  private readonly profileUpdates = new Map<number, ProfileUpdateState>();
+
   constructor(
     private readonly identities: CommunityIdentityReader,
     private readonly profiles: CommunityProfileRepository,
@@ -90,52 +103,93 @@ export class CommunityApplicationService implements CommunityProfileReader, Comm
   }
 
   async updateProfile(userId: number, input: UpdateCommunityProfileInput) {
-    const identity = (await this.identities.getMany([userId])).get(userId);
-    if (!identity) throw new AppError(ErrorCode.PARAM_ERROR, '用户不存在');
-    if (input.avatar && input.clearAvatar) {
-      throw new AppError(ErrorCode.PARAM_ERROR, '不能同时上传和删除头像');
+    // 在第一个 await 前登记开始顺序；准备失败不推进任何字段的成功代次。
+    let state = this.profileUpdates.get(userId);
+    if (!state) {
+      state = {
+        sequence: 0,
+        active: 0,
+        committed: { nickname: 0, bio: 0, avatarUrl: 0 },
+        tail: Promise.resolve(),
+      };
+      this.profileUpdates.set(userId, state);
     }
-
-    const patch: CommunityProfilePatch = {};
-    if (input.nickname !== undefined) {
-      patch.nickname = normalizeCommunityNickname(input.nickname);
-    }
-    if (input.bio !== undefined) {
-      patch.bio = normalizeCommunityBio(input.bio);
-    }
-    let candidateAvatarUrl: string | null = null;
-
-    if (input.avatar) {
-      candidateAvatarUrl = await this.avatars.storeAvatar(userId, input.avatar);
-      patch.avatarUrl = candidateAvatarUrl;
-    } else if (input.clearAvatar) {
-      patch.avatarUrl = null;
-    }
-    if (!Object.prototype.hasOwnProperty.call(patch, 'nickname')
-      && !Object.prototype.hasOwnProperty.call(patch, 'bio')
-      && !Object.prototype.hasOwnProperty.call(patch, 'avatarUrl')) {
-      throw new AppError(ErrorCode.PARAM_ERROR, '至少提交昵称、Bio 或头像');
-    }
-
-    let result: CommunityProfilePatchResult;
+    const current = state;
+    const sequence = ++current.sequence;
+    current.active += 1;
+    let candidate: CommunityAvatarCandidate | null = null;
     try {
-      result = await this.profiles.patch(userId, patch);
-    } catch (error) {
-      if (candidateAvatarUrl) {
-        try {
-          await this.avatars.removeAvatar(candidateAvatarUrl);
-        } catch (cleanupError) {
-          const detail = cleanupError instanceof Error ? cleanupError.message : String(cleanupError);
-          Logger.warn('CommunityAvatar', `候选头像补偿清理失败 userId=${userId}`, detail);
-        }
+      const identity = (await this.identities.getMany([userId])).get(userId);
+      if (!identity) throw new AppError(ErrorCode.PARAM_ERROR, '用户不存在');
+      if (input.avatar && input.clearAvatar) {
+        throw new AppError(ErrorCode.PARAM_ERROR, '不能同时上传和删除头像');
       }
-      throw error;
-    }
 
-    if (result.replacedAvatarUrl && result.replacedAvatarUrl !== result.profile.avatarUrl) {
-      await this.removeAvatarIfUnpublished(userId, result.replacedAvatarUrl);
+      const patch: CommunityProfilePatch = {};
+      if (input.nickname !== undefined) {
+        patch.nickname = normalizeCommunityNickname(input.nickname);
+      }
+      if (input.bio !== undefined) {
+        patch.bio = normalizeCommunityBio(input.bio);
+      }
+      if (input.avatar) {
+        candidate = await this.avatars.storeAvatar(userId, input.avatar);
+        patch.avatarUrl = candidate.avatarUrl;
+      } else if (input.clearAvatar) {
+        patch.avatarUrl = null;
+      }
+      if (!PROFILE_FIELDS.some((field) => Object.prototype.hasOwnProperty.call(patch, field))) {
+        throw new AppError(ErrorCode.PARAM_ERROR, '至少提交昵称、Bio 或头像');
+      }
+
+      let result: CommunityProfilePatchResult;
+      try {
+        result = await this.commitProfilePatch(userId, patch, sequence, current);
+      } catch (error) {
+        if (candidate) await this.removeAvatarIfUnpublished(userId, candidate.avatarUrl);
+        throw error;
+      }
+
+      // 头像字段可能被较新成功更新压制；未发布候选也必须补偿，不能遗留为当前引用。
+      if (candidate && result.profile.avatarUrl !== candidate.avatarUrl) {
+        await this.removeAvatarIfUnpublished(userId, candidate.avatarUrl);
+      }
+      if (result.replacedAvatarUrl && result.replacedAvatarUrl !== result.profile.avatarUrl) {
+        await this.removeAvatarIfUnpublished(userId, result.replacedAvatarUrl);
+      }
+      return toCurrentCommunityProfile(identity, result.profile);
+    } finally {
+      candidate?.release();
+      current.active -= 1;
+      if (current.active === 0) this.profileUpdates.delete(userId);
     }
-    return toCurrentCommunityProfile(identity, result.profile);
+  }
+
+  private commitProfilePatch(
+    userId: number,
+    patch: CommunityProfilePatch,
+    sequence: number,
+    state: ProfileUpdateState,
+  ): Promise<CommunityProfilePatchResult> {
+    const commit = state.tail.then(async () => {
+      const fields = PROFILE_FIELDS.filter((field) => (
+        Object.prototype.hasOwnProperty.call(patch, field) && sequence > state.committed[field]
+      ));
+      if (fields.length === 0) {
+        const profile = (await this.profiles.getMany([userId])).get(userId);
+        if (!profile) throw new AppError(ErrorCode.INTERNAL_ERROR, '社区资料更新结果不可用');
+        return { profile, replacedAvatarUrl: null };
+      }
+
+      const accepted: CommunityProfilePatch = {};
+      for (const field of fields) accepted[field] = patch[field];
+      const result = await this.profiles.patch(userId, accepted);
+      // 仲裁、数据库提交与成功标记共用尾链，下一提交不能抢进 await 的续点窗口。
+      for (const field of fields) state.committed[field] = sequence;
+      return result;
+    });
+    state.tail = commit.then(() => {}, () => {});
+    return commit;
   }
 
   clearAvatar(userId: number) {
@@ -152,7 +206,7 @@ export class CommunityApplicationService implements CommunityProfileReader, Comm
       await this.avatars.removeAvatar(avatarUrl);
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
-      Logger.warn('CommunityAvatar', `旧头像引用确认或清理失败 userId=${userId}`, detail);
+      Logger.warn('CommunityAvatar', `头像引用确认或清理失败 userId=${userId}`, detail);
     }
   }
 }

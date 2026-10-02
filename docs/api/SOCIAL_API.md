@@ -34,17 +34,22 @@ interface CommunityProfile {
   avatarUrl: string | null;
 }
 
-interface CurrentCommunityProfile extends CommunityProfile {
+interface DetailedCommunityProfile extends CommunityProfile {
+  bio: string | null;
+}
+
+interface CurrentCommunityProfile extends DetailedCommunityProfile {
   nickname: string | null;
 }
 ```
 
-- `CommunityProfile` 是公共资料，只含三个字段；`CurrentCommunityProfile` 只用于当前登录用户资料，多出的 `nickname` 供编辑框回填和区分系统缺省名。
+- `CommunityProfile` 是帖子、评论、通知和私信的三字段作者资料。用户详情和早起排行榜使用 `DetailedCommunityProfile`，额外包含 `bio`；本人资料使用 `CurrentCommunityProfile`，再增加 `nickname` 供编辑框回填和区分系统缺省名。
 - 自定义昵称允许重复。服务端先 trim；空字符串清除自定义昵称，`nickname` 返回 `null`，缺省名只作为 `displayName` 计算，绝不写回 `nickname`。
 - 非空昵称按 Unicode code point 计数，必须为 2–12 个字符；控制字符、换行及保留名 `管理员/官方/系统/匿名用户` 返回 `400 + 4002`。
 - 未设置昵称时，取 `className` 第一个数字前的有效前缀。例如 `软工24101班 + userId=17` 得到 `软工同学17`。
 - 班级为空或没有可用前缀时生成 `文理er {id}`。
 - `avatarUrl = null` 表示未设置 Community 头像。
+- Bio 为单行纯文本，先 trim；空字符串清除并返回 `null`，非空值最多 80 个 Unicode code point，控制字符和换行返回 `400 + 4002`。
 
 ### 2.2 分页
 
@@ -77,6 +82,7 @@ interface Page<T> {
     "id": 17,
     "displayName": "软工同学17",
     "avatarUrl": null,
+    "bio": null,
     "nickname": null
   }
 }
@@ -89,13 +95,15 @@ interface Page<T> {
 | 字段 | 类型 | 规则 |
 |---|---|---|
 | `nickname` | string | trim 后保存；空字符串清除昵称并恢复默认 displayName |
-| `bio` | string | trim 后保存；空字符串清除 Bio |
+| `bio` | string | 单行纯文本，trim 后最多 80 个 Unicode code point；空字符串清除 Bio |
 | `avatar` | File | 非空图片，默认最大 2MB |
 | `avatarIntent` | `replace` | 客户端要求替换头像时必传；此时 `avatar` 缺失直接返回 `400 + 4002`，不得退化为纯文本更新 |
 
 头像支持 JPG、PNG、WebP、GIF、HEIC/HEIF、AVIF、TIFF。服务端识别真实格式、自动旋转，按默认 `512 × 512` cover 和质量 `78` 输出 WebP；新文件使用不可变 `{userId}-{uuid}.webp` 名称。multipart 总请求在解析前按“头像上限 + 1MB 协议开销”限制，所有字段都计入，超限返回 `413 + 4002`。
 
-昵称、Bio 与头像使用字段级原子 patch，互相并发更新不会覆盖未提交字段。资料写入失败会补偿删除候选头像；切换成功后仅在数据库确认旧 URL 已无任何资料引用时清理旧文件。`avatarIntent` 只验证文件完整到达，不写入资料。
+昵称、Bio 与头像使用字段级原子 patch，互相并发更新不会覆盖未提交字段。同一用户按用例开始顺序逐字段仲裁：较新请求成功提交的字段不会被迟到的旧请求覆盖；较新请求失败不阻止旧请求提交，未重叠字段仍可独立更新。全部字段被较新成功请求取代时，返回当前已保存资料。
+
+候选头像从文件创建前保护至发布或补偿结束，回收前再次确认当前引用，不依赖宽限期来保护在途上传。资料写入失败会补偿删除未发布候选；切换成功后仅在数据库确认旧 URL 已无任何资料引用时清理旧文件，清理失败不改变已提交的资料结果。`avatarIntent` 只验证文件完整到达，不写入资料。
 
 成功返回更新后的 `CurrentCommunityProfile`。示例：
 
@@ -114,6 +122,7 @@ nickname=<space><space>小湘<space><space>
     "id": 17,
     "displayName": "小湘",
     "avatarUrl": null,
+    "bio": null,
     "nickname": "小湘"
   }
 }
@@ -121,16 +130,16 @@ nickname=<space><space>小湘<space><space>
 
 ### 3.3 `DELETE /api/community/profile/avatar`
 
-清除当前用户头像并返回更新后的 `CurrentCommunityProfile`。昵称不受影响。
+清除当前用户头像并返回更新后的 `CurrentCommunityProfile`。昵称与 Bio 不受影响。
 
 ### 3.4 `GET /api/community/users/:id`
 
-返回指定用户的公共 `CommunityProfile`。`id` 必须是正整数；用户不存在返回 `404 + 4002`。该接口永远不返回 `nickname`、校园身份字段、评论历史或点赞历史。
+返回指定用户的详细公共 `DetailedCommunityProfile`，包含 nullable `bio`。`id` 必须是 JavaScript 可精确表示的正安全整数；用户不存在返回 `404 + 4002`。该接口永远不返回 `nickname`、校园身份字段、评论历史或点赞历史。
 
 ```json
 {
   "success": true,
-  "data": { "id": 17, "displayName": "小湘", "avatarUrl": null }
+  "data": { "id": 17, "displayName": "小湘", "avatarUrl": null, "bio": null }
 }
 ```
 

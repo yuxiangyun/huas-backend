@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖共享 image 转换器、Node 文件系统、Community 资料仓储与注入的媒体配置
- * [OUTPUT]: 对外提供 CommunityAvatarMediaStorage，负责头像压缩、不可变存储、删除、公开读取与按引用/宽限期回收孤儿文件
- * [POS]: modules/community/infrastructure 的头像文件 adapter，只管理 Community 已发布媒体，不理解校园身份
+ * [OUTPUT]: 对外提供 CommunityAvatarMediaStorage，负责头像压缩、受保护不可变候选、删除、公开读取与引用/宽限期孤儿回收
+ * [POS]: modules/community/infrastructure 的头像文件 adapter，从创建前登记候选至用例收尾，并在回收前核对当前引用
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -10,7 +10,11 @@ import { mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
 import { AppError, ErrorCode } from '../../../utils/errors';
 import { transformImageToWebp } from '../../../utils/image';
-import type { CommunityAvatarStorage, CommunityProfileRepository } from '../domain/ports';
+import type {
+  CommunityAvatarCandidate,
+  CommunityAvatarStorage,
+  CommunityProfileRepository,
+} from '../domain/ports';
 
 export const COMMUNITY_AVATAR_CACHE_CONTROL = 'public, max-age=31536000, immutable';
 
@@ -30,6 +34,7 @@ function normalizedBasePath(value: string) {
 export class CommunityAvatarMediaStorage implements CommunityAvatarStorage {
   private readonly root: string;
   private readonly basePath: string;
+  private readonly activeCandidates = new Set<string>();
 
   constructor(
     private readonly profiles: CommunityProfileRepository,
@@ -39,7 +44,7 @@ export class CommunityAvatarMediaStorage implements CommunityAvatarStorage {
     this.basePath = normalizedBasePath(options.mediaBasePath);
   }
 
-  async storeAvatar(userId: number, file: File): Promise<string> {
+  async storeAvatar(userId: number, file: File): Promise<CommunityAvatarCandidate> {
     if (!Number.isInteger(userId) || userId <= 0) {
       throw new AppError(ErrorCode.PARAM_ERROR, '用户 ID 不合法');
     }
@@ -54,9 +59,21 @@ export class CommunityAvatarMediaStorage implements CommunityAvatarStorage {
     const filePath = this.resolveFileName(fileName);
     if (!filePath) throw new AppError(ErrorCode.PARAM_ERROR, '头像存储路径不合法');
 
-    await mkdir(this.root, { recursive: true });
-    await writeFile(filePath, transformed.data, { flag: 'wx' });
-    return `${this.basePath}/${fileName}`;
+    // 先登记再创建，保护仍在写入及已写完但尚未发布的文件，不依赖宽限期足够长。
+    this.activeCandidates.add(filePath);
+    let stored = false;
+    try {
+      await mkdir(this.root, { recursive: true });
+      await writeFile(filePath, transformed.data, { flag: 'wx' });
+      stored = true;
+      return {
+        avatarUrl: `${this.basePath}/${fileName}`,
+        release: () => { this.activeCandidates.delete(filePath); },
+      };
+    } finally {
+      // 创建失败不可能再发布；若有部分文件，解除保护后由宽限期回收兜底。
+      if (!stored) this.activeCandidates.delete(filePath);
+    }
   }
 
   async removeAvatar(avatarUrl: string): Promise<void> {
@@ -79,14 +96,19 @@ export class CommunityAvatarMediaStorage implements CommunityAvatarStorage {
     for (const entry of entries) {
       if (!entry.isFile()) continue;
       const filePath = this.resolveFileName(entry.name);
-      if (!filePath || referenced.has(filePath)) continue;
+      if (!filePath || referenced.has(filePath) || this.activeCandidates.has(filePath)) continue;
       try {
         const metadata = await stat(filePath);
-        if (metadata.mtime > before) continue;
+        if (metadata.mtime > before || this.activeCandidates.has(filePath)) continue;
+        // 此时候选必须已收尾；不可变 URL 不复用，后续不会再首次发布这个路径。
+        if (await this.profiles.isAvatarPublished(`${this.basePath}/${entry.name}`)) continue;
+        if (this.activeCandidates.has(filePath)) continue;
         await rm(filePath);
         removed += 1;
-      } catch (error: any) {
-        if (error?.code !== 'ENOENT') failures.push(error);
+      } catch (error: unknown) {
+        if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) {
+          failures.push(error);
+        }
       }
     }
 

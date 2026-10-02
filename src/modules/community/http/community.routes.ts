@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 Hono、注入的 CommunityApplicationService/头像策略、共享请求体上限与统一响应工具
  * [OUTPUT]: 对外提供 createCommunityRoutes(service, uploadPolicy)，以 PUT/微信原生上传 POST 接收受限 multipart 更新 nickname/Bio/avatar 并读取详细公共资料
- * [POS]: modules/community/http 的认证后协议 adapter，在 formData 前限制声明长度与流式请求体，以头像替换意图阻止缺失文件被文本字段掩盖，并维持字段披露边界
+ * [POS]: modules/community/http 的认证后协议 adapter，在 formData 前限制请求体并校验 multipart 主类型，以头像替换意图阻止缺失文件被文本字段掩盖
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -27,7 +27,7 @@ export interface CommunityHttpUploadPolicy {
 
 function parseUserId(value: string) {
   const userId = Number(value);
-  return Number.isInteger(userId) && userId > 0 ? userId : null;
+  return Number.isSafeInteger(userId) && userId > 0 ? userId : null;
 }
 
 function profileNotFound(c: Parameters<typeof error>[0]) {
@@ -50,6 +50,10 @@ export function createCommunityRoutes(
     tooLargeMessage: '资料上传请求体过大',
   });
   const updateProfile = async (c: Context) => {
+    const mediaType = c.req.header('content-type')?.split(';', 1)[0]?.trim().toLowerCase();
+    if (mediaType !== 'multipart/form-data') {
+      return error(c, ErrorCode.PARAM_ERROR, '请求必须是 multipart/form-data', 400);
+    }
     let form: FormData;
     try {
       form = await c.req.formData();
