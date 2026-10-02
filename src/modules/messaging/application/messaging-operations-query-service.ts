@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 MessagingRepository/MessageMediaStorage 只读能力、CommunityProfileReader 与领域映射规则
- * [OUTPUT]: 对外提供 MessagingOperationsQueryService，实现全会话/增量、三态历史和可审计管理媒体的只读端口
+ * [OUTPUT]: 对外提供 MessagingOperationsQueryService，实现安全分页的全会话/增量、三态历史和可审计管理媒体只读端口
  * [POS]: modules/messaging/application 的管理只读边界，与用户查询共享会话高水位及消息游标语义且不暴露写命令
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -13,6 +13,7 @@ import {
   clampMessagingPage,
   clampMessagingPageSize,
   finalizeMessagePage,
+  messagingPageOffset,
   normalizeConversationChangesQuery,
   normalizeMessagePageQuery,
   requireProfile,
@@ -46,13 +47,14 @@ export class MessagingOperationsQueryService implements MessagingOperationsQuery
   ): Promise<MessagingOperationsConversationListResponse> {
     const page = clampMessagingPage(options.page);
     const pageSize = clampMessagingPageSize(options.pageSize, this.policy);
+    const offset = messagingPageOffset(page, pageSize);
     const facts = await this.repository.listAllConversations(page, pageSize);
     return {
       items: await this.mapConversations(facts.items),
       page,
       pageSize,
       total: facts.total,
-      hasMore: page * pageSize < facts.total,
+      hasMore: pageSize < facts.total - offset,
     };
   }
 
@@ -76,7 +78,7 @@ export class MessagingOperationsQueryService implements MessagingOperationsQuery
     conversationId: number,
     options: MessagingMessageListOptions = {},
   ): Promise<MessagingOperationsMessageListResponse | null> {
-    if (!Number.isInteger(conversationId) || conversationId <= 0) {
+    if (!Number.isSafeInteger(conversationId) || conversationId <= 0) {
       throw new AppError(ErrorCode.PARAM_ERROR, '会话 ID 不合法');
     }
     const query = normalizeMessagePageQuery(options, this.policy);

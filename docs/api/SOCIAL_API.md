@@ -539,6 +539,8 @@ interface Conversation {
 
 普通会话列表按 `updatedAt DESC, id DESC`，offset 只用于用户翻页。轮询必须使用 `/conversations/changes`：`afterMessageId` 可省略或为非负整数，服务端按会话当前 `lastMessageId ASC` 返回严格大于高水位的变化会话。响应高水位是本页最后一条会话的 `lastMessage.id`（空页保持请求值），`hasMore` 表示 limit 后还有变化；前端按 `Conversation.id` 覆盖去重。
 
+Messaging 的用户、会话、消息 ID 与 `page/pageSize/limit` 必须是正安全整数，会话增量的 `afterMessageId` 允许 0。普通分页在页长裁到最大值后校验 offset 乘积仍为安全整数；无效输入返回 `400 + 4002`。
+
 从帖子、评论、通知 actor 或用户主页进入聊天前调用定位接口：目标必须存在，查询自己返回 `400 + 4002`，目标不存在返回 `404 + 4002`。没有历史时返回 `conversationId: null`，且不会创建空会话：
 
 ```json
@@ -594,7 +596,7 @@ interface MarkReadResult {
 }
 ```
 
-`PUT .../read` 可发送 JSON `{ "throughMessageId": 123 }`；不提供时推进到会话当前最后一条消息。游标只前进不后退，目标消息必须属于该会话。`GET /api/messaging/unread-count` 的 `unreadCount` 是未读消息条数，不是未读会话数。
+`PUT .../read` 可发送 JSON 对象 `{ "throughMessageId": 123 }`；显式字段必须是 number 类型的正安全整数。无正文或合法 JSON 对象缺少该字段时，推进到会话当前最后一条消息；`null`、数组、字符串、非法 JSON 或非 JSON 的非空正文返回 `400 + 4002`。游标只前进不后退，目标消息必须属于该会话。`GET /api/messaging/unread-count` 的 `unreadCount` 是未读消息条数，不是未读会话数。
 
 ### 7.4 `POST /api/messaging/users/:userId/messages`
 
@@ -628,6 +630,8 @@ images=<photo-2.heic>
 - Nginx、`Content-Length` 预检和 Hono 流式 body-limit 都限制明显超限请求；请求体超限稳定返回 `413 + 4002`，图片数量/单图/总量/格式错误返回 `400 + 4002`。
 
 同一发送者的同一 UUID 只对应一条消息。网络重试必须复用原 UUID、原接收人和相同的规范化图文内容；服务端返回原消息且不重复建会话、落事实或计入发送限流。图片重试会生成临时候选 WebP 做严格内容比较，比较后删除候选。相同 UUID 改变接收人、文字或图片均返回 `400 + 4002`。
+
+候选目录从创建前持续保护到消息事务成功提交后释放，或幂等比对/失败补偿结束后释放；补偿删除失败仍释放保护并保留原错误，交周期回收兜底。回收在删除前再次同步核对当前数据库引用，不能仅凭扫描开始时的引用快照删除文件。
 
 成功响应就是完整 `Message`，其中 `clientMessageId` 与请求头一致。文字最多 1000 Unicode code point、每条最多 9 图，纯文字、纯图片、文字加多图都合法，但二者不能同时为空。
 

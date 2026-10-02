@@ -69,6 +69,8 @@ Discover/Treehole 的六类有效互动与 activity_outbox 在同一短事务提
 
 Messaging 只建一对一唯一会话，首条消息成功时事务内延迟创建；UUID 与图文内容共同约束幂等。消息按最新/before/after 分页，会话轮询按 lastMessageId 高水位，阅读游标只前进。私信与活动通知的事实及未读独立，`/api/social/unread-summary` 只聚合读取。
 
+Messaging 图片候选从目录创建前保护到数据库提交或补偿收尾；幂等比对期间也保持保护，提交后的响应投影失败不能删除已引用图片。孤儿回收在候选已释放后同步复核当前引用，再发起删除。
+
 ## 持久化与运行态
 
 数据库、业务媒体、公告、首页弹窗及课表来源策略跨 release 共享；路径跟随 `dirname(DB_PATH)` 或显式配置。课表策略、首页弹窗动作和不可变海报版本是运行状态，不能当作可随意删除的缓存。Early Rising 设置是 SQLite 事实，随数据库备份。

@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Community 公共资料 DTO 与共享北京时间映射，不依赖 HTTP、SQLite 或文件系统
- * [OUTPUT]: 对外提供 Messaging 策略、事实/响应 DTO 与会话增量、消息三态游标、UUID/图文输入校验纯规则
+ * [OUTPUT]: 对外提供 Messaging 策略、事实/响应 DTO、安全 ID/分页 offset、消息三态游标、UUID/图文校验及缺接收人错误
  * [POS]: modules/messaging/domain 的一对一私信内核，用全局消息 ID 高水位稳定轮询会话变化并明确历史分页语义
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -40,6 +40,13 @@ export const DEFAULT_MESSAGING_POLICY: MessagingPolicy = {
   maxMessagePageSize: 100,
   orphanMediaGraceMs: 60 * 60_000,
 };
+
+export class MessageRecipientNotFoundError extends AppError {
+  constructor() {
+    super(ErrorCode.PARAM_ERROR, '接收用户不存在');
+    this.httpStatus = 404;
+  }
+}
 
 export interface PreparedMessageImage {
   storageKey: string;
@@ -272,10 +279,10 @@ export function normalizeClientMessageId(value: string | null | undefined) {
 }
 
 export function validateConversationPair(senderUserId: number, recipientUserId: number) {
-  if (!Number.isInteger(senderUserId) || senderUserId <= 0) {
+  if (!Number.isSafeInteger(senderUserId) || senderUserId <= 0) {
     throw new AppError(ErrorCode.PARAM_ERROR, '发送者 ID 不合法');
   }
-  if (!Number.isInteger(recipientUserId) || recipientUserId <= 0) {
+  if (!Number.isSafeInteger(recipientUserId) || recipientUserId <= 0) {
     throw new AppError(ErrorCode.PARAM_ERROR, '接收者 ID 不合法');
   }
   if (senderUserId === recipientUserId) {
@@ -284,12 +291,22 @@ export function validateConversationPair(senderUserId: number, recipientUserId: 
 }
 
 export function clampMessagingPage(value: number | undefined) {
-  return !value || !Number.isFinite(value) || value <= 0 ? 1 : Math.floor(value);
+  return value === undefined ? 1 : normalizeMessageCursor(value, 'page');
 }
 
 export function clampMessagingPageSize(value: number | undefined, policy: MessagingPolicy) {
-  if (!value || !Number.isFinite(value) || value <= 0) return policy.defaultConversationPageSize;
-  return Math.min(Math.floor(value), policy.maxConversationPageSize);
+  if (value === undefined) return policy.defaultConversationPageSize;
+  return Math.min(normalizeMessageCursor(value, 'pageSize'), policy.maxConversationPageSize);
+}
+
+export function messagingPageOffset(page: number, pageSize: number) {
+  normalizeMessageCursor(page, 'page');
+  normalizeMessageCursor(pageSize, 'pageSize');
+  const offset = (page - 1) * pageSize;
+  if (!Number.isSafeInteger(offset)) {
+    throw new AppError(ErrorCode.PARAM_ERROR, '分页范围不合法');
+  }
+  return offset;
 }
 
 export function normalizeConversationChangesQuery(
@@ -297,7 +314,7 @@ export function normalizeConversationChangesQuery(
   policy: MessagingPolicy,
 ) {
   const afterMessageId = options.afterMessageId ?? 0;
-  if (!Number.isInteger(afterMessageId) || afterMessageId < 0) {
+  if (!Number.isSafeInteger(afterMessageId) || afterMessageId < 0) {
     throw new AppError(ErrorCode.PARAM_ERROR, 'afterMessageId 不合法');
   }
   return {
@@ -307,8 +324,8 @@ export function normalizeConversationChangesQuery(
 }
 
 export function clampMessageLimit(value: number | undefined, policy: MessagingPolicy) {
-  if (!value || !Number.isFinite(value) || value <= 0) return policy.defaultMessagePageSize;
-  return Math.min(Math.floor(value), policy.maxMessagePageSize);
+  if (value === undefined) return policy.defaultMessagePageSize;
+  return Math.min(normalizeMessageCursor(value, 'limit'), policy.maxMessagePageSize);
 }
 
 export function normalizeMessagePageQuery(
@@ -390,7 +407,7 @@ export function toMessageResponse(
 }
 
 function normalizeMessageCursor(value: number, name: string) {
-  if (!Number.isInteger(value) || value <= 0) {
+  if (!Number.isSafeInteger(value) || value <= 0) {
     throw new AppError(ErrorCode.PARAM_ERROR, `${name} 不合法`);
   }
   return value;

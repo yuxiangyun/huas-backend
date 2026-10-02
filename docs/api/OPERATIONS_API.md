@@ -314,6 +314,8 @@ interface AdminConversation {
 
 普通会话列表按 `updatedAt DESC, id DESC`，offset 仅供人工翻页。轮询使用 `/changes`：`afterMessageId` 可省略或为非负整数，响应按 `lastMessage.id ASC`，并返回 `{ items, afterMessageId, hasMore }`；管理员前端按会话 `id` 覆盖去重。`hasMore=true` 表示本次 limit 后仍有变化会话。
 
+会话/消息 ID、`page/pageSize/limit` 为正安全整数，`afterMessageId` 允许 0；普通分页按最终页长校验 offset 乘积为安全整数，否则返回 `400 + 4002`。
+
 消息结构与 [SOCIAL_API.md](./SOCIAL_API.md) 的 `Message` 完全相同，包含 `clientMessageId`，但图片 URL 使用 `/api/admin/messaging/media/*`。消息分页也与用户侧同构：无游标取最新页，`beforeMessageId` 取更旧事实，`afterMessageId` 取新增事实，二者同传返回 `400 + 4002`；三种模式均按消息 ID 升序返回。无游标/before 的 `hasMore` 表示仍有更旧消息，after 的 `hasMore` 表示仍有更新消息。会话不存在返回 `404 + 4002`。
 
 ```json

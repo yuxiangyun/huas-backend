@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖构造注入的 Drizzle db、Messaging 自有 schema 与领域事实/仓储契约
- * [OUTPUT]: 对外提供 SQLiteMessagingRepository 与 MessagingDatabase/MessagingTransaction 类型，并保证消息/会话时间不随提交倒退
+ * [OUTPUT]: 对外提供 SQLiteMessagingRepository 与数据库/事务类型，校验分页 offset 并保证消息/会话时间不随提交倒退
  * [POS]: modules/messaging/infrastructure 的事实 adapter，以 lastMessageId 高水位补足 offset 会话翻页，统一三态消息游标与事实限流，并发同 UUID 冲突在事务内闭环为幂等返回
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -20,6 +20,7 @@ import {
 } from 'drizzle-orm';
 import { schema, type getDb } from '../../../db';
 import { AppError, ErrorCode } from '../../../utils/errors';
+import { messagingPageOffset } from '../domain/messaging';
 import type {
   CommitMessageInput,
   CommitMessageResult,
@@ -389,6 +390,7 @@ export class SQLiteMessagingRepository implements MessagingRepository {
     pageSize: number,
     userId: number | null,
   ): Promise<{ items: ConversationListFact[]; total: number }> {
+    const offset = messagingPageOffset(page, pageSize);
     const filter = userId === null ? undefined : conversationFilter(userId);
     const unreadExpression = userId === null
       ? sql<number>`0`
@@ -425,7 +427,7 @@ export class SQLiteMessagingRepository implements MessagingRepository {
     const rows = await rowsQuery
       .orderBy(desc(schema.conversations.updatedAt), desc(schema.conversations.id))
       .limit(pageSize)
-      .offset((page - 1) * pageSize);
+      .offset(offset);
 
     return {
       items: await this.hydrateConversationRows(rows as ConversationQueryRow[]),

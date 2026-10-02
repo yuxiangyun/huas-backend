@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖共享 image 转换器、构造注入的 Drizzle db、Node 文件系统与 Messaging 媒体策略
- * [OUTPUT]: 对外提供 MessagingMediaStorage，负责候选图片、幂等比对、补偿、参与者读取及带 conversationId 的管理读取
+ * [OUTPUT]: 对外提供 MessagingMediaStorage，保护候选排队至发布/补偿，负责幂等比对、同步引用复核回收及私有读取
  * [POS]: modules/messaging/infrastructure 的私有媒体 adapter，以稳定存储键连接管理审计上下文且不挂公开静态路径
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -8,7 +8,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
-import { and, eq, or } from 'drizzle-orm';
+import { and, eq, like, or } from 'drizzle-orm';
 import { schema } from '../../../db';
 import { transformImageToWebp } from '../../../utils/image';
 import {
@@ -33,6 +33,7 @@ export class MessagingMediaStorage implements MessageMediaStorage {
   private readonly root: string;
   private readonly basePath: string;
   private readonly adminBasePath: string;
+  private readonly activeBatches = new Set<string>();
 
   constructor(
     private readonly db: MessagingDatabase,
@@ -49,9 +50,10 @@ export class MessagingMediaStorage implements MessageMediaStorage {
     validateMessageImages(files, this.policy);
     const batchKey = randomUUID();
     const batchDirectory = resolve(this.root, batchKey);
-    await mkdir(batchDirectory, { recursive: true });
+    this.activeBatches.add(batchKey);
     const images: PreparedMessageMedia['images'] = [];
     try {
+      await mkdir(batchDirectory, { recursive: true });
       for (const [index, file] of files.entries()) {
         const transformed = await transformImageToWebp(file, {
           maxInputBytes: this.policy.maxImageBytes,
@@ -76,6 +78,8 @@ export class MessagingMediaStorage implements MessageMediaStorage {
         await rm(batchDirectory, { recursive: true, force: true });
       } catch {
         // 保留原始转码/写盘错误，遗留目录交给周期无主清理。
+      } finally {
+        this.activeBatches.delete(batchKey);
       }
       throw error;
     }
@@ -113,9 +117,17 @@ export class MessagingMediaStorage implements MessageMediaStorage {
     return true;
   }
 
+  release(media: PreparedMessageMedia | null) {
+    if (media) this.activeBatches.delete(media.batchKey.toLowerCase());
+  }
+
   async discard(media: PreparedMessageMedia | null) {
     if (!media || !BATCH_KEY_PATTERN.test(media.batchKey)) return;
-    await rm(resolve(this.root, media.batchKey), { recursive: true, force: true });
+    try {
+      await rm(resolve(this.root, media.batchKey), { recursive: true, force: true });
+    } finally {
+      this.release(media);
+    }
   }
 
   urlFor(storageKey: string) {
@@ -177,12 +189,25 @@ export class MessagingMediaStorage implements MessageMediaStorage {
     let removed = 0;
     for (const entry of entries) {
       if (!entry.isDirectory() || !BATCH_KEY_PATTERN.test(entry.name)) continue;
-      if (referencedBatches.has(entry.name.toLowerCase())) continue;
+      const batchKey = entry.name.toLowerCase();
+      if (referencedBatches.has(batchKey) || this.activeBatches.has(batchKey)) continue;
       const directoryPath = resolve(this.root, entry.name);
-      const info = await stat(directoryPath);
-      if (info.mtime.getTime() > before.getTime()) continue;
-      await rm(directoryPath, { recursive: true, force: true });
-      removed += 1;
+      try {
+        const info = await stat(directoryPath);
+        if (info.mtime.getTime() > before.getTime() || this.activeBatches.has(batchKey)) continue;
+        // inactive 候选不会再发布；成功 release 前已提交引用。同步复核到发起 rm 无等待窗口。
+        const currentReference = this.db.select({ id: schema.messageImages.id })
+          .from(schema.messageImages)
+          .where(like(schema.messageImages.storageKey, `${entry.name}/%`))
+          .limit(1)
+          .get();
+        if (currentReference) continue;
+        await rm(directoryPath, { recursive: true, force: true });
+        removed += 1;
+      } catch (cause) {
+        if (isMissingPath(cause)) continue;
+        throw cause;
+      }
     }
     return removed;
   }
@@ -202,4 +227,8 @@ export class MessagingMediaStorage implements MessageMediaStorage {
 function normalizeBasePath(value: string) {
   const normalized = value.trim().replace(/\/+$/, '');
   return normalized.startsWith('/') ? normalized : `/${normalized}`;
+}
+
+function isMissingPath(cause: unknown) {
+  return cause instanceof Error && 'code' in cause && cause.code === 'ENOENT';
 }

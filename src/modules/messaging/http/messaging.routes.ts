@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Hono、注入的 MessagingApplicationService/策略、共享 multipart 请求上限、私有媒体响应、统一响应/HTTP 日志与 Logger
- * [OUTPUT]: 对外提供 createMessagingRoutes(service, policy)，按 multipart 线序映射会话翻页/增量、三态历史、受限上传与私有媒体
+ * [OUTPUT]: 对外提供 createMessagingRoutes，校验安全整数、JSON 阅读对象及 multipart 主类型，映射历史/上传与私有媒体
  * [POS]: modules/messaging/http 的认证后协议 adapter，以 afterMessageId 高水位轮询并在 multipart 解析前统一执行 413 门禁
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -46,7 +46,7 @@ export function createMessagingRoutes(
     const afterValue = c.req.query('afterMessageId');
     const afterMessageId = afterValue === undefined ? 0 : Number(afterValue);
     const limit = parseOptionalPositiveInt(c.req.query('limit'));
-    if (!Number.isInteger(afterMessageId) || afterMessageId < 0 || limit === null) {
+    if (!Number.isSafeInteger(afterMessageId) || afterMessageId < 0 || limit === null) {
       return error(c, ErrorCode.PARAM_ERROR, '会话增量参数不合法', 400);
     }
     return success(c, await service.listConversationChanges(c.get('userId'), {
@@ -98,6 +98,9 @@ export function createMessagingRoutes(
     async (c) => {
       const recipientUserId = parsePositiveId(c.req.param('userId'));
       if (!recipientUserId) return error(c, ErrorCode.PARAM_ERROR, '接收者 ID 不合法', 400);
+      if (requestContentType(c.req.header('content-type')) !== 'multipart/form-data') {
+        return error(c, ErrorCode.PARAM_ERROR, '请求必须是 multipart/form-data', 400);
+      }
       let form: FormData;
       try {
         form = await c.req.formData();
@@ -148,19 +151,31 @@ export function createMessagingRoutes(
     if (!conversationId) return error(c, ErrorCode.PARAM_ERROR, '会话 ID 不合法', 400);
 
     let throughMessageId: number | undefined;
-    if ((c.req.header('content-type') ?? '').includes('application/json')) {
+    let bodyText: string;
+    try {
+      bodyText = await c.req.text();
+    } catch {
+      return error(c, ErrorCode.PARAM_ERROR, '请求体读取失败', 400);
+    }
+    if (bodyText !== '') {
+      if (requestContentType(c.req.header('content-type')) !== 'application/json') {
+        return error(c, ErrorCode.PARAM_ERROR, '请求体必须是 JSON 对象', 400);
+      }
       let body: unknown;
       try {
-        body = await c.req.json();
+        body = JSON.parse(bodyText);
       } catch {
         return error(c, ErrorCode.PARAM_ERROR, '请求体必须是有效 JSON', 400);
       }
-      const value = (body as { throughMessageId?: unknown } | null)?.throughMessageId;
+      if (!isRecord(body)) {
+        return error(c, ErrorCode.PARAM_ERROR, '请求体必须是 JSON 对象', 400);
+      }
+      const value = body.throughMessageId;
       if (value !== undefined) {
-        throughMessageId = Number(value);
-        if (!Number.isInteger(throughMessageId) || throughMessageId <= 0) {
+        if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
           return error(c, ErrorCode.PARAM_ERROR, '消息 ID 不合法', 400);
         }
+        throughMessageId = value;
       }
     }
 
@@ -188,11 +203,19 @@ export function createMessagingRoutes(
 
 function parsePositiveId(value: string) {
   const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 function parseOptionalPositiveInt(value: string | undefined): number | null | undefined {
   if (value === undefined) return undefined;
   const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function requestContentType(value: string | undefined) {
+  return value?.split(';', 1)[0]?.trim().toLowerCase() ?? '';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }

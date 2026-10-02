@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 MessagingRepository/MessageMediaStorage ports、CommunityProfileReader 与领域校验/映射规则
- * [OUTPUT]: 对外提供 MessagingApplicationService，编排会话定位/增量、媒体完成后定时的严格幂等发送、三态历史与未读游标
+ * [OUTPUT]: 对外提供 MessagingApplicationService，编排安全会话分页、严格幂等发送及候选发布归属、三态历史与未读游标
  * [POS]: modules/messaging/application 的用户用例核心，以 lastMessageId 增量隔离会话轮询与普通 offset 翻页
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -12,6 +12,8 @@ import {
   clampMessagingPage,
   clampMessagingPageSize,
   finalizeMessagePage,
+  messagingPageOffset,
+  MessageRecipientNotFoundError,
   normalizeClientMessageId,
   normalizeMessagePageQuery,
   normalizeConversationChangesQuery,
@@ -73,7 +75,7 @@ export class MessagingApplicationService {
     }
 
     const recipient = (await this.profiles.getMany([input.recipientUserId])).get(input.recipientUserId);
-    if (!recipient) throw new AppError(ErrorCode.PARAM_ERROR, '接收用户不存在');
+    if (!recipient) throw new MessageRecipientNotFoundError();
     await this.repository.assertCanSend(input.senderUserId, clientMessageId, this.now());
 
     let prepared = null;
@@ -96,6 +98,7 @@ export class MessagingApplicationService {
 
     if (committed.created) {
       // 事务已将文件引用变为持久事实，后续投影/响应失败不得再补偿删除。
+      this.media.release(prepared);
       prepared = null;
     } else {
       try {
@@ -130,13 +133,14 @@ export class MessagingApplicationService {
   ): Promise<ConversationListResponse> {
     const page = clampMessagingPage(options.page);
     const pageSize = clampMessagingPageSize(options.pageSize, this.policy);
+    const offset = messagingPageOffset(page, pageSize);
     const facts = await this.repository.listConversations(userId, page, pageSize);
     return {
       items: await this.mapConversationFacts(userId, facts.items),
       page,
       pageSize,
       total: facts.total,
-      hasMore: page * pageSize < facts.total,
+      hasMore: pageSize < facts.total - offset,
     };
   }
 
@@ -163,6 +167,7 @@ export class MessagingApplicationService {
     conversationId: number,
     options: MessagingMessageListOptions = {},
   ): Promise<MessageListResponse | null> {
+    normalizePositiveId(conversationId, '会话 ID 不合法');
     const query = normalizeMessagePageQuery(options, this.policy);
     const rows = await this.repository.listMessagesForUser(
       userId,
@@ -187,6 +192,7 @@ export class MessagingApplicationService {
     conversationId: number,
     throughMessageId?: number,
   ): Promise<MarkConversationReadResponse | null> {
+    normalizePositiveId(conversationId, '会话 ID 不合法');
     const normalizedMessageId = throughMessageId === undefined
       ? null
       : normalizePositiveId(throughMessageId, '消息 ID 不合法');
@@ -240,7 +246,7 @@ export class MessagingApplicationService {
       if (!await this.media.isEquivalent(prepared, existing.message.images)) {
         throw new AppError(ErrorCode.PARAM_ERROR, 'Idempotency-Key 已用于不同的消息内容');
       }
-      return this.mapMessage(existing.message);
+      return await this.mapMessage(existing.message);
     } finally {
       await this.discardWithoutMasking(prepared);
     }
@@ -308,6 +314,6 @@ export class MessagingApplicationService {
 }
 
 function normalizePositiveId(value: number, message: string) {
-  if (!Number.isInteger(value) || value <= 0) throw new AppError(ErrorCode.PARAM_ERROR, message);
+  if (!Number.isSafeInteger(value) || value <= 0) throw new AppError(ErrorCode.PARAM_ERROR, message);
   return value;
 }
