@@ -1,11 +1,11 @@
 /**
  * [INPUT]: 依赖 Identity operations query 契约、Drizzle db/schema 与北京时间格式化工具
  * [OUTPUT]: 对外提供 SQLiteIdentityOperationsQuery，只读聚合用户、三类基础学校凭证与兼容缓存计数
- * [POS]: identity/infrastructure 的管理查询 adapter，隔离身份表筛选、年级解析、基础凭证口径与分页 SQL
+ * [POS]: identity/infrastructure 的管理查询 adapter，隔离身份表筛选、字面关键词匹配、年级解析、基础凭证口径与稳定分页 SQL
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { and, desc, eq, inArray, like, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import { getDb, schema } from '../../../db';
 import { beijingIsoString } from '../../../utils/time';
 import type {
@@ -37,7 +37,7 @@ function parseStudentGrade(studentId: string | null | undefined): string {
 }
 
 function formatLikeKeyword(value: string): string {
-  return `%${value.replaceAll('%', '\\%').replaceAll('_', '\\_')}%`;
+  return `%${value.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')}%`;
 }
 
 function toIso(date: Date | null | undefined): string | null {
@@ -82,7 +82,10 @@ export class SQLiteIdentityOperationsQuery implements IdentityOperationsQueryPor
     const whereParts = [];
     if (query.search) {
       const keyword = formatLikeKeyword(query.search);
-      whereParts.push(or(like(schema.users.studentId, keyword), like(schema.users.name, keyword))!);
+      whereParts.push(or(
+        sql`${schema.users.studentId} LIKE ${keyword} ESCAPE ${'\\'}`,
+        sql`${schema.users.name} LIKE ${keyword} ESCAPE ${'\\'}`,
+      )!);
     }
     if (query.major) {
       whereParts.push(query.major === '__UNASSIGNED__'
@@ -106,9 +109,9 @@ export class SQLiteIdentityOperationsQuery implements IdentityOperationsQueryPor
       lastLoginAt: schema.users.lastLoginAt,
     }).from(schema.users);
     const userRows = whereExpr
-      ? await selectUsers.where(whereExpr).orderBy(desc(schema.users.lastLoginAt))
+      ? await selectUsers.where(whereExpr).orderBy(desc(schema.users.lastLoginAt), desc(schema.users.id))
           .limit(query.pageSize).offset((page - 1) * query.pageSize)
-      : await selectUsers.orderBy(desc(schema.users.lastLoginAt))
+      : await selectUsers.orderBy(desc(schema.users.lastLoginAt), desc(schema.users.id))
           .limit(query.pageSize).offset((page - 1) * query.pageSize);
 
     const byMajor = majorRows.map((row) => ({

@@ -60,7 +60,7 @@
 | 参数 | 规则 |
 |---|---|
 | `page` | 用户分页，默认 1，每页固定 20 |
-| `search` | 学号或姓名模糊搜索 |
+| `search` | 学号或姓名按关键词字面包含搜索，`%`、`_` 和反斜杠不作为通配语法 |
 | `major` | 班级筛选；未分配值为 `__UNASSIGNED__` |
 | `grade` | 从学号中解析出的四位年级 |
 
@@ -92,7 +92,7 @@ interface DashboardResponse {
 }
 ```
 
-`users.items[]` 是后台身份视图，含 `studentId/name/className/grade/createdAt/lastLoginAt`。`discover` 只使用 Discover 自有事实和 Community 公共作者投影：
+`users.items[]` 是后台身份视图，含 `studentId/name/className/grade/createdAt/lastLoginAt`；列表按 `lastLoginAt DESC, id DESC` 排序。`discover` 只使用 Discover 自有事实和 Community 公共作者投影：
 
 ```ts
 interface DiscoverOperationsSnapshot {
