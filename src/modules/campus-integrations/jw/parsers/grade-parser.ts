@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 cheerio、成绩 DTO、SESSION_EXPIRED_INDICATORS、共享 JW 登录页判定、Logger 与 AppError/ErrorCode
- * [OUTPUT]: 对外提供 GradeParser，解析 JW 成绩 HTML 为 IGradeList
- * [POS]: campus-integrations/jw/parsers 的成绩纯解析器，识别 session 过期与评教未完成阻断
+ * [OUTPUT]: 对外提供 GradeParser，解析 JW 成绩 HTML 为 IGradeList，并独立保留可解析的官方统计
+ * [POS]: campus-integrations/jw/parsers 的成绩纯解析器，仅凭认证证据识别 session 过期，保留评教未完成阻断
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -20,8 +20,7 @@ export const GradeParser = {
   parse(html: string, user?: { studentId?: string; name?: string }): IGradeList | null {
     // Only check the beginning of HTML for expiry indicators (avoid false positives from nav links)
     const htmlStart = (html || '').substring(0, 500);
-    const isExpired = !html || html.length < 200 ||
-      SESSION_EXPIRED_INDICATORS.some(i => htmlStart.includes(i)) ||
+    const isExpired = SESSION_EXPIRED_INDICATORS.some(i => htmlStart.includes(i)) ||
       looksLikeJwLoginPage(html);
 
     if (isExpired) {
@@ -79,16 +78,16 @@ export const GradeParser = {
     });
 
     const summaryText = $('body').text().replace(/\s+/g, ' ');
-    const match = summaryText.match(/所修门数[:：]\s*([\d.]+).*?所修总学分[:：]\s*([\d.]+).*?平均学分绩点[:：]\s*([\d.]+).*?平均成绩[:：]\s*([\d.]+)/);
+    const summaryNumber = (label: string) => toNumber(summaryText.match(new RegExp(`${label}[:：]\\s*([\\d.]+)`))?.[1] || '');
 
     Logger.parser('GradeParser', `解析完成 ${items.length} 条成绩`, user?.studentId, user?.name);
 
     return {
       summary: {
-        totalCourses: toNumber(match?.[1] || ''),
-        totalCredits: toNumber(match?.[2] || ''),
-        averageGpa: toNumber(match?.[3] || ''),
-        averageScore: toNumber(match?.[4] || '')
+        totalCourses: summaryNumber('所修门数'),
+        totalCredits: summaryNumber('所修总学分'),
+        averageGpa: summaryNumber('平均学分绩点'),
+        averageScore: summaryNumber('平均成绩')
       },
       items
     };

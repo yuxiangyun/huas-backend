@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 cheerio、JW 会话页判定与 Academic 的培养方案纯数据契约
- * [OUTPUT]: 对外提供两张 JW HTML 表的结构化解析，不把页面、脚本或会话凭证交给业务层
+ * [OUTPUT]: 对外提供两张 JW HTML 表的完整结构化解析，兼容 thead 与 tbody 表头，不把页面、脚本或会话凭证交给业务层
  * [POS]: JW 协议防腐层，严格识别课程行、课程体系合并单元格及执行计划的独立考核字段
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -19,7 +19,7 @@ const emptyHours = (): TrainingPlanHours => ({ theory: null, practice: null, com
 const MAX_PLAN_SEMESTER_INDEX = 20;
 
 function requirePage(html: string, tableId: string, headers: string[]) {
-  if (!html || looksLikeJwLoginPage(html)) throw new Error('SESSION_EXPIRED');
+  if (looksLikeJwLoginPage(html)) throw new Error('SESSION_EXPIRED');
   const $ = cheerio.load(html);
   const table = $(`#${tableId}`);
   if (!table.length || !headers.every(header => table.find('th').toArray().some(th => normalize($(th).text()) === header))) {
@@ -130,7 +130,7 @@ export const TrainingPlanParser = {
   parseExecution(html: string): TrainingPlanExecution[] {
     const $ = requirePage(html, 'dataList', ['开课学期', '课程编号', '课程名称', '考核方式', '是否考试']);
     const records: TrainingPlanExecution[] = [];
-    $('#dataList > tbody > tr').slice(1).each((_, row) => {
+    $('#dataList > tbody > tr').each((_, row) => {
       const cells = $(row).children('td').toArray();
       if (!cells.length) return;
       if (cells.length !== 11) throw new Error('TRAINING_PLAN_PAGE_INVALID');
