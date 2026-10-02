@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖固定 JW 空教室端点、既有纯解析器与统一目标读取
- * [OUTPUT]: 对外提供内部楼栋和空闲教室具名操作，保持服务账号查询所需的同会话协议
+ * [OUTPUT]: 对外提供内部楼栋和空闲教室具名操作，保持同会话协议并拒绝非成功 HTTP 与缺失的查询上下文
  * [POS]: SchoolAccess 的空教室只读协议；参数校验、服务账号选择与用户审计留在 Academic
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -11,6 +11,7 @@ import { URLS } from '../endpoints';
 import { HttpClient } from '../http/http-client';
 import { ClassroomFreeParser, type ClassroomBuilding, type FreeClassroom } from '../jw/parsers/classroom-free-parser';
 import { executeBaseRead } from './base-read';
+import { SchoolAccessError } from './errors';
 import type { SchoolRequestContext } from './request-executor';
 export type ClassroomCampusId = 'A' | 'B';
 export interface ClassroomReadQuery { campusId: ClassroomCampusId; buildingId: string; week?: number; weekday?: number; startSection: number; endSection: number }
@@ -32,7 +33,14 @@ function classroomUrl(base: string, params: Record<string, string>): string {
 }
 
 function currentWeekError(): AppError {
-  return new AppError(ErrorCode.INTERNAL_ERROR, '无法从教务系统解析当前周，请指定 week 和 weekday');
+  return new SchoolAccessError('protocol', '无法从教务系统解析当前周，请指定 week 和 weekday');
+}
+
+async function readSuccessfulPage(response: Response): Promise<string> {
+  if (!response.ok) {
+    throw new SchoolAccessError('protocol', '教务系统空教室查询响应异常，请稍后重试');
+  }
+  return response.text();
 }
 
 async function fetchCurrentTerm(client: Pick<HttpClient, 'request'>): Promise<string> {
@@ -40,9 +48,9 @@ async function fetchCurrentTerm(client: Pick<HttpClient, 'request'>): Promise<st
     method: 'GET',
     timeout: config.timeout.business,
   });
-  const term = ClassroomFreeParser.parseCurrentTerm(await res.text());
+  const term = ClassroomFreeParser.parseCurrentTerm(await readSuccessfulPage(res));
   if (!term) {
-    throw new AppError(ErrorCode.INTERNAL_ERROR, '无法从教务系统解析当前学期');
+    throw new SchoolAccessError('protocol', '无法从教务系统解析当前学期');
   }
   return term;
 }
@@ -57,7 +65,7 @@ async function fetchBuildings(client: Pick<HttpClient, 'request'>, campusId: Cla
     headers: { Referer: URLS.classroomQuery },
     timeout: config.timeout.business,
   });
-  return ClassroomFreeParser.parseBuildings(await res.text(), campusId);
+  return ClassroomFreeParser.parseBuildings(await readSuccessfulPage(res), campusId);
 }
 
 async function resolveDefaultWeek(client: Pick<HttpClient, 'request'>): Promise<number> {
@@ -65,7 +73,7 @@ async function resolveDefaultWeek(client: Pick<HttpClient, 'request'>): Promise<
     method: 'GET',
     timeout: config.timeout.business,
   });
-  const week = ClassroomFreeParser.parseCurrentWeek(await res.text());
+  const week = ClassroomFreeParser.parseCurrentWeek(await readSuccessfulPage(res));
   if (!week) throw currentWeekError();
   return week;
 }
@@ -130,7 +138,7 @@ export function readFreeClassrooms(userId: number, normalized: ClassroomReadQuer
         body: buildFreeQueryBody(term, { ...normalized, week, weekday }),
         timeout: config.timeout.business,
       });
-      const rooms: FreeClassroom[] = ClassroomFreeParser.parseFreeRooms(await res.text());
+      const rooms: FreeClassroom[] = ClassroomFreeParser.parseFreeRooms(await readSuccessfulPage(res));
 
       return {
         term,

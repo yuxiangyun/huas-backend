@@ -1,12 +1,11 @@
 /**
- * [INPUT]: 依赖 cheerio、SESSION_EXPIRED_INDICATORS、共享 JW 登录页判定与教室楼栋白名单
- * [OUTPUT]: 对外提供 ClassroomFreeParser、ClassroomBuilding、FreeClassroom 与 SPECIAL_CLASSROOM_RE，并拒绝登录页/通用错误页/未知结构
+ * [INPUT]: 依赖 cheerio、共享 JW 登录页结构判定、明确失效提示与教室楼栋白名单
+ * [OUTPUT]: 对外提供 ClassroomFreeParser、ClassroomBuilding、FreeClassroom 与 SPECIAL_CLASSROOM_RE，区分明确会话失效、空正文和不完整数据行
  * [POS]: campus-integrations/jw/parsers 的空教室纯解析器，以目标结构证明合法空态并处理教务 HTML/JSON 混合响应
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import * as cheerio from 'cheerio';
-import { SESSION_EXPIRED_INDICATORS } from '../../../../config';
 import { looksLikeJwLoginPage } from './session-page';
 
 export const SPECIAL_CLASSROOM_RE =
@@ -50,17 +49,15 @@ function normalizeText(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
 }
 
-function looksLikeExpired(html: string): boolean {
-  const htmlStart = (html || '').substring(0, 500);
-  if (!html.trim()) return true;
-  return SESSION_EXPIRED_INDICATORS.some((indicator) => htmlStart.includes(indicator)) ||
-    looksLikeJwLoginPage(html);
-}
-
 function assertActiveResponse(raw: string): void {
-  if (looksLikeExpired(raw)) throw new Error('SESSION_EXPIRED');
+  if (!raw.trim()) throw new Error('CLASSROOM_PAGE_EMPTY');
 
-  const text = normalizeText(cheerio.load(raw).text());
+  const $ = cheerio.load(raw);
+  $('script, style').remove();
+  const text = normalizeText($.text());
+  if (looksLikeJwLoginPage(raw) || /请重新登录|会话超时/.test(text)) {
+    throw new Error('SESSION_EXPIRED');
+  }
   if (/Whitelabel Error Page|Internal Server Error|HTTP Status 5\d\d|系统异常|服务暂不可用|错误页面/.test(text)) {
     throw new Error('CLASSROOM_UPSTREAM_ERROR_PAGE');
   }
@@ -74,26 +71,33 @@ function isAllowedBuilding(buildingId: string): boolean {
   return ALLOWED_BUILDING_IDS.has(buildingId);
 }
 
-function pickString(source: any, keys: string[]): string {
-  if (!source || typeof source !== 'object') return '';
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
 
+function pickString(source: Record<string, unknown>, keys: string[]): string {
   for (const key of keys) {
     const value = source[key];
     if (value !== undefined && value !== null) {
-      return String(value).trim();
+      if (typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value))) {
+        return String(value).trim();
+      }
+      throw new Error('CLASSROOM_BUILDINGS_PAGE_INVALID');
     }
   }
 
   return '';
 }
 
-function parseJsonBuildingItems(raw: string): { recognized: boolean; items: any[] } {
+function parseJsonBuildingItems(raw: string): { recognized: boolean; items: unknown[] } {
   try {
-    const parsed = JSON.parse(raw);
+    const parsed: unknown = JSON.parse(raw);
     if (Array.isArray(parsed)) return { recognized: true, items: parsed };
-    if (Array.isArray(parsed?.data)) return { recognized: true, items: parsed.data };
-    if (Array.isArray(parsed?.rows)) return { recognized: true, items: parsed.rows };
-    if (Array.isArray(parsed?.list)) return { recognized: true, items: parsed.list };
+    if (isRecord(parsed)) {
+      if (Array.isArray(parsed.data)) return { recognized: true, items: parsed.data };
+      if (Array.isArray(parsed.rows)) return { recognized: true, items: parsed.rows };
+      if (Array.isArray(parsed.list)) return { recognized: true, items: parsed.list };
+    }
   } catch {
     // Fall back to HTML option parsing below.
   }
@@ -151,9 +155,11 @@ export const ClassroomFreeParser = {
     const json = parseJsonBuildingItems(raw);
 
     for (const item of json.items) {
+      if (!isRecord(item)) throw new Error('CLASSROOM_BUILDINGS_PAGE_INVALID');
       const buildingId = pickString(item, ['jxlbh', 'JXLBH', 'dm', 'DM', 'id', 'ID', 'value', 'VALUE']);
       const buildingName = pickString(item, ['jxlmc', 'JXLMC', 'dmmc', 'DMMC', 'mc', 'MC', 'name', 'NAME', 'text', 'TEXT', 'label', 'LABEL']);
-      if (buildingId && buildingName && (isAllowedBuilding(buildingId) || isPlainClassroomName(buildingName))) {
+      if (!buildingId || !buildingName) throw new Error('CLASSROOM_BUILDINGS_PAGE_INVALID');
+      if (isAllowedBuilding(buildingId) || isPlainClassroomName(buildingName)) {
         buildings.push({ campusId, campusName, buildingId, buildingName });
       }
     }
@@ -182,19 +188,25 @@ export const ClassroomFreeParser = {
     const rooms: FreeClassroom[] = [];
 
     $('#dataList tr[jsbh]').each((_, row) => {
-      const id = normalizeText($(row).attr('jsbh') || $(row).find('input[name="jsids"]').attr('value') || '');
+      const id = normalizeText($(row).attr('jsbh') || '') ||
+        normalizeText($(row).find('input[name="jsids"]').attr('value') || '');
       const raw = normalizeText($(row).find('td').first().text());
       const match = raw.match(/^(.+?)\((\d+)\/(\d+)\)$/);
-      if (!id || !match) return;
+      if (!id || !match) throw new Error('CLASSROOM_FREE_PAGE_INVALID');
 
       const name = normalizeText(match[1]);
+      const capacity = Number(match[2]);
+      const examCapacity = Number(match[3]);
+      if (!name || !Number.isSafeInteger(capacity) || !Number.isSafeInteger(examCapacity)) {
+        throw new Error('CLASSROOM_FREE_PAGE_INVALID');
+      }
       if (!isPlainClassroomName(name)) return;
 
       rooms.push({
         id,
         name,
-        capacity: Number(match[2]),
-        examCapacity: Number(match[3]),
+        capacity,
+        examCapacity,
       });
     });
 
