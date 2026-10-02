@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖用户 ID、单调请求时间与统一 TOO_MANY_REQUESTS 错误语义
- * [OUTPUT]: 对外提供 MobileYxtReadQuota、consumeMobileYxtReadQuota 与测试态重置，独立限制 refresh 和缓存未命中回源
- * [POS]: mobile-yxt 自有内存限流状态；不读取也不消耗 Academic refresh/realtime 桶
+ * [INPUT]: 依赖用户 ID、交易/电费读取范围、请求时间与统一 TOO_MANY_REQUESTS 错误语义
+ * [OUTPUT]: 对外提供独立交易/电费 MobileYxtReadQuota 与兼容交易配额入口，限制实际 miss/refresh 回源
+ * [POS]: mobile-yxt 自有内存限流状态；交易与电费互不消耗，也不读取 Academic refresh/realtime 桶
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -21,23 +21,26 @@ export interface MobileYxtReadQuota {
   consume(userId: number): void;
 }
 
-const state = new Map<number, RateLimitEntry>();
+type ReadScope = 'trades' | 'electricity';
+
+const state = new Map<string, RateLimitEntry>();
 let lastCleanupAt = 0;
 
 function cleanup(now: number): void {
   if (now - lastCleanupAt < STALE_ENTRY_TTL_MS) return;
-  for (const [userId, entry] of state) {
-    if (now - entry.touchedAt >= STALE_ENTRY_TTL_MS) state.delete(userId);
+  for (const [key, entry] of state) {
+    if (now - entry.touchedAt >= STALE_ENTRY_TTL_MS) state.delete(key);
   }
   lastCleanupAt = now;
 }
 
-export function consumeMobileYxtReadQuota(userId: number, now = Date.now()): void {
+function consumeReadQuota(scope: ReadScope, userId: number, now: number): void {
   if (!Number.isSafeInteger(userId) || userId <= 0) return;
   cleanup(now);
-  const existing = state.get(userId);
+  const key = `${scope}:${userId}`;
+  const existing = state.get(key);
   if (!existing || now - existing.windowStart >= MOBILE_YXT_READ_WINDOW_MS) {
-    state.set(userId, { count: 1, touchedAt: now, windowStart: now });
+    state.set(key, { count: 1, touchedAt: now, windowStart: now });
     return;
   }
   existing.touchedAt = now;
@@ -47,9 +50,19 @@ export function consumeMobileYxtReadQuota(userId: number, now = Date.now()): voi
   existing.count += 1;
 }
 
-export const mobileYxtReadQuota: MobileYxtReadQuota = {
+export function consumeMobileYxtReadQuota(userId: number, now = Date.now()): void {
+  consumeReadQuota('trades', userId, now);
+}
+
+export const mobileYxtTradeReadQuota: MobileYxtReadQuota = {
   consume: consumeMobileYxtReadQuota,
 };
+
+export const mobileYxtElectricityReadQuota: MobileYxtReadQuota = {
+  consume: (userId) => consumeReadQuota('electricity', userId, Date.now()),
+};
+
+export const mobileYxtReadQuota = mobileYxtTradeReadQuota;
 
 export function resetMobileYxtReadRateLimitStateForTests(): void {
   state.clear();

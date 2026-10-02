@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 SchoolAccess 具名交易操作、交易分页解析与调用方限定的单月日期范围
- * [OUTPUT]: 对外提供 MobileYxtTradeClient，分别按消费/充值/补助执行字符串 pageSize、零基 pageNo 的有界分页读取
+ * [OUTPUT]: 对外提供 MobileYxtTradeClient，分别按消费/充值/补助执行字符串 pageSize、零基 pageNo 的有界分页并拒绝越月记录
  * [POS]: mobile-yxt 的交易 HTTP 端口，分类事实来自请求 tradeType，达到最大页数显式返回 truncated
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -12,7 +12,7 @@ import {
   type ECardTransaction,
   type ECardTransactionCategory,
 } from './trade-parser';
-import { assertMobileYxtHttpSuccess } from './mobile-yxt-errors';
+import { assertMobileYxtHttpSuccess, mobileYxtProtocolFailure } from './mobile-yxt-errors';
 
 const PAGE_SIZE = 30;
 export const MAX_TRADE_PAGES = 20;
@@ -47,6 +47,10 @@ export class MobileYxtTradeClient {
       } }, { deadlineAt });
       assertMobileYxtHttpSuccess(result.status);
       const page = parseTradePage(result.body, category, pageNo);
+      if (page.transactions.some((transaction) => {
+        const date = transaction.occurredAt.slice(0, 10);
+        return date < fromDate || date > toDate;
+      })) throw mobileYxtProtocolFailure('TRADE_MONTH', 'contract_drift');
       transactions.push(...page.transactions);
       const hasMore = page.hasMore ?? page.transactions.length === PAGE_SIZE;
       if (!hasMore) return { transactions, truncated: false };

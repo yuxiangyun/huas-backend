@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 MobileYxtElectricityReader、独立只读配额、CacheService、显式 refresh 与受控 stale fallback
+ * [INPUT]: 依赖 MobileYxtElectricityReader、独立电费回源配额、CacheService、显式 refresh 与受控 stale fallback
  * [OUTPUT]: 对外提供注入式 ElectricityService.getAccount，返回稳定电费 DTO 与缓存元数据，并合并同键 miss/refresh 回源
  * [POS]: mobile-yxt 的电费应用用例；缓存 miss/强刷独立限流且共享同一在途新鲜读取，凭证或协议错误禁止被 stale 掩盖
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -12,7 +12,7 @@ import { CacheService } from '../../cache/cache-service';
 import { MobileYxtElectricityClient } from './electricity-client';
 import type { ElectricityAccount } from './electricity-parser';
 import { allowsMobileYxtStaleFallback } from './mobile-yxt-errors';
-import { mobileYxtReadQuota, type MobileYxtReadQuota } from './read-rate-limiter';
+import { mobileYxtElectricityReadQuota, type MobileYxtReadQuota } from './read-rate-limiter';
 
 export interface MobileYxtElectricityReader {
   getAccount(userId: number): Promise<ElectricityAccount>;
@@ -28,7 +28,7 @@ export function mobileYxtElectricityCacheKey(userId: number): string {
 export class ElectricityService {
   constructor(
     private readonly client: MobileYxtElectricityReader = new MobileYxtElectricityClient(),
-    private readonly quota: MobileYxtReadQuota = mobileYxtReadQuota,
+    private readonly quota: MobileYxtReadQuota = mobileYxtElectricityReadQuota,
   ) {}
 
   static getAccount(userId: number, studentId: string, forceRefresh = false) {
@@ -42,14 +42,16 @@ export class ElectricityService {
       if (cached) return { data: cached.data, _meta: cached.meta };
     }
 
-    this.quota.consume(userId);
     let data: ElectricityAccount;
     try {
       data = await CacheService.runSingleflight(
         cacheKey,
         // normal 只有缓存 miss 才进入此处，与 refresh 共享回源可避免完成顺序反向覆盖缓存。
         false,
-        () => this.client.getAccount(userId),
+        () => {
+          this.quota.consume(userId);
+          return this.client.getAccount(userId);
+        },
       );
     } catch (error) {
       if (!allowsMobileYxtStaleFallback(error)) throw error;

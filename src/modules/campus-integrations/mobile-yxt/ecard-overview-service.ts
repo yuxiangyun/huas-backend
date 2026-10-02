@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖窄 Portal 余额 reader、MobileYxtTrade reader、独立只读配额、CacheService、北京时间月份策略与共享 stale fallback
+ * [INPUT]: 依赖窄 Portal 余额 reader、MobileYxtTrade reader、独立交易回源配额、CacheService、北京时间月份策略与共享 stale fallback
  * [OUTPUT]: 对外提供注入式 ECardOverviewService、固定长度月缓存键与稳定 overview DTO，独立聚合余额/交易 availability 和 freshness
- * [POS]: mobile-yxt 账单应用组合边界；Portal 余额与交易分别保留缓存/降级事实，协议适配器不拥有 Portal 具体实现
+ * [POS]: mobile-yxt 账单应用组合边界；三类分页全部收尾后选完整月快照或错误，余额与交易分别保留缓存/降级事实
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -16,7 +16,7 @@ import {
   allowsMobileYxtStaleFallback,
   isFatalMobileYxtSubsourceError,
 } from './mobile-yxt-errors';
-import { mobileYxtReadQuota, type MobileYxtReadQuota } from './read-rate-limiter';
+import { mobileYxtTradeReadQuota, type MobileYxtReadQuota } from './read-rate-limiter';
 import {
   parseDecimalCents,
   resolveBeijingMonth,
@@ -106,7 +106,7 @@ export class ECardOverviewService {
   constructor(
     private readonly portalECard: PortalECardReader = ECardService,
     private readonly trades: MobileYxtTradeReader = new MobileYxtTradeClient(),
-    private readonly quota: MobileYxtReadQuota = mobileYxtReadQuota,
+    private readonly quota: MobileYxtReadQuota = mobileYxtTradeReadQuota,
   ) {}
 
   static getOverview(
@@ -208,15 +208,22 @@ export class ECardOverviewService {
       if (cached) return { data: cached.data, meta: cached.meta };
     }
 
-    this.quota.consume(userId);
     let data: CachedTransactions;
     try {
       // 进入此处的 normal 已经确认缓存 miss，与 refresh 都需要同一份最新回源结果；
       // 合并两种意图可避免并发完成顺序反向覆盖同一个月键。
       data = await CacheService.runSingleflight(cacheKey, false, async () => {
-        const pages = await Promise.all(CATEGORIES.map((category) => (
+        this.quota.consume(userId);
+        const results = await Promise.allSettled(CATEGORIES.map((category) => (
           this.trades.listMonth(userId, category, range.fromDate, range.toDate)
         )));
+        const pages: MonthTransactions[] = [];
+        const failures: unknown[] = [];
+        for (const result of results) {
+          if (result.status === 'fulfilled') pages.push(result.value);
+          else failures.push(result.reason);
+        }
+        if (failures.length > 0) throw chooseAggregateError(failures);
         return {
           transactions: pages.flatMap((page) => page.transactions),
           truncated: pages.some((page) => page.truncated),

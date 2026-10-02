@@ -1,5 +1,5 @@
 <!--
-[INPUT]: 依赖后端 HTTP 路由、五能力两秒恢复冷却、完整课表协议与来源编排、成绩文本与独立官方统计及课程缺列校验、JW 培养方案双页投影及共享缓存契约
+[INPUT]: 依赖后端 HTTP 路由、五能力两秒恢复冷却、完整课表协议与来源编排、成绩文本与独立官方统计及课程缺列校验、JW 培养方案双页投影、校园卡协议与交易/电费独立回源配额及共享缓存契约
 [OUTPUT]: 提供校园接口调用规则、响应语义与权威 DTO 导航，保留学校适配的关键限制
 [POS]: docs/api 的校园业务契约入口，社交与 Operations 细节委托分册
 [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -592,7 +592,7 @@ END:VCALENDAR
 失败分支：
 
 - 只有 CAS 明确拒绝保存凭据/要求验证码时返回 `3003`；恢复或学校可用性失败返回 `3005`，超时为 `3004`
-- 若上游返回非鉴权类错误且没有可用数据，返回 `502 + error_code=5000`
+- 学校响应结构、余额或其他已提供字段格式异常按协议失败返回 `3005/503`，不据此判定凭证失效；强刷有可用旧快照时按既有规则返回标明 `stale/refresh_failed` 的缓存，无可用快照则报错
 
 ### 6.8 `GET /api/ecard/overview`
 
@@ -617,12 +617,13 @@ END:VCALENDAR
 - `degraded` 在任一子源不可用或 stale 时为 `true`
 - 无顶层 `_meta`；使用 `data.freshness.balance` 与 `data.freshness.transactions`，独立保留 `cached/updated_at/cache_time/stale/refresh_failed/last_error` 等缓存事实。新鲜回源通常只有 `cached: false` 与 `source`，时间字段可缺省
 - 合法空月的 transactions 为 `[]`、totals 全 0 且 transactions 不在 `unavailableParts`；交易不可用时也返回空数组与零汇总，必须先检查 `unavailableParts` 才能显示“无交易”
-- `transactions`、`totals` 与交易 freshness 来自同一个月快照；三类交易任一失败不会与其他分类的新结果拼接。余额独立读取，不代表所选历史月的余额
+- `transactions`、`totals` 与交易 freshness 来自同一个月快照；三类交易全部收尾后才选择完整快照或错误，任一失败不会与其他分类的新结果拼接。余额独立读取，不代表所选历史月的余额
+- 交易时间、金额及已提供的分页计数必须满足学校协议；任一记录日期超出所查询自然月时整轮按协议失败处理，不缓存部分月数据
 - `refundFlag` 原样保留学校 `isRefund`（`string | number | boolean | null`），无 `refunded` 字段。官方 H5 对字符串 `"0"` 展示普通交易、`"1"` 展示退款；其他类型/值暂不归一化，不使用布尔强转或自行冲正金额
 - 月份先 trim，缺省/空白取当前北京时间月份，再严格校验 `YYYY-MM` 和含首尾的 24 月窗口。2026-09 的下界为 2024-10；越界为 HTTP 400、4002，当前源码文案为 `month 仅允许当前月及此前 23 个自然月`（含空格）
 - `truncated=true` 表示至少一个交易分类达到服务端分页硬上限，不能把 totals 当作完整月度总额
 - 交易侧凭证、协议、业务、参数及限流错误使聚合整体失败；两子源都失败也整体报错。余额失败但交易成功可部分返回；可用性以 unavailableParts/balance 为准，不以 freshness 是否存在推断
-- 当前小程序余额与 overview 等待 55 秒；交易每用户保留 6 个月 LRU，同月 miss/refresh 合流并使用独立回源配额
+- 当前小程序余额与 overview 等待 55 秒；交易每用户保留 6 个月 LRU，同月 miss/refresh 合流。交易与电费各有独立的每用户回源配额，5 秒窗口最多 5 轮；只有实际执行的 miss/refresh 回源消耗一次，缓存命中及同键合流等待者不重复消耗，超限返回 `4003/429`
 
 ### 6.9 `GET /api/utilities/electricity`
 
@@ -650,6 +651,7 @@ END:VCALENDAR
 - 普通读取允许永久缓存（TTL=0），`stale` 缺省不代表电量仍是当前值；按 `_meta.updated_at` 展示快照年龄
 - `refresh=true` 成功为 `_meta.cached=false`，新鲜回源时间字段可缺省；可显示“本次已刷新”，不能编造学校采样时间
 - 可用性/超时故障且有旧缓存时返回 `cached=true, stale=true, refresh_failed=true, last_error`，保留原 `updated_at/cache_time`；无旧值则报错。协议/业务/凭证失败及独立配额拒绝不经电费 stale 回退
+- 电费同键 miss/refresh 合流；每用户 5 秒窗口最多 5 轮实际回源，缓存命中及合流等待者不重复消耗，也不消耗交易配额；超限返回 `4003/429`
 - 只有明确 HTTP 401 才会失效并重建 mobile-yxt 派生会话；HTTP 200 的业务/协议失败不会清理会话
 
 ### 6.10 `GET /api/user`

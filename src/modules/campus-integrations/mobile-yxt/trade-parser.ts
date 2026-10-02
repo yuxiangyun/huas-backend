@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 mobile-yxt 交易 resultData、调用查询时已知的交易分类与 Asia/Shanghai 时间合同
+ * [INPUT]: 依赖 mobile-yxt 交易 resultData、显式分页计数、调用查询时已知的交易分类与 Asia/Shanghai 时间合同
  * [OUTPUT]: 对外提供交易 DTO、严格分页解析、近 24 个北京时间自然月边界、整数分转换、电费子类识别与原始有符号金额汇总
  * [POS]: mobile-yxt 的交易纯转换层，只接受已识别列表/空态并原样保留退款标记；totals 不宣称退款会计语义
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -44,6 +44,9 @@ const TRADE_TIME_PATTERN = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$
 export const MOBILE_YXT_QUERY_MONTHS = 24;
 
 export function parseDecimalCents(value: unknown, field = 'amount'): number {
+  if (typeof value !== 'string' && typeof value !== 'number') {
+    throw mobileYxtProtocolFailure(field, 'numeric_format_invalid');
+  }
   const raw = String(value ?? '').trim();
   const match = /^([+-]?)(\d+)(?:\.(\d{1,2}))?$/.exec(raw);
   if (!match) throw mobileYxtProtocolFailure(field, 'numeric_format_invalid');
@@ -86,7 +89,8 @@ export function resolveBeijingMonth(month?: string, now = new Date()): BeijingMo
 }
 
 function parseOccurredAt(value: unknown): string {
-  const raw = String(value ?? '').trim();
+  if (typeof value !== 'string') throw mobileYxtProtocolFailure();
+  const raw = value.trim();
   const match = TRADE_TIME_PATTERN.exec(raw);
   if (!match) throw mobileYxtProtocolFailure();
   const [, year, month, day, hour, minute, second] = match;
@@ -118,10 +122,19 @@ function extractList(data: unknown): unknown[] {
   throw mobileYxtProtocolFailure();
 }
 
-function readFiniteNumber(record: Record<string, unknown>, keys: string[]): number | null {
+function readPageCount(record: Record<string, unknown>, keys: string[]): number | null {
   for (const key of keys) {
-    const value = Number(record[key]);
-    if (Number.isFinite(value) && value >= 0) return value;
+    const raw = record[key];
+    if (raw === undefined || raw === null || (typeof raw === 'string' && !raw.trim())) continue;
+    if (
+      (typeof raw !== 'number' && typeof raw !== 'string')
+      || (typeof raw === 'string' && !/^\d+$/.test(raw.trim()))
+    ) throw mobileYxtProtocolFailure('TRADE_PAGINATION', 'numeric_format_invalid');
+    const count = Number(raw);
+    if (!Number.isSafeInteger(count) || count < 0) {
+      throw mobileYxtProtocolFailure('TRADE_PAGINATION', 'numeric_format_invalid');
+    }
+    return count;
   }
   return null;
 }
@@ -130,7 +143,7 @@ function parseHasMore(data: unknown, pageNo: number): boolean | null {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
   const record = data as Record<string, unknown>;
   if (typeof record.hasNext === 'boolean') return record.hasNext;
-  const totalPages = readFiniteNumber(record, ['totalPages', 'totalPage', 'pages', 'pageCount']);
+  const totalPages = readPageCount(record, ['totalPages', 'totalPage', 'pages', 'pageCount']);
   if (totalPages !== null) return pageNo + 1 < totalPages;
   return null;
 }
