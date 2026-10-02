@@ -308,7 +308,7 @@ TTL=0 表示永久快照，不代表学校数据不会变化；部署覆盖值�
 
 ### 5.6 社交领域模型
 
-Community、Discover、Treehole、Notifications 与 Messaging 的当前契约统一见 [SOCIAL_API.md](./SOCIAL_API.md)。社交内容中的公开人物字段固定为 `{ id, displayName, avatarUrl }`；只有当前用户 `/api/community/profile` 额外返回 `nickname`。会话/通知稳定增量、消息三态游标、私信 Blob 鉴权和真实 400/401/404/413 语义均以该分册为准。
+Community、Discover、Treehole、Notifications 与 Messaging 的当前契约统一见 [SOCIAL_API.md](./SOCIAL_API.md)。社交内容中的作者字段固定为 `{ id, displayName, avatarUrl }`；Community 用户详情及早起排行榜的详细资料额外返回 nullable `bio`，当前用户 `/api/community/profile` 再返回 `nickname`。会话/通知稳定增量、消息三态游标、私信 Blob 鉴权和真实 400/401/404/413 语义均以该分册为准。
 
 ## 6. 接口明细
 
