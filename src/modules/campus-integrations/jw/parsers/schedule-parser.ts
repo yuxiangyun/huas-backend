@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 cheerio、ICourse 类型、Logger、SESSION_EXPIRED_INDICATORS 与共享 JW 登录页判定
  * [OUTPUT]: 对外提供 ScheduleParser，解析 JW HTML 为统一课程模型；未公布抛出 SCHEDULE_NOT_AVAILABLE 交由上层编排
- * [POS]: campus-integrations/jw/parsers 的课表纯解析核心，识别非教学周、session 过期并去重
+ * [POS]: campus-integrations/jw/parsers 的课表纯解析核心，识别非教学周、session 过期及真实课表表格，空正文按协议错误处理并拒绝静默丢弃已识别但缺节次的课程
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -69,17 +69,12 @@ function extractWeek(html: string, $: cheerio.CheerioAPI): string {
 
 function extractSection(source: string): string {
   const normalized = source.replace(/\s+/g, ' ');
-  const rowMatch = normalized.match(/\((\d{1,2})\s*,\s*(\d{1,2})小节\)/);
-  if (rowMatch) {
-    return `${Number(rowMatch[1])}-${Number(rowMatch[2])}`;
-  }
-
-  const titleMatch = normalized.match(/\[(\d{1,2})-(\d{1,2})\]节/);
-  if (titleMatch) {
-    return `${Number(titleMatch[1])}-${Number(titleMatch[2])}`;
-  }
-
-  return '';
+  const match = normalized.match(/\((\d{1,2})\s*,\s*(\d{1,2})小节\)/)
+    || normalized.match(/\[(\d{1,2})-(\d{1,2})\]节/);
+  if (!match) return '';
+  const first = Number(match[1]);
+  const last = Number(match[2]);
+  return first >= 1 && last >= first ? `${first}-${last}` : '';
 }
 
 function parseCourseFields(source: string): { name: string; teacher: string; location: string; weekStr: string } {
@@ -116,13 +111,14 @@ export const ScheduleParser = {
     const liShowWeekMessages = extractLiShowWeekMessages(rawHtml);
     const latestLiShowWeek = liShowWeekMessages[liShowWeekMessages.length - 1] || '';
     const redirectToCas = /window\.location\.href\s*=\s*['"][^'"]*cas\/login/i.test(rawHtml);
-    const hasScheduleTable = rawHtml.includes('kb_table');
+    const $ = cheerio.load(rawHtml);
+    const hasScheduleTable = $('table.kb_table').length > 0;
     const jwLoginPage = !hasScheduleTable && looksLikeJwLoginPage(rawHtml);
     const matchedIndicator = SESSION_EXPIRED_INDICATORS.find((indicator) => htmlStart.includes(indicator));
 
     if (!rawHtml.trim()) {
-      Logger.warn('ScheduleParser', 'Session 过期', 'HTML为空');
-      throw new Error("SESSION_EXPIRED");
+      Logger.warn('ScheduleParser', '课表解析失败', 'HTML为空，无法确认课表或会话状态');
+      throw new Error('GET_SCHEDULE_FAILED');
     }
 
     if (redirectToCas || jwLoginPage || (!hasScheduleTable && matchedIndicator)) {
@@ -130,7 +126,6 @@ export const ScheduleParser = {
       throw new Error("SESSION_EXPIRED");
     }
 
-    const $ = cheerio.load(rawHtml);
     const week = extractWeek(rawHtml, $);
 
     if (latestLiShowWeek.includes('当前日期不在教学周历内')) {
@@ -176,7 +171,11 @@ export const ScheduleParser = {
           const parsed = parseCourseFields(title);
           const section = rowSection || extractSection(parsed.weekStr);
           const name = parsed.name || visibleName;
-          if (!name || !section) return;
+          if (!name || !section) {
+            // 标题已确认课程事实时，缺节次不能悄悄变成少课或空课表并覆盖缓存。
+            if (parsed.name) throw new Error('GET_SCHEDULE_FAILED');
+            return;
+          }
 
           courses.push({
             name,

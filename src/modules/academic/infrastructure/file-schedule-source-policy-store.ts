@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 node:fs/promises/path/crypto、北京时区时钟、Logger 与 domain 策略端口
  * [OUTPUT]: 对外提供 FileScheduleSourcePolicyStore，以原子状态文件和存活 owner 隔离锁目录持久化热切换快照
- * [POS]: academic/infrastructure 的课表来源策略存储，负责 env 回落、损坏保守降级、死进程/遗留 owner 接管与跨进程传播
+ * [POS]: academic/infrastructure 的课表来源策略存储，负责 env 回落、损坏保守降级、死进程/遗留 owner 接管与跨进程传播；rename 为提交点，锁清理故障不改变已发布结果并由下次获取重试自己的 owner
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -57,6 +57,8 @@ export class FileScheduleSourcePolicyStore implements ScheduleSourcePolicyStore 
   private snapshot: ScheduleSourcePolicySnapshot;
   private fileFingerprint: FileFingerprint | null = null;
   private lastReadWarningFingerprint: FileFingerprint | 'missing' | null = null;
+  private readonly pendingLockReleases = new Set<OwnedPolicyLock>();
+  private readonly lockReleases = new Map<OwnedPolicyLock, Promise<void>>();
 
   constructor(
     private readonly stateFile: string,
@@ -141,34 +143,42 @@ export class FileScheduleSourcePolicyStore implements ScheduleSourcePolicyStore 
         throw cause;
       }
 
-      const fileStat = await stat(this.stateFile);
+      // rename 已提交持久状态；指纹可在下一次读取时重建，不让后置 stat 故障撤回成功。
       this.snapshot = next;
-      this.fileFingerprint = fingerprint(fileStat);
+      this.fileFingerprint = null;
       this.lastReadWarningFingerprint = null;
       return this.snapshot;
     } finally {
-      await this.releaseLock(lock);
+      await this.releaseOrRememberLock(lock);
     }
   }
 
   private async acquireLock(lockDirectory: string): Promise<OwnedPolicyLock> {
     const ownerToken = `${process.pid}-${randomUUID()}`;
     for (let attempt = 0; attempt < LOCK_RETRY_LIMIT; attempt += 1) {
+      for (const pending of this.pendingLockReleases) await this.releaseOrRememberLock(pending, false);
       try {
         await mkdir(lockDirectory, { mode: 0o700 });
-        const ownerFile = join(lockDirectory, `owner-${ownerToken}`);
-        await this.writeLockMarker(ownerFile, ownerToken);
-        return { directory: lockDirectory, ownerFile };
       } catch (cause: any) {
         if (cause?.code !== 'EEXIST') throw cause;
+        const recovered = await this.tryRecoverStaleLock(lockDirectory, ownerToken);
+        if (recovered) return recovered;
+        if (attempt === LOCK_RETRY_LIMIT - 1) {
+          throw new Error('课表来源策略正在被其他进程修改，请稍后重试');
+        }
+        await delay(LOCK_RETRY_DELAY_MS);
+        continue;
       }
 
-      const recovered = await this.tryRecoverStaleLock(lockDirectory, ownerToken);
-      if (recovered) return recovered;
-      if (attempt === LOCK_RETRY_LIMIT - 1) {
-        throw new Error('课表来源策略正在被其他进程修改，请稍后重试');
+      const lock = { directory: lockDirectory, ownerFile: join(lockDirectory, `owner-${ownerToken}`) };
+      try {
+        await this.writeLockMarker(lock.ownerFile, ownerToken);
+        return lock;
+      } catch (cause) {
+        // 尽力释放失败初始化已生成的 marker；没有 marker 的目录沿用空锁回收规则。
+        await this.releaseOrRememberLock(lock);
+        throw cause;
       }
-      await delay(LOCK_RETRY_DELAY_MS);
     }
     throw new Error('无法获取课表来源策略写锁');
   }
@@ -234,9 +244,15 @@ export class FileScheduleSourcePolicyStore implements ScheduleSourcePolicyStore 
       await unlink(currentOwner.path).catch((cause: any) => {
         if (cause?.code !== 'ENOENT') throw cause;
       });
-      const ownerFile = join(lockDirectory, `owner-${ownerToken}`);
-      await this.writeLockMarker(ownerFile, ownerToken);
-      return { directory: lockDirectory, ownerFile };
+      const lock = { directory: lockDirectory, ownerFile: join(lockDirectory, `owner-${ownerToken}`) };
+      try {
+        await this.writeLockMarker(lock.ownerFile, ownerToken);
+        return lock;
+      } catch (cause) {
+        // 接管后的 marker 也可能只完成部分写入，必须登记自身 owner 的释放。
+        await this.releaseOrRememberLock(lock);
+        throw cause;
+      }
     } finally {
       await unlink(takeoverFile).catch(() => {});
     }
@@ -301,12 +317,41 @@ export class FileScheduleSourcePolicyStore implements ScheduleSourcePolicyStore 
 
   private async releaseLock(lock: OwnedPolicyLock): Promise<void> {
     // 只删除自己的 owner 文件；即使锁已被接管，也绝不触碰新 owner 标记。
-    await unlink(lock.ownerFile).catch((cause: any) => {
-      if (cause?.code !== 'ENOENT') throw cause;
-    });
+    try {
+      await unlink(lock.ownerFile);
+    } catch (cause: any) {
+      // 迟到清理已经没有 owner 归属，不能删除随后创建的新锁目录。
+      // 无 owner 的遗留空目录由 acquire 的三十秒回收规则处理。
+      if (cause?.code === 'ENOENT') return;
+      throw cause;
+    }
     await rmdir(lock.directory).catch((cause: any) => {
       if (cause?.code !== 'ENOENT' && cause?.code !== 'ENOTEMPTY') throw cause;
     });
+  }
+
+  private async releaseOrRememberLock(lock: OwnedPolicyLock, warnOnFailure = true): Promise<void> {
+    const active = this.lockReleases.get(lock);
+    if (active) return active;
+    // 同 owner 清理也合流，避免两个重试在旧目录移除后再清理新 owner 的空目录。
+    const release = (async () => {
+      try {
+        await this.releaseLock(lock);
+        this.pendingLockReleases.delete(lock);
+      } catch (cause) {
+        // 活进程的 owner 不会被 stale 接管；保留精确归属供下次获取时重试释放。
+        this.pendingLockReleases.add(lock);
+        if (warnOnFailure) {
+          Logger.warn('SchedulePolicy', '策略写锁清理失败，下次切换将重试释放', cause instanceof Error ? cause.message : String(cause));
+        }
+      }
+    })();
+    this.lockReleases.set(lock, release);
+    try {
+      await release;
+    } finally {
+      this.lockReleases.delete(lock);
+    }
   }
 
   private async assertLockOwned(lock: OwnedPolicyLock): Promise<void> {

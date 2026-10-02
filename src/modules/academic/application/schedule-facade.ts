@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖移动教务/JW/Portal current/stale readers、后台策略快照与用户首选前置规则、fallback error 与日期/错误工具
+ * [INPUT]: 依赖移动教务/JW/Portal current/stale readers、后台策略快照与用户首选前置规则、完整后台任务登记、fallback error 与日期/错误工具
  * [OUTPUT]: 对外提供 ScheduleFacadeApplicationService、单源 reader ports、统一有序三源编排与移动教务固定单源入口
- * [POS]: academic/application 的课表编排门面，以请求截止时间分配 current 等待额度且不取消共享回源；stale 保持后台参与范围与固定顺序，明确无数据返回中文操作提示且不缓存，仲裁排除来源能力限制并保留 legacy 未公布短路
+ * [POS]: academic/application 的课表编排门面，以请求截止时间分配 current 等待额度且不取消共享回源，登记完整 reader 供关闭收尾；stale 保持后台参与范围与固定顺序，明确无数据返回中文操作提示且不缓存，仲裁排除来源能力限制并保留 legacy 未公布短路
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -10,6 +10,7 @@ import { ScheduleSourceUnsupportedError } from '../domain/schedule';
 import { AppError, ErrorCode, ScheduleUnavailableError } from '../../../utils/errors';
 import { resolveFallbackError } from '../../../utils/fallback-error';
 import { beijingDate } from '../../../utils/time';
+import { trackBackgroundTask } from '../../../runtime/background-tasks';
 import type {
   ScheduleCacheState,
   ScheduleFacadeResult,
@@ -108,14 +109,16 @@ async function waitForSchedule<T>(read: () => Promise<T>, deadline: number): Pro
   const timeout = new AppError(ErrorCode.UPSTREAM_TIMEOUT, '课表查询超时，请稍后重试');
   if (remaining <= 0) throw timeout;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  // 登记完整读取及缓存提交尾部；Facade 等待超时不会提前解除关闭收尾登记。
+  const task = trackBackgroundTask(Promise.resolve().then(() => {
+    if (performance.now() >= deadline) throw timeout;
+    return read();
+  }));
   try {
     const result = await Promise.race([
       new Promise<never>((_, reject) => { timer = setTimeout(() => reject(timeout), remaining); }),
       // race 始终观察迟到的成功/失败；等待者退出不会取消其他请求共享的 reader。
-      Promise.resolve().then(() => {
-        if (performance.now() >= deadline) throw timeout;
-        return read();
-      }),
+      task,
     ]);
     if (performance.now() >= deadline) throw timeout;
     return result;
