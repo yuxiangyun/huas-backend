@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 cheerio、成绩 DTO、SESSION_EXPIRED_INDICATORS、共享 JW 登录页判定、Logger 与 AppError/ErrorCode
  * [OUTPUT]: 对外提供 GradeParser，解析 JW 成绩 HTML 为 IGradeList，并独立保留可解析的官方统计
- * [POS]: campus-integrations/jw/parsers 的成绩纯解析器，仅凭认证证据识别 session 过期，保留评教未完成阻断
+ * [POS]: campus-integrations/jw/parsers 的成绩纯解析器，仅凭认证证据识别 session 过期，保留评教未完成阻断，拒绝已识别课程缺核心列而静默丢行
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -48,8 +48,11 @@ export const GradeParser = {
 
     $('#dataList tr').slice(1).each((_, row) => {
       const cells = $(row).find('td');
-      if (cells.length < 10) return;
       const text = (idx: number) => normalize($(cells[idx]).text());
+      if (cells.length < 10) {
+        if (text(2) || text(3)) throw new Error('GRADE_PAGE_INVALID');
+        return;
+      }
       const scoreText = text(5);
       const score = toNumber(scoreText);
       const pass = GradeParser.detectPass(score, scoreText);
