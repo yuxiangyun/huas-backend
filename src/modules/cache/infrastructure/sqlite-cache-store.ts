@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 Drizzle/SQLite cache 表、FreshnessPolicy、cache envelope、CacheMeta、北京时间、统一 Logger 与可选访问观察器
- * [OUTPUT]: 对外提供 SqliteCacheStore，以 created_at 表达当前数据写入时间、updated_at 维护 LRU 访问时间，并支持版本兼容、TTL、快照条件失效、保留原时间的条件提升与清理
- * [POS]: cache/infrastructure 的本地持久化适配器，是 cache 表时间语义、领域元数据、LRU 与防并发误删令牌的唯一翻译边界
+ * [OUTPUT]: 对外提供 SqliteCacheStore，以 created_at 表达数据写入时间、updated_at 维护 LRU，损坏值按快照条件清理，触达和淘汰故障不改变已选定的数据结果
+ * [POS]: cache/infrastructure 的本地持久化适配器，是 cache 表时间语义、领域元数据、旁路 LRU 与防并发误删令牌的唯一翻译边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -58,8 +58,13 @@ export class SqliteCacheStore {
     try {
       parsed = JSON.parse(entry.data);
     } catch {
-      Logger.warn('CacheService', '缓存数据损坏，已自动清理', key);
-      await this.invalidate(key);
+      Logger.warn('CacheService', '缓存数据损坏，按未命中处理', key);
+      try {
+        // 读取之后可能已有同键刷新提交；只清理本次读到的损坏快照。
+        await this.invalidateIfVersion(key, entry.data);
+      } catch {
+        Logger.warn('CacheService', '损坏缓存清理失败，按未命中处理', key);
+      }
       this.recordAccess('miss');
       return null;
     }
@@ -78,9 +83,14 @@ export class SqliteCacheStore {
 
     const touchedAt = new Date();
     if (options?.touch) {
-      await db.update(schema.cache)
-        .set({ updatedAt: touchedAt })
-        .where(eq(schema.cache.key, key));
+      try {
+        await db.update(schema.cache)
+          .set({ updatedAt: touchedAt })
+          .where(and(eq(schema.cache.key, key), eq(schema.cache.data, entry.data)));
+      } catch {
+        // LRU 是维护信息，写失败不能把已经校验的缓存命中变成业务失败。
+        Logger.warn('CacheService', '缓存触达维护失败，保留命中结果', key);
+      }
     }
 
     this.recordAccess('hit');
@@ -149,17 +159,22 @@ export class SqliteCacheStore {
 
   async enforcePrefixLimit(prefix: string, maxEntries: number): Promise<void> {
     if (maxEntries <= 0) return;
-    const db = getDb();
-    const likePattern = `${prefix}%`;
-    await db.run(sql`
-      DELETE FROM cache
-      WHERE id IN (
-        SELECT id
-        FROM cache
-        WHERE key LIKE ${likePattern}
-        ORDER BY updated_at DESC, id DESC
-        LIMIT -1 OFFSET ${maxEntries}
-      )
-    `);
+    try {
+      const db = getDb();
+      const likePattern = `${prefix}%`;
+      await db.run(sql`
+        DELETE FROM cache
+        WHERE id IN (
+          SELECT id
+          FROM cache
+          WHERE key LIKE ${likePattern}
+          ORDER BY updated_at DESC, id DESC
+          LIMIT -1 OFFSET ${maxEntries}
+        )
+      `);
+    } catch {
+      // 调用者已写入新鲜数据；淘汰失败单独记录，后续写入仍会再次执行限额维护。
+      Logger.warn('CacheService', '缓存限额维护失败，保留数据结果', prefix);
+    }
   }
 }
