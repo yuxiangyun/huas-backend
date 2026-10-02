@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 node:fs/promises/path/crypto、北京时区时钟、Logger 与 domain 策略端口
  * [OUTPUT]: 对外提供 FileScheduleSourcePolicyStore，以原子状态文件和存活 owner 隔离锁目录持久化热切换快照
- * [POS]: academic/infrastructure 的课表来源策略存储，负责 env 回落、损坏保守降级、死进程/遗留 owner 接管与跨进程传播；rename 为提交点，锁清理故障不改变已发布结果并由下次获取重试自己的 owner
+ * [POS]: academic/infrastructure 的课表来源策略存储，以成功发布水位保护最后有效快照与告警状态，负责 env 回落、损坏降级及跨进程传播；rename 为提交点，锁清理故障由下次获取重试自己的 owner
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -55,8 +55,11 @@ function delay(ms: number): Promise<void> {
 
 export class FileScheduleSourcePolicyStore implements ScheduleSourcePolicyStore {
   private snapshot: ScheduleSourcePolicySnapshot;
+  private sequence = 0;
+  private publishedSequence = 0;
+  private warningSequence = 0;
   private fileFingerprint: FileFingerprint | null = null;
-  private lastReadWarningFingerprint: FileFingerprint | 'missing' | null = null;
+  private lastReadWarningFingerprint: FileFingerprint | 'missing' | 'unreadable' | null = null;
   private readonly pendingLockReleases = new Set<OwnedPolicyLock>();
   private readonly lockReleases = new Map<OwnedPolicyLock, Promise<void>>();
 
@@ -77,30 +80,37 @@ export class FileScheduleSourcePolicyStore implements ScheduleSourcePolicyStore 
   }
 
   async read(): Promise<ScheduleSourcePolicySnapshot> {
+    const sequence = ++this.sequence;
     try {
       const fileStat = await stat(this.stateFile);
       const nextFingerprint = fingerprint(fileStat);
-      if (nextFingerprint === this.fileFingerprint) return this.snapshot;
+      if (sequence < this.publishedSequence) return this.snapshot;
+      if (nextFingerprint === this.fileFingerprint) {
+        this.publishSnapshot(sequence, this.snapshot, nextFingerprint);
+        return this.snapshot;
+      }
 
       const parsed = validateStoredSnapshot(JSON.parse(await readFile(this.stateFile, 'utf8')));
-      this.snapshot = parsed;
-      this.fileFingerprint = nextFingerprint;
-      this.lastReadWarningFingerprint = null;
+      this.publishSnapshot(sequence, parsed, nextFingerprint);
     } catch (cause: any) {
+      if (sequence < this.publishedSequence || sequence < this.warningSequence) return this.snapshot;
       if (cause?.code === 'ENOENT') {
+        this.warningSequence = sequence;
         if (this.lastReadWarningFingerprint !== 'missing') {
-          Logger.warn('SchedulePolicy', '策略状态文件不存在，使用环境变量或安全默认值');
+          Logger.warn('SchedulePolicy', '策略状态文件不存在，保留最后有效快照');
           this.lastReadWarningFingerprint = 'missing';
         }
         return this.snapshot;
       }
 
-      let failureFingerprint: FileFingerprint | null = null;
+      let failureFingerprint: FileFingerprint | 'unreadable' = 'unreadable';
       try {
         failureFingerprint = fingerprint(await stat(this.stateFile));
       } catch {
         // 状态文件在错误处理期间消失，沿用最后有效快照。
       }
+      if (sequence < this.publishedSequence || sequence < this.warningSequence) return this.snapshot;
+      this.warningSequence = sequence;
       if (failureFingerprint !== this.lastReadWarningFingerprint) {
         Logger.warn(
           'SchedulePolicy',
@@ -118,7 +128,6 @@ export class FileScheduleSourcePolicyStore implements ScheduleSourcePolicyStore 
     await mkdir(dirname(this.stateFile), { recursive: true });
     const lock = await this.acquireLock(lockDirectory);
     try {
-      this.fileFingerprint = null;
       const next = freezeSnapshot({
         mode,
         updatedAt: beijingIsoString(),
@@ -144,12 +153,23 @@ export class FileScheduleSourcePolicyStore implements ScheduleSourcePolicyStore 
       }
 
       // rename 已提交持久状态；指纹可在下一次读取时重建，不让后置 stat 故障撤回成功。
-      this.snapshot = next;
-      this.fileFingerprint = null;
-      this.lastReadWarningFingerprint = null;
-      return this.snapshot;
+      // 写失败不领取发布代次；成功提交则压住此前开始的所有读取。
+      this.publishSnapshot(++this.sequence, next, null);
+      return next;
     } finally {
       await this.releaseOrRememberLock(lock);
+    }
+  }
+
+  private publishSnapshot(sequence: number, snapshot: ScheduleSourcePolicySnapshot, fileFingerprint: FileFingerprint | null): void {
+    if (sequence < this.publishedSequence) return;
+    this.snapshot = snapshot;
+    this.fileFingerprint = fileFingerprint;
+    this.publishedSequence = sequence;
+    // 较旧成功可补齐最后有效快照，但不能抹去较新失败的告警去重状态。
+    if (sequence >= this.warningSequence) {
+      this.warningSequence = sequence;
+      this.lastReadWarningFingerprint = null;
     }
   }
 
