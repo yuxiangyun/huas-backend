@@ -732,7 +732,7 @@ Community、Discover、Treehole、Notifications 与 Messaging 的用户契约见
 
 ## 9. 早起打卡
 
-Bearer JWT 保护，全部裁决采用服务端北京时间，打卡窗口为 [05:30,09:30)，不接受客户端指定打卡时间。完整字段和规则见 [early-rising.ts](../../src/modules/early-rising/domain/early-rising.ts)。
+Bearer JWT 保护，全部裁决采用服务端北京时间，首次打卡窗口为 [05:30,09:30)，不接受客户端指定打卡时间。当天已有记录时，窗口外重复提交也返回首次成功记录，不修改时间、不增加次数；跨午夜按新的北京日期处理。完整字段和规则见 [early-rising.ts](../../src/modules/early-rising/domain/early-rising.ts)。
 
 | 接口 | 输入/用途 |
 |---|---|
@@ -741,6 +741,8 @@ Bearer JWT 保护，全部裁决采用服务端北京时间，打卡窗口为 [0
 | `GET /api/early-rising/trend` | `month` 或 `from/to` 查询趋势，最大 366 天 |
 | `GET /api/early-rising/leaderboard` | `period=today/week/month`，最多 100 人 |
 | `GET /api/early-rising/settings` | 只读 `{profileEntryVisible}`，决定公共资料入口展示 |
+
+`me` 的今日记录、今日排名、总次数与连续统计来自同一次本地事实快照，避免并发首次打卡时返回互相矛盾的状态。趋势的 `month` 与 `from/to` 使用一致的有效日期范围校验，非法月份返回 `400 + 4002`。
 
 ## 10. 学校协议维护边界
 

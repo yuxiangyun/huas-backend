@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Early Rising 事实、周期范围、排行榜候选与展示设置快照领域类型
- * [OUTPUT]: 对外提供打卡事实仓储、单行展示设置仓储与可注入 Clock 的 application 依赖倒置端口
+ * [OUTPUT]: 对外提供包含一致个人统计快照的打卡事实仓储、单行展示设置仓储与可注入 Clock 的依赖倒置端口
  * [POS]: modules/early-rising/application 的外部能力边界，使时间测试、SQLite 事实与设置实现均可替换
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -20,6 +20,12 @@ export interface EarlyRisingPersonalStatistics {
   currentStreak: number;
 }
 
+export interface EarlyRisingPersonalSnapshot {
+  todayCheckin: EarlyRisingCheckinFact | null;
+  todayRank: number | null;
+  statistics: EarlyRisingPersonalStatistics;
+}
+
 export interface EarlyRisingTrendFacts {
   firstCheckinDate: string | null;
   facts: EarlyRisingCheckinFact[];
@@ -33,8 +39,11 @@ export interface EarlyRisingLeaderboardFacts {
 export interface EarlyRisingRepository {
   createOrGet(userId: number, checkinDate: string, checkedAt: Date): Promise<EarlyRisingCheckinFact>;
   findByUserAndDate(userId: number, checkinDate: string): Promise<EarlyRisingCheckinFact | null>;
-  getTodayRank(userId: number, checkinDate: string): Promise<number | null>;
-  getPersonalStatistics(userId: number, validStreakEndDates: readonly string[]): Promise<EarlyRisingPersonalStatistics>;
+  getPersonalSnapshot(
+    userId: number,
+    checkinDate: string,
+    validStreakEndDates: readonly string[],
+  ): Promise<EarlyRisingPersonalSnapshot>;
   getCurrentStreaks(userIds: readonly number[], validStreakEndDates: readonly string[]): Promise<Map<number, number>>;
   getTrend(userId: number, from: string, to: string): Promise<EarlyRisingTrendFacts>;
   getLeaderboard(

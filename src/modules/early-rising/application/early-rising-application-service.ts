@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖可注入 Clock、Early Rising 事实/设置仓储、CommunityDetailedProfileReader 与领域时间/DTO 规则
- * [OUTPUT]: 对外提供打卡、我的统计、有界趋势、全校日/周/月排行榜及客户端/后台展示设置用例
+ * [OUTPUT]: 对外提供不受窗口限制的今日重复打卡、一致个人统计、有界趋势、全校排行榜及客户端/后台展示设置用例
  * [POS]: modules/early-rising/application 的编排核心，从服务端事实派生统计、批量投影榜单资料并隔离设置读写视图
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -72,23 +72,23 @@ export class EarlyRisingApplicationService {
 
   async checkIn(userId: number) {
     const now = this.clock.now();
+    const checkinDate = describeBeijingTime(now).date;
     if (!isEarlyRisingCheckinOpen(now)) {
+      const existing = await this.repository.findByUserAndDate(userId, checkinDate);
+      if (existing) return mapCheckin(existing);
       throw new AppError(ErrorCode.PARAM_ERROR, '早起打卡仅在北京时间 05:30（含）至 09:30（不含）开放');
     }
-    const checkinDate = describeBeijingTime(now).date;
     return mapCheckin(await this.repository.createOrGet(userId, checkinDate, now));
   }
 
   async getMe(userId: number) {
     const now = this.clock.now();
     const today = describeBeijingTime(now).date;
-    const [todayCheckin, statistics] = await Promise.all([
-      this.repository.findByUserAndDate(userId, today),
-      this.repository.getPersonalStatistics(userId, resolveCurrentStreakEndDates(now)),
-    ]);
-    const todayRank = todayCheckin
-      ? await this.repository.getTodayRank(userId, today)
-      : null;
+    const { todayCheckin, todayRank, statistics } = await this.repository.getPersonalSnapshot(
+      userId,
+      today,
+      resolveCurrentStreakEndDates(now),
+    );
 
     return {
       serverNow: formatEarlyRisingBeijingIso(now),

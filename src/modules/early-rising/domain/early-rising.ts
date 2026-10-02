@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 JavaScript Date/Intl 的 Asia/Shanghai 时区能力与 Community 详细公共资料 DTO
- * [OUTPUT]: 对外提供 Early Rising 时间窗、周期/趋势范围、打卡事实、展示设置快照及统计/排行榜 HTTP DTO 的纯领域模型
+ * [OUTPUT]: 对外提供 Early Rising 时间窗、统一有效日期校验的周期/趋势范围、打卡事实、设置及统计/排行榜 HTTP DTO
  * [POS]: modules/early-rising/domain 的规则内核，统一所有北京时间裁决且不感知 Hono、SQLite 或客户端时钟
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -186,7 +186,7 @@ export function resolveEarlyRisingTrendRange(
     const match = query.month.match(MONTH_PATTERN);
     const year = Number(match?.[1]);
     const month = Number(match?.[2]);
-    if (!match || month < 1 || month > 12) {
+    if (!match || month < 1 || month > 12 || !dateParts(`${query.month}-01`)) {
       throw new AppError(ErrorCode.PARAM_ERROR, 'month 必须是有效的 YYYY-MM');
     }
     requestedFrom = `${query.month}-01`;

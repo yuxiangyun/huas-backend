@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖构造注入的 Drizzle db、early_rising_checkins schema 与 EarlyRisingRepository 端口
- * [OUTPUT]: 对外提供 SQLiteEarlyRisingRepository，以唯一约束幂等写入并以有界回看派生连续值、统计、趋势和日/周/月排名
+ * [OUTPUT]: 对外提供 SQLiteEarlyRisingRepository，以唯一约束幂等写入、同步短事务读取个人快照并派生趋势和日/周/月排名
  * [POS]: modules/early-rising/infrastructure 的唯一事实 adapter，不 JOIN users/community_profiles 且不返回无界历史行集
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -18,6 +18,7 @@ import {
 } from '../domain/early-rising';
 import type {
   EarlyRisingLeaderboardFacts,
+  EarlyRisingPersonalSnapshot,
   EarlyRisingPersonalStatistics,
   EarlyRisingRepository,
   EarlyRisingTrendFacts,
@@ -87,8 +88,30 @@ export class SQLiteEarlyRisingRepository implements EarlyRisingRepository {
     return row[0] ? mapFact(row[0]) : null;
   }
 
-  async getTodayRank(userId: number, checkinDate: string): Promise<number | null> {
-    const rows = await this.db.all<{ rank: number }>(sql`
+  async getPersonalSnapshot(
+    userId: number,
+    checkinDate: string,
+    validStreakEndDates: readonly string[],
+  ): Promise<EarlyRisingPersonalSnapshot> {
+    return this.db.transaction((transaction) => {
+      const todayCheckin = transaction.select().from(schema.earlyRisingCheckins).where(and(
+        eq(schema.earlyRisingCheckins.userId, userId),
+        eq(schema.earlyRisingCheckins.checkinDate, checkinDate),
+      )).limit(1).all()[0];
+      return {
+        todayCheckin: todayCheckin ? mapFact(todayCheckin) : null,
+        todayRank: todayCheckin ? this.getTodayRank(transaction, userId, checkinDate) : null,
+        statistics: this.getPersonalStatistics(transaction, userId, validStreakEndDates),
+      };
+    });
+  }
+
+  private getTodayRank(
+    reader: Pick<EarlyRisingDatabase, 'all'>,
+    userId: number,
+    checkinDate: string,
+  ): number | null {
+    const rows = reader.all<{ rank: number }>(sql`
       WITH ranked AS (
         SELECT user_id,
                ROW_NUMBER() OVER (ORDER BY checked_at ASC, id ASC) AS rank
@@ -100,13 +123,14 @@ export class SQLiteEarlyRisingRepository implements EarlyRisingRepository {
     return rows[0] ? Number(rows[0].rank) : null;
   }
 
-  async getPersonalStatistics(
+  private getPersonalStatistics(
+    reader: Pick<EarlyRisingDatabase, 'all'>,
     userId: number,
     validStreakEndDates: readonly string[],
-  ): Promise<EarlyRisingPersonalStatistics> {
+  ): EarlyRisingPersonalStatistics {
     const latestDate = validStreakEndDates[0]!;
     const validEnds = sql.join(validStreakEndDates.map((date) => sql`${date}`), sql`, `);
-    const rows = await this.db.all<{
+    const rows = reader.all<{
       total_valid_days: number;
       longest_streak: number;
       current_streak: number;
