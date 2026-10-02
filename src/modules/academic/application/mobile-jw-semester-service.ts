@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖移动教务窄只读端口、严格周解析器与学校请求总预算
  * [OUTPUT]: 对外提供 MobileJwSemesterApplicationService，返回当前学期完整日期课程
- * [POS]: Academic 的整学期采集用例，复用当前周锚点串行读取其余周；完整性验证全部通过后才交给 Calendar 保存
+ * [POS]: Academic 的整学期采集用例，复用当前周锚点串行读取其余周；完整性验证及最终总预算检查全部通过后才交给 Calendar 保存
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -33,6 +33,8 @@ export class MobileJwSemesterApplicationService {
         || result.maxWeek !== initial.maxWeek) throw protocolFailure();
       courses.push(...result.courses);
     }
+    // 最后一周解析也属于采集预算，不能只在下一周开始时发现上一周已超时。
+    if (Date.now() >= deadlineAt) throw new AppError(ErrorCode.UPSTREAM_TIMEOUT, '整学期课表获取超时');
     return { semesterId: initial.semesterId, startDate: new Date(start).toISOString().slice(0, 10), courses };
   }
 }

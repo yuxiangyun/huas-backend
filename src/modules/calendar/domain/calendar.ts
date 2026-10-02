@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 仅依赖共享 ICourse 数据契约与 node:crypto 的确定性 SHA-1
- * [OUTPUT]: 对外提供北京本周范围、周/学期 ICS 序列化、24 小时客户端刷新提示、订阅 URL、响应头与节次时间纯规则
- * [POS]: calendar/domain 的纯规则核心，不读配置、数据库、网络或应用运行态
+ * [OUTPUT]: 对外提供与主机时区无关的北京本周范围、去重且按 UTF-8 折行的周/学期 ICS、24 小时客户端刷新提示、订阅 URL、响应头与节次时间纯规则
+ * [POS]: calendar/domain 的纯规则核心，以无歧义课程身份生成稳定 UID，不读配置、数据库、网络或应用运行态
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -59,9 +59,9 @@ function beijingDate(date: Date): string {
 }
 
 function addDays(date: string, days: number): string {
-  const parsed = new Date(`${date}T00:00:00+08:00`);
-  parsed.setDate(parsed.getDate() + days);
-  return beijingDate(parsed);
+  const parsed = new Date(`${date}T00:00:00Z`);
+  parsed.setUTCDate(parsed.getUTCDate() + days);
+  return parsed.toISOString().slice(0, 10);
 }
 
 function formatIcsUtcStamp(date: Date): string {
@@ -79,7 +79,7 @@ function formatIcsDate(date: string): string {
 function escapeIcsText(value: string): string {
   return value
     .replace(/\\/g, '\\\\')
-    .replace(/\r?\n/g, '\\n')
+    .replace(/\r\n|\r|\n/g, '\\n')
     .replace(/;/g, '\\;')
     .replace(/,/g, '\\,');
 }
@@ -124,14 +124,14 @@ function appendLine(lines: string[], line: string): void {
 
 function buildEventUid(course: ICourse, studentId: string, date: string): string {
   const digest = createHash('sha1')
-    .update([
+    .update(JSON.stringify([
       studentId,
       date,
       course.section || '',
       course.name || '',
       course.teacher?.trim() || '',
       course.location?.trim() || '',
-    ].join('|'))
+    ]))
     .digest('hex');
   return `${digest}@huas-server`;
 }
@@ -160,10 +160,10 @@ function resolveCourseTiming(section: string): CourseTiming {
 
 export function getCurrentWeekRange(date: Date = new Date()): { startDate: string; endDate: string } {
   const today = beijingDate(date);
-  const parsed = new Date(`${today}T00:00:00+08:00`);
-  const diffToMonday = (parsed.getDay() + 6) % 7;
-  parsed.setDate(parsed.getDate() - diffToMonday);
-  const startDate = beijingDate(parsed);
+  const parsed = new Date(`${today}T00:00:00Z`);
+  const diffToMonday = (parsed.getUTCDay() + 6) % 7;
+  parsed.setUTCDate(parsed.getUTCDate() - diffToMonday);
+  const startDate = parsed.toISOString().slice(0, 10);
   return { startDate, endDate: addDays(startDate, 6) };
 }
 
@@ -183,7 +183,9 @@ export function buildWeeklyScheduleIcs(options: {
     'PRODID:-//HUAS Server//Schedule Calendar//CN',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
-    `X-WR-CALNAME:${escapeIcsText(calendarName)}`,
+  ];
+  appendLine(lines, `X-WR-CALNAME:${escapeIcsText(calendarName)}`);
+  lines.push(
     `X-WR-TIMEZONE:${ICS_TIMEZONE}`,
     ...(options.semesterId ? ['REFRESH-INTERVAL;VALUE=DURATION:P1D', 'X-PUBLISHED-TTL:P1D'] : []),
     'BEGIN:VTIMEZONE',
@@ -195,7 +197,7 @@ export function buildWeeklyScheduleIcs(options: {
     'TZNAME:CST',
     'END:STANDARD',
     'END:VTIMEZONE',
-  ];
+  );
 
   const sortedCourses = [...options.courses].sort((a, b) => {
     const dateA = resolveCourseDate(a, options.weekStart);
@@ -205,8 +207,12 @@ export function buildWeeklyScheduleIcs(options: {
       : String(a.section || '').localeCompare(String(b.section || ''));
   });
 
+  const eventUids = new Set<string>();
   for (const course of sortedCourses) {
     const date = resolveCourseDate(course, options.weekStart);
+    const uid = buildEventUid(course, options.studentId, date);
+    if (eventUids.has(uid)) continue;
+    eventUids.add(uid);
     const timing = resolveCourseTiming(course.section);
     const description = [
       `教师: ${course.teacher?.trim() || '未安排'}`,
@@ -216,7 +222,7 @@ export function buildWeeklyScheduleIcs(options: {
     ].join('\n');
 
     lines.push('BEGIN:VEVENT');
-    appendLine(lines, `UID:${buildEventUid(course, options.studentId, date)}`);
+    appendLine(lines, `UID:${uid}`);
     appendLine(lines, `DTSTAMP:${formatIcsUtcStamp(generatedAt)}`);
     appendLine(lines, `SUMMARY:${escapeIcsText(course.name || '课程')}`);
 
