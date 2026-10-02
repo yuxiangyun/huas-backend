@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 Drizzle/SQLite cache 表、FreshnessPolicy、cache envelope、CacheMeta、北京时间、统一 Logger 与可选访问观察器
- * [OUTPUT]: 对外提供 SqliteCacheStore，以 created_at 表达数据写入时间、updated_at 维护 LRU，损坏值按快照条件清理，触达和淘汰故障不改变已选定的数据结果
- * [POS]: cache/infrastructure 的本地持久化适配器，是 cache 表时间语义、领域元数据、旁路 LRU 与防并发误删令牌的唯一翻译边界
+ * [OUTPUT]: 对外提供 SqliteCacheStore 与事务外 prepareSet/事务内同步 write，统一 envelope、TTL 和时间规则；损坏值按快照条件清理，LRU 故障不改变数据结果
+ * [POS]: cache/infrastructure 的本地持久化适配器，是 cache 表写入投影、数据时间、旁路 LRU 与防并发误删令牌的唯一翻译边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -23,6 +23,13 @@ export interface CacheReadResult<T> {
   meta: CacheMeta;
   // 仅供同一缓存边界执行条件失效，禁止投影到 API DTO 或日志。
   versionToken: string;
+}
+
+export type CacheWriteExecutor = Pick<ReturnType<typeof getDb>, 'insert'>;
+
+export interface PreparedCacheWrite {
+  // 使用准备时的快照和时间，应紧接同步短事务执行，不在两阶段之间等待回源。
+  write(executor: CacheWriteExecutor): void;
 }
 
 export class SqliteCacheStore {
@@ -111,21 +118,30 @@ export class SqliteCacheStore {
 
   async set(key: string, data: unknown, policy: FreshnessPolicy, source?: string): Promise<void> {
     const db = getDb();
+    this.prepareSet(key, data, policy, source).write(db);
+  }
+
+  prepareSet(key: string, data: unknown, policy: FreshnessPolicy, source?: string): PreparedCacheWrite {
+    // JSON 投影与时间计算在事务外完成；write 只对调用方提供的连接执行同步 SQL。
     const now = new Date();
     const expiresAt = expiresAtFor(policy, now);
     const jsonData = JSON.stringify(createCacheEnvelope(data));
 
-    await db.insert(schema.cache).values({
-      key,
-      data: jsonData,
-      source,
-      createdAt: now,
-      updatedAt: now,
-      expiresAt,
-    }).onConflictDoUpdate({
-      target: schema.cache.key,
-      set: { data: jsonData, source, createdAt: now, updatedAt: now, expiresAt },
-    });
+    return {
+      write(executor) {
+        executor.insert(schema.cache).values({
+          key,
+          data: jsonData,
+          source,
+          createdAt: now,
+          updatedAt: now,
+          expiresAt,
+        }).onConflictDoUpdate({
+          target: schema.cache.key,
+          set: { data: jsonData, source, createdAt: now, updatedAt: now, expiresAt },
+        }).run();
+      },
+    };
   }
 
   async invalidate(key: string): Promise<void> {

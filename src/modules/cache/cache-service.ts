@@ -1,13 +1,15 @@
 /**
  * [INPUT]: 依赖 SqliteCacheStore、FreshnessPolicy 转换、PerKeySingleflight 与可注入低基数观察器
- * [OUTPUT]: 对外提供 canonical CacheService，兼容秒级 set API、显式策略写入、快照令牌条件失效、保时无覆盖提升、联合键 singleflight 与观察器注册
- * [POS]: cache 模块 composition root，供业务 infrastructure 直接消费，旧 services 路径仅单向再导出
+ * [OUTPUT]: 对外提供 canonical CacheService，兼容秒级 set/事务外 prepareSet、显式策略写入、快照条件失效、保时提升、联合键 singleflight 与观察器注册
+ * [POS]: cache 模块 composition root，供业务 infrastructure 消费统一持久化规则并参与同步短事务，旧 services 路径仅单向再导出
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { PerKeySingleflight, type RefreshIntent } from './application/singleflight';
 import { fromLegacyTtlSeconds, type FreshnessPolicy } from './domain/freshness-policy';
-import { SqliteCacheStore, type CacheReadOptions } from './infrastructure/sqlite-cache-store';
+import { SqliteCacheStore, type CacheReadOptions, type PreparedCacheWrite } from './infrastructure/sqlite-cache-store';
+
+export type { CacheWriteExecutor, PreparedCacheWrite } from './infrastructure/sqlite-cache-store';
 
 export interface CacheObservers {
   recordAccess?: (outcome: 'hit' | 'miss') => void;
@@ -33,6 +35,10 @@ export class CacheService {
 
   static set(key: string, data: unknown, ttlSeconds: number, source?: string): Promise<void> {
     return store.set(key, data, fromLegacyTtlSeconds(ttlSeconds), source);
+  }
+
+  static prepareSet(key: string, data: unknown, ttlSeconds: number, source?: string): PreparedCacheWrite {
+    return store.prepareSet(key, data, fromLegacyTtlSeconds(ttlSeconds), source);
   }
 
   static setWithPolicy(key: string, data: unknown, policy: FreshnessPolicy, source?: string): Promise<void> {
