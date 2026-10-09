@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Discover 领域 DTO，不依赖任何具体数据库、资料或文件实现
- * [OUTPUT]: 对外提供 DiscoverPersistence 与含孤儿回收能力的 DiscoverMediaStorage 两个真实外部边界端口
+ * [OUTPUT]: 对外提供 DiscoverPersistence 与含孤儿回收能力的 DiscoverMediaStorage 外部边界端口，含可选所有者约束的评论删除
  * [POS]: modules/discover/domain 的依赖倒置契约，隔离 application 与 SQLite/媒体副作用
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -31,7 +31,7 @@ export interface DiscoverPersistence {
   unlikePost(userId: number, postId: number): Promise<DiscoverPostResponse | null>;
   listComments(userId: number, postId: number, options: { page?: number; pageSize?: number }): Promise<DiscoverCommentListResponse | null>;
   createComment(input: PersistDiscoverCommentInput): Promise<DiscoverCommentResponse | null>;
-  deleteComment(commentId: number, userId: number): Promise<{ id: number; postId: number } | null>;
+  deleteComment(commentId: number, userId?: number): Promise<{ id: number; postId: number } | null>;
   deletePost(postId: number, userId?: number): Promise<DeletedDiscoverPost | null>;
 }
 

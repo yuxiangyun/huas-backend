@@ -1,10 +1,14 @@
 /**
  * [INPUT]: 依赖注入的 Operations application 服务、Early Rising 设置端口、会话边界、Academic 策略公开门面、自有 infrastructure、共享上传门禁与统一响应/审计日志
- * [OUTPUT]: 对外提供 createAdminRoutes(dependencies)，生成会话、dashboard、公告/三态底栏首页弹窗、Early Rising 展示设置、Treehole 私有媒体、增量/三态私信只读与课表策略路由
+ * [OUTPUT]: 对外提供 createAdminRoutes(dependencies)，生成会话、独立管理查询、dashboard、公告/三态底栏首页弹窗、Early Rising 展示设置、Treehole 私有媒体、增量/三态私信只读与课表策略路由
  * [POS]: operations/http 的注入式管理面协议适配器，媒体读取只记录稳定资源键与业务 ID，不记正文、文件名或用户隐私
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
+import { createAdminDataRoutes } from './admin-data.routes';
+import type { AdminInsightsApplicationService } from '../application/admin-insights-service';
+import type { EarlyRisingOperationsQueryPort } from '../../early-rising/domain/operations-query';
+import { resolvePagination } from '../../../utils/pagination';
 import { Hono } from 'hono';
 import { isScheduleSourceMode, ScheduleSourcePolicy } from '../../academic/schedule';
 import { ErrorCode } from '../../../utils/errors';
@@ -35,9 +39,12 @@ import {
 } from './admin-session.middleware';
 
 export interface AdminRouteDependencies {
+  insights: Pick<AdminInsightsApplicationService, 'listUsers' | 'getOverview' | 'getRuntime'>;
+  earlyRisingQuery: EarlyRisingOperationsQueryPort;
   dashboard: Pick<AdminDashboardApplicationService, 'getDashboard'>;
   communityAdmin: Pick<
     CommunityAdminApplicationService,
+    | 'listDiscoverPosts' | 'getDiscoverPost' | 'listDiscoverComments' | 'deleteDiscoverComment' | 'getTreeholePost'
     | 'deleteDiscoverPost'
     | 'listTreeholePosts'
     | 'listTreeholeComments'
@@ -71,6 +78,7 @@ export function createAdminRoutes(dependencies: AdminRouteDependencies) {
   });
 
   admin.use('*', adminSessionMiddleware);
+  admin.route('/', createAdminDataRoutes(dependencies));
 
   admin.get('/session', (c) => {
     const session = currentAdminSession(c);
@@ -118,6 +126,7 @@ export function createAdminRoutes(dependencies: AdminRouteDependencies) {
   });
 
   admin.get('/dashboard', async (c) => {
+    if (c.req.query('page') !== undefined) resolvePagination({ page: Number(c.req.query('page')) }, 20, 20);
     try {
       return success(c, await dependencies.dashboard.getDashboard(c.req.query()));
     } catch (cause: any) {
@@ -216,7 +225,7 @@ export function createAdminRoutes(dependencies: AdminRouteDependencies) {
   admin.get('/logs', async (c) => {
     const limitParam = c.req.query('limit');
     const parsedLimit = limitParam ? Number(limitParam) : null;
-    if (limitParam && (!Number.isInteger(parsedLimit) || Number(parsedLimit) <= 0)) {
+    if (limitParam && (!Number.isSafeInteger(parsedLimit) || Number(parsedLimit) <= 0)) {
       return error(c, ErrorCode.PARAM_ERROR, '日志条数不合法', 400);
     }
     try {
@@ -230,10 +239,10 @@ export function createAdminRoutes(dependencies: AdminRouteDependencies) {
   });
 
   admin.get('/messaging/conversations', async (c) => {
-    const page = c.req.query('page') ? Number(c.req.query('page')) : undefined;
-    const pageSize = c.req.query('pageSize') ? Number(c.req.query('pageSize')) : undefined;
-    if ((page !== undefined && (!Number.isInteger(page) || page <= 0))
-      || (pageSize !== undefined && (!Number.isInteger(pageSize) || pageSize <= 0))) {
+    const page = c.req.query('page') === undefined ? undefined : Number(c.req.query('page'));
+    const pageSize = c.req.query('pageSize') === undefined ? undefined : Number(c.req.query('pageSize'));
+    if ((page !== undefined && (!Number.isSafeInteger(page) || page <= 0))
+      || (pageSize !== undefined && (!Number.isSafeInteger(pageSize) || pageSize <= 0))) {
       return error(c, ErrorCode.PARAM_ERROR, '分页参数不合法', 400);
     }
     const data = await dependencies.messagingAdmin.listConversations({ page, pageSize });
@@ -244,9 +253,9 @@ export function createAdminRoutes(dependencies: AdminRouteDependencies) {
   admin.get('/messaging/conversations/changes', async (c) => {
     const afterValue = c.req.query('afterMessageId');
     const afterMessageId = afterValue === undefined ? 0 : Number(afterValue);
-    const limit = c.req.query('limit') ? Number(c.req.query('limit')) : undefined;
-    if (!Number.isInteger(afterMessageId) || afterMessageId < 0
-      || (limit !== undefined && (!Number.isInteger(limit) || limit <= 0))) {
+    const limit = c.req.query('limit') === undefined ? undefined : Number(c.req.query('limit'));
+    if (!Number.isSafeInteger(afterMessageId) || afterMessageId < 0
+      || (limit !== undefined && (!Number.isSafeInteger(limit) || limit <= 0))) {
       return error(c, ErrorCode.PARAM_ERROR, '会话增量参数不合法', 400);
     }
     const data = await dependencies.messagingAdmin.listConversationChanges({
@@ -263,13 +272,13 @@ export function createAdminRoutes(dependencies: AdminRouteDependencies) {
     const afterValue = c.req.query('afterMessageId');
     const beforeMessageId = beforeValue === undefined ? undefined : Number(beforeValue);
     const afterMessageId = afterValue === undefined ? undefined : Number(afterValue);
-    const limit = c.req.query('limit') ? Number(c.req.query('limit')) : undefined;
-    if (!Number.isInteger(conversationId) || conversationId <= 0) {
+    const limit = c.req.query('limit') === undefined ? undefined : Number(c.req.query('limit'));
+    if (!Number.isSafeInteger(conversationId) || conversationId <= 0) {
       return error(c, ErrorCode.PARAM_ERROR, '会话 ID 不合法', 400);
     }
-    if ((beforeMessageId !== undefined && (!Number.isInteger(beforeMessageId) || beforeMessageId <= 0))
-      || (afterMessageId !== undefined && (!Number.isInteger(afterMessageId) || afterMessageId <= 0))
-      || (limit !== undefined && (!Number.isInteger(limit) || limit <= 0))) {
+    if ((beforeMessageId !== undefined && (!Number.isSafeInteger(beforeMessageId) || beforeMessageId <= 0))
+      || (afterMessageId !== undefined && (!Number.isSafeInteger(afterMessageId) || afterMessageId <= 0))
+      || (limit !== undefined && (!Number.isSafeInteger(limit) || limit <= 0))) {
       return error(c, ErrorCode.PARAM_ERROR, '消息分页参数不合法', 400);
     }
     if (beforeMessageId !== undefined && afterMessageId !== undefined) {
@@ -356,7 +365,7 @@ export function createAdminRoutes(dependencies: AdminRouteDependencies) {
 
   admin.delete('/discover/posts/:id', async (c) => {
     const postId = Number(c.req.param('id'));
-    if (!Number.isInteger(postId) || postId <= 0) return error(c, ErrorCode.PARAM_ERROR, '帖子 ID 不合法', 400);
+    if (!Number.isSafeInteger(postId) || postId <= 0) return error(c, ErrorCode.PARAM_ERROR, '帖子 ID 不合法', 400);
     try {
       const removed = await dependencies.communityAdmin.deleteDiscoverPost(postId);
       if (!removed) return error(c, ErrorCode.PARAM_ERROR, '帖子不存在', 404);
@@ -369,12 +378,13 @@ export function createAdminRoutes(dependencies: AdminRouteDependencies) {
 
   admin.get('/treehole/posts', async (c) => {
     const query = c.req.query();
-    const page = query.page ? Number(query.page) : undefined;
-    const pageSize = query.pageSize ? Number(query.pageSize) : undefined;
-    if ((page !== undefined && (!Number.isInteger(page) || page <= 0))
-      || (pageSize !== undefined && (!Number.isInteger(pageSize) || pageSize <= 0))) {
+    const page = query.page === undefined ? undefined : Number(query.page);
+    const pageSize = query.pageSize === undefined ? undefined : Number(query.pageSize);
+    if ((page !== undefined && (!Number.isSafeInteger(page) || page <= 0))
+      || (pageSize !== undefined && (!Number.isSafeInteger(pageSize) || pageSize <= 0))) {
       return error(c, ErrorCode.PARAM_ERROR, '分页参数不合法', 400);
     }
+    resolvePagination({ page, pageSize }, 20, 50);
     try {
       return success(c, await dependencies.communityAdmin.listTreeholePosts({
         page, pageSize, keyword: query.keyword,
@@ -387,13 +397,14 @@ export function createAdminRoutes(dependencies: AdminRouteDependencies) {
   admin.get('/treehole/posts/:id/comments', async (c) => {
     const postId = Number(c.req.param('id'));
     const query = c.req.query();
-    const page = query.page ? Number(query.page) : undefined;
-    const pageSize = query.pageSize ? Number(query.pageSize) : undefined;
-    if (!Number.isInteger(postId) || postId <= 0) return error(c, ErrorCode.PARAM_ERROR, '帖子 ID 不合法', 400);
-    if ((page !== undefined && (!Number.isInteger(page) || page <= 0))
-      || (pageSize !== undefined && (!Number.isInteger(pageSize) || pageSize <= 0))) {
+    const page = query.page === undefined ? undefined : Number(query.page);
+    const pageSize = query.pageSize === undefined ? undefined : Number(query.pageSize);
+    if (!Number.isSafeInteger(postId) || postId <= 0) return error(c, ErrorCode.PARAM_ERROR, '帖子 ID 不合法', 400);
+    if ((page !== undefined && (!Number.isSafeInteger(page) || page <= 0))
+      || (pageSize !== undefined && (!Number.isSafeInteger(pageSize) || pageSize <= 0))) {
       return error(c, ErrorCode.PARAM_ERROR, '分页参数不合法', 400);
     }
+    resolvePagination({ page, pageSize }, 50, 100);
     try {
       const data = await dependencies.communityAdmin.listTreeholeComments(postId, { page, pageSize });
       return data ? success(c, data) : error(c, ErrorCode.PARAM_ERROR, '帖子不存在', 404);
@@ -420,7 +431,7 @@ export function createAdminRoutes(dependencies: AdminRouteDependencies) {
 
   admin.delete('/treehole/posts/:id', async (c) => {
     const postId = Number(c.req.param('id'));
-    if (!Number.isInteger(postId) || postId <= 0) return error(c, ErrorCode.PARAM_ERROR, '帖子 ID 不合法', 400);
+    if (!Number.isSafeInteger(postId) || postId <= 0) return error(c, ErrorCode.PARAM_ERROR, '帖子 ID 不合法', 400);
     try {
       const removed = await dependencies.communityAdmin.deleteTreeholePost(postId);
       if (!removed) return error(c, ErrorCode.PARAM_ERROR, '帖子不存在', 404);
@@ -433,7 +444,7 @@ export function createAdminRoutes(dependencies: AdminRouteDependencies) {
 
   admin.delete('/treehole/comments/:id', async (c) => {
     const commentId = Number(c.req.param('id'));
-    if (!Number.isInteger(commentId) || commentId <= 0) return error(c, ErrorCode.PARAM_ERROR, '评论 ID 不合法', 400);
+    if (!Number.isSafeInteger(commentId) || commentId <= 0) return error(c, ErrorCode.PARAM_ERROR, '评论 ID 不合法', 400);
     try {
       const removed = await dependencies.communityAdmin.deleteTreeholeComment(commentId);
       if (!removed) return error(c, ErrorCode.PARAM_ERROR, '评论不存在', 404);

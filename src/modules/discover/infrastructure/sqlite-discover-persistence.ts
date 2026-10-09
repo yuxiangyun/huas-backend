@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖构造注入的 Drizzle db、CommunityProfileReader、ActivityOutboxWriter、DiscoverPolicy 与同层帖子/评论/推荐实例
- * [OUTPUT]: 对外提供实现 DiscoverPersistence 的 SQLiteDiscoverPersistence 聚合 adapter，删帖与互动事件撤回同事务
+ * [OUTPUT]: 对外提供实现 DiscoverPersistence 的 SQLiteDiscoverPersistence 聚合 adapter，删帖/管理删评与互动事件撤回同事务
  * [POS]: modules/discover/infrastructure 的持久化总边界，统一持有本切片实例图且不读取全局 getDb
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -101,7 +101,7 @@ export class SQLiteDiscoverPersistence implements DiscoverPersistence {
     return this.comments.create(input);
   }
 
-  deleteComment(commentId: number, userId: number) {
+  deleteComment(commentId: number, userId?: number) {
     return this.comments.delete(commentId, userId);
   }
 

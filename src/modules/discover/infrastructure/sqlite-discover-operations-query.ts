@@ -1,10 +1,12 @@
 /**
  * [INPUT]: 依赖构造注入的 Drizzle db、CommunityProfileReader、Discover operations 契约与自有 schema
- * [OUTPUT]: 对外提供 SQLiteDiscoverOperationsQuery，生成帖子/点赞口径的管理只读快照
+ * [OUTPUT]: 对外提供 SQLiteDiscoverOperationsQuery，生成兼容快照并委托完整帖子、评论与全局统计查询
  * [POS]: discover/infrastructure 的公开管理查询 adapter，不 JOIN Identity/Community 表且不泄露存储结构
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
+import { SQLiteDiscoverAdminQuery } from './sqlite-discover-admin-query';
+import type { AdminDiscoverListOptions } from '../domain/operations-query';
 import { desc, eq, isNull, sql } from 'drizzle-orm';
 import { schema } from '../../../db';
 import { beijingIsoString } from '../../../utils/time';
@@ -17,7 +19,16 @@ export class SQLiteDiscoverOperationsQuery implements DiscoverOperationsQueryPor
   constructor(
     private readonly db: DiscoverDatabase,
     private readonly profiles: CommunityProfileReader,
-  ) {}
+  ) { this.admin = new SQLiteDiscoverAdminQuery(db, profiles); }
+
+  private readonly admin: SQLiteDiscoverAdminQuery;
+
+  getSummary() { return this.admin.getSummary(); }
+  listPosts(options: AdminDiscoverListOptions) { return this.admin.listPosts(options); }
+  getPost(postId: number) { return this.admin.getPost(postId); }
+  listComments(postId: number, options: { page?: number; pageSize?: number }) {
+    return this.admin.listComments(postId, options);
+  }
 
   async getSnapshot(limit: number): Promise<DiscoverOperationsSnapshot> {
     const [postRows, likeRows, rows] = await Promise.all([

@@ -1,14 +1,18 @@
 /**
  * [INPUT]: 依赖 Identity operations query 契约、Drizzle db/schema 与北京时间格式化工具
  * [OUTPUT]: 对外提供 SQLiteIdentityOperationsQuery，只读聚合用户、三类基础学校凭证与兼容缓存计数
- * [POS]: identity/infrastructure 的管理查询 adapter，隔离身份表筛选、字面关键词匹配、年级解析、基础凭证口径与稳定分页 SQL
+ * [POS]: identity/infrastructure 的管理查询 adapter，隔离身份表筛选、字面关键词匹配、年级解析、基础凭证口径、独立概览及稳定用户分页 SQL
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { and, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import { getDb, schema } from '../../../db';
+import { resolvePagination } from '../../../utils/pagination';
 import { beijingIsoString } from '../../../utils/time';
 import type {
+  IdentityAdminUsersQuery,
+  IdentityAdminUsers,
+  IdentityOperationsOverview,
   IdentityOperationsQuery,
   IdentityOperationsQueryPort,
   IdentityOperationsSnapshot,
@@ -17,23 +21,12 @@ import type {
 const BASE_SCHOOL_CREDENTIAL_SYSTEMS = ['cas_tgc', 'portal_jwt', 'jw_session'] as const;
 
 function buildStudentGradeSql() {
-  return sql<string>`(
-    CASE
-      WHEN length(${schema.users.studentId}) >= 4
-        AND substr(${schema.users.studentId}, 1, 4) GLOB '[12][0-9][0-9][0-9]' THEN substr(${schema.users.studentId}, 1, 4)
-      WHEN length(${schema.users.studentId}) >= 5
-        AND substr(${schema.users.studentId}, 2, 4) GLOB '[12][0-9][0-9][0-9]' THEN substr(${schema.users.studentId}, 2, 4)
-      WHEN length(${schema.users.studentId}) >= 6
-        AND substr(${schema.users.studentId}, 3, 4) GLOB '[12][0-9][0-9][0-9]' THEN substr(${schema.users.studentId}, 3, 4)
-      WHEN length(${schema.users.studentId}) >= 7
-        AND substr(${schema.users.studentId}, 4, 4) GLOB '[12][0-9][0-9][0-9]' THEN substr(${schema.users.studentId}, 4, 4)
-      ELSE ''
-    END
-  )`;
-}
-
-function parseStudentGrade(studentId: string | null | undefined): string {
-  return studentId?.match(/(?:19|20)\d{2}/)?.[0] ?? '';
+  const candidates = [1, 2, 3, 4].map((position) => sql`
+    WHEN substr(${schema.users.studentId}, ${position}, 4) GLOB '19[0-9][0-9]'
+      OR substr(${schema.users.studentId}, ${position}, 4) GLOB '20[0-9][0-9]'
+    THEN substr(${schema.users.studentId}, ${position}, 4)
+  `);
+  return sql<string>`(CASE ${sql.join(candidates, sql` `)} ELSE '' END)`;
 }
 
 function formatLikeKeyword(value: string): string {
@@ -45,7 +38,7 @@ function toIso(date: Date | null | undefined): string | null {
 }
 
 export class SQLiteIdentityOperationsQuery implements IdentityOperationsQueryPort {
-  async getSnapshot(query: IdentityOperationsQuery): Promise<IdentityOperationsSnapshot> {
+  async getOverview(query: { todayStartMs: number; sevenDaysAgoMs: number }): Promise<IdentityOperationsOverview> {
     const db = getDb();
     const studentGradeExpr = buildStudentGradeSql();
     const [
@@ -79,43 +72,8 @@ export class SQLiteIdentityOperationsQuery implements IdentityOperationsQueryPor
         .orderBy(studentGradeExpr),
     ]);
 
-    const whereParts = [];
-    if (query.search) {
-      const keyword = formatLikeKeyword(query.search);
-      whereParts.push(or(
-        sql`${schema.users.studentId} LIKE ${keyword} ESCAPE ${'\\'}`,
-        sql`${schema.users.name} LIKE ${keyword} ESCAPE ${'\\'}`,
-      )!);
-    }
-    if (query.major) {
-      whereParts.push(query.major === '__UNASSIGNED__'
-        ? sql`(${schema.users.className} IS NULL OR ${schema.users.className} = '')`
-        : eq(schema.users.className, query.major));
-    }
-    if (query.grade) whereParts.push(sql`${studentGradeExpr} = ${query.grade}`);
-
-    const whereExpr = whereParts.length > 0 ? and(...whereParts) : undefined;
-    const totalFilteredRows = whereExpr
-      ? await db.select({ count: sql<number>`count(*)` }).from(schema.users).where(whereExpr)
-      : await db.select({ count: sql<number>`count(*)` }).from(schema.users);
-    const total = Number(totalFilteredRows[0]?.count || 0);
-    const totalPages = Math.max(1, Math.ceil(total / query.pageSize));
-    const page = Math.min(query.page, totalPages);
-    const selectUsers = db.select({
-      studentId: schema.users.studentId,
-      name: schema.users.name,
-      className: schema.users.className,
-      createdAt: schema.users.createdAt,
-      lastLoginAt: schema.users.lastLoginAt,
-    }).from(schema.users);
-    const userRows = whereExpr
-      ? await selectUsers.where(whereExpr).orderBy(desc(schema.users.lastLoginAt), desc(schema.users.id))
-          .limit(query.pageSize).offset((page - 1) * query.pageSize)
-      : await selectUsers.orderBy(desc(schema.users.lastLoginAt), desc(schema.users.id))
-          .limit(query.pageSize).offset((page - 1) * query.pageSize);
-
     const byMajor = majorRows.map((row) => ({
-      className: row.className || '未分配',
+      className: row.className?.trim() ? row.className : '未分配',
       count: Number(row.count || 0),
     }));
     const byGrade = gradeRows
@@ -132,27 +90,95 @@ export class SQLiteIdentityOperationsQuery implements IdentityOperationsQueryPor
         credentialEntries: Number(credentialRows[0]?.count || 0),
       },
       distributions: { byMajor, byGrade },
+    };
+  }
+
+  async listUsers(query: IdentityAdminUsersQuery): Promise<IdentityAdminUsers> {
+    const db = getDb();
+    const studentGradeExpr = buildStudentGradeSql();
+    const pagination = resolvePagination({ page: query.page }, 20, 20);
+    const search = query.search?.trim() || '';
+    const className = query.className?.trim() || '';
+    const grade = query.grade?.trim() || '';
+    const [classRows, gradeRows] = await Promise.all([
+      db.select({ className: schema.users.className }).from(schema.users)
+        .groupBy(schema.users.className).orderBy(schema.users.className),
+      db.select({ grade: studentGradeExpr }).from(schema.users)
+        .where(sql`${studentGradeExpr} <> ''`).groupBy(studentGradeExpr).orderBy(studentGradeExpr),
+    ]);
+    const whereParts = [];
+    if (search) {
+      const keyword = formatLikeKeyword(search);
+      whereParts.push(or(
+        sql`${schema.users.studentId} LIKE ${keyword} ESCAPE ${'\\'}`,
+        sql`${schema.users.name} LIKE ${keyword} ESCAPE ${'\\'}`,
+      )!);
+    }
+    if (className) {
+      whereParts.push(className === '__UNASSIGNED__'
+        ? sql`(${schema.users.className} IS NULL OR trim(${schema.users.className}) = '')`
+        : eq(schema.users.className, className));
+    }
+    if (grade) whereParts.push(sql`${studentGradeExpr} = ${grade}`);
+
+    const whereExpr = whereParts.length > 0 ? and(...whereParts) : undefined;
+    const totalFilteredRows = whereExpr
+      ? await db.select({ count: sql<number>`count(*)` }).from(schema.users).where(whereExpr)
+      : await db.select({ count: sql<number>`count(*)` }).from(schema.users);
+    const total = Number(totalFilteredRows[0]?.count || 0);
+    const totalPages = Math.max(1, Math.ceil(total / pagination.pageSize));
+    const page = Math.min(pagination.page, totalPages);
+    const selectUsers = db.select({
+      grade: studentGradeExpr,
+      lastActiveAt: schema.users.lastActiveAt,
+      studentId: schema.users.studentId,
+      name: schema.users.name,
+      className: schema.users.className,
+      createdAt: schema.users.createdAt,
+      lastLoginAt: schema.users.lastLoginAt,
+    }).from(schema.users);
+    const userRows = whereExpr
+      ? await selectUsers.where(whereExpr).orderBy(desc(schema.users.lastLoginAt), desc(schema.users.id))
+          .limit(pagination.pageSize).offset((page - 1) * pagination.pageSize)
+      : await selectUsers.orderBy(desc(schema.users.lastLoginAt), desc(schema.users.id))
+          .limit(pagination.pageSize).offset((page - 1) * pagination.pageSize);
+
+    return {
+      page,
+      pageSize: pagination.pageSize,
+      total,
+      totalPages,
+      filters: { search, className, grade },
+      options: {
+        classes: Array.from(new Map(classRows.map((row) => [
+          row.className?.trim() ? row.className : '__UNASSIGNED__',
+          { value: row.className?.trim() ? row.className : '__UNASSIGNED__', label: row.className?.trim() ? row.className : '未分配' },
+        ])).values()),
+        grades: gradeRows.map((row) => row.grade),
+      },
+      items: userRows.map((row) => ({
+        studentId: row.studentId,
+        name: row.name || '',
+        className: row.className?.trim() ? row.className : '未分配',
+        grade: row.grade,
+        createdAt: toIso(row.createdAt),
+        lastLoginAt: toIso(row.lastLoginAt),
+        lastActiveAt: toIso(row.lastActiveAt),
+      })),
+    };
+  }
+
+  async getSnapshot(query: IdentityOperationsQuery): Promise<IdentityOperationsSnapshot> {
+    const [overview, users] = await Promise.all([
+      this.getOverview(query),
+      this.listUsers({ page: query.page, search: query.search, className: query.major, grade: query.grade }),
+    ]);
+    return {
+      ...overview,
       users: {
-        page,
-        pageSize: query.pageSize,
-        total,
-        totalPages,
-        filters: { search: query.search, major: query.major, grade: query.grade },
-        options: {
-          majors: majorRows.map((row) => ({
-            value: row.className?.trim() ? row.className : '__UNASSIGNED__',
-            label: row.className?.trim() ? row.className : '未分配',
-          })),
-          grades: byGrade.map((row) => row.grade),
-        },
-        items: userRows.map((row) => ({
-          studentId: row.studentId,
-          name: row.name || '',
-          className: row.className || '未分配',
-          grade: parseStudentGrade(row.studentId),
-          createdAt: toIso(row.createdAt),
-          lastLoginAt: toIso(row.lastLoginAt),
-        })),
+        ...users,
+        filters: { search: users.filters.search, major: users.filters.className, grade: users.filters.grade },
+        options: { majors: users.options.classes, grades: users.options.grades },
       },
     };
   }

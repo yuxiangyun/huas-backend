@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 无运行时依赖，仅定义 Identity 面向管理聚合的稳定只读模型
- * [OUTPUT]: 对外提供 IdentityOperationsQueryPort、筛选条件与管理快照 DTO
+ * [OUTPUT]: 对外提供 IdentityOperationsQueryPort、独立用户列表、概览及兼容管理快照 DTO
  * [POS]: identity/domain 的只读查询契约，让 Operations 聚合身份事实而不理解 users/credentials/cache 表
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -22,6 +22,7 @@ export interface IdentityOperationsUser {
   grade: string;
   createdAt: string | null;
   lastLoginAt: string | null;
+  lastActiveAt: string | null;
 }
 
 export interface IdentityOperationsSnapshot {
@@ -52,5 +53,26 @@ export interface IdentityOperationsSnapshot {
 }
 
 export interface IdentityOperationsQueryPort {
+  listUsers(query: IdentityAdminUsersQuery): Promise<IdentityAdminUsers>;
+  getOverview(query: { todayStartMs: number; sevenDaysAgoMs: number }): Promise<IdentityOperationsOverview>;
   getSnapshot(query: IdentityOperationsQuery): Promise<IdentityOperationsSnapshot>;
 }
+
+export interface IdentityAdminUsersQuery {
+  page?: number;
+  search?: string;
+  className?: string;
+  grade?: string;
+}
+
+export interface IdentityAdminUsers {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+  filters: { search: string; className: string; grade: string };
+  options: { classes: Array<{ value: string; label: string }>; grades: string[] };
+  items: IdentityOperationsUser[];
+}
+
+export type IdentityOperationsOverview = Pick<IdentityOperationsSnapshot, 'metrics' | 'distributions'>;

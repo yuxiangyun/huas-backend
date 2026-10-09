@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖构造注入的 Drizzle db、CommunityProfileReader、TreeholeMediaReader、Treehole schema 与模块内 SQL helpers
- * [OUTPUT]: 提供含管理图片 URL 的帖子/评论公共作者查询及返回媒体键、同事务撤回互动通知的软删除事务
+ * [OUTPUT]: 提供含管理图片 URL 的帖子列表/独立详情/评论公共作者查询及返回媒体键、同事务撤回互动通知的软删除事务
  * [POS]: modules/treehole/infrastructure 的管理 adapter，只读内容事实并批量投影公共作者，删除与 Outbox 撤回同事务，图片文件副作用留给 application 补偿
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -23,6 +23,7 @@ import {
 } from '../domain/treehole';
 import {
   commentSelect,
+  findPublicPost,
   postSelect,
   refreshPostCommentCount,
   requireCommunityProfile,
@@ -38,6 +39,14 @@ export class SQLiteTreeholeAdminPersistence {
     private readonly media: TreeholeMediaReader,
     private readonly outbox?: ActivityOutboxWriter<TreeholeTransaction>,
   ) {}
+
+  async getPost(postId: number) {
+    const row = await findPublicPost(this.db, postId);
+    if (!row) return null;
+    const profiles = await this.profiles.getMany([row.userId]);
+    return toAdminPostResponse(row, requireCommunityProfile(profiles, row.userId),
+      (mediaKey, fileName) => this.media.adminUrlFor(mediaKey, fileName));
+  }
 
   async listPosts(
     options: AdminTreeholePostListOptions & { page: number; pageSize: number },
@@ -94,7 +103,7 @@ export class SQLiteTreeholeAdminPersistence {
       page,
       pageSize,
       total,
-      hasMore: page * pageSize < total,
+      hasMore: pageSize < total - (page - 1) * pageSize,
     };
   }
 
@@ -139,7 +148,7 @@ export class SQLiteTreeholeAdminPersistence {
       page,
       pageSize,
       total,
-      hasMore: page * pageSize < total,
+      hasMore: pageSize < total - (page - 1) * pageSize,
     };
   }
 

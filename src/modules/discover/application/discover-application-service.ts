@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Discover domain 规则、构造注入的 persistence/media ports 与 Notifications 提交后投影触发器
- * [OUTPUT]: 对外提供 DiscoverApplicationService，编排帖子、点赞、评论、推荐、用户帖子、活动投影、媒体补偿与孤儿回收用例
+ * [OUTPUT]: 对外提供 DiscoverApplicationService，编排帖子、点赞、评论及管理删评、推荐、用户帖子、活动投影、媒体补偿与孤儿回收用例
  * [POS]: modules/discover/application 的唯一用例服务，不知道 Hono、Drizzle、Community/Notifications 实现或文件系统
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -102,6 +102,10 @@ export class DiscoverApplicationService {
 
   deleteComment(commentId: number, userId: number) {
     return this.persistence.deleteComment(commentId, userId);
+  }
+
+  adminDeleteComment(commentId: number) {
+    return this.persistence.deleteComment(commentId);
   }
 
   async deletePost(postId: number, userId?: number) {

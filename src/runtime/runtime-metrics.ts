@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 接收 HTTP、上游、fallback、cache、singleflight、SQLite 与 analytics flush 运行事件
- * [OUTPUT]: 对外提供 createRuntimeMetrics、runtimeMetrics 与 Prometheus 文本序列化
+ * [OUTPUT]: 对外提供 createRuntimeMetrics、runtimeMetrics、结构化只读样本与 Prometheus 文本序列化
  * [POS]: runtime 的进程内轻量指标聚合器，只保存可丢弃计数与延迟总量，不承担业务事实
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -124,6 +124,13 @@ export function createRuntimeMetrics() {
 
     snapshot() {
       return new Map(counters);
+    },
+
+    samples() {
+      return [...counters.entries()]
+        .map(([key, value]) => ({ ...parseCounterKey(key), value }))
+        .sort((left, right) => left.name.localeCompare(right.name)
+          || labelKey(left.labels).localeCompare(labelKey(right.labels)));
     },
 
     renderPrometheus() {

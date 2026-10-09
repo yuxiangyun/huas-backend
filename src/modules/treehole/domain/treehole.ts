@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖共享 AppError/ErrorCode 与北京时间格式化能力，不依赖 HTTP、数据库、Bun 或文件系统
- * [OUTPUT]: 对外提供含私有图片的 Treehole 稳定类型、Unicode code point 内容规则、LIKE 转义及统一公共作者响应映射
+ * [OUTPUT]: 对外提供含私有图片与管理回复引用的 Treehole 稳定类型、Unicode code point 内容规则、LIKE 转义及统一公共作者响应映射
  * [POS]: modules/treehole/domain 的纯领域内核，所有内容显式绑定 Community 公共作者
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -148,6 +148,7 @@ export interface AdminTreeholePostResponse {
 export interface AdminTreeholeCommentResponse {
   id: number;
   postId: number;
+  parentCommentId: number | null;
   content: string;
   author: CommunityProfile;
   createdAt: string;
@@ -385,6 +386,7 @@ export function toAdminCommentResponse(
   return {
     id: row.id,
     postId: row.postId,
+    parentCommentId: row.parentCommentId,
     content: row.content,
     author,
     createdAt: beijingIsoString(row.createdAt),

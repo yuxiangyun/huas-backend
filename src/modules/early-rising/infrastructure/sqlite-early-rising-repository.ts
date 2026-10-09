@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖构造注入的 Drizzle db、early_rising_checkins schema 与 EarlyRisingRepository 端口
- * [OUTPUT]: 对外提供 SQLiteEarlyRisingRepository，以唯一约束幂等写入、同步短事务读取个人快照并派生趋势和日/周/月排名
+ * [OUTPUT]: 对外提供 SQLiteEarlyRisingRepository，以唯一约束幂等写入、同步短事务读取个人快照并派生用户/管理趋势和日/周/月排名
  * [POS]: modules/early-rising/infrastructure 的唯一事实 adapter，不 JOIN users/community_profiles 且不返回无界历史行集
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -59,6 +59,27 @@ function mapRank(row: RawRankRow): EarlyRisingRankFact {
 
 export class SQLiteEarlyRisingRepository implements EarlyRisingRepository {
   constructor(private readonly db: EarlyRisingDatabase) {}
+
+  async getOperationsOverview(today: string, from: string, to: string) {
+    const [totals, current, series] = await Promise.all([
+      this.db.select({
+        totalCheckins: sql<number>`count(*)`,
+        totalParticipants: sql<number>`count(distinct ${schema.earlyRisingCheckins.userId})`,
+      }).from(schema.earlyRisingCheckins),
+      this.db.select({ count: sql<number>`count(*)` }).from(schema.earlyRisingCheckins)
+        .where(eq(schema.earlyRisingCheckins.checkinDate, today)),
+      this.db.select({ date: schema.earlyRisingCheckins.checkinDate, count: sql<number>`count(*)` })
+        .from(schema.earlyRisingCheckins).where(and(
+          gte(schema.earlyRisingCheckins.checkinDate, from), lte(schema.earlyRisingCheckins.checkinDate, to),
+        )).groupBy(schema.earlyRisingCheckins.checkinDate).orderBy(schema.earlyRisingCheckins.checkinDate),
+    ]);
+    return {
+      todayParticipants: Number(current[0]?.count || 0),
+      totalParticipants: Number(totals[0]?.totalParticipants || 0),
+      totalCheckins: Number(totals[0]?.totalCheckins || 0),
+      series: series.map((row) => ({ date: row.date, count: Number(row.count) })),
+    };
+  }
 
   async createOrGet(userId: number, checkinDate: string, checkedAt: Date) {
     return this.db.transaction((transaction) => {
@@ -216,7 +237,7 @@ export class SQLiteEarlyRisingRepository implements EarlyRisingRepository {
   async getLeaderboard(
     period: EarlyRisingPeriod,
     range: EarlyRisingPeriodRange,
-    currentUserId: number,
+    currentUserId: number | null,
     limit: number,
   ): Promise<EarlyRisingLeaderboardFacts> {
     const rows = period === 'today'
@@ -229,7 +250,7 @@ export class SQLiteEarlyRisingRepository implements EarlyRisingRepository {
     };
   }
 
-  private getTodayLeaderboard(checkinDate: string, currentUserId: number, limit: number) {
+  private getTodayLeaderboard(checkinDate: string, currentUserId: number | null, limit: number) {
     return this.db.all<RawRankRow>(sql`
       WITH ranked AS (
         SELECT user_id, checked_at,
@@ -247,7 +268,7 @@ export class SQLiteEarlyRisingRepository implements EarlyRisingRepository {
 
   private getContinuityLeaderboard(
     range: EarlyRisingPeriodRange,
-    currentUserId: number,
+    currentUserId: number | null,
     limit: number,
   ) {
     const historyFrom = addEarlyRisingDays(

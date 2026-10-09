@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖构造注入的 Drizzle db、CommunityProfileReader、ActivityOutboxWriter、DiscoverPostQuery、领域策略与 schema
- * [OUTPUT]: 对外提供 SQLiteDiscoverCommentService，处理评论列表、父作者 reply/帖子作者 comment 原子创建、删除与计数，删除时同事务撤回该评论事件
+ * [OUTPUT]: 对外提供 SQLiteDiscoverCommentService，处理评论列表、父作者 reply/帖子作者 comment 原子创建、用户/管理删除与计数，删除时同事务撤回该评论事件
  * [POS]: modules/discover/infrastructure 的评论事实 adapter，复用 Notifications 共享接收规则防止两条 UGC 支线语义漂移
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -135,7 +135,7 @@ export class SQLiteDiscoverCommentService {
     return (await this.projectRows([row], input.userId))[0] ?? null;
   }
 
-  async delete(commentId: number, userId: number) {
+  async delete(commentId: number, userId?: number) {
     return this.db.transaction((tx) => {
       const commentRows = tx.select({
         id: schema.discoverComments.id,
@@ -145,7 +145,7 @@ export class SQLiteDiscoverCommentService {
         .innerJoin(schema.discoverPosts, eq(schema.discoverComments.postId, schema.discoverPosts.id))
         .where(and(
           eq(schema.discoverComments.id, commentId),
-          eq(schema.discoverComments.userId, userId),
+          userId === undefined ? undefined : eq(schema.discoverComments.userId, userId),
           isNull(schema.discoverComments.deletedAt),
           isNull(schema.discoverPosts.deletedAt),
         ))
@@ -159,7 +159,7 @@ export class SQLiteDiscoverCommentService {
         .set({ deletedAt: now, updatedAt: now })
         .where(and(
           eq(schema.discoverComments.id, activeComment.id),
-          eq(schema.discoverComments.userId, userId),
+          userId === undefined ? undefined : eq(schema.discoverComments.userId, userId),
           eq(schema.discoverComments.postId, activeComment.postId),
           isNull(schema.discoverComments.deletedAt),
         ))

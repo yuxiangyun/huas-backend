@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖各 canonical 模块公开构造器/ports、唯一数据库实例、运行配置、观测器、媒体端口与周期任务注册器
  * [OUTPUT]: 对外提供 createApplicationComposition，集中生成 Early Rising、HTTP/社交/Operations、聚合未读、媒体周期任务与关闭钩子
- * [POS]: src 的唯一跨模块组合根；仅在此把 Community 详细资料 reader 注入 Early Rising，并把其设置端口注入 Operations 管理面
+ * [POS]: src 的唯一跨模块组合根；仅在此把 Community 详细资料 reader 注入 Early Rising，并把其管理查询/设置及运行指标只读端口注入 Operations 管理面
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -134,7 +134,10 @@ export function createApplicationComposition(): ApplicationComposition {
     treeholeQuery: treehole.operationsQuery,
     treeholeMedia: treehole.media,
     messagingQuery: messaging.operationsQuery,
+    runtimeMetrics,
+    earlyRisingQuery: earlyRising.service,
     discoverCommands: {
+      deleteComment: (commentId) => discover.service.adminDeleteComment(commentId),
       deletePost: (postId) => discover.service.deletePost(postId),
     },
     treeholeCommands: {

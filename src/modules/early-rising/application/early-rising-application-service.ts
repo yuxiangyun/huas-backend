@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖可注入 Clock、Early Rising 事实/设置仓储、CommunityDetailedProfileReader 与领域时间/DTO 规则
- * [OUTPUT]: 对外提供不受窗口限制的今日重复打卡、一致个人统计、有界趋势、全校排行榜及客户端/后台展示设置用例
+ * [OUTPUT]: 对外提供不受窗口限制的今日重复打卡、一致个人统计、有界趋势、全校排行榜、后台事实概览及客户端/后台展示设置用例
  * [POS]: modules/early-rising/application 的编排核心，从服务端事实派生统计、批量投影榜单资料并隔离设置读写视图
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -21,6 +21,7 @@ import {
   type EarlyRisingLeaderboardRow,
   type EarlyRisingPeriod,
 } from '../domain/early-rising';
+import type { EarlyRisingAdminOverview } from '../domain/operations-query';
 import type {
   EarlyRisingClock,
   EarlyRisingRepository,
@@ -129,7 +130,30 @@ export class EarlyRisingApplicationService {
     };
   }
 
-  async getLeaderboard(userId: number, period: EarlyRisingPeriod) {
+  async getAdminOverview(days: 7 | 30 | 90): Promise<EarlyRisingAdminOverview> {
+    const today = describeBeijingTime(this.clock.now()).date;
+    const from = addEarlyRisingDays(today, 1 - days);
+    const facts = await this.repository.getOperationsOverview(today, from, today);
+    const counts = new Map(facts.series.map((item) => [item.date, item.count]));
+    return {
+      ...facts, days, range: { from, to: today },
+      series: Array.from({ length: days }, (_, index) => {
+        const date = addEarlyRisingDays(from, index);
+        return { date, count: counts.get(date) ?? 0 };
+      }),
+    };
+  }
+
+  async getAdminLeaderboard(period: EarlyRisingPeriod) {
+    const { me: _me, ...ranking } = await this.buildLeaderboard(null, period);
+    return ranking;
+  }
+
+  getLeaderboard(userId: number, period: EarlyRisingPeriod) {
+    return this.buildLeaderboard(userId, period);
+  }
+
+  private async buildLeaderboard(userId: number | null, period: EarlyRisingPeriod) {
     const now = this.clock.now();
     const range = resolveEarlyRisingPeriodRange(period, now);
     const ranking = await this.repository.getLeaderboard(
