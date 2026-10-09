@@ -15,7 +15,7 @@
 |---|---|
 | `src/` | 应用入口、组合根、领域模块、HTTP、数据库及运行生命周期 |
 | `web/` | `/m` 用户端与后台 SPA |
-| `tests/` | 业务及协议合同；默认 preload 临时 SQLite |
+| `tests/` | 仅保留实际访问学校 CAS、Portal、JW、mobile-jw 或 mobile-yxt 的真实 E2E 场景及隔离 setup |
 | `scripts/` | 数据库工具、维护发布与本地质量门禁 |
 | `docs/` | 当前架构、接口与运维文档 |
 | `data/` | 数据库、媒体及跨发布共享状态，属于持久数据 |
@@ -38,9 +38,9 @@
 ## 运行与验证
 
 - 后端：`bun run dev`；Web：`bun run web:dev`。
-- 完整门禁：`bun run check`；Web：`bun run web:typecheck`、`bun run web:build`。以 package.json 实际脚本为准。
-- 测试通过默认 preload 使用临时数据库；真实学校 E2E 是单独授权的 `bun run test:e2e`，不得用生产数据库演练。
-- `mock.module` 套件经测试脚本独立进程运行，共享 SQLite 的普通套件单并发；`.cases.ts` 由聚合入口导入。后台资料与恢复任务先收尾，再还原 spy/重置数据库，不用 sleep 猜完成。
+- `bun run check` 只执行类型检查与内存数据库迁移校验；Web 另跑 `bun run web:typecheck`、`bun run web:build`。
+- 真实学校 E2E 需单独授权并通过 `bun run test:e2e` 显式启用，提供账号密码；默认 preload 拒绝普通 `bun test`，并在业务模块加载前迁移临时 SQLite、固定可写路径，不得用生产数据库演练。
+- 按单个用例实际调用链保留：经路由、应用服务或客户端访问学校 CAS、Portal、JW、mobile-jw 或 mobile-yxt 均可；仅 Mock、离线样本、本机 HTTP、临时 SQLite 或继承前序登录状态的本地断言均不算。完整真实上游场景可包含缓存与恢复断言。真实场景串行，显式准备登录数据；结束时等待后台任务与恢复任务，再关闭数据库和清理临时目录，不用 sleep 猜完成。
 - 应用启动只校验 schema。迁移必须显式执行，发布流程及失败恢复以部署手册为准。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md

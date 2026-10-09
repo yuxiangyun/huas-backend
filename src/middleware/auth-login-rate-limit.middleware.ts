@@ -1,8 +1,8 @@
 /**
  * [INPUT]: 依赖 Hono Context 与 config 的登录限流配置
- * [OUTPUT]: 对外提供登录限流 key 构造、状态查询、失败记录、成功重置和测试清理函数
+ * [OUTPUT]: 对外提供登录限流 key 构造、状态查询、失败记录和成功后的按键重置
  * [POS]: middleware 的登录失败内存限流器，被 auth.routes.ts 在 CAS 登录入口显式调用
- * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md；保留按键管理重置，不暴露测试专用全局重置
  */
 import type { Context } from 'hono';
 import { config } from '../config';
@@ -154,9 +154,4 @@ export function resetAuthLoginRateLimit(key: string) {
   const normalizedKey = normalizePart(key);
   if (!normalizedKey) return;
   authLoginRateLimitState.delete(normalizedKey);
-}
-
-export function resetAuthLoginRateLimitStateForTests() {
-  authLoginRateLimitState.clear();
-  lastCleanupAt = 0;
 }

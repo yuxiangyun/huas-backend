@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 node:crypto/fs/path 与北京时间格式化能力
+ * [INPUT]: 依赖 node:crypto/fs/path、进程工作目录与北京时间格式化能力
  * [OUTPUT]: 对外提供 Announcement 类型与 AnnouncementService 原子公告读写服务
  * [POS]: operations/infrastructure 的公告文件 adapter，校验输入并以同目录临时文件保护 JSON 完整性
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -29,8 +29,7 @@ interface AnnouncementPayload {
   type?: string;
 }
 
-const STORAGE_ROOT = (globalThis as { __HUAS_TEST_ROOT__?: string }).__HUAS_TEST_ROOT__ ?? process.cwd();
-const ANNOUNCEMENTS_FILE = resolve(STORAGE_ROOT, 'data/announcements.json');
+const ANNOUNCEMENTS_FILE = resolve(process.cwd(), 'data/announcements.json');
 const TYPE_SET = new Set<AnnouncementType>(['info', 'warning', 'error']);
 const DEFAULT_ANNOUNCEMENTS: Announcement[] = [{
   id: '20260307-1',

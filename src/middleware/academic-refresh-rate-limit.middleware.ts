@@ -1,8 +1,8 @@
 /**
  * [INPUT]: 依赖 Hono Context/Next、ErrorCode 与 response.error，读取认证后的 userId 和请求回源意图
- * [OUTPUT]: 对外提供按 refresh 或固定实时回源计数的限流中间件与测试态重置函数
+ * [OUTPUT]: 对外提供按 refresh 或固定实时回源计数的限流中间件
  * [POS]: middleware 的校园上游限流边界，以用户与回源类别为粒度保护学校系统，不承载业务事实
- * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md；不暴露测试专用状态重置入口
  */
 
 import type { Context, Next } from 'hono';
@@ -78,9 +78,4 @@ export async function academicRefreshRateLimitMiddleware(c: Context, next: Next)
 
 export async function academicRealtimeRateLimitMiddleware(c: Context, next: Next) {
   return enforceAcademicRateLimit(c, next, 'realtime');
-}
-
-export function resetAcademicRefreshRateLimitStateForTests() {
-  academicRefreshState.clear();
-  lastCleanupAt = 0;
 }

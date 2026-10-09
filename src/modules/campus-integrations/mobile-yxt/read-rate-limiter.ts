@@ -2,7 +2,7 @@
  * [INPUT]: 依赖用户 ID、交易/电费读取范围、请求时间与统一 TOO_MANY_REQUESTS 错误语义
  * [OUTPUT]: 对外提供独立交易/电费 MobileYxtReadQuota 与兼容交易配额入口，限制实际 miss/refresh 回源
  * [POS]: mobile-yxt 自有内存限流状态；交易与电费互不消耗，也不读取 Academic refresh/realtime 桶
- * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md；不暴露测试专用状态重置入口
  */
 
 import { AppError, ErrorCode } from '../../../utils/errors';
@@ -63,8 +63,3 @@ export const mobileYxtElectricityReadQuota: MobileYxtReadQuota = {
 };
 
 export const mobileYxtReadQuota = mobileYxtTradeReadQuota;
-
-export function resetMobileYxtReadRateLimitStateForTests(): void {
-  state.clear();
-  lastCleanupAt = 0;
-}
