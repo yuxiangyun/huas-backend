@@ -1,13 +1,13 @@
 /**
  * [INPUT]: 依赖普通 Bearer/后台 Cookie 二进制请求、React 生命周期与受保护媒体路径
- * [OUTPUT]: 对外提供 PrivateMediaImage、近视口 DeferredPrivateMediaImage 与会话缓存清理动作，以 URL+认证模式+身份代次复用有界 Blob
+ * [OUTPUT]: 对外提供 PrivateMediaImage、近视口 DeferredPrivateMediaImage、HeroUI 加载反馈与会话缓存清理动作，以 URL+认证模式+身份代次复用有界 Blob
  * [POS]: shared/ui 的私有媒体适配原语，以身份隔离的 10 分钟/24MB 内存 LRU 保护回滚浏览，并让长聊天仅在图片接近视口时发起鉴权请求
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import type { CSSProperties, ImgHTMLAttributes, RefObject } from 'react';
 import { useEffect, useRef, useState } from 'react';
-import { ImageOff } from 'lucide-react';
+import { Spinner } from '@heroui/react/spinner';
 import { useAuthStore } from '@/entities/auth/model/auth-store';
 import { adminSessionFetch, authenticatedFetch } from '@/shared/api/http-client';
 import { cn } from '@/shared/lib/cn';
@@ -173,8 +173,8 @@ export function PrivateMediaImage({ src, alt, className, authMode = 'bearer', ..
 
   if (!currentState.objectUrl) {
     return (
-      <span className={cn('grid min-h-24 place-items-center bg-shell-strong text-muted', className)} aria-label={currentState.failed ? '图片加载失败' : '图片加载中'}>
-        {currentState.failed ? <ImageOff aria-hidden="true" className="size-5" /> : <span className="size-5 animate-pulse rounded bg-line" />}
+      <span className={cn('grid min-h-24 place-items-center bg-shell-strong text-muted', className)} style={{ aspectRatio: props.width && props.height ? `${props.width}/${props.height}` : undefined, ...props.style }} aria-label={currentState.failed ? '图片加载失败' : '图片加载中'}>
+        {currentState.failed ? <span className="max-w-full px-1 text-center text-xs">加载失败</span> : <Spinner size="sm" />}
       </span>
     );
   }
@@ -221,7 +221,7 @@ export function DeferredPrivateMediaImage({
       {nearViewport ? (
         <PrivateMediaImage {...props} className={imageClassName} />
       ) : (
-        <span className="block size-full min-h-24 animate-pulse bg-shell-strong" aria-label="图片等待加载" />
+        <span className="grid size-full min-h-24 place-items-center" aria-label="图片等待加载"><Spinner size="sm" /></span>
       )}
     </span>
   );

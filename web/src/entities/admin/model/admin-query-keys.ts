@@ -1,12 +1,21 @@
 /**
  * [INPUT]: 依赖后台内容、私信、运行状态的资源边界与筛选/游标参数
- * [OUTPUT]: 提供 dashboard、内容、私信、日志、课表策略、首页弹窗与 Early Rising 展示设置的稳定 TanStack Query key
+ * [OUTPUT]: 提供概览、独立用户、内容详情、早起运营、运行采样及兼容资源的稳定 TanStack Query key
  * [POS]: entities/admin 的缓存命名边界，让查询、mutation 和会话清理共享同一资源身份
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
+import type { AdminDiscoverPostsParams, AdminEarlyRisingPeriod, AdminUsersParams } from './admin-types';
+
 export const adminQueryKeys = {
   all: () => ['admin'] as const,
+
+  overview: () => ['admin', 'overview'] as const,
+  usersAll: () => ['admin', 'users'] as const,
+  users: (params: AdminUsersParams) => [...adminQueryKeys.usersAll(), params] as const,
+  runtime: () => ['admin', 'runtime'] as const,
+  earlyRisingOverview: (days: 7 | 30 | 90) => ['admin', 'early-rising', 'overview', days] as const,
+  earlyRisingLeaderboard: (period: AdminEarlyRisingPeriod) => ['admin', 'early-rising', 'leaderboard', period] as const,
 
   dashboardAll: () => ['admin', 'dashboard'] as const,
   dashboard: (params: { page?: number; search?: string; major?: string; grade?: string }) =>
@@ -22,10 +31,19 @@ export const adminQueryKeys = {
   discover: (params: { page?: number; search?: string; major?: string; grade?: string }) =>
     [...adminQueryKeys.discoverAll(), params] as const,
 
+  discoverPostsAll: () => ['admin', 'discover', 'posts'] as const,
+  discoverPosts: (params: AdminDiscoverPostsParams) => [...adminQueryKeys.discoverPostsAll(), params] as const,
+  discoverPost: (postId: number) => ['admin', 'discover', 'post', postId] as const,
+  discoverCommentsAll: () => ['admin', 'discover', 'comments'] as const,
+  discoverCommentsByPost: (postId: number) => [...adminQueryKeys.discoverCommentsAll(), postId] as const,
+  discoverComments: (postId: number, params: { page?: number; pageSize?: number }) =>
+    [...adminQueryKeys.discoverCommentsByPost(postId), params] as const,
+
   treeholeAll: () => ['admin', 'treehole'] as const,
   treeholePostsAll: () => ['admin', 'treehole', 'posts'] as const,
   treeholePosts: (params: { keyword?: string; page?: number; pageSize?: number }) =>
     [...adminQueryKeys.treeholePostsAll(), params] as const,
+  treeholePost: (postId: number) => ['admin', 'treehole', 'post', postId] as const,
   treeholeCommentsAll: () => ['admin', 'treehole', 'comments'] as const,
   treeholeCommentsByPost: (postId: number) => [...adminQueryKeys.treeholeCommentsAll(), postId] as const,
   treeholeComments: (postId: number, params: { page?: number; pageSize?: number }) =>

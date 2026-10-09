@@ -1,76 +1,94 @@
 /**
- * [INPUT]: 依赖后台 dashboard 查询、URL 查询参数与后台会话上下文
- * [OUTPUT]: 提供 AdminUsersPage 用户分布、筛选与响应式用户列表
- * [POS]: pages/admin 的用户洞察页，与总览图表和内容洞察并列
+ * [INPUT]: 依赖独立管理用户查询、URL 筛选与后台会话
+ * [OUTPUT]: 提供学号姓名搜索、班级和推断年级筛选、活跃时间与稳定分页
+ * [POS]: pages/admin 的账户只读页；空资料保持缺失语义，不提供用户写操作
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { useState } from 'react';
+import { Button } from '@heroui/react/button';
+import { Form } from '@heroui/react/form';
+import { ListBox } from '@heroui/react/list-box';
+import { Select } from '@heroui/react/select';
+import { Table } from '@heroui/react/table';
+import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useAdminDashboardQuery } from '@/entities/admin/api/admin-queries';
+import { useAdminUsersQuery } from '@/entities/admin/api/admin-queries';
+import { formatBeijingDateTime } from '@/pages/admin/insights-ui';
+import { SearchInput } from '@/shared/ui/search-input';
 import { useAdminOutletContext } from '@/pages/admin/layout';
-import { Button } from '@/shared/ui/button';
+import { AdminPage, AdminPanel, AdminPagination, AdminState } from '@/shared/ui/admin';
 
-const fieldClass = 'field-control h-10 min-h-10 py-1.5 text-sm';
-
-function dateTime(value: string | null) {
-  if (!value) return '-';
-  return new Date(value).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+function UserFilter({ label, value, options, onChange }: {
+  label: string;
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  onChange: (value: string) => void;
+}) {
+  const items = [{ id: 'all', label: `全部${label}` }, ...options.map((item) => ({ id: `value:${item.value}`, label: item.label }))];
+  if (value && !options.some((item) => item.value === value)) items.push({ id: `value:${value}`, label: value });
+  return <Select aria-label={label} value={value ? `value:${value}` : 'all'} onChange={(key) => onChange(key === 'all' || key === null ? '' : String(key).slice(6))} className="min-w-0 w-full sm:w-40 sm:shrink-0">
+    <Select.Trigger className="h-10 items-center md:h-9"><Select.Value className="truncate" /><Select.Indicator /></Select.Trigger>
+    <Select.Popover><ListBox items={items}>{(item) => <ListBox.Item id={item.id} textValue={item.label}><span className="min-w-0 [overflow-wrap:anywhere]">{item.label}</span><ListBox.ItemIndicator /></ListBox.Item>}</ListBox></Select.Popover>
+  </Select>;
 }
 
 export function AdminUsersPage() {
   const { session } = useAdminOutletContext();
   const [params, setParams] = useSearchParams();
-  const page = Math.max(1, Number(params.get('page') || 1));
-  const search = params.get('search') || '';
-  const major = params.get('major') || '';
-  const grade = params.get('grade') || '';
+  const rawPage = Number(params.get('page') || 1);
+  const page = Number.isSafeInteger(rawPage) && rawPage > 0 ? rawPage : 1;
+  const search = (params.get('search') || '').trim();
+  const className = (params.get('className') || '').trim();
+  const rawGrade = params.get('grade') || '';
+  const grade = /^(19|20)\d{2}$/.test(rawGrade) ? rawGrade : '';
   const [input, setInput] = useState(search);
-  const query = useAdminDashboardQuery(session, { page, search, major, grade });
-  const users = query.data?.users;
+  const query = useAdminUsersQuery(session, { page, search, className, grade });
+  const users = query.data;
 
-  function update(next: Record<string, string>) {
-    const value = new URLSearchParams(params);
-    for (const [key, entry] of Object.entries(next)) entry ? value.set(key, entry) : value.delete(key);
-    setParams(value);
+  useEffect(() => { setInput(search); }, [search]);
+  useEffect(() => {
+    if (!users || (users.page === page && rawPage === page)) return;
+    setParams((previous) => {
+      const next = new URLSearchParams(previous);
+      if (users.page === 1) next.delete('page'); else next.set('page', String(users.page));
+      return next;
+    }, { replace: true });
+  }, [users, page, rawPage, setParams]);
+
+  function update(changes: Record<string, string>) {
+    setParams((previous) => {
+      const next = new URLSearchParams(previous);
+      for (const [key, value] of Object.entries(changes)) {
+        if (value) next.set(key, value); else next.delete(key);
+      }
+      next.delete('major');
+      return next;
+    });
   }
 
-  return (
-    <div className="space-y-4">
-      <header className="flex items-end justify-between gap-3">
-        <h1 className="text-2xl font-semibold tracking-[-0.025em]">用户</h1>
-        <p className="text-sm text-muted">{users?.total ?? 0} 人</p>
-      </header>
-
-      <section className="grid gap-2 rounded-[0.75rem] border border-line bg-white p-3 md:grid-cols-[2fr_1fr_1fr_auto]">
-        <input className={fieldClass} value={input} placeholder="学号或姓名" onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && update({ search: input.trim(), page: '' })} />
-        <select className={fieldClass} value={major} onChange={(event) => update({ major: event.target.value, page: '' })}>
-          <option value="">全部专业</option>
-          {(users?.options.majors ?? []).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-        </select>
-        <select className={fieldClass} value={grade} onChange={(event) => update({ grade: event.target.value, page: '' })}>
-          <option value="">全部年级</option>
-          {(users?.options.grades ?? []).map((item) => <option key={item} value={item}>{item}</option>)}
-        </select>
-        <Button size="sm" type="button" onClick={() => update({ search: input.trim(), page: '' })}>查询</Button>
-      </section>
-
-      <section className="overflow-hidden rounded-[0.75rem] border border-line bg-white">
-        <div className="hidden overflow-auto md:block">
-          <table className="min-w-full text-left text-sm">
-            <thead className="bg-black/[0.025] text-muted"><tr><th className="px-4 py-3 font-medium">学号</th><th className="px-4 py-3 font-medium">姓名</th><th className="px-4 py-3 font-medium">专业</th><th className="px-4 py-3 font-medium">年级</th><th className="px-4 py-3 font-medium">最后登录</th></tr></thead>
-            <tbody>{(users?.items ?? []).map((user) => <tr key={user.studentId} className="border-t border-line"><td className="px-4 py-3 font-mono">{user.studentId}</td><td className="px-4 py-3">{user.name || '-'}</td><td className="px-4 py-3 text-muted">{user.className}</td><td className="px-4 py-3 text-muted">{user.grade || '-'}</td><td className="px-4 py-3 text-muted">{dateTime(user.lastLoginAt)}</td></tr>)}</tbody>
-          </table>
-        </div>
-        <div className="divide-y divide-line md:hidden">
-          {(users?.items ?? []).map((user) => <article key={user.studentId} className="p-4"><div className="flex justify-between gap-3"><p className="font-medium text-ink">{user.name || '未填写姓名'}</p><p className="font-mono text-xs text-muted">{user.studentId}</p></div><p className="mt-2 text-sm text-muted">{user.className} · {user.grade || '年级未知'}</p><p className="mt-1 text-xs text-muted">最后登录 {dateTime(user.lastLoginAt)}</p></article>)}
-        </div>
-        <footer className="flex items-center justify-between border-t border-line px-4 py-3 text-sm text-muted">
-          <Button size="sm" variant="subtle" disabled={!users || users.page <= 1} onClick={() => update({ page: String(page - 1) })}>上一页</Button>
-          <span>{users ? `${users.page} / ${users.totalPages}` : '-'}</span>
-          <Button size="sm" variant="subtle" disabled={!users || users.page >= users.totalPages} onClick={() => update({ page: String(page + 1) })}>下一页</Button>
-        </footer>
-      </section>
-    </div>
-  );
+  return <AdminPage title="用户">
+    <Form className="flex flex-wrap items-center gap-2" onSubmit={(event) => { event.preventDefault(); update({ search: input.trim(), page: '' }); }}>
+      <SearchInput label="学号或姓名" value={input} onChange={setInput} className="w-full sm:w-60" />
+      <UserFilter label="班级" value={className} options={users?.options.classes ?? []} onChange={(value) => update({ className: value, page: '' })} />
+      <UserFilter label="推断年级" value={grade} options={(users?.options.grades ?? []).map((value) => ({ value, label: value }))} onChange={(value) => update({ grade: value, page: '' })} />
+      <div className="flex shrink-0 items-center gap-2">
+        <Button type="submit" variant="secondary">搜索</Button>
+        {search || className || grade || input ? <Button type="button" variant="ghost" onPress={() => { setInput(''); update({ search: '', className: '', grade: '', page: '' }); }}>清空</Button> : null}
+      </div>
+    </Form>
+    <AdminState loading={query.isLoading} error={query.error} onRetry={() => { void query.refetch(); }} />
+    {users ? <AdminPanel>
+      <Table variant="secondary"><Table.ScrollContainer><Table.Content aria-label="用户列表" className="min-w-[68rem] table-fixed">
+        <Table.Header>
+          <Table.Column id="studentId" className="w-40" isRowHeader>学号</Table.Column><Table.Column id="name" className="w-32">姓名</Table.Column><Table.Column id="className" className="w-52">班级</Table.Column><Table.Column id="grade" className="w-24">推断年级</Table.Column><Table.Column id="createdAt">创建时间</Table.Column><Table.Column id="lastLoginAt">最近认证</Table.Column><Table.Column id="lastActiveAt">最近活跃</Table.Column>
+        </Table.Header>
+        <Table.Body items={users.items} renderEmptyState={() => <AdminState empty emptyText="没有匹配的用户" />}>
+          {(user) => <Table.Row id={user.studentId}>
+            <Table.Cell className="font-mono [overflow-wrap:anywhere]">{user.studentId}</Table.Cell><Table.Cell className="[overflow-wrap:anywhere]">{user.name || '—'}</Table.Cell><Table.Cell className="[overflow-wrap:anywhere]">{user.className || '—'}</Table.Cell><Table.Cell>{user.grade || '—'}</Table.Cell><Table.Cell className="whitespace-nowrap tabular-nums">{formatBeijingDateTime(user.createdAt)}</Table.Cell><Table.Cell className="whitespace-nowrap tabular-nums">{formatBeijingDateTime(user.lastLoginAt)}</Table.Cell><Table.Cell className="whitespace-nowrap tabular-nums">{formatBeijingDateTime(user.lastActiveAt)}</Table.Cell>
+          </Table.Row>}
+        </Table.Body>
+      </Table.Content></Table.ScrollContainer></Table>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3"><span className="text-sm text-muted tabular-nums">{users.total.toLocaleString('zh-CN')} 人</span><AdminPagination page={users.page} pageSize={users.pageSize} total={users.total} isPending={query.isFetching} onPageChange={(value) => update({ page: String(value) })} /></div>
+    </AdminPanel> : null}
+  </AdminPage>;
 }

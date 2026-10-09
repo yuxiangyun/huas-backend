@@ -1,0 +1,15 @@
+/* Shared HeroUI theme for the admin and user SPA.
+ * HeroUI supplies its default palette, matching easyxai-monorepo/packages/ui/src/styles/heroui-default.tokens.json.
+ * Only the application canvas is customized. Component colors, fields, radius,
+ * focus states and overlays retain HeroUI defaults; legacy utilities alias them.
+ */
+:root {
+  --background: #ffffff;
+  color-scheme: light;
+  color: var(--foreground);
+  font-family: var(--font-sans);
+}
+
+@layer components {
+  .table__content { font-variant-numeric: tabular-nums; }
+}

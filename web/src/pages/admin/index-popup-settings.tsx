@@ -1,11 +1,18 @@
+import { DatePickerField } from '@/shared/ui/date-picker-field';
 /**
- * [INPUT]: 依赖首页弹窗查询/上传 mutation、后台会话、公开媒体地址规范化与基础按钮
- * [OUTPUT]: 提供 IndexPopupSettings，维护唯一首页海报的开关、图片、底部展示三态、文案、频率与可选生效时间
- * [POS]: pages/admin/settings 的单职展示配置区块，以本地表单草稿提交 multipart 并用服务端快照回写缓存
+ * [INPUT]: 依赖首页弹窗查询/变更、后台会话、公共媒体地址与 HeroUI 表单控件
+ * [OUTPUT]: 编辑唯一首页海报的图片、开关、底部动作、频率与北京时间窗口，保留未保存草稿
+ * [POS]: pages/admin/operations 的独立首页弹窗页面，以明确保存及服务端返回快照更新草稿基线
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { useEffect, useState } from 'react';
+import { Button } from '@heroui/react/button';
+import { Form } from '@heroui/react/form';
+import { Input } from '@heroui/react/input';
+import { Label } from '@heroui/react/label';
+import { Switch } from '@heroui/react/switch';
+import { TextField } from '@heroui/react/textfield';
+import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { useToastStore } from '@/app/state/toast-store';
 import {
   useAdminIndexPopupSettingsQuery,
@@ -14,360 +21,189 @@ import {
 import type {
   AdminIndexPopupActionType,
   AdminIndexPopupFrequency,
-  AdminIndexPopupSettings as AdminIndexPopupSettingsModel,
+  AdminIndexPopupSettings as PopupSettings,
 } from '@/entities/admin/model/admin-types';
 import type { AdminSession } from '@/features/admin-treehole/model/admin-session';
+import { beijingDateTime, beijingDateTimeToIso, isNewerSnapshot, operationError, OperationsSelect } from '@/pages/admin/operations-fields';
 import { buildMediaUrl } from '@/shared/api/media';
-import { Button } from '@/shared/ui/button';
+import { useAdminOutletContext } from '@/pages/admin/layout';
+import { AdminPage, AdminState } from '@/shared/ui/admin';
 
-const FREQUENCY_OPTIONS: Array<{
-  value: AdminIndexPopupFrequency;
-  label: string;
-  description: string;
-}> = [
-  { value: 'once', label: '仅一次', description: '当前海报在本机只展示一次' },
-  { value: 'daily', label: '每天一次', description: '当前海报在本机每天最多展示一次' },
-  { value: 'startup', label: '每次启动', description: '小程序每次冷启动最多展示一次' },
-];
+const FREQUENCY_OPTIONS = [
+  { value: 'once', label: '每份内容一次' },
+  { value: 'daily', label: '每天一次' },
+  { value: 'startup', label: '每次启动' },
+] as const;
+const ACTION_OPTIONS = [
+  { value: 'public_account', label: '公众号入口' },
+  { value: 'text', label: '文字' },
+  { value: 'none', label: '无' },
+] as const;
 
-const ACTION_TYPE_OPTIONS: Array<{
-  value: AdminIndexPopupActionType;
-  label: string;
-  description: string;
-}> = [
-  { value: 'public_account', label: '跳转公众号', description: '底部文案作为进入公众号的操作提示' },
-  { value: 'text', label: '仅展示文字', description: '显示底部文案，不提供跳转动作' },
-  { value: 'none', label: '仅展示海报', description: '不显示底部文案和跳转动作' },
-];
+type PopupDraft = {
+  enabled: boolean;
+  actionType: AdminIndexPopupActionType;
+  actionText: string;
+  frequency: AdminIndexPopupFrequency;
+  startsAt: string;
+  endsAt: string;
+};
 
-function toLocalDateTime(value: string | null) {
-  if (!value) return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-
-  const pad = (part: number) => String(part).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+function toDraft(settings: PopupSettings): PopupDraft {
+  return {
+    enabled: settings.enabled,
+    actionType: settings.actionType,
+    actionText: settings.actionText,
+    frequency: settings.frequency,
+    startsAt: settings.startsAt ? beijingDateTime(settings.startsAt) : '',
+    endsAt: settings.endsAt ? beijingDateTime(settings.endsAt) : '',
+  };
 }
 
-function toIsoDateTime(value: string) {
-  return value ? new Date(value).toISOString() : null;
-}
-
-function getErrorMessage(error: unknown, fallback: string) {
-  return error instanceof Error && error.message ? error.message : fallback;
-}
-
-function settingsIdentity(settings: AdminIndexPopupSettingsModel) {
-  return [
-    settings.updatedAt,
-    settings.version,
-    settings.enabled,
-    settings.imageUrl,
-    settings.actionType,
-    settings.actionText,
-    settings.frequency,
-    settings.startsAt,
-    settings.endsAt,
-  ].join('|');
-}
-
-function IndexPopupSettingsForm({
-  session,
-  settings,
-}: {
-  session: AdminSession;
-  settings: AdminIndexPopupSettingsModel;
-}) {
-  const pushToast = useToastStore((state) => state.pushToast);
+function PopupForm({ session, settings }: { session: AdminSession; settings: PopupSettings }) {
   const mutation = useUpdateAdminIndexPopupSettingsMutation(session);
-  const [enabled, setEnabled] = useState(settings.enabled);
-  const [actionType, setActionType] = useState(settings.actionType);
-  const [actionText, setActionText] = useState(settings.actionText);
-  const [frequency, setFrequency] = useState(settings.frequency);
-  const [startsAt, setStartsAt] = useState(() => toLocalDateTime(settings.startsAt));
-  const [endsAt, setEndsAt] = useState(() => toLocalDateTime(settings.endsAt));
-  const [selectedImage, setSelectedImage] = useState<{ file: File; url: string } | null>(null);
-  const [validationError, setValidationError] = useState<string | null>(null);
+  const pushToast = useToastStore((state) => state.pushToast);
+  const [snapshot, setSnapshot] = useState(settings);
+  const [draft, setDraft] = useState(() => toDraft(settings));
+  const [image, setImage] = useState<{ file: File; url: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const imageInput = useRef<HTMLInputElement>(null);
+  const writeLock = useRef(false);
+  const baseline = toDraft(snapshot);
+  const dirty = image !== null || Object.keys(draft).some((key) => draft[key as keyof PopupDraft] !== baseline[key as keyof PopupDraft]);
+  const preview = image?.url ?? (snapshot.imageUrl ? buildMediaUrl(snapshot.imageUrl) : null);
+
+  useEffect(() => {
+    if (!dirty && !mutation.isPending && isNewerSnapshot(settings.updatedAt, snapshot.updatedAt)) {
+      setSnapshot(settings);
+      setDraft(toDraft(settings));
+    }
+  }, [settings, dirty, mutation.isPending, snapshot.updatedAt]);
 
   useEffect(() => () => {
-    if (selectedImage) URL.revokeObjectURL(selectedImage.url);
-  }, [selectedImage]);
+    if (image) URL.revokeObjectURL(image.url);
+  }, [image]);
 
-  const previewUrl = selectedImage?.url ?? (settings.imageUrl ? buildMediaUrl(settings.imageUrl) : '');
-
-  function selectImage(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.currentTarget.files?.[0];
+  function selectImage(file: File | undefined) {
     if (!file) return;
-    setSelectedImage({ file, url: URL.createObjectURL(file) });
-    setValidationError(null);
-    mutation.reset();
+    if (file.size > 10 * 1024 * 1024) {
+      setError('图片不能超过 10 MiB');
+      return;
+    }
+    if (file.type && !file.type.startsWith('image/')) {
+      setError('请选择图片');
+      return;
+    }
+    setImage({ file, url: URL.createObjectURL(file) });
+    setError(null);
   }
 
-  async function saveSettings(event: React.FormEvent<HTMLFormElement>) {
+  async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    mutation.reset();
-    setValidationError(null);
-
-    if (enabled && !settings.imageUrl && !selectedImage) {
-      setValidationError('启用首页弹窗前请先选择海报图片');
+    if (writeLock.current || !dirty) return;
+    setError(null);
+    if (draft.enabled && !snapshot.imageUrl && !image) {
+      setError('请选择海报图片');
       return;
     }
-    if (actionType !== 'none' && !actionText.trim()) {
-      setValidationError('请填写海报下方文字');
+    const actionText = draft.actionText.trim();
+    if (draft.actionType !== 'none' && !actionText) {
+      setError('请填写底部文案');
       return;
     }
-
-    const normalizedStartsAt = toIsoDateTime(startsAt);
-    const normalizedEndsAt = toIsoDateTime(endsAt);
-    if (normalizedStartsAt && normalizedEndsAt && normalizedEndsAt <= normalizedStartsAt) {
-      setValidationError('结束时间必须晚于开始时间');
+    if (Array.from(actionText).length > 20 || /[\u0000-\u001f\u007f]/.test(actionText)) {
+      setError('底部文案限 20 个字符，不能包含控制字符');
       return;
     }
-
     try {
-      await mutation.mutateAsync({
-        enabled,
-        actionType,
-        actionText: actionText.trim(),
-        frequency,
-        startsAt: normalizedStartsAt,
-        endsAt: normalizedEndsAt,
-        image: selectedImage?.file,
+      const startsAt = draft.startsAt === baseline.startsAt ? snapshot.startsAt : beijingDateTimeToIso(draft.startsAt);
+      const endsAt = draft.endsAt === baseline.endsAt ? snapshot.endsAt : beijingDateTimeToIso(draft.endsAt);
+      if (startsAt && endsAt && Date.parse(endsAt) <= Date.parse(startsAt)) {
+        setError('结束时间须晚于开始时间');
+        return;
+      }
+      writeLock.current = true;
+      const updated = await mutation.mutateAsync({
+        ...draft,
+        actionText,
+        startsAt,
+        endsAt,
+        image: image?.file,
       });
-      pushToast({
-        title: '首页弹窗设置已保存',
-        message: '新设置已发布',
-        variant: 'success',
-      });
-    } catch {
-      // mutation.error 在当前区块内呈现具体错误。
+      setSnapshot(updated);
+      setDraft(toDraft(updated));
+      setImage(null);
+      pushToast({ title: '已保存', variant: 'success' });
+    } catch (failure) {
+      setError(operationError(failure));
+    } finally {
+      writeLock.current = false;
     }
   }
 
   return (
-    <form className="mt-5 space-y-5" onSubmit={(event) => void saveSettings(event)}>
-      <label className="flex items-center justify-between gap-4 rounded-xl border border-black/[0.06] px-4 py-3">
-        <span>
-          <span className="block text-sm font-medium text-ink">启用首页弹窗</span>
-          <span className="mt-1 block text-xs leading-5 text-muted">关闭后小程序不展示海报。</span>
-        </span>
-        <input
-          checked={enabled}
-          className="size-4 accent-black"
-          disabled={mutation.isPending}
-          type="checkbox"
-          onChange={(event) => setEnabled(event.currentTarget.checked)}
-        />
-      </label>
-
-      <div>
-        <p className="text-sm font-medium text-ink">海报图片</p>
-        <div className="mt-2 grid gap-3 sm:grid-cols-[minmax(0,16rem)_1fr] sm:items-start">
-          <div className="flex min-h-40 items-center justify-center overflow-hidden rounded-xl border border-dashed border-black/15 bg-black/[0.025] p-2">
-            {previewUrl ? (
-              <img alt="首页弹窗海报预览" className="max-h-80 max-w-full object-contain" src={previewUrl} />
-            ) : (
-              <p className="px-4 text-center text-sm text-muted">尚未上传海报</p>
-            )}
-          </div>
-          <div>
-            <label className="inline-flex h-[var(--control-height-sm)] cursor-pointer items-center justify-center rounded-[0.625rem] border border-line bg-white px-4 text-sm font-medium text-ink shadow-card transition-colors hover:bg-tint-soft focus-within:ring-2 focus-within:ring-black/45 focus-within:ring-offset-2">
-              {settings.imageUrl ? '更换图片' : '选择图片'}
-              <input
-                accept="image/*"
-                className="sr-only"
-                disabled={mutation.isPending}
-                type="file"
-                onChange={selectImage}
-              />
-            </label>
-            <p className="mt-2 text-xs leading-5 text-muted">保持图片原始比例，保存后立即发布。</p>
-            {selectedImage ? (
-              <p className="mt-2 break-all text-xs text-ink">已选择：{selectedImage.file.name}</p>
-            ) : null}
-          </div>
-        </div>
+    <Form className="max-w-3xl space-y-7" onSubmit={(event) => { void save(event); }} aria-busy={mutation.isPending}>
+      <div className="flex items-center justify-between gap-6">
+      <Switch isSelected={draft.enabled} isDisabled={mutation.isPending} onChange={(enabled) => setDraft({ ...draft, enabled })}>
+        <Switch.Content>
+          <Switch.Control><Switch.Thumb /></Switch.Control>
+          <Label>启用</Label>
+        </Switch.Content>
+      </Switch>
+      <Button type="submit" isDisabled={!dirty || mutation.isPending}>保存</Button>
       </div>
-
-      <fieldset>
-        <legend className="text-sm font-medium text-ink">底部展示方式</legend>
-        <div className="mt-2 grid gap-2 sm:grid-cols-3">
-          {ACTION_TYPE_OPTIONS.map((option) => (
-            <label
-              key={option.value}
-              className={`cursor-pointer rounded-xl border px-3 py-3 transition-colors ${actionType === option.value ? 'border-black/40 bg-black/[0.045]' : 'border-black/[0.06] hover:bg-black/[0.025]'}`}
-            >
-              <span className="flex items-center gap-2 text-sm font-medium text-ink">
-                <input
-                  checked={actionType === option.value}
-                  className="accent-black"
-                  disabled={mutation.isPending}
-                  name="index-popup-action-type"
-                  type="radio"
-                  value={option.value}
-                  onChange={() => {
-                    setActionType(option.value);
-                    setValidationError(null);
-                  }}
-                />
-                {option.label}
-              </span>
-              <span className="mt-1 block pl-5 text-xs leading-5 text-muted">{option.description}</span>
-            </label>
-          ))}
-        </div>
-      </fieldset>
-
-      {actionType !== 'none' ? (
-        <label className="block">
-          <span className="text-sm font-medium text-ink">海报下方文字</span>
-          <input
-            className="mt-2 block h-10 w-full rounded-[0.625rem] border border-line bg-white px-3 text-sm text-ink outline-none focus:border-black/35 focus:ring-2 focus:ring-black/10"
+      <div className="grid items-start gap-6 sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)]">
+        <div className="space-y-3">
+          <div className="flex min-h-44 items-center justify-center overflow-hidden rounded-lg bg-surface-secondary">
+            {preview ? <img alt="海报预览" className="max-h-80 max-w-full object-contain" src={preview} /> : <span className="text-sm text-muted">未选择图片</span>}
+          </div>
+          <Input
+            ref={imageInput}
+            aria-label="海报图片"
+            accept="image/*"
+            className="hidden"
+            type="file"
             disabled={mutation.isPending}
-            maxLength={20}
-            placeholder="例如：了解更多"
-            type="text"
-            value={actionText}
-            onChange={(event) => {
-              setActionText(event.currentTarget.value);
-              setValidationError(null);
-            }}
+            onChange={(event) => { selectImage(event.currentTarget.files?.[0]); event.currentTarget.value = ''; }}
           />
-          <span className="mt-1 block text-xs leading-5 text-muted">
-            {actionType === 'public_account' ? '显示在海报下方，并作为进入公众号的操作提示。' : '显示在海报下方，不提供跳转动作。'}
-          </span>
-        </label>
-      ) : null}
-
-      <fieldset>
-        <legend className="text-sm font-medium text-ink">展示频率</legend>
-        <div className="mt-2 grid gap-2 sm:grid-cols-3">
-          {FREQUENCY_OPTIONS.map((option) => (
-            <label
-              key={option.value}
-              className={`cursor-pointer rounded-xl border px-3 py-3 transition-colors ${frequency === option.value ? 'border-black/40 bg-black/[0.045]' : 'border-black/[0.06] hover:bg-black/[0.025]'}`}
-            >
-              <span className="flex items-center gap-2 text-sm font-medium text-ink">
-                <input
-                  checked={frequency === option.value}
-                  className="accent-black"
-                  disabled={mutation.isPending}
-                  name="index-popup-frequency"
-                  type="radio"
-                  value={option.value}
-                  onChange={() => setFrequency(option.value)}
-                />
-                {option.label}
-              </span>
-              <span className="mt-1 block pl-5 text-xs leading-5 text-muted">{option.description}</span>
-            </label>
-          ))}
+          <div className="flex gap-2">
+            <Button variant="secondary" size="sm" isDisabled={mutation.isPending} onPress={() => imageInput.current?.click()}>{preview ? '更换图片' : '选择图片'}</Button>
+            {image ? <Button aria-label="撤销图片更换" variant="ghost" size="sm" isDisabled={mutation.isPending} onPress={() => setImage(null)}>撤销</Button> : null}
+          </div>
         </div>
-      </fieldset>
-
-      <div>
-        <p className="text-sm font-medium text-ink">展示时间</p>
-        <p className="mt-1 text-xs leading-5 text-muted">留空表示不限制，时间按浏览器所在时区填写。</p>
-        <div className="mt-2 grid gap-3 sm:grid-cols-2">
-          <label className="text-xs font-medium text-muted">
-            开始时间
-            <input
-              className="mt-1 block h-10 w-full rounded-[0.625rem] border border-line bg-white px-3 text-sm font-normal text-ink outline-none focus:border-black/35 focus:ring-2 focus:ring-black/10"
-              disabled={mutation.isPending}
-              type="datetime-local"
-              value={startsAt}
-              onChange={(event) => setStartsAt(event.currentTarget.value)}
-            />
-          </label>
-          <label className="text-xs font-medium text-muted">
-            结束时间
-            <input
-              className="mt-1 block h-10 w-full rounded-[0.625rem] border border-line bg-white px-3 text-sm font-normal text-ink outline-none focus:border-black/35 focus:ring-2 focus:ring-black/10"
-              disabled={mutation.isPending}
-              min={startsAt || undefined}
-              type="datetime-local"
-              value={endsAt}
-              onChange={(event) => setEndsAt(event.currentTarget.value)}
-            />
-          </label>
+        <div className="space-y-5">
+          <OperationsSelect label="底部内容" value={draft.actionType} options={ACTION_OPTIONS} isDisabled={mutation.isPending} onChange={(actionType) => setDraft({ ...draft, actionType })} />
+          {draft.actionType !== 'none' ? (
+            <TextField isRequired isDisabled={mutation.isPending} value={draft.actionText} onChange={(actionText) => setDraft({ ...draft, actionText })}>
+              <Label>底部文案</Label><Input />
+            </TextField>
+          ) : null}
+          <OperationsSelect label="展示频率" value={draft.frequency} options={FREQUENCY_OPTIONS} isDisabled={mutation.isPending} onChange={(frequency) => setDraft({ ...draft, frequency })} />
         </div>
       </div>
-
-      {validationError ? <p className="text-sm text-error" role="alert">{validationError}</p> : null}
-      {mutation.isError ? (
-        <p className="text-sm text-error" role="alert">
-          {getErrorMessage(mutation.error, '保存失败，请重试')}
-        </p>
-      ) : null}
-
-      <div className="flex justify-end">
-        <Button disabled={mutation.isPending} size="sm" type="submit">
-          {mutation.isPending ? '保存中…' : '保存并发布'}
-        </Button>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <DatePickerField label="开始时间（北京时间）" type="datetime-local" value={draft.startsAt} isDisabled={mutation.isPending} onChange={(startsAt) => setDraft({ ...draft, startsAt })} />
+        <DatePickerField label="结束时间（北京时间）" type="datetime-local" value={draft.endsAt} isDisabled={mutation.isPending} onChange={(endsAt) => setDraft({ ...draft, endsAt })} />
       </div>
-    </form>
+      {error ? <p className="text-sm text-danger" role="alert">{error}</p> : null}
+    </Form>
   );
 }
 
-export function IndexPopupSettings({
-  session,
-  settingsQuery,
-}: {
+export function IndexPopupSettings({ session, settingsQuery }: {
   session: AdminSession;
   settingsQuery: ReturnType<typeof useAdminIndexPopupSettingsQuery>;
 }) {
-  const settings = settingsQuery.data;
-
   return (
-    <section className="rounded-[0.75rem] border border-line bg-white p-5" aria-busy={settingsQuery.isFetching}>
-      <div>
-        <h2 className="text-base font-semibold text-ink">首页弹窗</h2>
-        <p className="mt-1 text-sm leading-6 text-muted">配置小程序首页海报及其底部展示方式。</p>
-      </div>
-
-      {settingsQuery.isLoading && !settings ? (
-        <div className="mt-5 space-y-3" aria-label="正在加载首页弹窗设置">
-          <div className="h-16 animate-pulse rounded-xl bg-black/[0.05]" />
-          <div className="h-48 animate-pulse rounded-xl bg-black/[0.035]" />
-          <div className="h-24 animate-pulse rounded-xl bg-black/[0.035]" />
-        </div>
-      ) : settings ? (
-        <>
-          <IndexPopupSettingsForm
-            key={settingsIdentity(settings)}
-            session={session}
-            settings={settings}
-          />
-          {settingsQuery.isError ? (
-            <div className="mt-4 flex flex-col gap-2 rounded-[0.625rem] bg-tint-soft px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-sm leading-6 text-muted">刷新失败，当前显示上次数据。</p>
-              <Button
-                size="xs"
-                type="button"
-                variant="subtle"
-                disabled={settingsQuery.isFetching}
-                onClick={() => void settingsQuery.refetch()}
-              >
-                {settingsQuery.isFetching ? '重试中…' : '重试'}
-              </Button>
-            </div>
-          ) : null}
-        </>
-      ) : (
-        <div className="mt-5 rounded-[0.625rem] bg-error-soft px-4 py-4" role="alert">
-          <p className="text-sm text-error">加载失败，请重试</p>
-          <Button
-            className="mt-3"
-            size="sm"
-            type="button"
-            variant="subtle"
-            disabled={settingsQuery.isFetching}
-            onClick={() => void settingsQuery.refetch()}
-          >
-            {settingsQuery.isFetching ? '重试中…' : '重试'}
-          </Button>
-        </div>
-      )}
-    </section>
+    <div>
+      <AdminState loading={settingsQuery.isLoading} error={settingsQuery.error} onRetry={() => { void settingsQuery.refetch(); }} />
+      {settingsQuery.data ? <PopupForm session={session} settings={settingsQuery.data} /> : null}
+    </div>
   );
+}
+
+export function AdminIndexPopupPage() {
+  const { session } = useAdminOutletContext();
+  const query = useAdminIndexPopupSettingsQuery(session);
+  return <AdminPage title="首页弹窗"><IndexPopupSettings session={session} settingsQuery={query} /></AdminPage>;
 }

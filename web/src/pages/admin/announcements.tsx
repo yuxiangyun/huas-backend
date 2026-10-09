@@ -1,12 +1,21 @@
+import { DatePickerField } from '@/shared/ui/date-picker-field';
 /**
- * [INPUT]: 依赖后台实体查询、管理 API、共享 UI 与后台会话上下文
- * [OUTPUT]: 提供 announcements.tsx 对应的后台路由页面
- * [POS]: pages/admin 的管理或运行页面，由 AdminLayout 承载
+ * [INPUT]: 依赖公告管理查询/变更、后台会话与 HeroUI 表单、表格及管理弹层
+ * [OUTPUT]: 提供公告搜索、新增、编辑与删除，独立保留编辑草稿并在成功后刷新相关快照
+ * [POS]: pages/admin 的公告管理页面；公告日期仅用于展示和排序，保存内容直接进入公开列表
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { type FormEvent, useEffect, useMemo, useState } from 'react';
+import { Button } from '@heroui/react/button';
+import { Form } from '@heroui/react/form';
+import { Input } from '@heroui/react/input';
+import { Label } from '@heroui/react/label';
+import { Table } from '@heroui/react/table';
+import { TextArea } from '@heroui/react/textarea';
+import { TextField } from '@heroui/react/textfield';
 import { useQueryClient } from '@tanstack/react-query';
+import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { useToastStore } from '@/app/state/toast-store';
 import {
   useAdminAnnouncementsQuery,
   useCreateAdminAnnouncementMutation,
@@ -15,295 +24,225 @@ import {
 } from '@/entities/admin/api/admin-queries';
 import { adminQueryKeys } from '@/entities/admin/model/admin-query-keys';
 import type { AdminAnnouncement } from '@/entities/admin/model/admin-types';
-import { useToastStore } from '@/app/state/toast-store';
+import { SearchInput } from '@/shared/ui/search-input';
 import { useAdminOutletContext } from '@/pages/admin/layout';
+import { beijingDateTime, operationError, OperationsSelect } from '@/pages/admin/operations-fields';
 import { ApiError } from '@/shared/api/http-client';
-import { Button } from '@/shared/ui/button';
-import { Card } from '@/shared/ui/card';
-import { ConfirmSheet } from '@/shared/ui/confirm-sheet';
+import { AdminConfirm, AdminModal, AdminPage, AdminPanel, AdminState } from '@/shared/ui/admin';
 
-const fieldClassName =
-  'field-control h-11 min-h-11 py-2 text-sm';
+const TYPE_OPTIONS = [
+  { value: 'info', label: '通知' },
+  { value: 'warning', label: '提醒' },
+  { value: 'error', label: '警示' },
+] as const;
 
-function beijingDate() {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(new Date());
-  const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${map.year}-${map.month}-${map.day}`;
-}
+type AnnouncementDraft = Pick<AdminAnnouncement, 'title' | 'content' | 'date' | 'type'> & { id?: string };
 
-function getErrorMessage(error: unknown, fallback: string) {
-  if (error instanceof Error && error.message) {
-    return error.message;
-  }
-  return fallback;
+function newDraft(): AnnouncementDraft {
+  return { title: '', content: '', date: beijingDateTime().slice(0, 10), type: 'info' };
 }
 
 export function AdminAnnouncementsPage() {
   const queryClient = useQueryClient();
   const pushToast = useToastStore((state) => state.pushToast);
   const { session, onUnauthorized } = useAdminOutletContext();
-
-  const announcementsQuery = useAdminAnnouncementsQuery(session);
+  const query = useAdminAnnouncementsQuery(session);
   const createMutation = useCreateAdminAnnouncementMutation(session);
   const updateMutation = useUpdateAdminAnnouncementMutation(session);
   const deleteMutation = useDeleteAdminAnnouncementMutation(session);
-
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [title, setTitle] = useState('');
-  const [content, setContent] = useState('');
-  const [date, setDate] = useState(beijingDate());
-  const [type, setType] = useState<'info' | 'warning' | 'error'>('info');
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [keyword, setKeyword] = useState('');
+  const [draft, setDraft] = useState<AnnouncementDraft | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [creationUncertain, setCreationUncertain] = useState(false);
+  const [creationChecked, setCreationChecked] = useState(false);
+  const [confirmRetry, setConfirmRetry] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<AdminAnnouncement | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const writeLock = useRef(false);
+  const pending = createMutation.isPending || updateMutation.isPending || deleteMutation.isPending || checking;
+  const items = useMemo(() => {
+    const search = keyword.trim().toLocaleLowerCase();
+    return (query.data ?? []).filter((item) => !search || `${item.title}\n${item.content}`.toLocaleLowerCase().includes(search));
+  }, [query.data, keyword]);
 
   useEffect(() => {
-    if (!(announcementsQuery.error instanceof ApiError) || announcementsQuery.error.httpStatus !== 401) return;
-    onUnauthorized('管理员会话已失效，请重新登录');
-  }, [announcementsQuery.error, onUnauthorized]);
+    if (query.error instanceof ApiError && query.error.httpStatus === 401) {
+      onUnauthorized('管理员会话已失效，请重新登录');
+    }
+  }, [query.error, onUnauthorized]);
 
-  function resetForm() {
-    setEditingId(null);
-    setTitle('');
-    setContent('');
-    setDate(beijingDate());
-    setType('info');
+  function invalidate() {
+    void Promise.all([
+      queryClient.invalidateQueries({ queryKey: adminQueryKeys.announcementsAll() }),
+      queryClient.invalidateQueries({ queryKey: adminQueryKeys.dashboardAll() }),
+      queryClient.invalidateQueries({ queryKey: adminQueryKeys.logsAll() }),
+    ]);
   }
 
-  const sortedItems = useMemo(() => announcementsQuery.data ?? [], [announcementsQuery.data]);
-
-  function openEdit(item: AdminAnnouncement) {
-    setEditingId(item.id);
-    setTitle(item.title);
-    setContent(item.content);
-    setDate(item.date);
-    setType(item.type);
+  function closeEditor() {
+    if (writeLock.current) return;
+    setEditorOpen(false);
+    if (!creationUncertain) setDraft(null);
   }
 
-  async function invalidateAll() {
-    await queryClient.invalidateQueries({ queryKey: adminQueryKeys.announcementsAll() });
-    await queryClient.invalidateQueries({ queryKey: adminQueryKeys.dashboardAll() });
-    await queryClient.invalidateQueries({ queryKey: adminQueryKeys.logsAll() });
+  async function checkCreation() {
+    if (writeLock.current) return;
+    writeLock.current = true;
+    setChecking(true);
+    try {
+      await query.refetch({ throwOnError: true });
+      setCreationChecked(true);
+      setKeyword('');
+      setEditorOpen(false);
+    } catch (error) {
+      setFormError(operationError(error, '列表刷新失败，请重试'));
+    } finally {
+      writeLock.current = false;
+      setChecking(false);
+    }
   }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
-    const payload = {
-      title: title.trim(),
-      content: content.trim(),
-      date,
-      type,
-    };
-
+    if (!draft || writeLock.current || creationUncertain) return;
+    const payload = { title: draft.title.trim(), content: draft.content.trim(), date: draft.date, type: draft.type };
     if (!payload.title || !payload.content) {
-      setErrorMessage('标题和内容不能为空');
+      setFormError('请填写标题和正文');
       return;
     }
-
-    setErrorMessage(null);
-
+    writeLock.current = true;
+    setFormError(null);
     try {
-      if (editingId) {
-        await updateMutation.mutateAsync({ id: editingId, payload });
-        pushToast({
-          title: `公告 ${editingId} 已更新`,
-          variant: 'success',
-        });
+      if (draft.id) await updateMutation.mutateAsync({ id: draft.id, payload });
+      else await createMutation.mutateAsync(payload);
+      setDraft(null);
+      setEditorOpen(false);
+      pushToast({ title: '已保存', variant: 'success' });
+    } catch (error) {
+      if (error instanceof ApiError && error.httpStatus === 401) {
+        onUnauthorized('管理员会话已失效，请重新登录');
+      } else if (error instanceof ApiError && error.httpStatus === 404) {
+        setDraft(null);
+        setEditorOpen(false);
+        invalidate();
+        pushToast({ title: '公告已不存在', variant: 'error' });
       } else {
-        const created = await createMutation.mutateAsync(payload);
-        pushToast({
-          title: `公告 ${created.id} 已创建`,
-          variant: 'success',
-        });
+        const uncertain = !draft.id && (!(error instanceof ApiError) || error.httpStatus >= 500 || error.httpStatus < 300);
+        if (uncertain) {
+          setCreationUncertain(true);
+          setCreationChecked(false);
+        }
+        setFormError(uncertain ? '创建结果未确认，请核对列表' : operationError(error));
       }
-
-      await invalidateAll();
-      resetForm();
-    } catch (error) {
-      if (error instanceof ApiError && error.httpStatus === 401) {
-        onUnauthorized('管理员会话已失效，请重新登录');
-        return;
-      }
-      setErrorMessage(getErrorMessage(error, '保存公告失败'));
+    } finally {
+      writeLock.current = false;
     }
   }
 
-  async function handleDelete(id: string) {
+  async function remove() {
+    if (!deleteTarget || writeLock.current) return;
+    writeLock.current = true;
+    setDeleteError(null);
     try {
-      await deleteMutation.mutateAsync({ id });
-      await invalidateAll();
-      if (editingId === id) {
-        resetForm();
-      }
-      setPendingDeleteId(null);
-      pushToast({
-        title: `公告 ${id} 已删除`,
-        variant: 'success',
-      });
+      await deleteMutation.mutateAsync({ id: deleteTarget.id });
+      setDeleteTarget(null);
+      pushToast({ title: '已删除', variant: 'success' });
     } catch (error) {
       if (error instanceof ApiError && error.httpStatus === 401) {
         onUnauthorized('管理员会话已失效，请重新登录');
-        return;
+      } else if (error instanceof ApiError && error.httpStatus === 404) {
+        setDeleteTarget(null);
+        invalidate();
+        pushToast({ title: '公告已不存在', variant: 'error' });
+      } else {
+        setDeleteError(operationError(error, '删除失败，请重试'));
       }
-      setErrorMessage(getErrorMessage(error, '删除公告失败'));
+    } finally {
+      writeLock.current = false;
     }
   }
-
-  const pending = createMutation.isPending || updateMutation.isPending;
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-semibold tracking-[-0.025em]">公告</h1>
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)]">
-      <Card className="space-y-4 bg-card-strong">
-        <p className="text-base font-semibold text-ink">{editingId ? '编辑公告' : '新增公告'}</p>
-
-        <form className="space-y-3" onSubmit={handleSubmit}>
-          <input
-            className={fieldClassName}
-            placeholder="公告标题"
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-          />
-
-          <textarea
-            className="field-control min-h-[9rem] resize-y text-sm leading-6"
-            placeholder="公告内容"
-            value={content}
-            onChange={(event) => setContent(event.target.value)}
-          />
-
-          <div className="grid gap-2 sm:grid-cols-2">
-            <input
-              className={fieldClassName}
-              type="date"
-              value={date}
-              onChange={(event) => setDate(event.target.value)}
-            />
-
-            <select
-              className={fieldClassName}
-              value={type}
-              onChange={(event) => setType(event.target.value as 'info' | 'warning' | 'error')}
-            >
-              <option value="info">info</option>
-              <option value="warning">warning</option>
-              <option value="error">error</option>
-            </select>
-          </div>
-
-          {errorMessage ? (
-            <p className="text-sm text-error">{errorMessage}</p>
-          ) : null}
-
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              size="md"
-              type="submit"
-              disabled={pending}
-            >
-              {pending ? '保存中…' : editingId ? '保存' : '新增'}
-            </Button>
-            <Button
-              size="md"
-              type="button"
-              variant="ghost"
-              onClick={() => {
-                resetForm();
-                setErrorMessage(null);
-              }}
-            >
-              {editingId ? '取消' : '重置'}
-            </Button>
-          </div>
-        </form>
-      </Card>
-
-      <Card className="overflow-hidden bg-card-strong p-0">
-        <div className="flex items-center justify-between border-b border-line/70 px-4 py-3">
-          <div className="flex items-baseline gap-2"><p className="text-base font-semibold text-ink">公告</p><span className="text-xs text-muted">{sortedItems.length} 条</span></div>
-          <Button
-            size="sm"
-            type="button"
-            variant="subtle"
-            onClick={() => void announcementsQuery.refetch()}
-          >
+    <AdminPage title="公告" actions={
+      <Button onPress={() => { if (!draft) { setFormError(null); setDraft(newDraft()); } setEditorOpen(true); }} isDisabled={pending}>
+        {draft ? '返回草稿' : '新增'}
+      </Button>
+    }>
+      <AdminPanel>
+        <div className="flex items-center gap-3">
+          <SearchInput label="搜索公告" className="w-full sm:w-80" value={keyword} onChange={setKeyword} />
+          <Button aria-label="刷新公告" variant="ghost" isDisabled={query.isFetching} onPress={() => { void query.refetch(); }}>
             刷新
           </Button>
         </div>
-
-        <div className="max-h-[36rem] overflow-auto">
-          <table className="min-w-full table-fixed text-left text-sm">
-            <thead className="bg-white/72 text-muted">
-              <tr>
-                <th className="w-[14rem] px-4 py-3 font-medium">标题</th>
-                <th className="w-[6rem] px-4 py-3 font-medium">类型</th>
-                <th className="w-[8rem] px-4 py-3 font-medium">日期</th>
-                <th className="px-4 py-3 font-medium">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedItems.map((item) => (
-                <tr key={item.id} className="border-t border-line/70 align-top">
-                  <td className="px-4 py-3">
-                    <p className="font-medium text-ink">{item.title}</p>
-                    <p className="mt-1 text-xs leading-5 text-muted">{item.content}</p>
-                  </td>
-                  <td className="px-4 py-3 text-muted">{item.type}</td>
-                  <td className="px-4 py-3 text-muted">{item.date}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button
-                        size="xs"
-                        type="button"
-                        variant="secondary"
-                        onClick={() => openEdit(item)}
-                      >
-                        编辑
-                      </Button>
-                      <Button
-                        size="xs"
-                        type="button"
-                        className="text-error hover:text-error"
-                        variant="ghost"
-                        disabled={deleteMutation.isPending}
-                        onClick={() => setPendingDeleteId(item.id)}
-                      >
-                        删除
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {!announcementsQuery.isLoading && sortedItems.length === 0 ? (
-                <tr>
-                  <td className="px-4 py-6 text-center text-muted" colSpan={4}>暂无公告</td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-      </Card>
-
-      <ConfirmSheet
-        open={pendingDeleteId !== null}
-        busy={deleteMutation.isPending}
-        title={pendingDeleteId ? `删除公告 ${pendingDeleteId}？` : '删除公告？'}
-        description="删除后不可恢复。"
-        confirmLabel="删除"
-        tone="danger"
-        onClose={() => setPendingDeleteId(null)}
-        onConfirm={() => {
-          if (!pendingDeleteId) return;
-          void handleDelete(pendingDeleteId);
-        }}
-      />
-      </div>
-    </div>
+        <AdminState loading={query.isLoading} error={query.error} onRetry={() => { void query.refetch(); }} />
+        {query.data ? (
+          <Table variant="secondary" className="mt-4">
+            <Table.ScrollContainer>
+              <Table.Content aria-label="公告" className="min-w-[40rem] table-fixed">
+                <Table.Header>
+                  <Table.Column id="title" isRowHeader>标题</Table.Column>
+                  <Table.Column id="type" className="w-20">类型</Table.Column>
+                  <Table.Column id="date" className="w-32">显示日期</Table.Column>
+                  <Table.Column id="actions" className="w-36">操作</Table.Column>
+                </Table.Header>
+                <Table.Body items={items} dependencies={[pending]} renderEmptyState={() => '暂无公告'}>
+                  {(item) => (
+                    <Table.Row id={item.id}>
+                      <Table.Cell><span className="line-clamp-2 max-w-2xl font-medium [overflow-wrap:anywhere]">{item.title}</span></Table.Cell>
+                      <Table.Cell>{TYPE_OPTIONS.find((option) => option.value === item.type)?.label}</Table.Cell>
+                      <Table.Cell className="whitespace-nowrap tabular-nums">{item.date}</Table.Cell>
+                      <Table.Cell>
+                        <div className="flex gap-1">
+                          <Button aria-label={`编辑${item.title}`} size="sm" variant="ghost" isDisabled={pending} onPress={() => { setFormError(null); setCreationUncertain(false); setCreationChecked(false); setDraft({ ...item }); setEditorOpen(true); }}>编辑</Button>
+                          <Button aria-label={`删除${item.title}`} size="sm" variant="ghost" isDisabled={pending} onPress={() => { setDeleteError(null); setDeleteTarget(item); }}>删除</Button>
+                        </div>
+                      </Table.Cell>
+                    </Table.Row>
+                  )}
+                </Table.Body>
+              </Table.Content>
+            </Table.ScrollContainer>
+          </Table>
+        ) : null}
+      </AdminPanel>
+      <AdminModal isOpen={editorOpen && draft !== null} busy={pending} title={draft?.id ? '编辑公告' : '新增公告'} onOpenChange={(open) => { if (!open) closeEditor(); }}>
+        {draft ? (
+          <Form className="space-y-5" onSubmit={(event) => { void save(event); }} aria-busy={pending}>
+            <TextField isRequired isDisabled={pending} value={draft.title} onChange={(title) => setDraft({ ...draft, title })}>
+              <Label>标题</Label><Input autoFocus />
+            </TextField>
+            <TextField isRequired isDisabled={pending} value={draft.content} onChange={(content) => setDraft({ ...draft, content })}>
+              <Label>正文</Label><TextArea className="min-h-48 resize-y" />
+            </TextField>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <DatePickerField label="显示日期" value={draft.date} isRequired isDisabled={pending} onChange={(date) => setDraft({ ...draft, date })} />
+              <OperationsSelect label="类型" value={draft.type} options={TYPE_OPTIONS} isDisabled={pending} onChange={(type) => setDraft({ ...draft, type })} />
+            </div>
+            {formError ? <p className="text-sm text-danger" role="alert">{formError}</p> : null}
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button variant="secondary" isDisabled={pending} onPress={() => {
+                setDraft(null); setEditorOpen(false); setCreationUncertain(false); setCreationChecked(false);
+              }}>{creationUncertain ? '放弃草稿' : '取消'}</Button>
+              {creationUncertain ? (
+                <>
+                  <Button variant={creationChecked ? 'secondary' : 'primary'} isDisabled={pending} onPress={() => { void checkCreation(); }}>核对列表</Button>
+                  {creationChecked ? <Button isDisabled={pending} onPress={() => setConfirmRetry(true)}>继续创建</Button> : null}
+                </>
+              ) : <Button type="submit" isDisabled={pending}>保存</Button>}
+            </div>
+          </Form>
+        ) : null}
+      </AdminModal>
+      <AdminConfirm isOpen={confirmRetry} title="确认公告尚未创建？" confirmLabel="继续编辑" confirmVariant="primary" onOpenChange={setConfirmRetry} onConfirm={() => {
+        setConfirmRetry(false); setCreationUncertain(false); setCreationChecked(false); setFormError(null);
+      }} />
+      <AdminConfirm isOpen={deleteTarget !== null} title="删除公告？" busy={pending} confirmLabel="删除" onOpenChange={(open) => { if (!open && !writeLock.current) setDeleteTarget(null); }} onConfirm={() => { void remove(); }}>
+        <p className="break-words">{deleteTarget?.title}</p>
+        {deleteError ? <p className="mt-3 text-sm text-danger" role="alert">{deleteError}</p> : null}
+      </AdminConfirm>
+    </AdminPage>
   );
 }

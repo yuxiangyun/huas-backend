@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 appRoutes、普通用户保护壳与路由级动态模块
- * [OUTPUT]: 提供 BrowserRouter，以树洞为默认页并隔离 Social 与后台代码分块
+ * [OUTPUT]: 提供 BrowserRouter，以树洞为默认页，分块加载业务页面并兼容旧内容与设置入口
  * [POS]: app/router 的顶层组装点，只声明 canonical 路径和按路由加载边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -47,10 +47,7 @@ export const router = createBrowserRouter(
         },
         {
           path: 'content',
-          lazy: async () => {
-            const module = await import('@/pages/admin/content');
-            return { Component: module.AdminContentPage };
-          },
+          element: <Navigate to={appRoutes.adminDiscover} replace />,
         },
         {
           path: 'manage/announcements',
@@ -85,6 +82,34 @@ export const router = createBrowserRouter(
           lazy: async () => {
             const module = await import('@/pages/admin/settings');
             return { Component: module.AdminSettingsPage };
+          },
+        },
+        {
+          path: 'operations/early-rising',
+          lazy: async () => {
+            const module = await import('@/pages/admin/early-rising');
+            return { Component: module.AdminEarlyRisingPage };
+          },
+        },
+        {
+          path: 'operations/index-popup',
+          lazy: async () => {
+            const module = await import('@/pages/admin/index-popup-settings');
+            return { Component: module.AdminIndexPopupPage };
+          },
+        },
+        {
+          path: 'system/schedule',
+          lazy: async () => {
+            const module = await import('@/pages/admin/schedule-source-policy-settings');
+            return { Component: module.AdminSchedulePolicyPage };
+          },
+        },
+        {
+          path: 'system/runtime',
+          lazy: async () => {
+            const module = await import('@/pages/admin/runtime');
+            return { Component: module.AdminRuntimePage };
           },
         },
         {

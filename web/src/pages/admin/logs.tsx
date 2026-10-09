@@ -1,219 +1,92 @@
 /**
- * [INPUT]: 依赖后台实体查询、管理 API、共享 UI 与后台会话上下文
- * [OUTPUT]: 提供 logs.tsx 对应的后台路由页面
- * [POS]: pages/admin 的管理或运行页面，由 AdminLayout 承载
+ * [INPUT]: 依赖有界终端日志查询、后台会话、URL 筛选与 HeroUI 表单及表格
+ * [OUTPUT]: 提供日志搜索、行数选择、手动刷新和可暂停的十秒轮询，查询失败保持筛选并显示错误
+ * [POS]: pages/admin 的终端日志页面，仅呈现服务端返回的 out/error 尾部记录
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { useEffect, useState } from 'react';
+import { Button } from '@heroui/react/button';
+import { Form } from '@heroui/react/form';
+import { Table } from '@heroui/react/table';
+import { type FormEvent, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAdminTerminalLogsQuery } from '@/entities/admin/api/admin-queries';
+import { SearchInput } from '@/shared/ui/search-input';
 import { useAdminOutletContext } from '@/pages/admin/layout';
+import { OperationsSelect } from '@/pages/admin/operations-fields';
 import { ApiError } from '@/shared/api/http-client';
-import { Button } from '@/shared/ui/button';
-import { Card } from '@/shared/ui/card';
+import { AdminPage, AdminPanel, AdminState } from '@/shared/ui/admin';
 
-const fieldClassName =
-  'field-control h-11 min-h-11 py-2 text-sm';
-
-function parsePositiveParam(value: string | null, fallback: number, min: number, max: number) {
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
-    return fallback;
-  }
-  return parsed;
-}
-
-function parseLogLine(line: string) {
-  const tsMatch = line.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})/);
-  const level = /\bERROR\b|\bERR\b/i.test(line)
-    ? 'ERROR'
-    : /\bWARN\b/i.test(line)
-      ? 'WARN'
-      : /\bINFO\b/i.test(line)
-        ? 'INFO'
-        : 'LOG';
-
-  return {
-    time: tsMatch?.[1] || '-',
-    level,
-  };
+function parseLimit(value: string | null) {
+  const limit = Number(value);
+  return Number.isSafeInteger(limit) && limit > 0 && limit <= 200 ? limit : 50;
 }
 
 export function AdminLogsPage() {
   const { session, onUnauthorized } = useAdminOutletContext();
   const [searchParams, setSearchParams] = useSearchParams();
-
   const keyword = searchParams.get('keyword') ?? '';
-  const limit = parsePositiveParam(searchParams.get('limit'), 50, 1, 200);
-
+  const limit = parseLimit(searchParams.get('limit'));
   const [keywordInput, setKeywordInput] = useState(keyword);
   const [limitInput, setLimitInput] = useState(String(limit));
+  const [paused, setPaused] = useState(false);
+  const query = useAdminTerminalLogsQuery(session, { keyword: keyword || undefined, limit }, { refetchInterval: paused ? false : 10_000 });
+  const limitOptions = [...new Set([50, 100, 200, limit])].sort((left, right) => left - right).map((value) => ({ value: String(value), label: `${value} 行` }));
 
+  useEffect(() => { setKeywordInput(keyword); }, [keyword]);
+  useEffect(() => { setLimitInput(String(limit)); }, [limit]);
   useEffect(() => {
-    setKeywordInput(keyword);
-  }, [keyword]);
+    if (query.error instanceof ApiError && query.error.httpStatus === 401) onUnauthorized('管理员会话已失效，请重新登录');
+  }, [query.error, onUnauthorized]);
 
-  useEffect(() => {
-    setLimitInput(String(limit));
-  }, [limit]);
-
-  const logsQuery = useAdminTerminalLogsQuery(
-    session,
-    {
-      keyword: keyword || undefined,
-      limit,
-    },
-    {
-      refetchInterval: 10_000,
-    }
-  );
-
-  useEffect(() => {
-    if (!(logsQuery.error instanceof ApiError) || logsQuery.error.httpStatus !== 401) return;
-    onUnauthorized('管理员会话已失效，请重新登录');
-  }, [logsQuery.error, onUnauthorized]);
-
-  function patchSearchParams(patcher: (params: URLSearchParams) => void) {
-    const nextParams = new URLSearchParams(searchParams);
-    patcher(nextParams);
-
-    if (!nextParams.get('keyword')) {
-      nextParams.delete('keyword');
-    }
-
-    const nextLimit = parsePositiveParam(nextParams.get('limit'), 50, 1, 200);
-    if (nextLimit === 50) {
-      nextParams.delete('limit');
-    } else {
-      nextParams.set('limit', String(nextLimit));
-    }
-
-    setSearchParams(nextParams);
+  function search(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const params = new URLSearchParams(searchParams);
+    const nextKeyword = keywordInput.trim();
+    if (nextKeyword) params.set('keyword', nextKeyword);
+    else params.delete('keyword');
+    if (parseLimit(limitInput) !== 50) params.set('limit', String(parseLimit(limitInput)));
+    else params.delete('limit');
+    setSearchParams(params);
   }
 
-  const rows = logsQuery.data?.items ?? [];
-
   return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-semibold tracking-[-0.025em]">日志</h1>
-      <Card className="space-y-4 bg-card-strong">
-        <div className="grid gap-2 lg:grid-cols-[minmax(0,2fr)_7rem_auto_auto]">
-          <input
-            className={fieldClassName}
-            placeholder="关键字"
-            value={keywordInput}
-            onChange={(event) => setKeywordInput(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key !== 'Enter') return;
-              patchSearchParams((params) => {
-                const nextKeyword = keywordInput.trim();
-                if (nextKeyword) {
-                  params.set('keyword', nextKeyword);
-                } else {
-                  params.delete('keyword');
-                }
-              });
-            }}
-          />
-
-          <input
-            className={fieldClassName}
-            inputMode="numeric"
-            placeholder="条数"
-            value={limitInput}
-            onChange={(event) => setLimitInput(event.target.value.replaceAll(/[^\d]/g, ''))}
-          />
-
-          <Button
-            size="md"
-            type="button"
-            variant="secondary"
-            onClick={() => {
-              patchSearchParams((params) => {
-                const nextKeyword = keywordInput.trim();
-                if (nextKeyword) {
-                  params.set('keyword', nextKeyword);
-                } else {
-                  params.delete('keyword');
-                }
-
-                params.set('limit', limitInput || '50');
-              });
-            }}
-          >
-            查询
-          </Button>
-
-          <Button
-            size="md"
-            type="button"
-            variant="ghost"
-            onClick={() => {
-              setKeywordInput('');
-              setLimitInput('50');
-              patchSearchParams((params) => {
-                params.delete('keyword');
-                params.delete('limit');
-              });
-            }}
-          >
-            重置
-          </Button>
-        </div>
-
-        {logsQuery.isError ? (
-          <p className="text-sm text-error">加载失败，请重试</p>
+    <AdminPage title="日志" actions={
+      <div className="flex gap-1">
+        <Button aria-label={paused ? '恢复自动刷新' : '暂停自动刷新'} variant="ghost" onPress={() => setPaused((value) => !value)}>
+          {paused ? '自动刷新' : '暂停刷新'}
+        </Button>
+        <Button aria-label="刷新日志" variant="ghost" isDisabled={query.isFetching} onPress={() => { void query.refetch(); }}>刷新</Button>
+      </div>
+    }>
+      <AdminPanel>
+        <Form className="flex flex-wrap items-center gap-2" onSubmit={search}>
+          <SearchInput label="搜索日志" className="w-full sm:w-80" value={keywordInput} onChange={setKeywordInput} />
+          <OperationsSelect hideLabel label="行数" className="w-28" value={limitInput} options={limitOptions} onChange={setLimitInput} />
+          <Button aria-label="查询日志" variant="secondary" type="submit">搜索</Button>
+        </Form>
+        <AdminState loading={query.isLoading} error={query.error} onRetry={() => { void query.refetch(); }} />
+        {query.data ? (
+          <Table variant="secondary" className="mt-4">
+            <Table.ScrollContainer className="max-h-[70dvh]">
+              <Table.Content aria-label="终端日志" className="table-fixed text-xs">
+                <Table.Header>
+                  <Table.Column id="source" className="w-20">来源</Table.Column>
+                  <Table.Column id="line" isRowHeader>内容</Table.Column>
+                </Table.Header>
+                <Table.Body items={query.data.items.map((item, index) => ({ ...item, id: `${item.source}-${index}` }))} renderEmptyState={() => '暂无匹配日志'}>
+                  {(item) => (
+                    <Table.Row id={item.id}>
+                      <Table.Cell className="align-top font-mono text-muted">{item.source}</Table.Cell>
+                      <Table.Cell className={`whitespace-pre-wrap break-all font-mono leading-6 ${item.source === 'error' ? 'text-danger' : ''}`}>{item.line}</Table.Cell>
+                    </Table.Row>
+                  )}
+                </Table.Body>
+              </Table.Content>
+            </Table.ScrollContainer>
+          </Table>
         ) : null}
-      </Card>
-
-      <Card className="overflow-hidden bg-card-strong p-0">
-        <div className="flex items-center justify-between border-b border-line/70 px-4 py-3">
-          <p className="text-base font-semibold text-ink">记录</p>
-          <p className="text-sm text-muted">
-            {logsQuery.isFetching ? '同步中…' : `${rows.length} 条`}
-          </p>
-        </div>
-
-        <div className="max-h-[40rem] overflow-auto">
-          <table className="min-w-full table-fixed text-left text-sm">
-            <thead className="bg-white/72 text-muted">
-              <tr>
-                <th className="w-[9.5rem] px-4 py-3 font-medium">时间</th>
-                <th className="w-[4.5rem] px-4 py-3 font-medium">源</th>
-                <th className="w-[5rem] px-4 py-3 font-medium">级别</th>
-                <th className="px-4 py-3 font-medium">内容</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((item, index) => {
-                const parsed = parseLogLine(item.line);
-                const levelClass = parsed.level === 'ERROR'
-                  ? 'text-[#a13c34]'
-                  : parsed.level === 'WARN'
-                    ? 'text-[#9a6b12]'
-                    : parsed.level === 'INFO'
-                      ? 'text-[#24634a]'
-                      : 'text-muted';
-
-                return (
-                  <tr key={`${item.source}-${index}-${item.line}`} className="border-t border-line/70 align-top">
-                    <td className="px-4 py-3 font-mono text-muted">{parsed.time}</td>
-                    <td className="px-4 py-3 font-mono text-ink">{item.source}</td>
-                    <td className={`px-4 py-3 font-mono ${levelClass}`}>{parsed.level}</td>
-                    <td className="px-4 py-3 font-mono leading-6 whitespace-pre-wrap break-all text-ink">{item.line}</td>
-                  </tr>
-                );
-              })}
-              {!logsQuery.isLoading && rows.length === 0 ? (
-                <tr>
-                  <td className="px-4 py-6 text-center text-muted" colSpan={4}>暂无匹配日志</td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-      </Card>
-    </div>
+      </AdminPanel>
+    </AdminPage>
   );
 }

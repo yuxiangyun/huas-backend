@@ -1,11 +1,12 @@
 /**
  * [INPUT]: 依赖后端管理接口与 Community/Messaging 公共 DTO
- * [OUTPUT]: 提供 dashboard、图文内容、日志、课表策略、首页弹窗、Early Rising 展示设置与私信只读强类型契约
+ * [OUTPUT]: 提供账户概览、用户、完整内容治理、早起运营、运行采样与兼容管理接口的强类型契约
  * [POS]: entities/admin 的协议模型边界，保证 Treehole 管理图片与其他后台 UI 不重新解释后端字段
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import type { CommunityProfile } from '@/entities/community/model/community-types';
+import type { DiscoverComment, DiscoverPost } from '@/entities/discover/model/discover-types';
 import type { Message } from '@/entities/messaging/model/messaging-types';
 
 export interface AdminServiceStatus {
@@ -209,6 +210,7 @@ export interface AdminTreeholePost {
 export interface AdminTreeholeComment {
   id: number;
   postId: number;
+  parentCommentId: number | null;
   content: string;
   author: AdminTreeholeAuthor;
   createdAt: string;
@@ -280,4 +282,99 @@ export interface AdminMessagingMessageListResponse {
   beforeMessageId: number | null;
   afterMessageId: number | null;
   hasMore: boolean;
+}
+
+export interface AdminUsersParams {
+  page?: number;
+  search?: string;
+  className?: string;
+  grade?: string;
+}
+
+export interface AdminUser extends AdminDashboardUser {
+  lastActiveAt: string | null;
+}
+
+export interface AdminUsersResponse {
+  items: AdminUser[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+  options: { classes: Array<{ value: string; label: string }>; grades: string[] };
+  filters: { search: string; className: string; grade: string };
+}
+
+export interface AdminOverviewResponse {
+  service: AdminServiceStatus;
+  metrics: AdminMetrics;
+  distributions: { byClass: AdminMajorDistributionItem[]; byGrade: AdminGradeDistributionItem[] };
+}
+
+export interface AdminDiscoverPostsParams {
+  page?: number;
+  pageSize?: number;
+  keyword?: string;
+  category?: string;
+}
+
+export type AdminDiscoverPostDetail = Omit<DiscoverPost, 'likedByMe' | 'isMine' | 'likeCount' | 'commentCount'> & {
+  stats: { likeCount: number; commentCount: number };
+};
+export type AdminDiscoverComment = Omit<DiscoverComment, 'isMine'>;
+
+export interface AdminDiscoverPostListResponse {
+  summary: { totalPosts: number; totalComments: number; totalLikes: number };
+  items: AdminDiscoverPostDetail[];
+  page: number;
+  pageSize: number;
+  total: number;
+  hasMore: boolean;
+  options: { categories: string[] };
+}
+
+export interface AdminDiscoverCommentListResponse {
+  items: AdminDiscoverComment[];
+  page: number;
+  pageSize: number;
+  total: number;
+  hasMore: boolean;
+}
+
+export type AdminEarlyRisingPeriod = 'today' | 'week' | 'month';
+export type AdminTrendDays = 7 | 30 | 90;
+export interface AdminEarlyRisingOverview {
+  days: AdminTrendDays;
+  range: { from: string; to: string };
+  todayParticipants: number;
+  totalParticipants: number;
+  totalCheckins: number;
+  series: Array<{ date: string; count: number }>;
+}
+
+export interface AdminEarlyRisingLeaderboard {
+  period: AdminEarlyRisingPeriod;
+  range: { from: string; to: string };
+  generatedAt: string;
+  items: Array<{
+    rank: number;
+    profile: CommunityProfile & { bio: string | null };
+    currentStreak: number;
+    checkedAt?: string;
+    continuityScore?: number;
+    validDays?: number;
+  }>;
+}
+
+export interface AdminRuntimeSnapshot {
+  databaseStatus: 'ok' | 'error';
+  memory: { rssMb: number; heapUsedMb: number; heapTotalMb: number };
+  uptimeSeconds: number;
+  process: {
+    ready: boolean;
+    shuttingDown: boolean;
+    shutdownSignal: string | null;
+    deploySlot: string;
+  };
+  metrics: Array<{ name: string; labels: Record<string, string>; value: number }>;
 }

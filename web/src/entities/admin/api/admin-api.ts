@@ -1,12 +1,24 @@
 /**
  * [INPUT]: 依赖共享 apiRequest、后台 Cookie 会话与 entities/admin 的强类型协议
- * [OUTPUT]: 提供 dashboard、内容、日志、课表策略、首页弹窗 multipart、Early Rising 展示设置与私信只读管理边界
+ * [OUTPUT]: 提供账户、内容详情与评论、早起运营、运行采样及管理设置的 Cookie HTTP 边界
  * [POS]: entities/admin 的唯一 HTTP 适配边界，向查询层屏蔽路径、方法与 AbortSignal 细节
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import { apiRequest } from '@/shared/api/http-client';
 import type {
+  AdminOverviewResponse,
+  AdminUsersParams,
+  AdminUsersResponse,
+  AdminDiscoverPostDetail,
+  AdminDiscoverPostsParams,
+  AdminDiscoverPostListResponse,
+  AdminDiscoverCommentListResponse,
+  AdminTreeholePost,
+  AdminEarlyRisingOverview,
+  AdminEarlyRisingPeriod,
+  AdminEarlyRisingLeaderboard,
+  AdminRuntimeSnapshot,
   AdminAnnouncement,
   AdminAnnouncementPayload,
   AdminAnnouncementUpdatePayload,
@@ -277,4 +289,44 @@ export async function getAdminTerminalLogs(
     {},
     { auth: false, signal: options?.signal }
   );
+}
+
+export function getAdminOverview(options?: RequestOptions) {
+  return apiRequest<AdminOverviewResponse>('/api/admin/overview', {}, { auth: false, signal: options?.signal });
+}
+
+export function getAdminUsers(params: AdminUsersParams, options?: RequestOptions) {
+  return apiRequest<AdminUsersResponse>(`/api/admin/users${buildQueryString({ ...params })}`, {}, { auth: false, signal: options?.signal });
+}
+
+export function getAdminDiscoverPosts(params: AdminDiscoverPostsParams, options?: RequestOptions) {
+  return apiRequest<AdminDiscoverPostListResponse>(`/api/admin/discover/posts${buildQueryString({ ...params })}`, {}, { auth: false, signal: options?.signal });
+}
+
+export function getAdminDiscoverPost(postId: number, options?: RequestOptions) {
+  return apiRequest<AdminDiscoverPostDetail>(`/api/admin/discover/posts/${postId}`, {}, { auth: false, signal: options?.signal });
+}
+
+export function getAdminDiscoverComments(postId: number, params: { page?: number; pageSize?: number }, options?: RequestOptions) {
+  return apiRequest<AdminDiscoverCommentListResponse>(`/api/admin/discover/posts/${postId}/comments${buildQueryString(params)}`, {}, { auth: false, signal: options?.signal });
+}
+
+export function deleteAdminDiscoverComment(commentId: number) {
+  return apiRequest<{ id: number; postId: number }>(`/api/admin/discover/comments/${commentId}`, { method: 'DELETE' }, { auth: false });
+}
+
+export function getAdminTreeholePost(postId: number, options?: RequestOptions) {
+  return apiRequest<AdminTreeholePost>(`/api/admin/treehole/posts/${postId}`, {}, { auth: false, signal: options?.signal });
+}
+
+export function getAdminEarlyRisingOverview(days: 7 | 30 | 90, options?: RequestOptions) {
+  return apiRequest<AdminEarlyRisingOverview>(`/api/admin/early-rising/overview?days=${days}`, {}, { auth: false, signal: options?.signal });
+}
+
+export function getAdminEarlyRisingLeaderboard(period: AdminEarlyRisingPeriod, options?: RequestOptions) {
+  return apiRequest<AdminEarlyRisingLeaderboard>(`/api/admin/early-rising/leaderboard?period=${period}`, {}, { auth: false, signal: options?.signal });
+}
+
+export function getAdminRuntime(options?: RequestOptions) {
+  return apiRequest<AdminRuntimeSnapshot>('/api/admin/runtime', {}, { auth: false, signal: options?.signal });
 }

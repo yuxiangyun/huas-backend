@@ -1,52 +1,32 @@
 /**
- * [INPUT]: 依赖 Zustand、浏览器定时器与随机 ID 能力
- * [OUTPUT]: 对外提供全局 Toast 类型和可自动过期的 useToastStore
- * [POS]: app/state 的瞬时反馈事实源，不保存业务数据或跨会话状态
+ * [INPUT]: 依赖 Zustand 的稳定动作选择器与 HeroUI Toast 队列
+ * [OUTPUT]: 保留全局 pushToast、dismissToast、clearToasts API，将显示、计时与焦点交给原生 Toast
+ * [POS]: app/state 的反馈兼容边界，不保存第二份消息队列或重复管理生命周期
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
+import { toast } from '@heroui/react/toast';
 import { create } from 'zustand';
 
 export type ToastVariant = 'success' | 'error' | 'info';
-
 export interface ToastItem {
   id: string;
   title: string;
   message?: string;
   variant: ToastVariant;
 }
-
 interface ToastStore {
-  items: ToastItem[];
   pushToast: (input: Omit<ToastItem, 'id'>) => string;
   dismissToast: (id: string) => void;
   clearToasts: () => void;
 }
 
-const TOAST_LIFETIME_MS = 3200;
-
-export const useToastStore = create<ToastStore>((set, get) => ({
-  items: [],
-  pushToast: (input) => {
-    const id =
-      typeof crypto !== 'undefined' && 'randomUUID' in crypto
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-
-    const nextToast: ToastItem = { id, ...input };
-    set((state) => ({ items: [...state.items, nextToast] }));
-
-    if (typeof window !== 'undefined') {
-      window.setTimeout(() => {
-        get().dismissToast(id);
-      }, TOAST_LIFETIME_MS);
-    }
-
-    return id;
-  },
-  dismissToast: (id) =>
-    set((state) => ({
-      items: state.items.filter((item) => item.id !== id),
-    })),
-  clearToasts: () => set({ items: [] }),
+export const useToastStore = create<ToastStore>(() => ({
+  pushToast: ({ title, message, variant }) => toast(title, {
+    description: message,
+    variant: variant === 'error' ? 'danger' : variant === 'info' ? 'accent' : 'success',
+    timeout: 3200,
+  }),
+  dismissToast: (id) => toast.close(id),
+  clearToasts: () => toast.clear(),
 }));
