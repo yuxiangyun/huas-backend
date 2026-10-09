@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 HeroUI、后台 Cookie 会话、React Router、QueryClient 与后台私有媒体缓存
- * [OUTPUT]: 提供 AdminLayout、AdminOutletContextValue 与 useAdminOutletContext，统一认证、会话失效清理与紧凑业务导航
+ * [OUTPUT]: 提供 AdminLayout、AdminOutletContextValue 与 useAdminOutletContext，统一认证、会话失效清理、整行导航与单层内容宽度边界
  * [POS]: pages/admin 的响应式工作台壳；后台与用户端共用 HeroUI 令牌，退出完成前禁止新登录以避免 Cookie 请求竞争
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -158,7 +158,7 @@ function AdminLayoutContent() {
     return (
       <main className="huas-admin grid min-h-dvh place-items-center px-4 py-10">
         <div className="w-full max-w-xs space-y-7">
-          <h1 className="text-2xl font-semibold tracking-tight">管理后台</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">后台</h1>
           <Form className="space-y-4" onSubmit={submit}>
             <TextField isRequired isDisabled={authBusy} name="username" value={username} onChange={setUsername}>
               <Label>账号</Label><Input autoComplete="username" />
@@ -176,7 +176,7 @@ function AdminLayoutContent() {
   }
 
   const navigation = navGroups.map((group, index) => (
-    <div key={index} className={cn('space-y-1', index > 0 && 'mt-6')}>
+    <div key={index} className={cn('space-y-1', index > 0 && 'mt-3')}>
       {group.map((item) => (
         <Link
           key={item.to}
@@ -184,7 +184,7 @@ function AdminLayoutContent() {
           onPress={() => setMenuOpen(false)}
           aria-current={location.pathname === item.to ? 'page' : undefined}
           className={cn(
-            'flex h-10 items-center gap-2.5 rounded-lg px-3 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-focus',
+            'flex h-9 w-full items-center rounded-lg px-4 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-focus',
             location.pathname === item.to ? 'bg-accent-soft font-medium text-accent-soft-foreground' : 'text-muted hover:bg-default hover:text-foreground'
           )}
         >{item.label}</Link>
@@ -196,7 +196,7 @@ function AdminLayoutContent() {
     <div className="huas-admin min-h-dvh bg-background">
       <header className="sticky top-0 z-40 border-b border-border bg-background lg:hidden">
         <div className="flex h-14 items-center justify-between px-4">
-          <span className="text-sm font-semibold">管理后台</span>
+          <span className="text-sm font-semibold">后台</span>
           <div className="flex items-center gap-1">
             <Button variant="ghost" aria-label={menuOpen ? '关闭菜单' : '打开菜单'} aria-expanded={menuOpen} aria-controls="admin-mobile-nav" onPress={() => setMenuOpen((value) => !value)}>{menuOpen ? '关闭菜单' : '菜单'}</Button>
             <Button isDisabled={authBusy} variant="ghost" aria-label="退出" onPress={signOut}>{logout.isPending ? <Spinner size="sm" /> : null}退出</Button>
@@ -205,15 +205,15 @@ function AdminLayoutContent() {
         {menuOpen ? <nav id="admin-mobile-nav" aria-label="后台导航" className="max-h-[calc(100dvh-3.5rem)] overflow-auto border-t border-border px-3 py-4">{navigation}<Button className="mt-4 w-full justify-start" variant="ghost" onPress={() => navigate(appRoutes.me)}>返回应用</Button></nav> : null}
       </header>
       <div className="mx-auto grid max-w-[96rem] lg:grid-cols-[11.5rem_minmax(0,1fr)]">
-        <aside className="sticky top-0 hidden h-dvh flex-col px-3 py-7 lg:flex">
-          <p className="shrink-0 px-3 text-lg font-semibold tracking-tight">HUAS<span className="ml-2 text-xs font-normal text-muted">管理</span></p>
-          <nav aria-label="后台导航" className="mt-8 min-h-0 flex-1 overflow-auto">{navigation}</nav>
-          <div className="mt-6 flex shrink-0 flex-col gap-1">
+        <aside className="sticky top-0 hidden h-dvh flex-col px-3 py-6 lg:flex">
+          <p className="shrink-0 px-4 text-lg font-semibold tracking-tight">后台</p>
+          <nav aria-label="后台导航" className="mt-5 min-h-0 flex-1 overflow-auto">{navigation}</nav>
+          <div className="mt-4 flex shrink-0 flex-col gap-1">
             <Button className="w-full justify-start" variant="ghost" onPress={() => navigate(appRoutes.me)}>返回应用</Button>
             <Button className="w-full justify-start" isDisabled={authBusy} variant="ghost" onPress={signOut}>{logout.isPending ? <Spinner size="sm" /> : null}退出</Button>
           </div>
         </aside>
-        <main className="min-w-0 px-4 py-6 sm:px-7 lg:px-10 lg:py-8 xl:px-12"><Outlet context={{ session, onUnauthorized } satisfies AdminOutletContextValue} /></main>
+        <main className="min-w-0 px-4 py-6 sm:px-6 lg:px-8"><Outlet context={{ session, onUnauthorized } satisfies AdminOutletContextValue} /></main>
       </div>
     </div>
   );

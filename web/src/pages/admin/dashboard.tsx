@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖独立账户概览、三渠道 analytics、后台会话、HeroUI 数据组件与共用 TanStack Charts
- * [OUTPUT]: 提供分组账户事实、渠道趋势、所选周期功能调用总数与完整班级排行
+ * [OUTPUT]: 提供同一内容起始线上的分组账户事实、渠道趋势、所选周期功能调用总数与完整班级排行
  * [POS]: pages/admin 的业务概览；渠道活跃分别展示，调用次数不解释为成功人数
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -51,14 +51,14 @@ export function AdminDashboardPage() {
 
   return <AdminPage title="概览">
     <AdminState loading={overview.isLoading} error={overview.error} onRetry={() => { void overview.refetch(); }} />
-    {metrics ? <div className="grid gap-6 border-b border-separator pb-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+    {metrics ? <div className="grid gap-5 border-b border-separator pb-5 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
       <dl className="grid grid-cols-2 gap-x-5 gap-y-3 sm:grid-cols-4">
         <InsightMetric label="账户" value={metrics.totalUsers} />
         <InsightMetric label="今日活跃" value={metrics.todayActiveUsers} />
         <InsightMetric label="7 日活跃" value={metrics.activeUsers7d} />
         <InsightMetric label="7 日新增" value={metrics.newUsers7d} />
       </dl>
-      <dl className="grid grid-cols-2 gap-5 xl:border-l xl:border-separator xl:pl-7">
+      <dl className="grid grid-cols-2 gap-5 xl:border-l xl:border-separator xl:pl-5">
         <InsightMetric label="好饭图文" value={metrics.totalDiscoverPosts} />
         <InsightMetric label="好饭点赞" value={metrics.totalDiscoverLikes} />
       </dl>
@@ -67,7 +67,7 @@ export function AdminDashboardPage() {
       <AdminState loading={analytics.isLoading} error={analytics.error} onRetry={() => { void analytics.refetch(); }} />
       {analytics.data ? <TimeSeriesChart series={activeSeries} ariaLabel="三渠道每日活跃账户趋势" /> : null}
     </AdminPanel>
-    <div className="grid gap-9 border-t border-separator pt-7 lg:grid-cols-2 lg:gap-12">
+    <div className="grid gap-8 border-t border-separator pt-5 lg:grid-cols-2">
       {analytics.data ? <AdminPanel title={`${days} 日功能调用`}>
         <div className="grid gap-4">
           {features.map((feature) => <Meter key={feature.key} value={feature.count} maxValue={maxCalls} valueLabel={`${feature.count.toLocaleString('zh-CN')} 次`} size="sm">

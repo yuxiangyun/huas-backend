@@ -3,7 +3,7 @@ import { ToggleButtonGroup } from '@heroui/react/toggle-button-group';
 import type { AdminTrendDays } from '@/entities/admin/model/admin-types';
 
 export function InsightMetric({ label, value }: { label: string; value: number | string }) {
-  return <div className="min-w-0 py-2"><dt className="text-xs text-muted">{label}</dt><dd className={typeof value === 'number' ? 'mt-2 text-[1.75rem] font-semibold leading-tight tracking-tight tabular-nums [overflow-wrap:anywhere]' : 'mt-2 text-xl font-semibold leading-tight tracking-tight tabular-nums [overflow-wrap:anywhere]'}>{typeof value === 'number' ? value.toLocaleString('zh-CN') : value}</dd></div>;
+  return <div className="min-w-0 py-1"><dt className="text-xs text-muted">{label}</dt><dd className={typeof value === 'number' ? 'mt-1.5 text-[1.75rem] font-semibold leading-tight tracking-tight tabular-nums [overflow-wrap:anywhere]' : 'mt-1.5 text-xl font-semibold leading-tight tracking-tight tabular-nums [overflow-wrap:anywhere]'}>{typeof value === 'number' ? value.toLocaleString('zh-CN') : value}</dd></div>;
 }
 
 export function TrendPeriod({ value, onChange }: { value: AdminTrendDays; onChange: (value: AdminTrendDays) => void }) {
