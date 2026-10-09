@@ -61,6 +61,11 @@
 | `search` | 学号或姓名按关键词字面包含搜索，`%`、`_` 和反斜杠不作为通配语法 |
 | `className` | 完整班级精确匹配；未分配值为 `__UNASSIGNED__` |
 | `grade` | 可省略；传入时必须为 `19xx` 或 `20xx` 四位年级 |
+| `timeField` | 时间筛选字段：`lastActiveAt`（默认）、`lastLoginAt`、`createdAt` |
+| `timeRange` | `all`（默认）、`today`、`7d`、`30d`、`before7d`、`before30d`、`custom` |
+| `from` / `to` | `custom` 范围的北京日期 `YYYY-MM-DD`，至少一个；结束日期包含整日，开始日期不得晚于结束日期；其他范围不使用这两个值 |
+| `sortBy` | 排序字段：`lastActiveAt`（默认）、`lastLoginAt`、`createdAt` |
+| `sortOrder` | `desc`（默认，从新到旧）或 `asc`（从旧到新） |
 
 ```ts
 interface AdminUsers {
@@ -78,11 +83,20 @@ interface AdminUsers {
   total: number;
   totalPages: number;
   options: { classes: Array<{ value: string; label: string }>; grades: string[] };
-  filters: { search: string; className: string; grade: string };
+  filters: {
+    search: string; className: string; grade: string;
+    timeField: 'lastActiveAt' | 'lastLoginAt' | 'createdAt';
+    timeRange: 'all' | 'today' | '7d' | '30d' | 'before7d' | 'before30d' | 'custom';
+    from: string; to: string;
+    sortBy: 'lastActiveAt' | 'lastLoginAt' | 'createdAt';
+    sortOrder: 'asc' | 'desc';
+  };
 }
 ```
 
-列表按 `lastLoginAt DESC, id DESC` 排序；空结果仍返回 `page: 1, totalPages: 1`。筛选选项来自全量账户，不受当前筛选影响。班级缺失展示为“未分配”；年级按学号中第 1 至第 4 个起始位置依次寻找首个 `19xx/20xx`，未匹配时为空字符串，展示、筛选与分布共用同一规则。分页先校验实际 offset 为安全整数，过大页码返回 `400 + 4002`。
+列表默认按 `lastActiveAt DESC, id DESC` 排序，所选字段相同时以同方向 `id` 排序。所有筛选条件取交集，排序独立于筛选字段。`today` 从北京时间当天零点起，`7d/30d` 从请求时刻向前滚动 `7/30 × 24` 小时（含边界），`before7d/before30d` 则严格早于对应边界；自定义日期使用 `[开始日零点, 结束日次日零点)`。例如 `timeField=lastActiveAt&timeRange=before7d` 查找超过七天未触达的账户，`timeField=createdAt&timeRange=30d` 查找近三十天新账户。非法枚举、日期和倒置范围返回 `400 + 4002`。
+
+空结果仍返回 `page: 1, totalPages: 1`。筛选选项来自全量账户，不受当前筛选影响。班级缺失展示为“未分配”；年级按学号中第 1 至第 4 个起始位置依次寻找首个 `19xx/20xx`，未匹配时为空字符串，展示、筛选与分布共用同一规则。分页先校验实际 offset 为安全整数，过大页码返回 `400 + 4002`。
 
 账户视图只读取本地学校身份，不合并 Community 昵称、头像或 Bio。管理 API 不提供代登录、密码重置、封禁、删除账户或读取个人课表、成绩、校园卡等学校业务数据的能力。
 
@@ -117,7 +131,7 @@ Operations 并行调用 Identity 概览、Discover 统计公开端口，再读�
 统计口径：
 
 - `totalUsers` 为本地账户数；`todayActiveUsers` 按北京时间当天起点筛选 `lastActiveAt`，`activeUsers7d/newUsers7d` 分别按最近滚动 `7 × 24` 小时筛选 `lastActiveAt/createdAt`。
-- Bearer 触达通常每 15 分钟更新一次 `lastActiveAt`，跨北京日期立即更新；本地登录、学校认证及静默恢复成功也可能更新登录与活跃时间。该口径表示账户最近触达，不能解释为人工登录次数、在线会话数或精确操作人数。
+- 请求携带有效本服务 Bearer 且对应本地账户存在时，在进入业务处理前立即更新 `lastActiveAt`，公开接口与携带 Bearer 的静态资源请求也适用；不以业务响应成功为前提。没有凭证、凭证无效/过期、账户不存在或仅携带后台 Cookie 时不更新普通账户活跃。更新采用时间比较防止并发回退，记录失败只写日志，不改变业务结果。本地登录、学校认证及静默恢复成功也可能更新登录与活跃时间。该口径包含轮询等自动请求，表示账户最近触达，不能解释为人工登录次数、在线会话数或精确操作人数。
 - `cacheEntries` 为兼容业务缓存表的行数；`credentialEntries` 只计 `cas_tgc/portal_jwt/jw_session` 三类记录，不校验是否过期，不含 mobile 会话，不能表示可用学校会话数。
 - Discover 统计只计未删除帖子及其有效点赞。`service.status` 仅表示本地 SQLite `SELECT 1` 是否成功，不表示学校上游可用；内存与 uptime 属于当前进程。
 
@@ -150,7 +164,7 @@ interface DashboardResponse extends Omit<AdminOverview, 'distributions'> {
 }
 ```
 
-`users.items[]` 与独立账户视图字段相同，含 `lastActiveAt`；列表、时间统计和年级解析沿用上述口径。兼容参数 `major`、`users.filters.major`、`users.options.majors` 及 `distributions.byMajor` 实际表达班级。搜索、班级和年级只过滤 `users`，不影响其他聚合。`discover` 是固定最近 20 篇摘要，只使用 Discover 自有事实和 Community 公共作者投影：
+`users.items[]` 与独立账户视图字段相同，含 `lastActiveAt`；兼容列表仍按 `lastLoginAt DESC, id DESC` 排序，不提供新增的时间筛选参数。时间统计和年级解析沿用上述口径。兼容参数 `major`、`users.filters.major`、`users.options.majors` 及 `distributions.byMajor` 实际表达班级。搜索、班级和年级只过滤 `users`，不影响其他聚合。`discover` 是固定最近 20 篇摘要，只使用 Discover 自有事实和 Community 公共作者投影：
 
 ```ts
 interface DiscoverOperationsSnapshot {

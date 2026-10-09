@@ -7,6 +7,7 @@ import { positiveSafeInteger } from '../../../utils/pagination';
 import { error, success } from '../../../utils/response';
 import type { AdminInsightsApplicationService } from '../application/admin-insights-service';
 import type { CommunityAdminApplicationService } from '../application/community-admin-service';
+import { parseAdminUsersFilters } from '../../identity/domain/admin-users-filters';
 
 interface AdminDataDependencies {
   insights: Pick<AdminInsightsApplicationService, 'listUsers' | 'getOverview' | 'getRuntime'>;
@@ -30,10 +31,8 @@ export function createAdminDataRoutes(dependencies: AdminDataDependencies) {
   const routes = new Hono();
   routes.get('/users', async (c) => {
     const query = c.req.query();
-    const grade = query.grade?.trim() || '';
-    if (grade && !/^(19|20)\d{2}$/.test(grade)) throw new AppError(ErrorCode.PARAM_ERROR, '年级不合法');
     return success(c, await dependencies.insights.listUsers({
-      page: optionalInteger(query.page, 'page'), search: query.search, className: query.className, grade,
+      page: optionalInteger(query.page, 'page'), ...parseAdminUsersFilters(query),
     }));
   });
   routes.get('/overview', async (c) => success(c, await dependencies.insights.getOverview()));

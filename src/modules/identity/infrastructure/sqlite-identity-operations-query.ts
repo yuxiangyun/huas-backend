@@ -1,14 +1,15 @@
 /**
  * [INPUT]: 依赖 Identity operations query 契约、Drizzle db/schema 与北京时间格式化工具
  * [OUTPUT]: 对外提供 SQLiteIdentityOperationsQuery，只读聚合用户、三类基础学校凭证与兼容缓存计数
- * [POS]: identity/infrastructure 的管理查询 adapter，隔离身份表筛选、字面关键词匹配、年级解析、基础凭证口径、独立概览及稳定用户分页 SQL
+ * [POS]: identity/infrastructure 的管理查询 adapter，应用时间窗口、字面搜索及稳定双键排序，隔离身份表和凭证口径
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { and, desc, eq, inArray, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import { getDb, schema } from '../../../db';
 import { resolvePagination } from '../../../utils/pagination';
 import { beijingIsoString } from '../../../utils/time';
+import { adminUsersTimeWindow, parseAdminUsersFilters } from '../domain/admin-users-filters';
 import type {
   IdentityAdminUsersQuery,
   IdentityAdminUsers,
@@ -97,9 +98,9 @@ export class SQLiteIdentityOperationsQuery implements IdentityOperationsQueryPor
     const db = getDb();
     const studentGradeExpr = buildStudentGradeSql();
     const pagination = resolvePagination({ page: query.page }, 20, 20);
-    const search = query.search?.trim() || '';
-    const className = query.className?.trim() || '';
-    const grade = query.grade?.trim() || '';
+    const filters = parseAdminUsersFilters(query);
+    const { search, className, grade } = filters;
+    const { fromMs, toMs } = adminUsersTimeWindow(filters, new Date());
     const [classRows, gradeRows] = await Promise.all([
       db.select({ className: schema.users.className }).from(schema.users)
         .groupBy(schema.users.className).orderBy(schema.users.className),
@@ -120,6 +121,9 @@ export class SQLiteIdentityOperationsQuery implements IdentityOperationsQueryPor
         : eq(schema.users.className, className));
     }
     if (grade) whereParts.push(sql`${studentGradeExpr} = ${grade}`);
+    const timeColumn = schema.users[filters.timeField];
+    if (fromMs !== undefined) whereParts.push(sql`${timeColumn} >= ${fromMs}`);
+    if (toMs !== undefined) whereParts.push(sql`${timeColumn} < ${toMs}`);
 
     const whereExpr = whereParts.length > 0 ? and(...whereParts) : undefined;
     const totalFilteredRows = whereExpr
@@ -137,18 +141,17 @@ export class SQLiteIdentityOperationsQuery implements IdentityOperationsQueryPor
       createdAt: schema.users.createdAt,
       lastLoginAt: schema.users.lastLoginAt,
     }).from(schema.users);
-    const userRows = whereExpr
-      ? await selectUsers.where(whereExpr).orderBy(desc(schema.users.lastLoginAt), desc(schema.users.id))
-          .limit(pagination.pageSize).offset((page - 1) * pagination.pageSize)
-      : await selectUsers.orderBy(desc(schema.users.lastLoginAt), desc(schema.users.id))
-          .limit(pagination.pageSize).offset((page - 1) * pagination.pageSize);
+    const direction = filters.sortOrder === 'asc' ? asc : desc;
+    const userRows = await selectUsers.where(whereExpr)
+      .orderBy(direction(schema.users[filters.sortBy]), direction(schema.users.id))
+      .limit(pagination.pageSize).offset((page - 1) * pagination.pageSize);
 
     return {
       page,
       pageSize: pagination.pageSize,
       total,
       totalPages,
-      filters: { search, className, grade },
+      filters,
       options: {
         classes: Array.from(new Map(classRows.map((row) => [
           row.className?.trim() ? row.className : '__UNASSIGNED__',
@@ -171,7 +174,7 @@ export class SQLiteIdentityOperationsQuery implements IdentityOperationsQueryPor
   async getSnapshot(query: IdentityOperationsQuery): Promise<IdentityOperationsSnapshot> {
     const [overview, users] = await Promise.all([
       this.getOverview(query),
-      this.listUsers({ page: query.page, search: query.search, className: query.major, grade: query.grade }),
+      this.listUsers({ page: query.page, search: query.search, className: query.major, grade: query.grade, sortBy: 'lastLoginAt' }),
     ]);
     return {
       ...overview,

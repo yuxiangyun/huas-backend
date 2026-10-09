@@ -1,21 +1,18 @@
 /**
- * [INPUT]: 依赖 JWT 验证、db/schema 用户表、AnalyticsService、response/errors/logger/time 工具与 Hono Context
- * [OUTPUT]: 对外提供 authMiddleware，并扩展 Hono ContextVariableMap 的 userId/studentId/name
- * [POS]: middleware 的 Bearer 认证边界，解析本服务 JWT、恢复用户身份并节流刷新 lastActiveAt
+ * [INPUT]: 依赖 JWT 验证、db/schema 用户表、AnalyticsService、response/errors/logger 工具与 Hono Context
+ * [OUTPUT]: 提供全局 userActivityMiddleware 与受保护路由 authMiddleware，共用一次用户识别
+ * [POS]: middleware 的 Bearer 边界；有效用户请求立即单调更新活跃时间，公开路由保持可匿名访问
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 import type { Context, Next } from 'hono';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, lt } from 'drizzle-orm';
 import { verifyToken } from '../auth/jwt';
 import { getDb, schema } from '../db';
 import { error } from '../utils/response';
 import { ErrorCode } from '../utils/errors';
 import { Logger } from '../utils/logger';
-import { beijingDate } from '../utils/time';
 import { AnalyticsService } from '../services/admin/analytics-service';
-
-const ACTIVITY_TOUCH_INTERVAL_MS = 15 * 60 * 1000;
 
 // Extend Hono context variables
 declare module 'hono' {
@@ -23,20 +20,24 @@ declare module 'hono' {
     userId: number;
     studentId: string;
     name?: string;
+    userAuthenticationResolved: boolean;
   }
 }
 
-export async function authMiddleware(c: Context, next: Next) {
+async function resolveRequestUser(c: Context): Promise<boolean> {
+  if (c.get('userAuthenticationResolved')) return c.get('userId') !== undefined;
   const authHeader = c.req.header('Authorization');
   if (!authHeader?.startsWith('Bearer ')) {
-    return error(c, ErrorCode.JWT_INVALID, 'Missing or invalid Authorization header', 401);
+    c.set('userAuthenticationResolved', true);
+    return false;
   }
 
   const token = authHeader.slice(7);
   const payload = await verifyToken(token);
 
   if (!payload) {
-    return error(c, ErrorCode.JWT_INVALID, 'Invalid or expired token', 401);
+    c.set('userAuthenticationResolved', true);
+    return false;
   }
 
   const db = getDb();
@@ -45,7 +46,6 @@ export async function authMiddleware(c: Context, next: Next) {
       id: schema.users.id,
       studentId: schema.users.studentId,
       name: schema.users.name,
-      lastActiveAt: schema.users.lastActiveAt,
     })
     .from(schema.users)
     .where(and(
@@ -62,7 +62,6 @@ export async function authMiddleware(c: Context, next: Next) {
         id: schema.users.id,
         studentId: schema.users.studentId,
         name: schema.users.name,
-        lastActiveAt: schema.users.lastActiveAt,
       })
       .from(schema.users)
       .where(eq(schema.users.studentId, payload.studentId))
@@ -71,41 +70,42 @@ export async function authMiddleware(c: Context, next: Next) {
   }
 
   if (!resolvedUser) {
-    return error(c, ErrorCode.JWT_INVALID, 'User no longer exists, please login again', 401);
+    c.set('userAuthenticationResolved', true);
+    return false;
   }
 
   c.set('userId', resolvedUser.id);
   c.set('studentId', resolvedUser.studentId);
   const name = payload.name?.trim() || resolvedUser.name?.trim() || undefined;
   c.set('name', name);
+  c.set('userAuthenticationResolved', true);
+  return true;
+}
 
+export async function userActivityMiddleware(c: Context, next: Next) {
   const now = new Date();
-  const crossedBeijingDay = resolvedUser.lastActiveAt
-    ? beijingDate(resolvedUser.lastActiveAt) !== beijingDate(now)
-    : false;
-  const shouldTouchActivity = !resolvedUser.lastActiveAt
-    || crossedBeijingDay
-    || now.getTime() - resolvedUser.lastActiveAt.getTime() >= ACTIVITY_TOUCH_INTERVAL_MS;
-
-  if (shouldTouchActivity) {
-    try {
-      await db.update(schema.users)
+  try {
+    if (await resolveRequestUser(c)) {
+      getDb().update(schema.users)
         .set({ lastActiveAt: now })
-        .where(eq(schema.users.id, resolvedUser.id));
-    } catch (touchError: any) {
-      Logger.warn(
-        'AuthMiddleware',
-        '更新用户活跃时间失败',
-        touchError?.message || String(touchError),
-        resolvedUser.studentId
-      );
+        .where(and(eq(schema.users.id, c.get('userId')), lt(schema.users.lastActiveAt, now)))
+        .run();
     }
+  } catch (touchError: unknown) {
+    Logger.warn('AuthMiddleware', '记录用户请求活跃失败',
+      touchError instanceof Error ? touchError.message : String(touchError));
   }
+  await next();
+}
 
+export async function authMiddleware(c: Context, next: Next) {
+  if (!await resolveRequestUser(c)) {
+    return error(c, ErrorCode.JWT_INVALID, 'Invalid or expired token, please login again', 401);
+  }
   await next();
   try {
     AnalyticsService.recordAuthenticatedRequest({
-      userId: resolvedUser.id,
+      userId: c.get('userId'),
       platformHeader: c.req.header('x-client-platform'),
       path: c.req.path,
       status: c.res.status,

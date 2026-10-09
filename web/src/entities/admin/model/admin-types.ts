@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖后端管理接口与 Community/Messaging 公共 DTO
- * [OUTPUT]: 提供账户概览、用户、完整内容治理、早起运营、运行采样与兼容管理接口的强类型契约
+ * [OUTPUT]: 提供含时间筛选/排序的用户、账户概览、内容治理、早起运营、运行采样与兼容管理接口契约
  * [POS]: entities/admin 的协议模型边界，保证 Treehole 管理图片与其他后台 UI 不重新解释后端字段
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -289,7 +289,16 @@ export interface AdminUsersParams {
   search?: string;
   className?: string;
   grade?: string;
+  timeField?: AdminUserTimeField;
+  timeRange?: AdminUserTimeRange;
+  from?: string;
+  to?: string;
+  sortBy?: AdminUserTimeField;
+  sortOrder?: 'asc' | 'desc';
 }
+
+export type AdminUserTimeField = 'lastActiveAt' | 'lastLoginAt' | 'createdAt';
+export type AdminUserTimeRange = 'all' | 'today' | '7d' | '30d' | 'before7d' | 'before30d' | 'custom';
 
 export interface AdminUser extends AdminDashboardUser {
   lastActiveAt: string | null;
@@ -302,7 +311,7 @@ export interface AdminUsersResponse {
   total: number;
   totalPages: number;
   options: { classes: Array<{ value: string; label: string }>; grades: string[] };
-  filters: { search: string; className: string; grade: string };
+  filters: Required<Omit<AdminUsersParams, 'page'>>;
 }
 
 export interface AdminOverviewResponse {

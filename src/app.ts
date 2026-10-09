@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 Hono、注入的路由装配、媒体读取端口、全局错误/日志中间件与运行指标
- * [OUTPUT]: 对外提供 createApp(dependencies)，构造含 Web 分层缓存与私有 API no-store 边界的不监听 HTTP 应用
+ * [INPUT]: 依赖 Hono、注入的路由装配、媒体读取端口、全局错误/日志/用户活跃中间件与运行指标
+ * [OUTPUT]: 提供 createApp(dependencies)，统一记录有效 Bearer 触达并构造含 Web 分层缓存与私有 API no-store 的 HTTP 应用
  * [POS]: src 的 HTTP 应用工厂，把可测试协议装配、静态资源缓存语义与 index.ts 的进程生命周期彻底分离
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -11,6 +11,7 @@ import { serveStatic } from 'hono/bun';
 import { resolve, sep } from 'node:path';
 import { onAppError } from './middleware/error.middleware';
 import { loggingMiddleware } from './middleware/logging.middleware';
+import { userActivityMiddleware } from './middleware/auth.middleware';
 import { runtimeMetrics } from './runtime/runtime-metrics';
 import { Logger } from './utils/logger';
 
@@ -125,6 +126,7 @@ export function createApp(dependencies: AppDependencies, options: CreateAppOptio
     }
   });
   app.use('*', loggingMiddleware);
+  app.use('*', userActivityMiddleware);
   app.use('/api/*', privateDataNoStore);
   app.use('/auth/*', privateDataNoStore);
 
