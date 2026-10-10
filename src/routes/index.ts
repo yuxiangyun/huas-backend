@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 Hono、authMiddleware、onAppError、含培养方案的校园子路由与注入的 Early Rising/Community/社交/后台 routes
+ * [INPUT]: 依赖 Hono、authMiddleware、onAppError、校园子路由与注入的课表分享/Early Rising/Community/社交/后台 routes
  * [OUTPUT]: 对外提供 registerRoutes(app, dependencies)，统一挂载 public/auth/calendar 与受 Bearer 保护的业务 /api 路由
  * [POS]: routes 的协议总装配器，只定义 URL/认证边界并挂载模块实例，不创建业务 concrete singleton
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -32,6 +32,8 @@ export interface RouteDependencies {
   notificationRoutes: Hono;
   socialSummaryRoutes: Hono;
   treeholeRoutes: Hono;
+  scheduleShareRoutes: Hono;
+  publicScheduleShareRoutes: Hono;
 }
 
 export function registerRoutes(app: Hono, dependencies: RouteDependencies): void;
@@ -45,6 +47,7 @@ export function registerRoutes(app: Hono, dependencies?: RouteDependencies) {
   const api = new Hono();
   api.onError(onAppError);
   api.route('/public', publicRoutes);
+  if (dependencies) api.route('/public/schedule-share', dependencies.publicScheduleShareRoutes);
   if (dependencies) api.route('/admin', dependencies.adminRoutes);
   api.use('*', (c, next) => {
     const path = c.req.path;
@@ -73,6 +76,7 @@ export function registerRoutes(app: Hono, dependencies?: RouteDependencies) {
   api.route('/user', userRoutes);
 
   if (dependencies) {
+    api.route('/schedule-shares', dependencies.scheduleShareRoutes);
     api.route('/community', dependencies.communityRoutes);
     api.route('/discover', dependencies.discoverRoutes);
     api.route('/early-rising', dependencies.earlyRisingRoutes);

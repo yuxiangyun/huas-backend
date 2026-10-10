@@ -1,6 +1,6 @@
 <!--
 [INPUT]: 依赖后端 HTTP 路由、五能力两秒恢复冷却、完整课表协议与来源编排、成绩文本与独立官方统计及课程缺列校验、JW 培养方案双页投影、校园卡协议与交易/电费独立回源配额及共享缓存契约
-[OUTPUT]: 提供校园接口调用规则、响应语义与权威 DTO 导航，保留学校适配的关键限制
+[OUTPUT]: 提供校园接口、不可变课表分享调用规则、响应语义与权威 DTO 导航，保留学校适配的关键限制
 [POS]: docs/api 的校园业务契约入口，社交与 Operations 细节委托分册
 [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
 -->
@@ -28,6 +28,8 @@
 | `GET/DELETE /api/admin/treehole/*` | 后台 HttpOnly Cookie | Treehole 管理接口 |
 | `GET /api/admin/messaging/*` | 后台 HttpOnly Cookie | 私信会话、消息与媒体只读管理接口 |
 | `GET /api/schedule` | Bearer JWT | 用户首选前置、后续由后台策略编排的统一周课表 |
+| `POST /api/schedule-shares` | Bearer JWT | 创建所选周的不可变学校课表分享快照 |
+| `GET /api/public/schedule-share` | `X-Schedule-Share-Token` | 匿名读取对应分享快照，不触发学校回源 |
 | `GET /api/v1/schedule` | Bearer JWT | Portal 优先课表；周视图请求失败时可回退 JW |
 | `GET /api/calendar/link` | Bearer JWT | 获取当前用户日历订阅链接 |
 | `GET /api/grades` | Bearer JWT | 成绩 |
@@ -124,6 +126,8 @@ GET /calendar/schedule.ics?studentId=2023001001&sig=<hmac_sha256(studentId, CALE
 | `3005` | 服务账号或学校服务不可用、认证响应无法识别 | 503 |
 | `4003` | 请求过于频繁（教务强制刷新或私信发送） | 429 |
 | `4004` | 需要先完成评教 | 409 |
+| `4005` | 所选课表不可分享或学校姓名尚未就绪 | 409 |
+| `4006` | 课表分享凭证缺失、无效或不存在 | 404 |
 | `5000` | 服务器内部错误 | 500 或个别路由自定义状态码 |
 
 注意：
@@ -428,6 +432,42 @@ portal-first: Portal current → JW current → JW stale → Portal stale → �
 - 恢复后的会话仍拒绝、普通认证页异常等服务故障返回 `3005`；超时返回 `3004`，不会因恢复失败笼统要求用户重登
 - 非凭证型故障且有旧缓存可回退时，接口返回 `200`，并用 `_meta.stale=true`、`refresh_failed=true`、`fallback=stale` 与 `last_error` 暴露降级
 - 来源明确要求交互认证时，不使用该来源 stale 掩盖要求；其他可用来源仍可成功返回
+
+### 6.4.1 课表分享
+
+产品合同见[课表分享合同](../architecture/SCHEDULE_SHARE.md)。创建接口仅使用认证账户的学校姓名及 canonical 周课表，不接受客户端传入姓名、课程、学号或缓存元信息。
+
+```http
+POST /api/schedule-shares
+Authorization: Bearer <jwt>
+Content-Type: application/json
+
+{"date":"2026-10-10","preferred_source":"mobile-jw"}
+```
+
+`date` 必填，须为真实 `YYYY-MM-DD` 日期，确定其所属周一至周日。`preferred_source` 可选，仅接受 `mobile-jw` 或 `jw`，语义同 `/api/schedule`；不接受强刷参数。后端普通读取所选周，成功后持久保存当时实际取得的数据。真实无课与可用降级旧课表可分享；学校尚未公布或日期不在教学周历内则返回 `4005/409`，其他读取失败沿用原错误。学校真实姓名为空或历史占位时也返回 `4005/409`。
+
+成功响应 `data` 为 `{ token: string, schedule: SharedSchedule }`。`token` 是 32 随机字节编码的 43 字符 base64url 凭证，与 JWT 无关；SQLite 只存 SHA-256 哈希。每次成功创建独立快照，不覆盖已有卡片。客户端以返回快照核对当前所选周的可见学校课程后再提供转发，课程有变化时刷新后重试。
+
+```http
+GET /api/public/schedule-share
+X-Schedule-Share-Token: <token>
+```
+
+无需 Bearer，凭证通过 header 传递，不放在 API 路径或查询参数。成功响应 `data` 直接为 `SharedSchedule`：
+
+| 字段 | 类型 | 含义 |
+|---|---|---|
+| `ownerName` | string | 创建时的学校真实姓名 |
+| `week` | string | 可靠教学周次如 `第5周`；无法确认时为空串，客户端显示日期范围 |
+| `weekStartDate`、`weekEndDate` | string | 所选周一至周日，`YYYY-MM-DD` |
+| `courses` | `ICourse[]` | 单周学校课程，白名单投影且不包含本机自定义课程 |
+| `message` | string | 学校课表空态提示，无提示时为空串 |
+| `dataUpdatedAt` | `string \| null` | 创建时可确认的课表缓存写入时间；没有可靠时间时为 `null`。分享页不显示数据更新时间 |
+
+公开读取只查询分享表，不访问学校账户、原课表缓存或学校上游。缺失、格式无效与不存在的凭证统一为 `4006/404`。快照长期有效、可继续转发，不提供过期或撤销；之后课表更新、缓存淘汰、姓名变更均不改变旧分享。分享创建时间不进入公开 DTO。响应遵守 `/api/*` 的 `private, no-store`。
+
+单实例固定一分钟窗口：创建按账户最多 10 次、全局 120 次；读取按代理覆盖的 `X-Real-IP` 最多 120 次、全局 1200 次，无可信地址时归入同一 `unknown` 桶。超过返回 `4003/429` 和 `Retry-After`。请求体上限 1024 字节，超限返回 `4002/413`；仅允许 `date` 和 `preferred_source` 字段。
 
 ### 6.5 `GET /api/v1/schedule`
 

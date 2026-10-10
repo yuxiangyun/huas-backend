@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖移动教务/JW/Portal current/stale readers、后台策略快照与用户首选前置规则、完整后台任务登记、fallback error 与日期/错误工具
- * [OUTPUT]: 对外提供 ScheduleFacadeApplicationService、单源 reader ports、统一有序三源编排与移动教务固定单源入口
+ * [OUTPUT]: 对外提供 ScheduleFacadeApplicationService、单源 reader ports、含未公布与真实无课区分的三源编排结果及移动教务固定单源入口
  * [POS]: academic/application 的课表编排门面，以请求截止时间分配 current 等待额度且不取消共享回源，登记完整 reader 供关闭收尾；stale 保持后台参与范围与固定顺序，明确无数据返回中文操作提示且不缓存，仲裁排除来源能力限制并保留 legacy 未公布短路
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -247,6 +247,7 @@ function completeResult(
     },
     _request: {
       ...(result._request ?? {}),
+      available: true,
       ...(fallback ? { fallback } : {}),
     } as ScheduleRequestMeta,
   };
@@ -267,7 +268,7 @@ function emptySchedule(
       primary_source: primarySource,
       ...(policy ? { policy_mode: policy.mode } : {}),
     },
-    _request: request,
+    _request: { ...request, available: false },
   };
 }
 

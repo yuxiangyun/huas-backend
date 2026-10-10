@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖共享 CacheMeta 类型描述缓存观测字段
- * [OUTPUT]: 对外提供课表来源、范围不支持错误、缓存状态、查询追踪与三源结果领域契约
+ * [OUTPUT]: 对外提供课表来源、范围不支持错误、缓存状态、含真实课表可用性事实的查询追踪与三源结果领域契约
  * [POS]: academic/domain 的课表稳定语言，隔离 application 与 HTTP 路由的内部实现差异
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -19,6 +19,8 @@ export class ScheduleSourceUnsupportedError extends Error {
 }
 
 export interface ScheduleRequestMeta {
+  /** 内部可用性事实；明确未公布为 false，合法无课仍为 true。 */
+  available?: boolean;
   queryDate: string;
   cacheKey: string;
   cache: ScheduleCacheState;

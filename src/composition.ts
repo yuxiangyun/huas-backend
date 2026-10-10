@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖各 canonical 模块公开构造器/ports、唯一数据库实例、运行配置、观测器、媒体端口与周期任务注册器
- * [OUTPUT]: 对外提供 createApplicationComposition，集中生成 Early Rising、HTTP/社交/Operations、聚合未读、媒体周期任务与关闭钩子
+ * [OUTPUT]: 对外提供 createApplicationComposition，集中生成课表分享、Early Rising、HTTP/社交/Operations、聚合未读、媒体周期任务与关闭钩子
  * [POS]: src 的唯一跨模块组合根；仅在此把 Community 详细资料 reader 注入 Early Rising，并把其管理查询/设置及运行指标只读端口注入 Operations 管理面
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -43,6 +43,12 @@ import { runtimeMetrics } from './runtime/runtime-metrics';
 import { registerShutdownFlushHook } from './runtime/shutdown-hooks';
 import { configureRefreshFallbackObservers } from './services/infra/refresh-fallback';
 import { Logger } from './utils/logger';
+import { ScheduleFacade } from './modules/academic/schedule';
+import { ScheduleShareApplicationService } from './modules/academic/application/schedule-share-service';
+import { createScheduleShareRoutes } from './modules/academic/http/schedule-share.routes';
+import { SQLiteScheduleShareStore } from './modules/academic/infrastructure/sqlite-schedule-share-store';
+import { RandomScheduleShareTokens } from './modules/academic/infrastructure/random-schedule-share-tokens';
+import { SQLiteScheduleShareOwnerReader } from './modules/identity/infrastructure/sqlite-schedule-share-owner-reader';
 
 export interface ApplicationComposition {
   app: AppDependencies;
@@ -61,6 +67,12 @@ export interface ApplicationComposition {
 
 export function createApplicationComposition(): ApplicationComposition {
   const db = getDb();
+  const scheduleShareRoutes = createScheduleShareRoutes(new ScheduleShareApplicationService(
+    new SQLiteScheduleShareOwnerReader(db),
+    ScheduleFacade,
+    new SQLiteScheduleShareStore(db),
+    new RandomScheduleShareTokens(),
+  ));
   const profileRepository = new SQLiteCommunityProfileRepository(db);
   const communityAvatarMedia = new CommunityAvatarMediaStorage(profileRepository, {
     storageRoot: config.community.avatarStorageRoot,
@@ -234,6 +246,8 @@ export function createApplicationComposition(): ApplicationComposition {
   return {
     app: {
       registerRoutes: (app) => registerApplicationRoutes(app, {
+        scheduleShareRoutes: scheduleShareRoutes.authenticated,
+        publicScheduleShareRoutes: scheduleShareRoutes.publicRead,
         adminRoutes: operations.adminRoutes,
         communityRoutes,
         discoverRoutes: discover.routes,

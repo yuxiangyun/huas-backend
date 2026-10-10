@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 无运行时依赖，承载 API 错误码与默认 HTTP 状态映射
- * [OUTPUT]: 对外提供 ErrorCode、AppError 与携带中文空态提示的 ScheduleUnavailableError
+ * [OUTPUT]: 对外提供含分享不可创建/不存在业务码的 ErrorCode、AppError 与携带中文空态提示的 ScheduleUnavailableError
  * [POS]: utils 的错误语义源，被 services、parsers、middleware 与 routes 共同消费
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -18,6 +18,8 @@ export enum ErrorCode {
   PARAM_ERROR = 4002,
   TOO_MANY_REQUESTS = 4003,
   EVALUATION_REQUIRED = 4004,
+  SCHEDULE_SHARE_UNAVAILABLE = 4005,
+  SCHEDULE_SHARE_NOT_FOUND = 4006,
 
   // 5xxx - System errors
   INTERNAL_ERROR = 5000,
@@ -33,6 +35,8 @@ const errorHttpStatus: Record<number, number> = {
   [ErrorCode.PARAM_ERROR]: 400,
   [ErrorCode.TOO_MANY_REQUESTS]: 429,
   [ErrorCode.EVALUATION_REQUIRED]: 409,
+  [ErrorCode.SCHEDULE_SHARE_UNAVAILABLE]: 409,
+  [ErrorCode.SCHEDULE_SHARE_NOT_FOUND]: 404,
   [ErrorCode.INTERNAL_ERROR]: 500,
 };
 

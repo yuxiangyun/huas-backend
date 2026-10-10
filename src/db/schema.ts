@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 drizzle-orm/sqlite-core 的表、列、索引、检查与唯一键构造器
- * [OUTPUT]: 对外提供 Identity、含 Bio 的 Community、Early Rising 打卡/展示设置、社交内容、通知、私信与 analytics 全部 SQLite 表定义
+ * [OUTPUT]: 对外提供 Identity、不可变课表分享、Community、Early Rising、社交内容、通知、私信与 analytics 全部 SQLite 表定义
  * [POS]: db 的全局 Drizzle 类型相；migration 是结构事实源，各纵向模块只消费自己拥有的表
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -79,6 +79,14 @@ export const cache = sqliteTable('cache', {
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
   expiresAt: integer('expires_at', { mode: 'timestamp_ms' }),
 });
+
+export const scheduleShares = sqliteTable('schedule_shares', {
+  tokenHash: text('token_hash').primaryKey().notNull(),
+  snapshotJson: text('snapshot_json').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
+}, (table) => ({
+  tokenHashLength: check('ck_schedule_shares_token_hash_length', sql`length(${table.tokenHash}) = 64`),
+}));
 
 export const discoverPosts = sqliteTable('discover_posts', {
   id: integer('id').primaryKey({ autoIncrement: true }),
