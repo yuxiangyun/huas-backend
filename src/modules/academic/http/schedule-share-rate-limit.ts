@@ -22,9 +22,9 @@ export function scheduleShareRateLimit(scope: 'create' | 'read') {
     const existing = entries.get(key);
     const entry = existing && existing.until > now ? existing : { until: now + WINDOW_MS, count: 0 };
     if (entry.count >= maximum || global.count >= globalMaximum || (!existing && entries.size >= MAX_KEYS)) {
-      const retry = Math.max(1, Math.ceil((entry.count >= maximum ? entry.until : global.until) - now) / 1000);
-      c.header('Retry-After', String(Math.ceil(retry)));
-      return error(c, ErrorCode.TOO_MANY_REQUESTS, '课表分享请求过于频繁，请稍后重试', 429);
+      const retryAfterSeconds = Math.max(1, Math.ceil(((entry.count >= maximum ? entry.until : global.until) - now) / 1000));
+      c.header('Retry-After', String(retryAfterSeconds));
+      return error(c, ErrorCode.TOO_MANY_REQUESTS, `课表分享过于频繁，请 ${retryAfterSeconds} 秒后重试`, 429);
     }
     entry.count += 1;
     global.count += 1;
